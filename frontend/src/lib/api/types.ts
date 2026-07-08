@@ -7,6 +7,56 @@ export type AssetPlacementRole = "hero" | "featured" | "support" | "inline" | "d
 
 export type AssetPlacementUsage = "material" | "process" | "detail" | "texture" | "workshop" | string;
 
+/**
+ * Asset type classification
+ */
+export type AssetType = "image" | "document" | "video" | "audio" | "archive" | "svg" | "other";
+
+/**
+ * Skinny Asset - Core asset data without placement metadata
+ * This is the base asset record from the database
+ */
+export interface Asset {
+  id: string;
+  slug: string;
+  name: string;
+  mimeType: string;
+  assetType: AssetType;
+  fileSize: number;
+  width?: number | null;
+  height?: number | null;
+  altText?: string | null;
+  description?: string | null;
+  publicUrl?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+/**
+ * Asset Placement - Entry-specific usage metadata
+ * Describes how an asset is used within a specific entry context
+ */
+export interface AssetPlacement {
+  assetId: string;
+  role?: AssetPlacementRole | null;
+  usage?: AssetPlacementUsage | null;
+  position?: number;
+  focalPoint?: string | null;
+  caption?: string | null;
+  placementMetadata?: Record<string, unknown> | null;
+}
+
+/**
+ * Entry Asset - Asset + Placement combined for entry context
+ * Used when displaying assets within an entry
+ */
+export interface EntryAsset extends Asset {
+  placement: AssetPlacement;
+}
+
+/**
+ * @deprecated Use Asset and AssetPlacement instead
+ * Legacy combined type for backwards compatibility
+ */
 export interface MarvinAsset {
   id: string;
   slug: string;
