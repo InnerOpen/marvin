@@ -201,3 +201,37 @@ def test_concurrent_contenders_yield_exactly_one_leader(db_session):
         t.join()
 
     assert len(wins) == 1, f"expected one leader, got {wins}"
+
+
+def test_lease_ttl_is_configurable_with_a_safe_floor():
+    """The lease TTL is a setting, guarded so it can't drop below the renew cadence's margin."""
+    import pytest
+    from pydantic import ValidationError
+
+    from marvin.core.settings.settings import AppSettings
+
+    assert AppSettings(SECRET="x").SCHEDULER_LEASE_TTL_SECONDS == 150
+    assert AppSettings(SECRET="x", SCHEDULER_LEASE_TTL_SECONDS=600).SCHEDULER_LEASE_TTL_SECONDS == 600
+    assert AppSettings(SECRET="x", SCHEDULER_LEASE_TTL_SECONDS=90).SCHEDULER_LEASE_TTL_SECONDS == 90
+
+    # Below the floor the scheduler would renew every ~60s against a shorter lease and flap.
+    with pytest.raises(ValidationError):
+        AppSettings(SECRET="x", SCHEDULER_LEASE_TTL_SECONDS=60)
+
+
+def test_is_leader_uses_the_configured_ttl(db_session, monkeypatch):
+    """The tick gate passes the setting's TTL through to the lease, not a hardcoded 150."""
+    from marvin.services.scheduler import scheduler_service
+
+    captured = {}
+    real = scheduler_service.acquire_or_renew
+
+    def spy(session, ttl_seconds=None, instance_id=None):
+        captured["ttl"] = ttl_seconds
+        return real(session, ttl_seconds=ttl_seconds, instance_id=instance_id)
+
+    monkeypatch.setattr(scheduler_service, "acquire_or_renew", spy)
+    # session_context inside _is_leader opens its own session; the assertion is on the TTL passed.
+    scheduler_service._is_leader()
+
+    assert captured["ttl"] == scheduler_service.get_app_settings().SCHEDULER_LEASE_TTL_SECONDS

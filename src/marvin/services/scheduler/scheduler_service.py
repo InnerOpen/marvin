@@ -38,7 +38,7 @@ def _is_leader() -> bool:
 
     try:
         with session_context() as session:
-            return acquire_or_renew(session)
+            return acquire_or_renew(session, ttl_seconds=get_app_settings().SCHEDULER_LEASE_TTL_SECONDS)
     except Exception as e:  # noqa: BLE001 — a scheduler tick must never take the process down
         logger.error(f"scheduler leader election failed, skipping tick: {e}", exc_info=True)
         return False

@@ -136,6 +136,25 @@ class AppSettings(BaseSettings):
     and the API pods should only serve requests.
     """
 
+    SCHEDULER_LEASE_TTL_SECONDS: int = 150
+    """
+    How long the scheduler leadership lease lasts before it must be renewed.
+
+    The leader renews it from the minutely tick (~every 60s), so this must outlast the gap between
+    renews plus a slow tick, or leadership flaps between replicas. Longer = a dead leader is
+    replaced more slowly (a peer takes over once the lease lapses); shorter = faster failover but
+    less headroom. The 90s floor keeps one delayed renew of margin over the 60s cadence.
+    """
+
+    @field_validator("SCHEDULER_LEASE_TTL_SECONDS")
+    @classmethod
+    def _validate_lease_ttl(cls, v: int) -> int:
+        # The renew cadence (the minutely tick, ~60s) is fixed; the lease has to outlive it with
+        # margin. Below 90s a normal renew delay would drop the lease and hand leadership around.
+        if v < 90:
+            raise ValueError("SCHEDULER_LEASE_TTL_SECONDS must be >= 90 (the scheduler renews every ~60s; a shorter lease flaps)")
+        return v
+
     FRONTEND_PORT: int | None = None
     """
     Port the frontend server binds to on startup.

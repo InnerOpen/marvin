@@ -28,8 +28,10 @@ from marvin.db.models.platform.scheduler_lock import SCHEDULER_LOCK_ID, Schedule
 
 logger = root_logger.get_logger("scheduler")
 
-# Long enough that a leader busy with a slow tick does not lose the lease to a peer, short enough
-# that a dead leader is replaced promptly. The minutely tick renews it every 60s.
+# Default lease lifetime. Long enough that a leader busy with a slow tick does not lose the lease to
+# a peer, short enough that a dead leader is replaced promptly. The minutely tick renews it every
+# 60s. The running value comes from the SCHEDULER_LEASE_TTL_SECONDS setting (passed in by the tick
+# gate); this constant is the fallback for direct calls and tests.
 LEASE_TTL_SECONDS = 150
 
 # Identifies this process for the lifetime of the process. The pid is only there to make logs
