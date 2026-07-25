@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.26 (2026-07-25)
+
+### Bug Fixes
+
+- **backup**: Skip Marvin-managed collections on restore
+  ([`dfdfdfb`](https://github.com/InnerOpen/marvin/commit/dfdfdfb2c8212c124846834e4520da4c7226386e))
+
+
 ## v1.0.0-rc.25 (2026-07-25)
 
 ### Bug Fixes
