@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.20 (2026-07-25)
+
+### Bug Fixes
+
+- **webhooks**: Let production read webhooks stored with localhost/private URLs
+  ([`edc4cbe`](https://github.com/InnerOpen/marvin/commit/edc4cbe6d9872871a0bab2c587505b120a2883da))
+
+
 ## v1.0.0-rc.19 (2026-07-24)
 
 ### Bug Fixes
