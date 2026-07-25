@@ -136,24 +136,43 @@ class AppSettings(BaseSettings):
     and the API pods should only serve requests.
     """
 
+    SCHEDULER_INTERVAL_SECONDS: int = 60
+    """
+    How often the scheduler runs its frequent tick — the loop that delivers webhooks, fires due
+    scheduled tasks, and renews the leadership lease. Lower = snappier task delivery and lease
+    renewal at more database load; higher = the reverse. Also the cadence at which a due scheduled
+    task can fire, so tasks may run up to one interval late.
+    """
+
     SCHEDULER_LEASE_TTL_SECONDS: int = 150
     """
     How long the scheduler leadership lease lasts before it must be renewed.
 
-    The leader renews it from the minutely tick (~every 60s), so this must outlast the gap between
-    renews plus a slow tick, or leadership flaps between replicas. Longer = a dead leader is
-    replaced more slowly (a peer takes over once the lease lapses); shorter = faster failover but
-    less headroom. The 90s floor keeps one delayed renew of margin over the 60s cadence.
+    The leader renews it from the frequent tick (SCHEDULER_INTERVAL_SECONDS), so this must outlast
+    the gap between renews or leadership flaps between replicas. It is validated to be at least
+    twice the interval — enough to survive one fully missed renew. Longer = a dead leader is
+    replaced more slowly; shorter = faster failover but less headroom.
     """
 
-    @field_validator("SCHEDULER_LEASE_TTL_SECONDS")
+    @field_validator("SCHEDULER_INTERVAL_SECONDS")
     @classmethod
-    def _validate_lease_ttl(cls, v: int) -> int:
-        # The renew cadence (the minutely tick, ~60s) is fixed; the lease has to outlive it with
-        # margin. Below 90s a normal renew delay would drop the lease and hand leadership around.
-        if v < 90:
-            raise ValueError("SCHEDULER_LEASE_TTL_SECONDS must be >= 90 (the scheduler renews every ~60s; a shorter lease flaps)")
+    def _validate_scheduler_interval(cls, v: int) -> int:
+        # A sanity floor so a misconfiguration can't hammer the database every second.
+        if v < 10:
+            raise ValueError("SCHEDULER_INTERVAL_SECONDS must be >= 10")
         return v
+
+    @model_validator(mode="after")
+    def _validate_scheduler_lease(self) -> "AppSettings":
+        # The lease is renewed once per interval; to survive a single missed renew it must last at
+        # least two intervals. Below that, a normal renew delay drops the lease and flaps leadership.
+        floor = self.SCHEDULER_INTERVAL_SECONDS * 2
+        if self.SCHEDULER_LEASE_TTL_SECONDS < floor:
+            raise ValueError(
+                f"SCHEDULER_LEASE_TTL_SECONDS ({self.SCHEDULER_LEASE_TTL_SECONDS}) must be >= 2x "
+                f"SCHEDULER_INTERVAL_SECONDS ({self.SCHEDULER_INTERVAL_SECONDS}) = {floor}, or leadership flaps"
+            )
+        return self
 
     FRONTEND_PORT: int | None = None
     """

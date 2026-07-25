@@ -212,11 +212,12 @@ def test_lease_ttl_is_configurable_with_a_safe_floor():
 
     assert AppSettings(SECRET="x").SCHEDULER_LEASE_TTL_SECONDS == 150
     assert AppSettings(SECRET="x", SCHEDULER_LEASE_TTL_SECONDS=600).SCHEDULER_LEASE_TTL_SECONDS == 600
-    assert AppSettings(SECRET="x", SCHEDULER_LEASE_TTL_SECONDS=90).SCHEDULER_LEASE_TTL_SECONDS == 90
+    # The floor is 2x the tick interval (default 60), so 120 is the minimum against defaults.
+    assert AppSettings(SECRET="x", SCHEDULER_LEASE_TTL_SECONDS=120).SCHEDULER_LEASE_TTL_SECONDS == 120
 
-    # Below the floor the scheduler would renew every ~60s against a shorter lease and flap.
+    # Below 2x the interval the scheduler would renew against a shorter lease and flap.
     with pytest.raises(ValidationError):
-        AppSettings(SECRET="x", SCHEDULER_LEASE_TTL_SECONDS=60)
+        AppSettings(SECRET="x", SCHEDULER_LEASE_TTL_SECONDS=90)
 
 
 def test_is_leader_uses_the_configured_ttl(db_session, monkeypatch):
@@ -235,3 +236,22 @@ def test_is_leader_uses_the_configured_ttl(db_session, monkeypatch):
     scheduler_service._is_leader()
 
     assert captured["ttl"] == scheduler_service.get_app_settings().SCHEDULER_LEASE_TTL_SECONDS
+
+
+def test_scheduler_interval_is_configurable_and_couples_to_the_ttl():
+    """The tick interval is a setting; the lease TTL is validated against it (>= 2x)."""
+    import pytest
+    from pydantic import ValidationError
+
+    from marvin.core.settings.settings import AppSettings
+
+    assert AppSettings(SECRET="x").SCHEDULER_INTERVAL_SECONDS == 60
+    # A sanity floor stops a per-second hammer.
+    with pytest.raises(ValidationError):
+        AppSettings(SECRET="x", SCHEDULER_INTERVAL_SECONDS=5)
+    # Raising the interval without raising the TTL is rejected (the lease would flap).
+    with pytest.raises(ValidationError):
+        AppSettings(SECRET="x", SCHEDULER_INTERVAL_SECONDS=100)  # default TTL 150 < 200
+    # A consistent pair is accepted.
+    s = AppSettings(SECRET="x", SCHEDULER_INTERVAL_SECONDS=90, SCHEDULER_LEASE_TTL_SECONDS=200)
+    assert s.SCHEDULER_INTERVAL_SECONDS == 90 and s.SCHEDULER_LEASE_TTL_SECONDS == 200

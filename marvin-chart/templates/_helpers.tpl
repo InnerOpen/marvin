@@ -151,6 +151,11 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
     configMapKeyRef:
       name: {{ include "marvin.fullname" . }}
       key: apiHost
+- name: SCHEDULER_INTERVAL_SECONDS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: schedulerInterval
 - name: SMTP_HOST
   valueFrom:
     secretKeyRef:

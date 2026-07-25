@@ -48,7 +48,9 @@ CWD = Path(__file__).parent
 
 # Constants for intervals in minutes
 MINUTES_DAY = 1440  # Number of minutes in a day (24 * 60)
-MINUTES = 1  # 1 minute interval
+# The frequent-tick interval, from SCHEDULER_INTERVAL_SECONDS. @repeat_every takes minutes, and the
+# value is read once here at import — it is startup config, fixed for the process lifetime.
+MINUTES = get_app_settings().SCHEDULER_INTERVAL_SECONDS / 60
 MINUTES_HOUR = 60  # Number of minutes in an hour
 
 

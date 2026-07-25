@@ -174,7 +174,11 @@ config:
   frontendPort: 4322
 
   # Scheduler configuration
-  schedulerInterval: 300  # 5 minutes in seconds
+  # Scheduler frequent-tick interval in seconds — delivers webhooks, fires due scheduled tasks, and
+  # renews the leadership lease (wired to SCHEDULER_INTERVAL_SECONDS). If you raise this, the app
+  # also requires the lease TTL to be at least twice it (default TTL is 150s), or it refuses to
+  # start — set SCHEDULER_LEASE_TTL_SECONDS via extraEnv accordingly.
+  schedulerInterval: 60
 
   # Webhook configuration
   webhookRetryAttempts: 3
