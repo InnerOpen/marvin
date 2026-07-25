@@ -1,6 +1,11 @@
 name: Docker Build
 
-# Build and publish Docker images to GitHub Container Registry
+# Build and publish Docker images to GitHub Container Registry.
+#
+# Three images from one Dockerfile:
+#   marvin           (target: production) — API + frontend in one container (combined mode)
+#   marvin-backend   (target: backend)    — the API only (split mode)
+#   marvin-frontend  (target: frontend)   — the server-rendered UI only (split mode)
 
 on:
   push:
@@ -23,8 +28,23 @@ env:
 
 jobs:
   build-and-push:
-    name: Build & Push Docker Image
+    name: Build & Push (${{ matrix.target }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # suffix is appended to the image name; expect is the entrypoint the guard asserts, so a
+          # matrix mistake (wrong target under a name) fails the build instead of publishing it.
+          - target: production
+            suffix: ""
+            expect: start.sh
+          - target: backend
+            suffix: "-backend"
+            expect: marvin-server
+          - target: frontend
+            suffix: "-frontend"
+            expect: start-frontend.sh
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,7 +63,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}
           tags: |
             type=ref,event=branch
             type=sha,prefix={{branch}}-
@@ -52,46 +72,58 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./docker/Dockerfile
-          target: production
+          target: ${{ matrix.target }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
           build-args: |
             COMMIT=${{ github.sha }}
+
+      # Prove the published image is the intended target by its entrypoint. Pulls by digest against
+      # a lowercased name (GHCR requires lowercase; github.repository keeps the org's casing).
+      - name: Verify published image target
+        run: |
+          set -euo pipefail
+          name=$(printf '%s' "${{ env.IMAGE_NAME }}${{ matrix.suffix }}" | tr '[:upper:]' '[:lower:]')
+          img="${{ env.REGISTRY }}/${name}@${{ steps.build.outputs.digest }}"
+          echo "Inspecting $img"
+          docker pull "$img"
+          entrypoint=$(docker inspect --format '{{json .Config.Entrypoint}}' "$img")
+          echo "Entrypoint: $entrypoint"
+          case "$entrypoint" in
+            *${{ matrix.expect }}*) echo "✅ ${{ matrix.target }} image" ;;
+            *) echo "::error::${{ matrix.suffix }} image is not the ${{ matrix.target }} target (entrypoint=$entrypoint, expected to contain '${{ matrix.expect }}')"; exit 1 ;;
+          esac
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}:${{ github.sha }}
           format: 'sarif'
-          output: 'trivy-results.sarif'
+          output: 'trivy-${{ matrix.target }}.sarif'
         continue-on-error: true
 
       - name: Upload Trivy results
         uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4
         if: always()
         with:
-          sarif_file: 'trivy-results.sarif'
+          sarif_file: 'trivy-${{ matrix.target }}.sarif'
+          category: 'trivy-${{ matrix.target }}'
         continue-on-error: true
 
       - name: Generate image summary
         run: |
-          echo "## Docker Image Published 🐳" >> $GITHUB_STEP_SUMMARY
+          echo "## Docker Image Published 🐳 (${{ matrix.target }})" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Registry:** ${{ env.REGISTRY }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** ${{ env.IMAGE_NAME }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** ${{ env.IMAGE_NAME }}${{ matrix.suffix }}" >> $GITHUB_STEP_SUMMARY
           echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

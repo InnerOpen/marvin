@@ -108,9 +108,10 @@ COPY --from=uv-base --chown=app:app /app/.venv /app/.venv
 ENV BASE_DIR=$MARVIN_HOME
 
 # ##################################
-# Production Image
+# Backend Image — the API only (no frontend, no Node)
 # ##################################
-FROM build-base AS production
+# The base for both the standalone backend (split mode) and the combined production image below.
+FROM build-base AS backend
 
 ENV PRODUCTION=True
 ENV TESTING=False
@@ -120,15 +121,64 @@ RUN mkdir -p /run/secrets
 
 VOLUME [ "$MARVIN_HOME/data/" ]
 
+ENV API_PORT=8080
+EXPOSE ${API_PORT}
+
+ARG COMMIT
+ENV GIT_COMMIT_HASH=${COMMIT}
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV HOST=0.0.0.0
+
+# Liveness probe: the healthcheck script hits the public root /healthz endpoint. start-period
+# covers first-boot migrations + seeding so the container isn't marked unhealthy while starting.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+    CMD python -m marvin.scripts.healthcheck || exit 1
+
+# API only — uvicorn via the console script. No frontend, no supervisor.
+ENTRYPOINT ["marvin-server"]
+
+# ##################################
+# Frontend Image — the server-rendered UI only (no Python/venv)
+# ##################################
+# A node-only image an order of magnitude away from a Python runtime. The backend URL is resolved
+# at request time (PUBLIC_MARVIN_API_URL / MARVIN_API_URL) and injected per page, so one built
+# image serves any deployment — see frontend/src/lib/api/config.ts + RuntimeConfig.astro.
+FROM ${NODE_IMAGE}:${NODE_VARIENT} AS frontend
+
+WORKDIR /app/frontend
+ENV NODE_ENV=production
+
+# The built SSR server plus its runtime node_modules. The standalone build does not fully bundle —
+# entry.mjs imports cookie/send/unstorage/@astrojs/* from node_modules — so they ship too.
+COPY --from=frontend-builder /frontend/dist /app/frontend/dist
+COPY --from=frontend-builder /frontend/node_modules /app/frontend/node_modules
+
+# Default bind port; a deployment (e.g. the Helm chart) overrides FRONTEND_PORT to match its Service.
+ENV FRONTEND_PORT=4322
+EXPOSE ${FRONTEND_PORT}
+
+# Liveness proxy: /login renders without auth, and without the backend (login-info is best-effort),
+# so it is a reliable "the SSR server is up" signal. Uses node itself — the slim image has no curl.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.FRONTEND_PORT||4322)+'/login',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))" || exit 1
+
+COPY docker/start-frontend.sh /app/start-frontend.sh
+RUN chmod +x /app/start-frontend.sh
+ENTRYPOINT ["/app/start-frontend.sh"]
+
+# ##################################
+# Production Image — API + frontend in one container (combined mode)
+# ##################################
+FROM backend AS production
+
 # Node runtime for the server-rendered frontend. Copying just the binary from the matching Debian
 # base keeps the image lean — no npm/toolchain at runtime, only `node dist/server/entry.mjs`.
 COPY --from=frontend-builder /usr/local/bin/node /usr/local/bin/node
-# The built SSR server plus its runtime node_modules. The standalone build does not fully bundle —
-# entry.mjs imports cookie/send/unstorage/@astrojs/* from node_modules — so they ship too.
+# The built SSR server plus its runtime node_modules (see the frontend stage's note).
 COPY --from=frontend-builder --chown=app:app /frontend/dist /app/frontend/dist
 COPY --from=frontend-builder --chown=app:app /frontend/node_modules /app/frontend/node_modules
 
-ENV API_PORT=8080
 # FRONTEND_PORT is deliberately not pinned here. start.sh resolves it from AppSettings, which
 # derives it from FRONTEND_URL, so setting either one in the environment or .env moves the port the
 # frontend actually binds to. A baked-in ENV would win over both and is how the advertised port
@@ -139,19 +189,8 @@ ENV API_PORT=8080
 # that FRONTEND_URL resolves to.
 EXPOSE ${API_PORT} 4322
 
-ARG COMMIT
-ENV GIT_COMMIT_HASH=${COMMIT}
-
-ENV PATH="/app/.venv/bin:$PATH"
-
-ENV HOST=0.0.0.0
-
-# Liveness probe: the healthcheck script hits the public root /healthz endpoint. start-period
-# covers first-boot migrations + seeding so the container isn't marked unhealthy while starting.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-    CMD python -m marvin.scripts.healthcheck || exit 1
-
 # Supervise the API and the frontend SSR server together; either exiting brings the container down.
+# Overrides the backend stage's API-only entrypoint.
 COPY --chown=app:app docker/start.sh /app/start.sh
 RUN chmod +x /app/start.sh
 ENTRYPOINT ["/app/start.sh"]

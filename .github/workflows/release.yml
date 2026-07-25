@@ -96,10 +96,27 @@ jobs:
 
   # Build and publish Docker image if release was created
   docker-release:
-    name: Build & Publish Docker Image
+    name: Build & Publish Docker Image (${{ matrix.target }})
     runs-on: ubuntu-latest
     needs: release
     if: needs.release.outputs.released == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Same three images as docker.yml — combined + the two split halves — under version tags.
+          # suffix names the image; expect is the entrypoint the guard asserts. `target:` is REQUIRED:
+          # with none, the build defaults to the last Dockerfile stage (lambda), which resets the
+          # entrypoint to the Mangum handler and crash-loops under a normal docker run / Helm deploy.
+          - target: production
+            suffix: ""
+            expect: start.sh
+          - target: backend
+            suffix: "-backend"
+            expect: marvin-server
+          - target: frontend
+            suffix: "-frontend"
+            expect: start-frontend.sh
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -121,55 +138,47 @@ jobs:
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}${{ matrix.suffix }}
           tags: |
             type=semver,pattern={{version}},value=${{ needs.release.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.release.outputs.version }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: ./docker/Dockerfile
-          # target: production is REQUIRED. Without it the build defaults to the last Dockerfile
-          # stage — `lambda` — which resets the entrypoint to the Mangum handler. That image
-          # crash-loops under a normal `docker run` / Helm deploy with
-          # `"marvin.app.handler": executable file not found`. The verify step below is the guard
-          # that keeps this from silently regressing.
-          target: production
+          target: ${{ matrix.target }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
           build-args: |
             COMMIT=${{ github.sha }}
 
-      # Guard: pull the image we just published and prove it is the production app, not lambda.
-      # The distinguishing fact is the entrypoint — production runs /app/start.sh (API + frontend),
-      # lambda has ENTRYPOINT [] + CMD marvin.app.handler. This inspects the actual pushed artifact,
-      # so it fails the release whatever caused the wrong image (missing target, reordered stages).
-      - name: Verify the published image is the production target
+      # Guard: pull the image we just published and prove it is the intended target by its
+      # entrypoint. Inspects the actual pushed artifact by digest, so it fails the release whatever
+      # caused a wrong image (missing/wrong target, reordered stages, mismatched matrix pairing).
+      - name: Verify the published image target
         run: |
           set -euo pipefail
-          # GHCR image paths must be lowercase. IMAGE_NAME is github.repository, which keeps the
-          # org's casing (InnerOpen), while metadata-action lowercased it before pushing — so
-          # rebuild the name lowercase to match the tag that was actually published.
-          image_name=$(printf '%s' "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
-          IMG="${{ env.REGISTRY }}/${image_name}:${{ needs.release.outputs.version }}"
-          echo "Inspecting $IMG"
-          docker pull "$IMG"
-          entrypoint=$(docker inspect --format '{{json .Config.Entrypoint}}' "$IMG")
-          cmd=$(docker inspect --format '{{json .Config.Cmd}}' "$IMG")
+          # GHCR image paths must be lowercase; IMAGE_NAME is github.repository, which keeps the
+          # org's casing (InnerOpen). Lowercase it to match what metadata-action pushed.
+          name=$(printf '%s' "${{ env.IMAGE_NAME }}${{ matrix.suffix }}" | tr '[:upper:]' '[:lower:]')
+          img="${{ env.REGISTRY }}/${name}@${{ steps.build.outputs.digest }}"
+          echo "Inspecting $img"
+          docker pull "$img"
+          entrypoint=$(docker inspect --format '{{json .Config.Entrypoint}}' "$img")
           echo "Entrypoint: $entrypoint"
-          echo "Cmd:        $cmd"
           case "$entrypoint" in
-            *start.sh*)
-              echo "✅ production image (serves API + frontend)"
+            *${{ matrix.expect }}*)
+              echo "✅ ${{ matrix.target }} image"
               ;;
             *)
-              echo "::error::Published release image is NOT the production target (entrypoint=$entrypoint, cmd=$cmd). The build likely lost 'target: production' and published the lambda stage."
+              echo "::error::Published ${{ matrix.suffix }} image is NOT the ${{ matrix.target }} target (entrypoint=$entrypoint, expected to contain '${{ matrix.expect }}'). The build likely lost its target."
               exit 1
               ;;
           esac
