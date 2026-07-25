@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.23 (2026-07-25)
+
+### Features
+
+- **scheduler**: Make the leadership lease TTL a setting
+  ([`fe88ffe`](https://github.com/InnerOpen/marvin/commit/fe88ffeb344d90616ad297be53f6f367cfabfaa1))
+
+
 ## v1.0.0-rc.22 (2026-07-25)
 
 ### Features
