@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.27 (2026-07-25)
+
+### Features
+
+- **backup**: Include variables, AI settings, and secrets with a per-workspace key
+  ([`eb24c5f`](https://github.com/InnerOpen/marvin/commit/eb24c5fded7ee36a05955322b9e16740a48ae89b))
+
+- **backup**: Include workspace connections & config in export/import
+  ([`74e94b3`](https://github.com/InnerOpen/marvin/commit/74e94b30d2a5bddd68574f674347e7a15161c40b))
+
+### Refactoring
+
+- **smtp**: Store the SMTP password in the secret backend via secret_ref
+  ([`003f177`](https://github.com/InnerOpen/marvin/commit/003f177d7b3dade08050e34cb53e503f914e2264))
+
+
 ## v1.0.0-rc.26 (2026-07-25)
 
 ### Bug Fixes
