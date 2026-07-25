@@ -46,6 +46,11 @@ WORKFLOW_COLLECTIONS: list[dict] = [
     },
 ]
 
+# The slugs of Marvin-managed workflow collections. They are seeded per workspace and locked from
+# create/edit, and they are status-driven (an entry appears in them by its status, not by explicit
+# membership) — so a backup restore must skip them rather than try to recreate them.
+SYSTEM_COLLECTION_SLUGS: frozenset[str] = frozenset(c["slug"] for c in WORKFLOW_COLLECTIONS)
+
 
 def seed_system_workflow_collections(session, group_id) -> int:
     """Ensure the system workflow collections exist for one workspace and are materialized.

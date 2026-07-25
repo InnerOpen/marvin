@@ -439,6 +439,16 @@ class WorkspaceSeedLoader:
         Args:
             data: Collection data from seed file
         """
+        # Marvin's workflow collections (inbox/drafts/needs-review/approved/archive) are seeded per
+        # workspace and locked from create/edit — trying to recreate or overwrite them on restore
+        # fails with a 403. They are status-driven, so entries land in them by status regardless;
+        # skip them entirely.
+        from marvin.services.collections.system_collections import SYSTEM_COLLECTION_SLUGS
+
+        if data["slug"] in SYSTEM_COLLECTION_SLUGS:
+            self.logger.debug(f"Skipping system collection (Marvin-managed, auto-seeded): {data['slug']}")
+            return
+
         existing = self.repos.collections.multi_query({"slug": data["slug"]})
 
         create_data = {
