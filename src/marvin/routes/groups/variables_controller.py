@@ -10,6 +10,7 @@ from marvin.schemas.group.variable import (
     WorkspaceVariableRead,
     WorkspaceVariableUpdate,
 )
+from marvin.services.event_bus_service.event_types import EventOperation, EventTypes, EventVariableData
 
 router = APIRouter(prefix="/groups/variables")
 
@@ -24,6 +25,26 @@ def _get_var_or_404(session, var_id: UUID4, group_id: UUID4) -> WorkspaceVariabl
 @controller(router)
 class VariablesController(BaseUserController):
     """Workspace variable CRUD."""
+
+    def _emit(self, event_type: EventTypes, operation: EventOperation, *, slug: str, name: str | None, value: str | None, var_id: UUID4) -> None:
+        """Dispatch a variable_* event. Variables are plain-text, so the value may travel."""
+        self.event_bus.dispatch(
+            integration_id="variable_management",
+            group_id=self.group_id,
+            event_type=event_type,
+            document_data=EventVariableData(
+                operation=operation,
+                slug=slug,
+                name=name,
+                value=value,
+                workspace_id=self.group_id,
+                workspace_name=self.group.name if self.group else None,
+            ),
+            message=f"Variable {slug} {operation.value}d",
+            user_id=self.user.id if self.user else None,
+            entity_id=var_id,
+            entity_type="variable",
+        )
 
     @router.get("", response_model=list[WorkspaceVariableRead])
     def list_variables(self):
@@ -51,6 +72,7 @@ class VariablesController(BaseUserController):
         self.session.add(var)
         self.session.commit()
         self.session.refresh(var)
+        self._emit(EventTypes.variable_created, EventOperation.create, slug=var.slug, name=var.name, value=var.value, var_id=var.id)
         return WorkspaceVariableRead.model_validate(var)
 
     @router.patch("/{var_id}", response_model=WorkspaceVariableRead)
@@ -65,6 +87,7 @@ class VariablesController(BaseUserController):
             var.value = data.value
         self.session.commit()
         self.session.refresh(var)
+        self._emit(EventTypes.variable_updated, EventOperation.update, slug=var.slug, name=var.name, value=var.value, var_id=var.id)
         return WorkspaceVariableRead.model_validate(var)
 
     @router.delete("/{var_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -73,5 +96,7 @@ class VariablesController(BaseUserController):
         var = self.session.get(WorkspaceVariable, var_id)
         if not var or var.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Variable not found.")
+        slug, name = var.slug, var.name
         self.session.delete(var)
         self.session.commit()
+        self._emit(EventTypes.variable_deleted, EventOperation.delete, slug=slug, name=name, value=None, var_id=var_id)

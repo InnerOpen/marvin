@@ -1203,6 +1203,78 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("detail", "Provider error detail", "insufficient_quota", type="error"),
         ],
     ),
+    # ── Secrets ─────────────────────────────────────────────────────────────
+    # Payloads carry the slug/name only — never the secret value (a leak vector; see event_types.py).
+    CatalogEntry(
+        event_type="secret_created",
+        name="Secret Created",
+        description="A workspace secret was created.",
+        category="Secrets",
+        variables=COMMON_VARS
+        + [
+            EventVariable("slug", "The secret's reference slug", "OPENAI_API_KEY", type="string"),
+            EventVariable("name", "The secret's label", "OpenAI Key", type="name"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="secret_updated",
+        name="Secret Updated",
+        description="A workspace secret's name, description, or value changed. The value is never included.",
+        category="Secrets",
+        variables=COMMON_VARS
+        + [
+            EventVariable("slug", "The secret's reference slug", "OPENAI_API_KEY", type="string"),
+            EventVariable("name", "The secret's label", "OpenAI Key", type="name"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="secret_deleted",
+        name="Secret Deleted",
+        description="A workspace secret was deleted.",
+        category="Secrets",
+        variables=COMMON_VARS
+        + [
+            EventVariable("slug", "The secret's reference slug", "OPENAI_API_KEY", type="string"),
+            EventVariable("name", "The secret's label", "OpenAI Key", type="name"),
+        ],
+    ),
+    # ── Variables ───────────────────────────────────────────────────────────
+    # Variables are plain-text, so the payload may carry the value.
+    CatalogEntry(
+        event_type="variable_created",
+        name="Variable Created",
+        description="A workspace variable was created.",
+        category="Variables",
+        variables=COMMON_VARS
+        + [
+            EventVariable("slug", "The variable's reference slug", "SITE_URL", type="string"),
+            EventVariable("name", "The variable's label", "Site URL", type="name"),
+            EventVariable("value", "The variable's plain-text value", "https://example.com", type="string"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="variable_updated",
+        name="Variable Updated",
+        description="A workspace variable's name, description, or value changed.",
+        category="Variables",
+        variables=COMMON_VARS
+        + [
+            EventVariable("slug", "The variable's reference slug", "SITE_URL", type="string"),
+            EventVariable("name", "The variable's label", "Site URL", type="name"),
+            EventVariable("value", "The variable's plain-text value", "https://example.com", type="string"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="variable_deleted",
+        name="Variable Deleted",
+        description="A workspace variable was deleted.",
+        category="Variables",
+        variables=COMMON_VARS
+        + [
+            EventVariable("slug", "The variable's reference slug", "SITE_URL", type="string"),
+            EventVariable("name", "The variable's label", "Site URL", type="name"),
+        ],
+    ),
 ]
 
 # ── Honesty gate: events with NO real emitter ─────────────────────────────────

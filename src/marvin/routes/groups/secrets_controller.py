@@ -18,6 +18,7 @@ from marvin.schemas.group.secret import (
     WorkspaceSecretUpdate,
     WorkspaceSecretWithValue,
 )
+from marvin.services.event_bus_service.event_types import EventOperation, EventSecretData, EventTypes
 from marvin.services.secrets import get_secret_backend
 
 router = APIRouter(prefix="/groups/secrets")
@@ -43,6 +44,25 @@ def _get_secret_or_404(session, secret_id: UUID4, group_id: UUID4) -> WorkspaceS
 @controller(router)
 class SecretsController(BaseUserController):
     """Workspace secrets management."""
+
+    def _emit(self, event_type: EventTypes, operation: EventOperation, *, slug: str, name: str | None, secret_id: UUID4) -> None:
+        """Dispatch a secret_* event. The value is NEVER included — refs only."""
+        self.event_bus.dispatch(
+            integration_id="secret_management",
+            group_id=self.group_id,
+            event_type=event_type,
+            document_data=EventSecretData(
+                operation=operation,
+                slug=slug,
+                name=name,
+                workspace_id=self.group_id,
+                workspace_name=self.group.name if self.group else None,
+            ),
+            message=f"Secret {slug} {operation.value}d",
+            user_id=self.user.id if self.user else None,
+            entity_id=secret_id,
+            entity_type="secret",
+        )
 
     @router.get("", response_model=list[WorkspaceSecretRead])
     def list_secrets(self):
@@ -83,6 +103,7 @@ class SecretsController(BaseUserController):
         if get_app_settings().SECRET_BACKEND != "database":
             get_secret_backend().set(data.slug, data.value, self.group_id)
 
+        self._emit(EventTypes.secret_created, EventOperation.create, slug=secret.slug, name=secret.name, secret_id=secret.id)
         return WorkspaceSecretRead.model_validate(secret)
 
     @router.patch("/{secret_id}", response_model=WorkspaceSecretRead)
@@ -101,6 +122,7 @@ class SecretsController(BaseUserController):
 
         self.session.commit()
         self.session.refresh(secret)
+        self._emit(EventTypes.secret_updated, EventOperation.update, slug=secret.slug, name=secret.name, secret_id=secret.id)
         return WorkspaceSecretRead.model_validate(secret)
 
     @router.delete("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -109,10 +131,13 @@ class SecretsController(BaseUserController):
         secret = self.session.get(WorkspaceSecret, secret_id)
         if not secret or secret.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Secret not found.")
+        # Snapshot identity before the row is gone — the event carries the slug/name, never the value.
+        slug, name = secret.slug, secret.name
         if get_app_settings().SECRET_BACKEND != "database":
             get_secret_backend().delete(secret.slug, self.group_id)
         self.session.delete(secret)
         self.session.commit()
+        self._emit(EventTypes.secret_deleted, EventOperation.delete, slug=slug, name=name, secret_id=secret_id)
 
     @router.post("/{secret_id}/reveal", response_model=WorkspaceSecretWithValue)
     def reveal_secret(self, secret_id: UUID4):

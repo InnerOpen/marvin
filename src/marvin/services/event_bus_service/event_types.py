@@ -186,6 +186,22 @@ class EventTypes(EventTypeBase):
     """Event dispatched when a form submission fails."""
 
     # ==========================================================================
+    # Secret & Variable Events (workspace config)
+    # ==========================================================================
+    secret_created = auto()
+    """A workspace secret was created. Payload carries the slug/name only — never the value."""
+    secret_updated = auto()
+    """A workspace secret's name, description, or value changed. Payload is value-free."""
+    secret_deleted = auto()
+    """A workspace secret was deleted. Payload is value-free."""
+    variable_created = auto()
+    """A workspace variable was created. Variables are plain-text, so the payload may carry the value."""
+    variable_updated = auto()
+    """A workspace variable changed. The payload may carry the (new) value."""
+    variable_deleted = auto()
+    """A workspace variable was deleted."""
+
+    # ==========================================================================
     # Collection Events
     # ==========================================================================
     collection_created = auto()
@@ -458,6 +474,10 @@ class EventDocumentType(EventDocumentTypeBase):
     """Indicates the event data pertains to a workspace member."""
     invitation = "invitation"
     """Indicates the event data pertains to an invitation."""
+    secret = "secret"
+    """Indicates the event data pertains to a workspace secret (value never included)."""
+    variable = "variable"
+    """Indicates the event data pertains to a workspace variable."""
     api_token = "api_token"
     """Indicates the event data pertains to an API token."""
     api_client = "api_client"
@@ -703,6 +723,36 @@ class EventFormSubmissionData(EventDocumentDataBase):
     """The submitted form data."""
     workspace_id: UUID4
     """The workspace containing the form."""
+    workspace_name: str | None = None
+    """The human-readable name of the workspace."""
+
+
+class EventSecretData(EventDocumentDataBase):
+    """Data payload for workspace secret events. The secret VALUE is never included — refs only."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.secret
+    slug: str
+    """The secret's reference slug (used in {{SLUG}} interpolation)."""
+    name: str | None = None
+    """The secret's human-readable label."""
+    workspace_id: UUID4
+    """The workspace the secret belongs to."""
+    workspace_name: str | None = None
+    """The human-readable name of the workspace."""
+
+
+class EventVariableData(EventDocumentDataBase):
+    """Data payload for workspace variable events. Variables are plain-text, so the value MAY appear."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.variable
+    slug: str
+    """The variable's reference slug (used in {{SLUG}} interpolation)."""
+    name: str | None = None
+    """The variable's human-readable label."""
+    value: str | None = None
+    """The variable's plain-text value (variables are not secret)."""
+    workspace_id: UUID4
+    """The workspace the variable belongs to."""
     workspace_name: str | None = None
     """The human-readable name of the workspace."""
 
