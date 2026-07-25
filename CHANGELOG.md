@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.22 (2026-07-25)
+
+### Features
+
+- **frontend**: Serve stored media through the frontend
+  ([`8fc71da`](https://github.com/InnerOpen/marvin/commit/8fc71da996194e3ce7047902cfd8827b01db4407))
+
+
 ## v1.0.0-rc.21 (2026-07-25)
 
 ### Features
