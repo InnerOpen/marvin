@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.24 (2026-07-25)
+
+### Features
+
+- **scheduler**: Make the tick interval a setting and wire the chart's schedulerInterval
+  ([`b6f453b`](https://github.com/InnerOpen/marvin/commit/b6f453b6d812eb20d9b95b737ad74c5a7bc58586))
+
+
 ## v1.0.0-rc.23 (2026-07-25)
 
 ### Features
