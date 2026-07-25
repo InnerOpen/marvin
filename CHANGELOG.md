@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.21 (2026-07-25)
+
+### Features
+
+- **docker**: Build separate backend and frontend images alongside the combined one
+  ([`0f55896`](https://github.com/InnerOpen/marvin/commit/0f55896be67dc8a3cb735468ff14ba17e7bc8386))
+
+- **helm**: Add combined | split deployment mode
+  ([`5230b96`](https://github.com/InnerOpen/marvin/commit/5230b96daf34235299dfd1a9d44a285f6f80a1bd))
+
+
 ## v1.0.0-rc.20 (2026-07-25)
 
 ### Bug Fixes
