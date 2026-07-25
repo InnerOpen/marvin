@@ -156,6 +156,11 @@ The chart runs Marvin in one of two topologies, chosen with `mode`:
   when you want to scale the stateless UI separately from the API, or roll one without restarting the
   other.
 
+  The backend Service is internal only (ClusterIP, no route). With local storage the frontend serves
+  uploaded media itself — it proxies `/assets/*` to the backend — so images resolve against the
+  frontend origin and the backend never needs public exposure. (With S3 storage, media URLs point at
+  the bucket directly and neither is involved.)
+
 ```yaml
 # split mode
 mode: split
