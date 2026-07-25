@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 from sqlalchemy import select
 
-from marvin.db.models.groups.smtp_profiles import WorkspaceSMTPProfileModel
+from marvin.db.models.groups.smtp_profiles import WorkspaceSMTPProfileModel, smtp_secret_ref
 from marvin.routes._base import BaseUserController, controller
 from marvin.schemas.group.smtp_profile import (
     SMTPProfileCreate,
@@ -19,25 +19,24 @@ from marvin.schemas.group.smtp_profile import (
     SMTPProfileUpdate,
 )
 from marvin.services.email.email_senders import EmailOptions, Message
+from marvin.services.secrets import get_secret_backend
+from marvin.services.secrets.resolver import resolve_secret
 
 router = APIRouter(prefix="/groups/smtp-profiles")
 
 
-def _encrypt(value: str) -> str:
-    """Fernet-encrypt a password for at-rest storage in the profile row."""
-    from marvin.services.secrets.backends.database import _get_fernet
+def _password_reference(value: str, group_id) -> str | None:
+    """If `value` points at an existing workspace secret — as `{{SLUG}}` or a bare uppercase `SLUG`
+    that exists — return that slug. Otherwise None, meaning treat `value` as a literal password."""
+    import re
 
-    return _get_fernet().encrypt(value.encode()).decode()
-
-
-def _decrypt(value: str) -> str | None:
-    """Reverse of `_encrypt`; returns None if the ciphertext can't be read."""
-    from marvin.services.secrets.backends.database import _get_fernet
-
-    try:
-        return _get_fernet().decrypt(value.encode()).decode()
-    except Exception:
-        return None
+    bare = value.strip()
+    m = re.fullmatch(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}", bare)
+    if m:
+        return m.group(1)
+    if re.fullmatch(r"[A-Z0-9_]+", bare) and bare in get_secret_backend().list_slugs(group_id):
+        return bare
+    return None
 
 
 def _to_read(profile: WorkspaceSMTPProfileModel) -> SMTPProfileRead:
@@ -53,7 +52,7 @@ def _to_read(profile: WorkspaceSMTPProfileModel) -> SMTPProfileRead:
         from_email=profile.from_email,
         auth_strategy=profile.auth_strategy,
         is_active=profile.is_active,
-        has_password=bool(profile.password_encrypted),
+        has_password=bool(profile.secret_ref),
         created_at=getattr(profile, "created_at", None),
         updated_at=getattr(profile, "updated_at", None),
     )
@@ -68,6 +67,26 @@ class SMTPProfilesController(BaseUserController):
         if not profile or profile.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SMTP profile not found.")
         return profile
+
+    def _delete_managed_secret(self, profile: WorkspaceSMTPProfileModel) -> None:
+        """Delete this profile's auto-managed secret — never a secret the user referenced by slug."""
+        managed = smtp_secret_ref(profile.id)
+        if profile.secret_ref == managed:
+            try:
+                get_secret_backend().delete(managed, self.group_id)
+            except Exception as e:
+                self.logger.warning(f"[smtp] could not delete secret {managed}: {e}")
+
+    def _apply_password(self, profile: WorkspaceSMTPProfileModel, value: str) -> None:
+        """Point the profile at a referenced secret, or store a literal under its managed secret."""
+        ref = _password_reference(value, self.group_id)
+        if ref:
+            self._delete_managed_secret(profile)  # dropping our own secret in favour of a reference
+            profile.secret_ref = ref
+        else:
+            managed = smtp_secret_ref(profile.id)
+            get_secret_backend().set(managed, value, self.group_id)
+            profile.secret_ref = managed
 
     def _deactivate_others(self, keep_id: UUID4 | None) -> None:
         """Ensure at most one active profile — clear is_active on every other row."""
@@ -105,14 +124,15 @@ class SMTPProfilesController(BaseUserController):
             host=data.host,
             port=data.port,
             username=data.username or None,
-            password_encrypted=_encrypt(data.password) if data.password else None,
             from_name=data.from_name or None,
             from_email=data.from_email or None,
             auth_strategy=data.auth_strategy,
             is_active=data.is_active,
         )
         self.session.add(profile)
-        self.session.flush()
+        self.session.flush()  # assign id before deriving the secret ref
+        if data.password:
+            self._apply_password(profile, data.password)
         if data.is_active:
             self._deactivate_others(keep_id=profile.id)
         self.session.commit()
@@ -132,9 +152,14 @@ class SMTPProfilesController(BaseUserController):
             if value is not None:
                 setattr(profile, field, value)
 
-        # A non-empty password replaces the stored one; an explicit empty string clears it.
+        # A non-empty password (literal or a {{SLUG}}/SLUG reference) replaces the stored one; an
+        # explicit empty string clears it.
         if data.password is not None:
-            profile.password_encrypted = _encrypt(data.password) if data.password else None
+            if data.password:
+                self._apply_password(profile, data.password)
+            else:
+                self._delete_managed_secret(profile)
+                profile.secret_ref = None
 
         if data.is_active is not None:
             profile.is_active = data.is_active
@@ -148,6 +173,7 @@ class SMTPProfilesController(BaseUserController):
     @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an SMTP Profile")
     def delete_profile(self, profile_id: UUID4) -> None:
         profile = self._get_or_404(profile_id)
+        self._delete_managed_secret(profile)  # only our own secret, never a referenced one
         self.session.delete(profile)
         self.session.commit()
 
@@ -170,7 +196,7 @@ class SMTPProfilesController(BaseUserController):
             host=profile.host,
             port=int(profile.port),
             username=profile.username or None,
-            password=_decrypt(profile.password_encrypted) if profile.password_encrypted else None,
+            password=resolve_secret(profile.secret_ref, self.group_id) if profile.secret_ref else None,
             tls=strategy == "TLS",
             ssl=strategy == "SSL",
         )

@@ -1,13 +1,15 @@
 """Workspace SMTP profile database model.
 
 A workspace may define several named SMTP profiles (e.g. "Transactional",
-"Marketing"); at most one is active at a time. The password is Fernet-encrypted
-at rest in the `password_encrypted` column and never returned in API responses.
+"Marketing"); at most one is active at a time. The password is not stored on this
+row — only `secret_ref`, a slug the configured secret backend resolves (same
+pattern as integrations), so every credential lives behind one secrets surface.
 """
 
+import uuid
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from .. import BaseMixins, SqlAlchemyBase
@@ -16,6 +18,17 @@ from .._model_utils.guid import GUID
 
 if TYPE_CHECKING:
     from .groups import Groups
+
+
+def smtp_secret_ref(profile_id: "uuid.UUID | str") -> str:
+    """Deterministic secret-backend slug holding this profile's SMTP password.
+
+    Derived from the immutable profile id so it is stable across renames and unique per profile.
+    Shared by the controller and the migration that moved passwords into the secret backend — keep
+    the format in sync with both.
+    """
+    hexpart = profile_id.hex if isinstance(profile_id, uuid.UUID) else str(profile_id).replace("-", "")
+    return f"SMTP_{hexpart.upper()}"
 
 
 class WorkspaceSMTPProfileModel(SqlAlchemyBase, BaseMixins):
@@ -39,8 +52,8 @@ class WorkspaceSMTPProfileModel(SqlAlchemyBase, BaseMixins):
     username: Mapped[str | None] = mapped_column(String, nullable=True)
     """Optional SMTP auth username."""
 
-    password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
-    """Fernet-encrypted SMTP password. Never returned in API responses."""
+    secret_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    """Slug the secret backend resolves for this profile's SMTP password (see smtp_secret_ref)."""
 
     from_name: Mapped[str | None] = mapped_column(String, nullable=True)
     """Display name on outgoing mail (falls back to the global SMTP_FROM_NAME)."""

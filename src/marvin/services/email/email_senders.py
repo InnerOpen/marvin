@@ -285,7 +285,7 @@ class WorkspaceEmailSender(ABCEmailSender, BaseService):
                     "host": row.host,
                     "port": row.port,
                     "username": row.username,
-                    "password_encrypted": row.password_encrypted,
+                    "secret_ref": row.secret_ref,
                     "from_name": row.from_name,
                     "from_email": row.from_email,
                     "auth_strategy": row.auth_strategy,
@@ -307,13 +307,12 @@ class WorkspaceEmailSender(ABCEmailSender, BaseService):
             return False
 
         password = None
-        if profile["password_encrypted"]:
-            from marvin.services.secrets.backends.database import _get_fernet
+        if profile["secret_ref"]:
+            from marvin.services.secrets.resolver import resolve_secret
 
-            try:
-                password = _get_fernet().decrypt(profile["password_encrypted"].encode()).decode()
-            except Exception:
-                self.logger.error(f"Could not decrypt password for SMTP profile '{profile['name']}'.")
+            password = resolve_secret(profile["secret_ref"], self.group_id)
+            if password is None:
+                self.logger.error(f"Could not resolve SMTP password (secret '{profile['secret_ref']}') for profile '{profile['name']}'.")
                 return False
 
         strategy = (profile["auth_strategy"] or "TLS").upper()
