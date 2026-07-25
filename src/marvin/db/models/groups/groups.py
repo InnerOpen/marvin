@@ -54,6 +54,12 @@ class Groups(SqlAlchemyBase, BaseMixins):
     name: Mapped[str] = mapped_column(sa.String, index=True, nullable=False, unique=True, doc="Human-readable name of the group, must be unique.")
     slug: Mapped[str | None] = mapped_column(sa.String, index=True, unique=True, doc="URL-friendly slug for the group, must be unique if set.")
 
+    # Per-workspace Fernet key that wraps secret values inside export bundles, stored encrypted with
+    # the instance secret. Generated on first backup, downloadable, never included in a bundle.
+    backup_key_encrypted: Mapped[str | None] = mapped_column(
+        sa.Text, nullable=True, doc="Instance-encrypted per-workspace backup key (see services.backup.keys)."
+    )
+
     # Relationship to Users model (one-to-many: one group has many users)
     # DEPRECATED: Use `members` relationship instead for role-based access
     users: Mapped[list["Users"]] = orm.relationship(

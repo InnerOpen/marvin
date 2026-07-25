@@ -51,6 +51,9 @@ class WorkspaceExporter:
             "entries": self._export_entries(),
             "assets": self._export_assets(),
             "resources": self._export_resources(),
+            "variables": self._export_variables(),
+            "ai_settings": self._export_ai_settings(),
+            "secrets": self._export_secrets(),
         }
 
         self.logger.info(
@@ -59,7 +62,10 @@ class WorkspaceExporter:
             f"{len(export_data['entry_types'])} entry types, "
             f"{len(export_data['entries'])} entries, "
             f"{len(export_data['assets'])} assets, "
-            f"{len(export_data['resources'])} resources"
+            f"{len(export_data['resources'])} resources, "
+            f"{len(export_data['variables'])} variables, "
+            f"{len(export_data['secrets'])} secrets, "
+            f"{'1' if export_data['ai_settings'] else '0'} AI settings"
         )
 
         return export_data
@@ -476,5 +482,85 @@ class WorkspaceExporter:
                 resource_dict["tags"] = tag_slugs
 
             exported.append(resource_dict)
+
+        return exported
+
+    def _export_variables(self) -> list[dict[str, Any]]:
+        """Export workspace variables (plaintext by design — safe to carry in the bundle)."""
+        from marvin.db.models.groups.variables import WorkspaceVariable
+
+        rows = (
+            self.repos.session.query(WorkspaceVariable)
+            .filter(WorkspaceVariable.group_id == self.repos.group_id)
+            .order_by(WorkspaceVariable.slug)
+            .all()
+        )
+        return [{"name": v.name, "slug": v.slug, "description": v.description, "value": v.value} for v in rows]
+
+    def _export_ai_settings(self) -> dict[str, Any] | None:
+        """Export the workspace AI policy row (config only — references secrets by slug, no key material)."""
+        from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+        row = self.repos.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.repos.group_id).first()
+        if not row:
+            return None
+
+        return {
+            "enabled": row.enabled,
+            "credentialMode": row.credential_mode,
+            "provider": row.provider,
+            "model": row.model,
+            "secretRef": row.secret_ref,
+            "approvalMode": row.approval_mode,
+            "invocationSources": row.invocation_sources,
+            "operationOverrides": row.operation_overrides,
+            "budgetConfig": row.budget_config,
+            "loggingConfig": row.logging_config,
+            "moderationConfig": row.moderation_config,
+            "mediaPresets": row.media_presets,
+            "externalMcpEnabled": row.external_mcp_enabled,
+            "assistantName": row.assistant_name,
+            "personaPrompt": row.persona_prompt,
+            "defaultRegister": row.default_register,
+        }
+
+    def _export_secrets(self) -> list[dict[str, Any]]:
+        """Export workspace secrets with values wrapped by the per-workspace backup key.
+
+        Names/slugs/descriptions travel in the clear so a keyless restore can still recreate the
+        secret shells; only the value is encrypted under the backup key. A secret whose value can't
+        be resolved (e.g. an external backend miss) is exported metadata-only.
+        """
+        from marvin.db.models.groups.secrets import WorkspaceSecret
+        from marvin.services.backup.keys import encrypt_secret_value, get_or_create_backup_key
+        from marvin.services.secrets import get_secret_backend
+
+        rows = (
+            self.repos.session.query(WorkspaceSecret)
+            .filter(WorkspaceSecret.group_id == self.repos.group_id)
+            .order_by(WorkspaceSecret.slug)
+            .all()
+        )
+        if not rows:
+            return []
+
+        backup_key = get_or_create_backup_key(self.repos.session, self.repos.group_id)
+        backend = get_secret_backend()
+
+        exported = []
+        for secret in rows:
+            item: dict[str, Any] = {"name": secret.name, "slug": secret.slug, "description": secret.description}
+            try:
+                value = backend.get(secret.slug, self.repos.group_id)
+            except Exception as e:
+                self.logger.warning(f"Could not read secret '{secret.slug}' for export: {e}")
+                value = None
+
+            if value is not None:
+                item["encryptedBackupValue"] = encrypt_secret_value(value, backup_key)
+            else:
+                self.logger.warning(f"Secret '{secret.slug}' exported as metadata-only (value could not be resolved)")
+
+            exported.append(item)
 
         return exported

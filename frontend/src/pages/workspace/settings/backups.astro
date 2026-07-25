@@ -119,7 +119,43 @@ function fmtDate(iso: string): string {
       </div>
 
       <div id="create-status" class="create-status" style="display:none;"></div>
+
+      {canImport && (
+        <div id="create-key-panel" class="key-nudge" style="display:none;">
+          <div class="key-nudge-head">
+            <strong>Save your backup key</strong>
+            <span>Secrets in this backup are encrypted with it — content restores without it, secrets don't. The same key covers every backup of this workspace, so download it once and keep it safe.</span>
+          </div>
+          <div class="key-result">
+            <input id="create-key-value" type="text" readonly class="key-input mono" />
+            <button type="button" id="create-key-download" class="button-secondary">Download key</button>
+            <button type="button" id="create-key-copy" class="button-secondary">Copy</button>
+          </div>
+        </div>
+      )}
     </section>
+
+    {canImport && (
+      <section class="card">
+        <div class="card-header">
+          <div>
+            <h3>Backup Encryption Key</h3>
+            <p>The per-workspace key that encrypts secret values inside your backups. Reveal it, store it safely, and paste it when importing to restore secrets. Without it, secrets restore as empty placeholders you re-enter. It is never included in a bundle.</p>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="import-actions">
+            <button type="button" id="key-btn" class="button">Reveal Key</button>
+            <span id="key-status" class="import-status"></span>
+          </div>
+          <div id="key-result" class="key-result" style="display:none;">
+            <input id="key-value" type="text" readonly class="key-input mono" />
+            <button type="button" id="key-copy" class="button-secondary">Copy</button>
+            <button type="button" id="key-download" class="button-secondary">Download</button>
+          </div>
+        </div>
+      </section>
+    )}
 
     <!-- Import -->
     {canImport ? (
@@ -172,6 +208,12 @@ function fmtDate(iso: string): string {
             <span>Overwrite existing records</span>
             <small>Updates entries, collections, resources, and assets matched by slug. Junction rows are cleared and rebuilt.</small>
           </label>
+
+          <div class="key-field">
+            <label for="import-key">Backup key <span class="optional">(optional)</span></label>
+            <input type="text" id="import-key" class="key-input mono" placeholder="Paste the workspace backup key to restore secret values" />
+            <small class="hint">Leave blank to restore secrets as empty placeholders you re-enter. Restoring into the same workspace that made the backup uses its stored key automatically.</small>
+          </div>
 
           <div class="import-actions">
             <button type="button" id="import-bundle-btn" class="button" disabled>
@@ -504,6 +546,98 @@ function fmtDate(iso: string): string {
   .import-status {
     font-size: 0.875rem;
   }
+
+  /* Backup key */
+  .key-result {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .key-input {
+    flex: 1;
+    min-width: 12rem;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 0.8125rem;
+  }
+
+  .key-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .mono {
+    font-family: var(--font-mono, monospace);
+  }
+
+  .button-secondary {
+    padding: 9px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 0.8125rem;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.15s;
+  }
+
+  .button-secondary:hover {
+    border-color: var(--ink);
+  }
+
+  .key-field {
+    display: grid;
+    gap: 0.375rem;
+  }
+
+  .key-field label {
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  .optional {
+    font-weight: 400;
+    color: var(--muted);
+  }
+
+  .hint {
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  /* Post-create key nudge */
+  .key-nudge {
+    margin: 0 1.5rem 1.5rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--accent, #c9a227);
+    border-radius: var(--radius);
+    background: var(--panel-2, #fbf7e9);
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .key-nudge-head {
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .key-nudge-head strong {
+    font-size: 0.9375rem;
+  }
+
+  .key-nudge-head span {
+    font-size: 0.8125rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
 </style>
 
 <script>
@@ -571,12 +705,98 @@ function fmtDate(iso: string): string {
         createStatus.textContent = '✓ Backup created';
         setTimeout(() => { if (createStatus) createStatus.style.display = 'none'; }, 4000);
       }
+
+      // Surface the backup key at the moment it's needed (owners only — panel is absent otherwise).
+      revealCreateKey();
     } catch (err) {
       if (createStatus) createStatus.textContent = '✗ ' + (err instanceof Error ? err.message : 'Failed');
     } finally {
       createBtn.disabled = false;
       createBtn.textContent = 'Create Backup';
     }
+  });
+
+  // ── Backup Encryption Key ──────────────────────────────────────────────────
+  let keyFilename = 'marvin-backup-key.txt';
+
+  async function fetchKey(): Promise<{ backup_key: string; filename?: string; workspace_slug?: string }> {
+    const res = await fetch('/api/platform/workspace/backup-key', { credentials: 'include' });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.detail || `Server error: ${res.status}`);
+    return json;
+  }
+
+  function downloadText(text: string, filename: string) {
+    const blob = new Blob([text], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function copyText(text: string, statusEl: HTMLElement | null, input: HTMLInputElement | null) {
+    try {
+      await navigator.clipboard.writeText(text);
+      if (statusEl) statusEl.textContent = '✓ Copied to clipboard';
+    } catch {
+      input?.select();
+      if (statusEl) statusEl.textContent = 'Press Ctrl+C to copy';
+    }
+  }
+
+  // Post-create nudge
+  const createKeyPanel = document.getElementById('create-key-panel') as HTMLElement | null;
+  const createKeyValue = document.getElementById('create-key-value') as HTMLInputElement | null;
+
+  async function revealCreateKey() {
+    if (!createKeyPanel || !createKeyValue) return;
+    try {
+      const json = await fetchKey();
+      createKeyValue.value = json.backup_key;
+      keyFilename = json.filename || keyFilename;
+      createKeyPanel.style.display = 'grid';
+    } catch (err) {
+      console.error('[backups] Failed to fetch backup key:', err);
+    }
+  }
+
+  document.getElementById('create-key-download')?.addEventListener('click', () => {
+    if (createKeyValue?.value) downloadText(createKeyValue.value, keyFilename);
+  });
+  document.getElementById('create-key-copy')?.addEventListener('click', () => {
+    if (createKeyValue?.value) copyText(createKeyValue.value, createStatus, createKeyValue);
+  });
+
+  // Persistent key card
+  const keyBtn = document.getElementById('key-btn') as HTMLButtonElement | null;
+  const keyStatus = document.getElementById('key-status') as HTMLElement | null;
+  const keyResult = document.getElementById('key-result') as HTMLElement | null;
+  const keyValue = document.getElementById('key-value') as HTMLInputElement | null;
+
+  keyBtn?.addEventListener('click', async () => {
+    keyBtn.disabled = true;
+    keyBtn.textContent = 'Revealing…';
+    if (keyStatus) keyStatus.textContent = '';
+    try {
+      const json = await fetchKey();
+      if (keyValue) keyValue.value = json.backup_key;
+      keyFilename = json.filename || keyFilename;
+      if (keyResult) keyResult.style.display = 'flex';
+      if (keyStatus) keyStatus.textContent = '✓ Store this somewhere safe';
+    } catch (err) {
+      if (keyStatus) keyStatus.textContent = '✗ ' + (err instanceof Error ? err.message : 'Failed');
+    } finally {
+      keyBtn.disabled = false;
+      keyBtn.textContent = 'Reveal Key';
+    }
+  });
+
+  document.getElementById('key-copy')?.addEventListener('click', () => {
+    if (keyValue?.value) copyText(keyValue.value, keyStatus, keyValue);
+  });
+  document.getElementById('key-download')?.addEventListener('click', () => {
+    if (keyValue?.value) downloadText(keyValue.value, keyFilename);
   });
 
   // ── Import ─────────────────────────────────────────────────────────────────
@@ -652,6 +872,8 @@ function fmtDate(iso: string): string {
     try {
       const body = new FormData();
       body.append('file', selectedFile);
+      const backupKey = (document.getElementById('import-key') as HTMLInputElement)?.value.trim();
+      if (backupKey) body.append('backup_key', backupKey);
       const res = await fetch(`/api/platform/workspace/import${overwrite ? '?overwrite=true' : ''}`, { method: 'POST', credentials: 'include', body });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.detail || `Server error: ${res.status}`);

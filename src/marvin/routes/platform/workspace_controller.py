@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, File, Query, Response, UploadFile
+from fastapi import APIRouter, File, Form, Query, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
 from marvin.repos.seed.workspace_exporter import WorkspaceExporter
@@ -96,6 +96,42 @@ class WorkspaceController(BaseUserController):
         meta["download_url"] = f"/api/platform/workspace/backups/{zip_path.name}"
         return meta
 
+    @router.get("/backup-key", summary="Get/Create Workspace Backup Key")
+    def get_backup_key(self) -> dict:
+        """Return this workspace's backup key, minting it on first request.
+
+        Backed-up secret values are encrypted with this key. Keep it safe — restoring the secrets
+        onto another instance requires supplying it. It is never included in a bundle.
+
+        Requires workspace OWNER or platform SUPER_ADMIN — it unlocks every secret in any backup of
+        this workspace, so it is gated exactly like import.
+
+        Returns:
+            {workspace_slug, backup_key, filename}
+        """
+        from fastapi import HTTPException
+        from fastapi import status as http_status
+
+        from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
+        from marvin.services.backup.keys import get_or_create_backup_key
+
+        is_super_admin = self.user.platform_role == PlatformRole.SUPER_ADMIN
+        is_owner = self.user.has_workspace_role(self.group_id, WorkspaceRole.OWNER)
+        if not (is_super_admin or is_owner):
+            raise HTTPException(
+                status_code=http_status.HTTP_403_FORBIDDEN,
+                detail="Revealing the workspace backup key requires OWNER or SUPER_ADMIN role.",
+            )
+
+        workspace = self.repos.groups.get_one(self.group_id)
+        key = get_or_create_backup_key(self.repos.session, self.group_id)
+        slug = workspace.slug if workspace else "workspace"
+        return {
+            "workspace_slug": slug,
+            "backup_key": key,
+            "filename": f"marvin-backup-key-{slug}.txt",
+        }
+
     @router.get("/backups", summary="List Workspace Backups")
     def list_backups(self) -> list:
         """List all backup zips for the current workspace, newest first.
@@ -163,6 +199,14 @@ class WorkspaceController(BaseUserController):
                 "→resource) are cleared and rebuilt from the bundle."
             ),
         ),
+        backup_key: str | None = Form(
+            None,
+            description=(
+                "Per-workspace backup key to decrypt secret values. Omit to restore secrets as "
+                "valueless shells; when restoring into the workspace that made the backup, the "
+                "stored key is tried automatically."
+            ),
+        ),
     ) -> dict:
         """Import a workspace bundle into the current workspace.
 
@@ -171,6 +215,7 @@ class WorkspaceController(BaseUserController):
         Args:
             file: Zip bundle file (from /backups)
             overwrite: When True, existing records matched by slug are updated
+            backup_key: Per-workspace backup key for decrypting secret values
 
         Returns:
             Import counts by type
@@ -198,7 +243,7 @@ class WorkspaceController(BaseUserController):
 
             instance_repos = get_repositories(self.repos.session, group_id=None)
             loader = WorkspaceSeedLoader(instance_repos)
-            results = loader.load_seed_zip(zip_path, overwrite=overwrite, target_group_id=self.group_id)
+            results = loader.load_seed_zip(zip_path, overwrite=overwrite, target_group_id=self.group_id, backup_key=backup_key)
 
             return {"imported": results}
         finally:

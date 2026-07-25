@@ -75,6 +75,36 @@ function fmtDate(iso: string): string {
       </div>
     </section>
 
+    <!-- Backup Encryption Key -->
+    <section class="card">
+      <div class="card-header">
+        <h3>Backup Encryption Key</h3>
+        <p>Secret values in a backup are encrypted with a per-workspace key. Reveal it, store it somewhere safe, and supply it when importing to restore secrets. Without it, secrets restore as empty placeholders you re-enter. The key is generated on first use and never travels inside a bundle.</p>
+      </div>
+      <div class="card-body">
+        <div class="field">
+          <label for="key-workspace">Workspace</label>
+          <select id="key-workspace">
+            <option value="">— select a workspace —</option>
+            {workspaces.map(w => (
+              <option value={w.id} data-slug={w.slug}>{w.name}</option>
+            ))}
+          </select>
+        </div>
+        <div class="actions">
+          <button type="button" id="key-btn" class="button" disabled>
+            Reveal Key
+          </button>
+          <span id="key-status" class="status-msg"></span>
+        </div>
+        <div id="key-result" class="key-result" style="display:none;">
+          <input id="key-value" type="text" readonly class="key-input mono" />
+          <button type="button" id="key-copy" class="button-secondary">Copy</button>
+          <button type="button" id="key-download" class="button-secondary">Download</button>
+        </div>
+      </div>
+    </section>
+
     <!-- All Backups -->
     <section class="card">
       <div class="card-header">
@@ -183,6 +213,12 @@ function fmtDate(iso: string): string {
           <span>Overwrite existing records</span>
           <small>Updates entries, collections, resources, and assets matched by slug. Junction rows are cleared and rebuilt.</small>
         </label>
+
+        <div class="field">
+          <label for="import-key">Backup key <span class="optional">(optional)</span></label>
+          <input type="text" id="import-key" class="key-input mono" placeholder="Paste the workspace backup key to restore secret values" />
+          <small class="hint">Leave blank to restore secrets as empty placeholders you re-enter. Restoring into the same workspace that made the backup uses its stored key automatically.</small>
+        </div>
 
         <div class="actions">
           <button type="button" id="import-btn" class="button" disabled>
@@ -553,6 +589,61 @@ function fmtDate(iso: string): string {
   .status-msg {
     font-size: 0.875rem;
   }
+
+  /* Backup key */
+  .key-result {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .key-input {
+    flex: 1;
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 0.8125rem;
+  }
+
+  .key-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .mono {
+    font-family: var(--font-mono, monospace);
+  }
+
+  .button-secondary {
+    padding: 9px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 0.8125rem;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: border-color 0.15s;
+  }
+
+  .button-secondary:hover {
+    border-color: var(--ink);
+  }
+
+  .optional {
+    font-weight: 400;
+    color: var(--muted);
+  }
+
+  .hint {
+    font-size: 0.75rem;
+    color: var(--muted);
+    line-height: 1.4;
+  }
 </style>
 
 <script>
@@ -609,7 +700,7 @@ function fmtDate(iso: string): string {
       // Ensure table exists
       let table = document.getElementById('backup-table') as HTMLTableElement | null;
       if (!table) {
-        const section = createBtn.closest('.sections')?.querySelectorAll('.card')[1];
+        const section = createBtn.closest('.sections')?.querySelectorAll('.card')[2];
         if (section) {
           table = document.createElement('table');
           table.id = 'backup-table';
@@ -634,6 +725,66 @@ function fmtDate(iso: string): string {
       createBtn.disabled = !createSelect.value;
       createBtn.textContent = 'Create Backup';
     }
+  });
+
+  // ── Backup Encryption Key ──────────────────────────────────────────────────
+  const keySelect = document.getElementById('key-workspace') as HTMLSelectElement;
+  const keyBtn = document.getElementById('key-btn') as HTMLButtonElement;
+  const keyStatus = document.getElementById('key-status') as HTMLElement;
+  const keyResult = document.getElementById('key-result') as HTMLElement;
+  const keyValue = document.getElementById('key-value') as HTMLInputElement;
+  const keyCopy = document.getElementById('key-copy') as HTMLButtonElement;
+  const keyDownload = document.getElementById('key-download') as HTMLButtonElement;
+  let keyFilename = 'backup-key.txt';
+
+  keySelect?.addEventListener('change', () => {
+    keyBtn.disabled = !keySelect.value;
+    keyStatus.textContent = '';
+    keyResult.style.display = 'none';
+  });
+
+  keyBtn?.addEventListener('click', async () => {
+    const id = keySelect.value;
+    if (!id) return;
+
+    keyBtn.disabled = true;
+    keyBtn.textContent = 'Revealing…';
+    keyStatus.textContent = '';
+
+    try {
+      const res = await fetch(`/api/admin/backups/workspaces/${id}/key`, { credentials: 'include' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.detail || `Server error: ${res.status}`);
+
+      keyValue.value = json.backup_key;
+      keyFilename = json.filename || `marvin-backup-key-${json.workspace_slug || 'workspace'}.txt`;
+      keyResult.style.display = 'flex';
+      keyStatus.textContent = '✓ Store this somewhere safe';
+    } catch (err) {
+      keyStatus.textContent = '✗ ' + (err instanceof Error ? err.message : 'Failed');
+    } finally {
+      keyBtn.disabled = !keySelect.value;
+      keyBtn.textContent = 'Reveal Key';
+    }
+  });
+
+  keyCopy?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(keyValue.value);
+      keyStatus.textContent = '✓ Copied to clipboard';
+    } catch {
+      keyValue.select();
+      keyStatus.textContent = 'Press Ctrl+C to copy';
+    }
+  });
+
+  keyDownload?.addEventListener('click', () => {
+    const blob = new Blob([keyValue.value], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = keyFilename;
+    a.click();
+    URL.revokeObjectURL(a.href);
   });
 
   // ── Filter by workspace ────────────────────────────────────────────────────
@@ -771,6 +922,8 @@ function fmtDate(iso: string): string {
     try {
       const body = new FormData();
       body.append('file', selectedFile);
+      const backupKey = (document.getElementById('import-key') as HTMLInputElement)?.value.trim();
+      if (backupKey) body.append('backup_key', backupKey);
       const qs = overwrite ? '?overwrite=true' : '';
       const res = await fetch(`/api/admin/backups/workspaces/${workspaceId}/import${qs}`, {
         method: 'POST', credentials: 'include', body,

@@ -37,7 +37,9 @@ class WorkspaceSeedLoader:
         self.logger = logger or get_logger(__name__)
         self._seed_user_id: str | None  # lazily cached by _get_seed_user_id (guarded by hasattr)
 
-    def load_seed_file(self, seed_file: Path, overwrite: bool = False, target_group_id: str | None = None) -> dict[str, int]:
+    def load_seed_file(
+        self, seed_file: Path, overwrite: bool = False, target_group_id: str | None = None, backup_key: str | None = None
+    ) -> dict[str, int]:
         """Load a complete workspace seed from a JSON file.
 
         Args:
@@ -45,6 +47,8 @@ class WorkspaceSeedLoader:
             overwrite: When True, existing records matched by slug are updated
             target_group_id: When set, import into this workspace instead of reading from JSON.
                              Used for owner-scoped imports to prevent cross-workspace access.
+            backup_key: Per-workspace backup key used to decrypt secret values. When omitted,
+                        the target workspace's stored key is tried, else secrets import valueless.
 
         Returns:
             Dictionary with counts by type
@@ -54,9 +58,11 @@ class WorkspaceSeedLoader:
         with open(seed_file) as f:
             data = json.load(f)
 
-        return self._load_data(data, zip_file=None, overwrite=overwrite, target_group_id=target_group_id)
+        return self._load_data(data, zip_file=None, overwrite=overwrite, target_group_id=target_group_id, backup_key=backup_key)
 
-    def load_seed_zip(self, zip_path: Path, overwrite: bool = False, target_group_id: str | None = None) -> dict[str, int]:
+    def load_seed_zip(
+        self, zip_path: Path, overwrite: bool = False, target_group_id: str | None = None, backup_key: str | None = None
+    ) -> dict[str, int]:
         """Load a workspace seed bundle from a zip file (JSON + asset binaries).
 
         Args:
@@ -64,6 +70,8 @@ class WorkspaceSeedLoader:
             overwrite: When True, existing records matched by slug are updated
             target_group_id: When set, import into this workspace instead of reading from JSON.
                              Used for owner-scoped imports to prevent cross-workspace access.
+            backup_key: Per-workspace backup key used to decrypt secret values. When omitted,
+                        the target workspace's stored key is tried, else secrets import valueless.
 
         Returns:
             Dictionary with counts by type
@@ -79,10 +87,15 @@ class WorkspaceSeedLoader:
             with zf.open(json_name) as f:
                 data = json.load(f)
 
-            return self._load_data(data, zip_file=zf, overwrite=overwrite, target_group_id=target_group_id)
+            return self._load_data(data, zip_file=zf, overwrite=overwrite, target_group_id=target_group_id, backup_key=backup_key)
 
     def _load_data(  # noqa: C901 — orchestrates the full seed load; splitting would spread tightly-coupled steps
-        self, data: dict[str, Any], zip_file: zipfile.ZipFile | None = None, overwrite: bool = False, target_group_id: str | None = None
+        self,
+        data: dict[str, Any],
+        zip_file: zipfile.ZipFile | None = None,
+        overwrite: bool = False,
+        target_group_id: str | None = None,
+        backup_key: str | None = None,
     ) -> dict[str, int]:
         """Load workspace data from a parsed dict, optionally extracting asset binaries from a zip.
 
@@ -92,11 +105,13 @@ class WorkspaceSeedLoader:
             overwrite: When True, existing records matched by slug are updated
             target_group_id: When set, bypass workspace resolution from JSON and import
                              directly into this workspace (owner-scoped import path).
+            backup_key: Per-workspace backup key used to decrypt secret values.
 
         Returns:
             Dictionary with counts by type
         """
         self._overwrite = overwrite
+        self._backup_key = backup_key
         results = {
             "collections": 0,
             "tags": 0,
@@ -104,6 +119,9 @@ class WorkspaceSeedLoader:
             "entries": 0,
             "resources": 0,
             "assets": 0,
+            "variables": 0,
+            "secrets": 0,
+            "ai_settings": 0,
             "errors": 0,
         }
 
@@ -198,6 +216,23 @@ class WorkspaceSeedLoader:
                     self.logger.error(f"Failed to create entry {entry_data.get('slug')}: {e}")
                     results["errors"] += 1
 
+        # 6. Workspace settings: variables, AI policy, secrets. Scoped to the resolved workspace, so
+        # they are skipped on a metadata-only load that never bound a group_id.
+        if self.repos.group_id:
+            variables_data = data.get("variables", [])
+            if variables_data:
+                self.logger.info(f"Importing {len(variables_data)} variables...")
+                results["variables"] = self._import_variables(variables_data)
+
+            ai_data = data.get("ai_settings")
+            if ai_data and self._import_ai_settings(ai_data):
+                results["ai_settings"] = 1
+
+            secrets_data = data.get("secrets", [])
+            if secrets_data:
+                self.logger.info(f"Importing {len(secrets_data)} secrets...")
+                results["secrets"] = self._import_secrets(secrets_data)
+
         self.logger.info(
             f"Seed loaded: {results['collections']} collections, "
             f"{results['tags']} tags, "
@@ -205,6 +240,9 @@ class WorkspaceSeedLoader:
             f"{results['entries']} entries, "
             f"{results['resources']} resources, "
             f"{results['assets']} assets, "
+            f"{results['variables']} variables, "
+            f"{results['secrets']} secrets, "
+            f"{results['ai_settings']} AI settings, "
             f"{results['errors']} errors"
         )
 
@@ -712,6 +750,171 @@ class WorkspaceSeedLoader:
         name = data.get("name") or data.get("slug")
         # TagsRepository.create is find-or-create by slug, so re-import doesn't duplicate.
         self.repos.tags.create(TagCreate(name=name, slug=data.get("slug"), color=data.get("color")))
+
+    def _import_variables(self, variables_data: list[dict[str, Any]]) -> int:
+        """Create/update workspace variables (plaintext) by slug. Idempotent unless overwrite."""
+        from marvin.db.models.groups.variables import WorkspaceVariable
+
+        count = 0
+        for v in variables_data:
+            slug = v.get("slug")
+            if not slug:
+                continue
+            existing = self.repos.session.query(WorkspaceVariable).filter_by(group_id=self.repos.group_id, slug=slug).first()
+            try:
+                if existing:
+                    if not self._overwrite:
+                        self.logger.debug(f"Variable already exists: {slug}")
+                        continue
+                    existing.name = v.get("name", slug)
+                    existing.description = v.get("description")
+                    existing.value = v.get("value", existing.value)
+                else:
+                    self.repos.session.add(
+                        WorkspaceVariable(
+                            session=self.repos.session,
+                            group_id=self.repos.group_id,
+                            name=v.get("name", slug),
+                            slug=slug,
+                            description=v.get("description"),
+                            value=v.get("value", ""),
+                        )
+                    )
+                self.repos.session.commit()
+                count += 1
+                self.logger.info(f"Imported variable: {slug}")
+            except Exception as e:
+                self.repos.session.rollback()
+                self.logger.error(f"Failed to import variable {slug}: {e}")
+        return count
+
+    def _import_ai_settings(self, ai_data: dict[str, Any]) -> bool:
+        """Upsert the workspace AI policy row. Existing settings are left alone unless overwrite."""
+        from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+        # camelCase bundle key -> model attribute
+        field_map = {
+            "enabled": "enabled",
+            "credentialMode": "credential_mode",
+            "provider": "provider",
+            "model": "model",
+            "secretRef": "secret_ref",
+            "approvalMode": "approval_mode",
+            "invocationSources": "invocation_sources",
+            "operationOverrides": "operation_overrides",
+            "budgetConfig": "budget_config",
+            "loggingConfig": "logging_config",
+            "moderationConfig": "moderation_config",
+            "mediaPresets": "media_presets",
+            "externalMcpEnabled": "external_mcp_enabled",
+            "assistantName": "assistant_name",
+            "personaPrompt": "persona_prompt",
+            "defaultRegister": "default_register",
+        }
+
+        row = self.repos.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.repos.group_id).first()
+        if row and not self._overwrite:
+            self.logger.debug("AI settings already exist; skipping (use overwrite to replace)")
+            return False
+
+        try:
+            if row is None:
+                row = WorkspaceAISettingsModel(session=self.repos.session, group_id=self.repos.group_id)
+                self.repos.session.add(row)
+            for json_key, attr in field_map.items():
+                if json_key in ai_data and hasattr(row, attr):
+                    setattr(row, attr, ai_data[json_key])
+            self.repos.session.commit()
+            self.logger.info("Imported AI settings")
+            return True
+        except Exception as e:
+            self.repos.session.rollback()
+            self.logger.error(f"Failed to import AI settings: {e}")
+            return False
+
+    def _resolve_backup_key(self) -> str | None:
+        """The operator-supplied backup key, or the workspace's stored key (same-workspace restore)."""
+        if self._backup_key:
+            return self._backup_key
+        from marvin.services.backup.keys import get_stored_backup_key
+
+        return get_stored_backup_key(self.repos.session, self.repos.group_id)
+
+    def _store_secret_value(self, row, slug: str, value: str) -> None:
+        """Persist a decrypted secret value using the configured backend (mirrors the secrets API)."""
+        from marvin.core.config import get_app_settings
+
+        if get_app_settings().SECRET_BACKEND == "database":
+            from marvin.services.secrets.backends.database import _get_fernet
+
+            row.encrypted_value = _get_fernet().encrypt(value.encode()).decode()
+        else:
+            row.encrypted_value = "_backend_managed_"
+            try:
+                from marvin.services.secrets import get_secret_backend
+
+                get_secret_backend().set(slug, value, self.repos.group_id)
+            except Exception as e:
+                self.logger.error(f"Failed to store secret '{slug}' in backend: {e}")
+
+    def _import_secrets(self, secrets_data: list[dict[str, Any]]) -> int:
+        """Recreate workspace secrets, decrypting values with the backup key when available.
+
+        Without a usable key (or for metadata-only entries) a secret is created as a valueless shell
+        that the operator re-enters later. Existing secrets are skipped unless overwrite.
+        """
+        from marvin.db.models.groups.secrets import WorkspaceSecret
+        from marvin.services.backup.keys import decrypt_secret_value
+
+        backup_key = self._resolve_backup_key()
+        count = 0
+        shells = 0
+
+        for s in secrets_data:
+            slug = s.get("slug")
+            if not slug:
+                continue
+            existing = self.repos.session.query(WorkspaceSecret).filter_by(group_id=self.repos.group_id, slug=slug).first()
+            if existing and not self._overwrite:
+                self.logger.debug(f"Secret already exists: {slug}")
+                continue
+
+            value = None
+            token = s.get("encryptedBackupValue")
+            if token and backup_key:
+                try:
+                    value = decrypt_secret_value(token, backup_key)
+                except Exception:
+                    self.logger.warning(f"Could not decrypt secret '{slug}' with the provided backup key")
+
+            try:
+                row = existing or WorkspaceSecret(
+                    session=self.repos.session,
+                    group_id=self.repos.group_id,
+                    name=s.get("name", slug),
+                    slug=slug,
+                    encrypted_value="_backend_managed_",
+                )
+                row.name = s.get("name", slug)
+                row.description = s.get("description")
+                if value is not None:
+                    self._store_secret_value(row, slug, value)
+                else:
+                    shells += 1
+                    if not existing:
+                        row.encrypted_value = "_backend_managed_"
+                if not existing:
+                    self.repos.session.add(row)
+                self.repos.session.commit()
+                count += 1
+                self.logger.info(f"Imported secret: {slug}{'' if value is not None else ' (no value — needs re-entry)'}")
+            except Exception as e:
+                self.repos.session.rollback()
+                self.logger.error(f"Failed to import secret {slug}: {e}")
+
+        if shells:
+            self.logger.warning(f"{shells} secret(s) imported without a value (no/invalid backup key) — re-enter them in the workspace")
+        return count
 
     def _link_tags(self, junction_cls, fk_field: str, entity_id: str, tag_slugs: list[str]) -> None:
         """Link an entity to tags by slug through its junction table, creating missing tags.
