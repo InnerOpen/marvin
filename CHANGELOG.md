@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.25 (2026-07-25)
+
+### Bug Fixes
+
+- **frontend**: Pin marvin-sdk to next.28 so the built image has the tags module
+  ([`82dcb3e`](https://github.com/InnerOpen/marvin/commit/82dcb3e1355f6cb09eab2e82b2b144b048e613b6))
+
+
 ## v1.0.0-rc.24 (2026-07-25)
 
 ### Features
