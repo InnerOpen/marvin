@@ -54,6 +54,20 @@ class WorkspaceExporter:
             "variables": self._export_variables(),
             "ai_settings": self._export_ai_settings(),
             "secrets": self._export_secrets(),
+            # Connections & config (credentials travel via the secrets section above, referenced by
+            # secret_ref). Notifiers are intentionally omitted — Apprise is moving to an integration.
+            "integrations": self._export_integrations(),
+            "ai_providers": self._export_ai_providers(),
+            "mcp_servers": self._export_mcp_servers(),
+            "smtp_profiles": self._export_smtp_profiles(),
+            "webhooks": self._export_webhooks(),
+            "incoming_webhooks": self._export_incoming_webhooks(),
+            "automations": self._export_automations(),
+            "scheduled_tasks": self._export_scheduled_tasks(),
+            "forms": self._export_forms(),
+            "email_templates": self._export_email_templates(),
+            "email_subscriptions": self._export_email_subscriptions(),
+            "integration_subscriptions": self._export_integration_subscriptions(),
         }
 
         self.logger.info(
@@ -65,7 +79,19 @@ class WorkspaceExporter:
             f"{len(export_data['resources'])} resources, "
             f"{len(export_data['variables'])} variables, "
             f"{len(export_data['secrets'])} secrets, "
-            f"{'1' if export_data['ai_settings'] else '0'} AI settings"
+            f"{'1' if export_data['ai_settings'] else '0'} AI settings, "
+            f"{len(export_data['integrations'])} integrations, "
+            f"{len(export_data['ai_providers'])} AI providers, "
+            f"{len(export_data['mcp_servers'])} MCP servers, "
+            f"{len(export_data['smtp_profiles'])} SMTP profiles, "
+            f"{len(export_data['webhooks'])} webhooks, "
+            f"{len(export_data['incoming_webhooks'])} incoming webhooks, "
+            f"{len(export_data['automations'])} automations, "
+            f"{len(export_data['scheduled_tasks'])} scheduled tasks, "
+            f"{len(export_data['forms'])} forms, "
+            f"{len(export_data['email_templates'])} email templates, "
+            f"{len(export_data['email_subscriptions'])} email subscriptions, "
+            f"{len(export_data['integration_subscriptions'])} integration subscriptions"
         )
 
         return export_data
@@ -564,3 +590,238 @@ class WorkspaceExporter:
             exported.append(item)
 
         return exported
+
+    def _group_rows(self, model, order_col="slug"):
+        """Fetch all rows of a group-scoped model for this workspace, ordered for stable output."""
+        col = getattr(model, order_col, None)
+        q = self.repos.session.query(model).filter(model.group_id == self.repos.group_id)
+        return q.order_by(col).all() if col is not None else q.all()
+
+    def _export_integrations(self) -> list[dict[str, Any]]:
+        """External service connections. Credential is not on the row — only secret_ref (see secrets)."""
+        from marvin.db.models.groups.integrations import IntegrationModel
+
+        return [
+            {
+                "provider": r.provider,
+                "name": r.name,
+                "slug": r.slug,
+                "enabled": r.enabled,
+                "config": r.config,
+                "secretRef": r.secret_ref,
+            }
+            for r in self._group_rows(IntegrationModel)
+        ]
+
+    def _export_ai_providers(self) -> list[dict[str, Any]]:
+        """AI provider connections with their model catalog nested. Credential via secret_ref."""
+        from marvin.db.models.groups.ai_providers import AIModelModel, AIProviderModel
+
+        out = []
+        for r in self._group_rows(AIProviderModel):
+            models = (
+                self.repos.session.query(AIModelModel)
+                .filter(AIModelModel.provider_id == r.id)
+                .order_by(AIModelModel.model_id)
+                .all()
+            )
+            out.append(
+                {
+                    "name": r.name,
+                    "slug": r.slug,
+                    "providerType": r.provider_type,
+                    "secretRef": r.secret_ref,
+                    "baseUrl": r.base_url,
+                    "enabled": r.enabled,
+                    "isDefault": r.is_default,
+                    "metadataJson": r.metadata_json,
+                    "models": [
+                        {
+                            "name": m.name,
+                            "modelId": m.model_id,
+                            "isDefault": m.is_default,
+                            "contextWindow": m.context_window,
+                            "maxOutputTokens": m.max_output_tokens,
+                            "supportsVision": m.supports_vision,
+                            "supportsTools": m.supports_tools,
+                            "enabled": m.enabled,
+                        }
+                        for m in models
+                    ],
+                }
+            )
+        return out
+
+    def _export_mcp_servers(self) -> list[dict[str, Any]]:
+        """External MCP server connections. Credential via secret_ref."""
+        from marvin.db.models.groups.mcp_servers import WorkspaceMcpServerModel
+
+        return [
+            {
+                "name": r.name,
+                "slug": r.slug,
+                "transport": r.transport,
+                "url": r.url,
+                "secretRef": r.secret_ref,
+                "enabled": r.enabled,
+                "allowedTools": r.allowed_tools,
+            }
+            for r in self._group_rows(WorkspaceMcpServerModel)
+        ]
+
+    def _export_smtp_profiles(self) -> list[dict[str, Any]]:
+        """SMTP connections. The password lives in the secrets section, referenced by secretRef."""
+        from marvin.db.models.groups.smtp_profiles import WorkspaceSMTPProfileModel
+
+        return [
+            {
+                "name": r.name,
+                "host": r.host,
+                "port": r.port,
+                "username": r.username,
+                "secretRef": r.secret_ref,
+                "fromName": r.from_name,
+                "fromEmail": r.from_email,
+                "authStrategy": r.auth_strategy,
+                "isActive": r.is_active,
+            }
+            for r in self._group_rows(WorkspaceSMTPProfileModel, order_col="name")
+        ]
+
+    def _export_webhooks(self) -> list[dict[str, Any]]:
+        """Outgoing webhooks. {{SLUG}} references in headers resolve to secrets at send time."""
+        from marvin.db.models.groups.webhooks import GroupWebhooksModel
+
+        return [
+            {
+                "name": r.name,
+                "url": str(r.url) if r.url is not None else None,
+                # method/webhook_type are Python enums — export the plain value (json-serializable).
+                "method": getattr(r.method, "value", r.method),
+                "webhookType": getattr(r.webhook_type, "value", r.webhook_type),
+                "enabled": r.enabled,
+                "subscribedEvents": r.subscribed_events,
+                "headersJson": r.headers_json,
+                "customPayload": r.custom_payload,
+                "scheduledTime": r.scheduled_time.isoformat() if r.scheduled_time else None,
+            }
+            for r in self._group_rows(GroupWebhooksModel, order_col="name")
+        ]
+
+    def _export_incoming_webhooks(self) -> list[dict[str, Any]]:
+        """Inbound webhook endpoints. The token is carried so restored URLs keep working."""
+        from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
+
+        return [
+            {
+                "name": r.name,
+                "slug": r.slug,
+                "description": r.description,
+                "enabled": r.enabled,
+                "token": r.token,
+            }
+            for r in self._group_rows(WorkspaceIncomingWebhookModel)
+        ]
+
+    def _export_automations(self) -> list[dict[str, Any]]:
+        """Automation definitions (self-contained JSON referencing other objects by slug)."""
+        from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+        return [
+            {"name": r.name, "slug": r.slug, "enabled": r.enabled, "definition": r.definition}
+            for r in self._group_rows(WorkspaceAutomationModel)
+        ]
+
+    def _export_scheduled_tasks(self) -> list[dict[str, Any]]:
+        """Scheduled task definitions. Runtime state (last/next run, counters) is not exported."""
+        from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+
+        return [
+            {
+                "name": r.name,
+                "slug": r.slug,
+                "description": r.description,
+                "enabled": r.enabled,
+                "scheduleType": r.schedule_type,
+                "scheduleConfig": r.schedule_config,
+                "taskType": r.task_type,
+                "taskConfig": r.task_config,
+                "retryPolicy": r.retry_policy,
+            }
+            for r in self._group_rows(ScheduledTaskModel)
+        ]
+
+    def _export_forms(self) -> list[dict[str, Any]]:
+        """Form definitions. Submissions are not exported."""
+        from marvin.db.models.platform.forms import Forms
+
+        return [
+            {
+                "slug": r.slug,
+                "name": r.name,
+                "description": r.description,
+                "schemaJson": r.schema_json,
+                "settingsJson": r.settings_json,
+                "metadataJson": r.metadata_json,
+                "status": getattr(r.status, "value", r.status),
+            }
+            for r in self._group_rows(Forms)
+        ]
+
+    def _export_email_templates(self) -> list[dict[str, Any]]:
+        """Workspace email templates (keyed by template_type on restore)."""
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+
+        return [
+            {
+                "templateType": r.template_type,
+                "name": r.name,
+                "description": r.description,
+                "subject": r.subject,
+                "customHtml": r.custom_html,
+                "bodyMarkdown": r.body_markdown,
+                "availableVariables": r.available_variables,
+                "enabled": r.enabled,
+            }
+            for r in self._group_rows(EmailTemplateModel, order_col="template_type")
+        ]
+
+    def _export_email_subscriptions(self) -> list[dict[str, Any]]:
+        """Email event subscriptions. The template FK is exported as its type for re-resolution."""
+        from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+
+        out = []
+        for r in self._group_rows(EmailEventSubscriptionModel, order_col="event_type"):
+            template = self.repos.session.query(EmailTemplateModel).filter(EmailTemplateModel.id == r.template_id).first()
+            out.append(
+                {
+                    "templateType": template.template_type if template else None,
+                    "templateName": template.name if template else None,
+                    "eventType": r.event_type,
+                    "recipientType": r.recipient_type,
+                    "recipientField": r.recipient_field,
+                    "recipientEmail": r.recipient_email,
+                    "enabled": r.enabled,
+                }
+            )
+        return out
+
+    def _export_integration_subscriptions(self) -> list[dict[str, Any]]:
+        """Integration event subscriptions. The integration FK is exported as its slug."""
+        from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+        from marvin.db.models.groups.integrations import IntegrationModel
+
+        out = []
+        for r in self._group_rows(IntegrationEventSubscriptionModel, order_col="event_type"):
+            integration = self.repos.session.query(IntegrationModel).filter(IntegrationModel.id == r.integration_id).first()
+            out.append(
+                {
+                    "integrationSlug": integration.slug if integration else None,
+                    "eventType": r.event_type,
+                    "action": r.action,
+                    "args": r.args,
+                    "enabled": r.enabled,
+                }
+            )
+        return out

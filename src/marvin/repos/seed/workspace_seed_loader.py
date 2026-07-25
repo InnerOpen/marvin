@@ -122,6 +122,18 @@ class WorkspaceSeedLoader:
             "variables": 0,
             "secrets": 0,
             "ai_settings": 0,
+            "integrations": 0,
+            "ai_providers": 0,
+            "mcp_servers": 0,
+            "smtp_profiles": 0,
+            "webhooks": 0,
+            "incoming_webhooks": 0,
+            "automations": 0,
+            "scheduled_tasks": 0,
+            "forms": 0,
+            "email_templates": 0,
+            "email_subscriptions": 0,
+            "integration_subscriptions": 0,
             "errors": 0,
         }
 
@@ -233,6 +245,21 @@ class WorkspaceSeedLoader:
                 self.logger.info(f"Importing {len(secrets_data)} secrets...")
                 results["secrets"] = self._import_secrets(secrets_data)
 
+            # 7. Connections & config. Dependency order: providers→models, integrations→subscriptions,
+            # templates→subscriptions. Credentials are referenced by secret_ref (restored in secrets).
+            results["ai_providers"] = self._import_ai_providers(data.get("ai_providers", []))
+            results["integrations"] = self._import_integrations(data.get("integrations", []))
+            results["mcp_servers"] = self._import_mcp_servers(data.get("mcp_servers", []))
+            results["smtp_profiles"] = self._import_smtp_profiles(data.get("smtp_profiles", []))
+            results["webhooks"] = self._import_webhooks(data.get("webhooks", []))
+            results["incoming_webhooks"] = self._import_incoming_webhooks(data.get("incoming_webhooks", []))
+            results["email_templates"] = self._import_email_templates(data.get("email_templates", []))
+            results["email_subscriptions"] = self._import_email_subscriptions(data.get("email_subscriptions", []))
+            results["integration_subscriptions"] = self._import_integration_subscriptions(data.get("integration_subscriptions", []))
+            results["automations"] = self._import_automations(data.get("automations", []))
+            results["scheduled_tasks"] = self._import_scheduled_tasks(data.get("scheduled_tasks", []))
+            results["forms"] = self._import_forms(data.get("forms", []))
+
         self.logger.info(
             f"Seed loaded: {results['collections']} collections, "
             f"{results['tags']} tags, "
@@ -244,6 +271,13 @@ class WorkspaceSeedLoader:
             f"{results['secrets']} secrets, "
             f"{results['ai_settings']} AI settings, "
             f"{results['errors']} errors"
+        )
+        self.logger.info(
+            f"Connections loaded: {results['integrations']} integrations, {results['ai_providers']} AI providers, "
+            f"{results['mcp_servers']} MCP servers, {results['smtp_profiles']} SMTP profiles, {results['webhooks']} webhooks, "
+            f"{results['incoming_webhooks']} incoming webhooks, {results['automations']} automations, "
+            f"{results['scheduled_tasks']} scheduled tasks, {results['forms']} forms, {results['email_templates']} email templates, "
+            f"{results['email_subscriptions']} email subs, {results['integration_subscriptions']} integration subs"
         )
 
         # 6. Send owner invitation emails if provided (admin path only — owner already has access)
@@ -914,6 +948,435 @@ class WorkspaceSeedLoader:
 
         if shells:
             self.logger.warning(f"{shells} secret(s) imported without a value (no/invalid backup key) — re-enter them in the workspace")
+        return count
+
+    # ── Connections & config ────────────────────────────────────────────────────────────────────
+    def _upsert(self, model, key_field: str, key_value, values: dict):
+        """Find a group-scoped row by (group_id, key_field==key_value); create it, or update it when
+        overwrite is on. Returns (row, skipped) where skipped is True only for an existing row left
+        untouched. Commits."""
+        existing = (
+            self.repos.session.query(model).filter(model.group_id == self.repos.group_id, getattr(model, key_field) == key_value).first()
+        )
+        if existing:
+            if not self._overwrite:
+                return existing, True
+            for k, v in values.items():
+                setattr(existing, k, v)
+            self.repos.session.commit()
+            return existing, False
+        row = model(session=self.repos.session, group_id=self.repos.group_id, **{key_field: key_value}, **values)
+        self.repos.session.add(row)
+        self.repos.session.commit()
+        return row, False
+
+    def _import_simple(self, model, key_field: str, rows: list[dict[str, Any]], build) -> int:
+        """Upsert a list of rows keyed by `key_field`. `build(d)` maps a bundle dict to (key, values);
+        return (None, _) to skip a row. Rolls back and logs per-row on error."""
+        if not self.repos.group_id or not rows:
+            return 0
+        count = 0
+        for d in rows:
+            try:
+                key, values = build(d)
+                if key is None:
+                    continue
+                _, skipped = self._upsert(model, key_field, key, values)
+                if not skipped:
+                    count += 1
+            except Exception as e:
+                self.repos.session.rollback()
+                self.logger.error(f"Failed to import {model.__tablename__} row {d.get('slug') or d.get('name')}: {e}")
+        return count
+
+    def _import_integrations(self, rows: list[dict[str, Any]]) -> int:
+        from marvin.db.models.groups.integrations import IntegrationModel
+
+        return self._import_simple(
+            IntegrationModel,
+            "slug",
+            rows,
+            lambda d: (
+                d.get("slug"),
+                {
+                    "provider": d.get("provider"),
+                    "name": d.get("name", d.get("slug")),
+                    "enabled": d.get("enabled", True),
+                    "config": d.get("config"),
+                    "secret_ref": d.get("secretRef"),
+                },
+            ),
+        )
+
+    def _import_ai_providers(self, rows: list[dict[str, Any]]) -> int:
+        if not self.repos.group_id or not rows:
+            return 0
+        from marvin.db.models.groups.ai_providers import AIModelModel, AIProviderModel
+
+        count = 0
+        for d in rows:
+            slug = d.get("slug")
+            if not slug:
+                continue
+            try:
+                provider, skipped = self._upsert(
+                    AIProviderModel,
+                    "slug",
+                    slug,
+                    {
+                        "name": d.get("name", slug),
+                        "provider_type": d.get("providerType"),
+                        "secret_ref": d.get("secretRef"),
+                        "base_url": d.get("baseUrl"),
+                        "enabled": d.get("enabled", True),
+                        "is_default": d.get("isDefault", False),
+                        "metadata_json": d.get("metadataJson"),
+                    },
+                )
+                if skipped:
+                    continue
+                count += 1
+                for m in d.get("models", []):
+                    mid = m.get("modelId")
+                    if not mid:
+                        continue
+                    existing_m = (
+                        self.repos.session.query(AIModelModel)
+                        .filter(AIModelModel.provider_id == provider.id, AIModelModel.model_id == mid)
+                        .first()
+                    )
+                    mvals = {
+                        "name": m.get("name", mid),
+                        "is_default": m.get("isDefault", False),
+                        "context_window": m.get("contextWindow"),
+                        "max_output_tokens": m.get("maxOutputTokens"),
+                        "supports_vision": m.get("supportsVision", False),
+                        "supports_tools": m.get("supportsTools", False),
+                        "enabled": m.get("enabled", True),
+                    }
+                    if existing_m:
+                        if self._overwrite:
+                            for k, v in mvals.items():
+                                setattr(existing_m, k, v)
+                    else:
+                        self.repos.session.add(
+                            AIModelModel(session=self.repos.session, group_id=self.repos.group_id, provider_id=provider.id, model_id=mid, **mvals)
+                        )
+                    self.repos.session.commit()
+            except Exception as e:
+                self.repos.session.rollback()
+                self.logger.error(f"Failed to import AI provider {slug}: {e}")
+        return count
+
+    def _import_mcp_servers(self, rows: list[dict[str, Any]]) -> int:
+        from marvin.db.models.groups.mcp_servers import WorkspaceMcpServerModel
+
+        seed_user = self._get_seed_user_id()
+        return self._import_simple(
+            WorkspaceMcpServerModel,
+            "slug",
+            rows,
+            lambda d: (
+                d.get("slug"),
+                {
+                    "name": d.get("name", d.get("slug")),
+                    "transport": d.get("transport"),
+                    "url": d.get("url"),
+                    "secret_ref": d.get("secretRef"),
+                    "enabled": d.get("enabled", True),
+                    "allowed_tools": d.get("allowedTools"),
+                    "created_by": seed_user,
+                },
+            ),
+        )
+
+    def _import_smtp_profiles(self, rows: list[dict[str, Any]]) -> int:
+        from marvin.db.models.groups.smtp_profiles import WorkspaceSMTPProfileModel
+
+        # secret_ref is carried verbatim; it names the SMTP-password secret restored in the secrets
+        # section under the same slug, so it resolves even though the profile gets a new id.
+        return self._import_simple(
+            WorkspaceSMTPProfileModel,
+            "name",
+            rows,
+            lambda d: (
+                d.get("name"),
+                {
+                    "host": d.get("host"),
+                    "port": d.get("port", 587),
+                    "username": d.get("username"),
+                    "secret_ref": d.get("secretRef"),
+                    "from_name": d.get("fromName"),
+                    "from_email": d.get("fromEmail"),
+                    "auth_strategy": d.get("authStrategy", "TLS"),
+                    "is_active": d.get("isActive", False),
+                },
+            ),
+        )
+
+    def _import_webhooks(self, rows: list[dict[str, Any]]) -> int:
+        if not self.repos.group_id or not rows:
+            return 0
+        from datetime import datetime
+
+        from marvin.db.models.groups.webhooks import GroupWebhooksModel, Method
+        from marvin.services.event_bus_service.event_types import WebhookMode
+
+        def build(d):
+            url = d.get("url")
+            if not url:
+                return None, None
+            try:
+                method = Method(d["method"]) if d.get("method") else Method.POST
+            except ValueError:
+                method = Method.POST
+            wt = None
+            if d.get("webhookType"):
+                try:
+                    wt = WebhookMode(d["webhookType"])
+                except ValueError:
+                    wt = None
+            st = None
+            if d.get("scheduledTime"):
+                try:
+                    st = datetime.fromisoformat(d["scheduledTime"])
+                except ValueError:
+                    st = None
+            return url, {
+                "name": d.get("name"),
+                "method": method,
+                "webhook_type": wt,
+                "enabled": d.get("enabled", False),
+                "subscribed_events": d.get("subscribedEvents"),
+                "headers_json": d.get("headersJson"),
+                "custom_payload": d.get("customPayload"),
+                "scheduled_time": st,
+            }
+
+        return self._import_simple(GroupWebhooksModel, "url", rows, build)
+
+    def _import_incoming_webhooks(self, rows: list[dict[str, Any]]) -> int:
+        if not self.repos.group_id or not rows:
+            return 0
+        from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
+
+        def build(d):
+            slug = d.get("slug")
+            if not slug:
+                return None, None
+            token = d.get("token")
+            if token:
+                # The token is globally unique — drop it if another webhook already holds it, so
+                # the import doesn't fail. Deny-by-default until an admin re-mints one.
+                clash = self.repos.session.query(WorkspaceIncomingWebhookModel).filter(WorkspaceIncomingWebhookModel.token == token).first()
+                if clash and not (clash.group_id == self.repos.group_id and clash.slug == slug):
+                    self.logger.warning(f"Incoming webhook '{slug}': token already in use, importing without it")
+                    token = None
+            return slug, {
+                "name": d.get("name", slug),
+                "description": d.get("description"),
+                "enabled": d.get("enabled", False),
+                "token": token,
+            }
+
+        return self._import_simple(WorkspaceIncomingWebhookModel, "slug", rows, build)
+
+    def _import_automations(self, rows: list[dict[str, Any]]) -> int:
+        from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+        seed_user = self._get_seed_user_id()
+        return self._import_simple(
+            WorkspaceAutomationModel,
+            "slug",
+            rows,
+            lambda d: (
+                d.get("slug"),
+                {
+                    "name": d.get("name", d.get("slug")),
+                    "enabled": d.get("enabled", True),
+                    "definition": d.get("definition"),
+                    "created_by": seed_user,
+                },
+            ),
+        )
+
+    def _import_scheduled_tasks(self, rows: list[dict[str, Any]]) -> int:
+        from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+
+        return self._import_simple(
+            ScheduledTaskModel,
+            "slug",
+            rows,
+            lambda d: (
+                d.get("slug"),
+                {
+                    "name": d.get("name", d.get("slug")),
+                    "description": d.get("description"),
+                    "enabled": d.get("enabled", True),
+                    "schedule_type": d.get("scheduleType"),
+                    "schedule_config": d.get("scheduleConfig") or {},
+                    "task_type": d.get("taskType"),
+                    "task_config": d.get("taskConfig") or {},
+                    "retry_policy": d.get("retryPolicy"),
+                },
+            ),
+        )
+
+    def _import_forms(self, rows: list[dict[str, Any]]) -> int:
+        from marvin.db.models.platform.forms import Forms
+
+        return self._import_simple(
+            Forms,
+            "slug",
+            rows,
+            lambda d: (
+                d.get("slug"),
+                {
+                    "name": d.get("name", d.get("slug")),
+                    "description": d.get("description"),
+                    "schema_json": d.get("schemaJson") or {},
+                    "settings_json": d.get("settingsJson"),
+                    "metadata_json": d.get("metadataJson"),
+                    "status": d.get("status", "draft"),
+                },
+            ),
+        )
+
+    def _import_email_templates(self, rows: list[dict[str, Any]]) -> int:
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+
+        return self._import_simple(
+            EmailTemplateModel,
+            "template_type",
+            rows,
+            lambda d: (
+                d.get("templateType"),
+                {
+                    "name": d.get("name", d.get("templateType")),
+                    "description": d.get("description"),
+                    "subject": d.get("subject", ""),
+                    "custom_html": d.get("customHtml"),
+                    "body_markdown": d.get("bodyMarkdown"),
+                    "available_variables": d.get("availableVariables"),
+                    "enabled": d.get("enabled", True),
+                },
+            ),
+        )
+
+    def _import_email_subscriptions(self, rows: list[dict[str, Any]]) -> int:
+        if not self.repos.group_id or not rows:
+            return 0
+        from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+
+        count = 0
+        for d in rows:
+            try:
+                template = None
+                if d.get("templateType"):
+                    template = (
+                        self.repos.session.query(EmailTemplateModel)
+                        .filter(EmailTemplateModel.group_id == self.repos.group_id, EmailTemplateModel.template_type == d["templateType"])
+                        .first()
+                    )
+                if template is None and d.get("templateName"):
+                    template = (
+                        self.repos.session.query(EmailTemplateModel)
+                        .filter(EmailTemplateModel.group_id == self.repos.group_id, EmailTemplateModel.name == d["templateName"])
+                        .first()
+                    )
+                if template is None:
+                    self.logger.warning(f"Email subscription skipped — template '{d.get('templateType')}' not found")
+                    continue
+
+                existing = (
+                    self.repos.session.query(EmailEventSubscriptionModel)
+                    .filter(
+                        EmailEventSubscriptionModel.group_id == self.repos.group_id,
+                        EmailEventSubscriptionModel.template_id == template.id,
+                        EmailEventSubscriptionModel.event_type == d.get("eventType"),
+                        EmailEventSubscriptionModel.recipient_type == d.get("recipientType"),
+                        EmailEventSubscriptionModel.recipient_field == d.get("recipientField"),
+                        EmailEventSubscriptionModel.recipient_email == d.get("recipientEmail"),
+                    )
+                    .first()
+                )
+                if existing:
+                    if not self._overwrite:
+                        continue
+                    existing.enabled = d.get("enabled", True)
+                else:
+                    self.repos.session.add(
+                        EmailEventSubscriptionModel(
+                            session=self.repos.session,
+                            group_id=self.repos.group_id,
+                            template_id=template.id,
+                            event_type=d.get("eventType"),
+                            recipient_type=d.get("recipientType"),
+                            recipient_field=d.get("recipientField"),
+                            recipient_email=d.get("recipientEmail"),
+                            enabled=d.get("enabled", True),
+                        )
+                    )
+                self.repos.session.commit()
+                count += 1
+            except Exception as e:
+                self.repos.session.rollback()
+                self.logger.error(f"Failed to import email subscription: {e}")
+        return count
+
+    def _import_integration_subscriptions(self, rows: list[dict[str, Any]]) -> int:
+        if not self.repos.group_id or not rows:
+            return 0
+        from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+        from marvin.db.models.groups.integrations import IntegrationModel
+
+        count = 0
+        for d in rows:
+            try:
+                integration = None
+                if d.get("integrationSlug"):
+                    integration = (
+                        self.repos.session.query(IntegrationModel)
+                        .filter(IntegrationModel.group_id == self.repos.group_id, IntegrationModel.slug == d["integrationSlug"])
+                        .first()
+                    )
+                if integration is None:
+                    self.logger.warning(f"Integration subscription skipped — integration '{d.get('integrationSlug')}' not found")
+                    continue
+
+                existing = (
+                    self.repos.session.query(IntegrationEventSubscriptionModel)
+                    .filter(
+                        IntegrationEventSubscriptionModel.group_id == self.repos.group_id,
+                        IntegrationEventSubscriptionModel.integration_id == integration.id,
+                        IntegrationEventSubscriptionModel.event_type == d.get("eventType"),
+                        IntegrationEventSubscriptionModel.action == d.get("action"),
+                    )
+                    .first()
+                )
+                if existing:
+                    if not self._overwrite:
+                        continue
+                    existing.args = d.get("args")
+                    existing.enabled = d.get("enabled", True)
+                else:
+                    self.repos.session.add(
+                        IntegrationEventSubscriptionModel(
+                            session=self.repos.session,
+                            group_id=self.repos.group_id,
+                            integration_id=integration.id,
+                            event_type=d.get("eventType"),
+                            action=d.get("action"),
+                            args=d.get("args"),
+                            enabled=d.get("enabled", True),
+                        )
+                    )
+                self.repos.session.commit()
+                count += 1
+            except Exception as e:
+                self.repos.session.rollback()
+                self.logger.error(f"Failed to import integration subscription: {e}")
         return count
 
     def _link_tags(self, junction_cls, fk_field: str, entity_id: str, tag_slugs: list[str]) -> None:
