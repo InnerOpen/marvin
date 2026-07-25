@@ -1,0 +1,47 @@
+{{- if eq .Values.mode "split" }}
+# Two Services, one per Deployment. The frontend reaches the backend via the -backend Service
+# (MARVIN_API_URL); the public route points at the -frontend Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "marvin.fullname" . }}-backend
+  labels:
+    {{- include "marvin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - port: {{ .Values.service.port }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    {{- include "marvin.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "marvin.fullname" . }}-frontend
+  labels:
+    {{- include "marvin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+  - port: {{ .Values.service.frontendPort }}
+    targetPort: frontend
+    protocol: TCP
+    name: frontend
+  selector:
+    {{- include "marvin.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+{{- end }}

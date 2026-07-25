@@ -2,12 +2,34 @@
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
 
+# Deployment topology:
+#   combined — one container runs the API and the server-rendered frontend together (default).
+#   split    — two Deployments: the backend API and the frontend UI, scaled and rolled
+#              independently. Uses the marvin-backend / marvin-frontend images.
+mode: combined
+
 # Image configuration
 image:
+  # Combined mode uses this image. Split mode derives the backend/frontend images from the same
+  # repository + tag by appending -backend / -frontend (override under `split` if they differ).
   repository: marvin
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: "latest"
+
+# Split-mode configuration (ignored when mode=combined). The backend and frontend images default
+# to <image.repository>-backend / -frontend at <image.tag>; override here for a different registry.
+split:
+  backend:
+    replicaCount: 1
+    image:
+      repository: ""   # defaults to "<image.repository>-backend"
+      tag: ""          # defaults to image.tag
+  frontend:
+    replicaCount: 1
+    image:
+      repository: ""   # defaults to "<image.repository>-frontend"
+      tag: ""          # defaults to image.tag
 
 # imagePullSecrets for private registries
 imagePullSecrets: []

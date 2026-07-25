@@ -143,6 +143,38 @@ kubectl create secret generic marvin-secrets \
 # and reference the sealed secret in deployment
 ```
 
+## Deployment Modes
+
+The chart runs Marvin in one of two topologies, chosen with `mode`:
+
+- **`combined`** (default) — one Deployment whose container runs the API and the server-rendered
+  frontend together (via the `marvin` image). Simplest to operate; the API and UI scale and roll as
+  a unit.
+- **`split`** — two Deployments, the API (`marvin-backend` image) and the frontend (`marvin-frontend`
+  image), each with its own Service, scaled and rolled independently. The frontend reaches the API
+  over the in-cluster `<release>-backend` Service; the public route points at the frontend. Use this
+  when you want to scale the stateless UI separately from the API, or roll one without restarting the
+  other.
+
+```yaml
+# split mode
+mode: split
+split:
+  backend:
+    replicaCount: 2
+  frontend:
+    replicaCount: 3
+# The browser-facing API URL must be set so injected pages can reach the API from outside the
+# cluster (the API is otherwise only on an internal Service):
+config:
+  publicApiUrl: https://marvin.example.com
+```
+
+The backend and frontend images default to `<image.repository>-backend` / `-frontend` at
+`image.tag`; override `split.backend.image` / `split.frontend.image` for a different registry. Both
+images come from the same build as the combined one — see the Dockerfile's `backend` and `frontend`
+targets.
+
 ## Database Migrations
 
 The application runs `alembic upgrade head` itself during startup, before it begins serving. The

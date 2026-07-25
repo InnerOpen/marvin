@@ -2,7 +2,7 @@ apiVersion: v2
 name: marvin
 description: Marvin event bus application with webhooks and scheduler
 type: application
-version: 1.3.0
+version: 1.4.0
 appVersion: "2026.06.05"
 
 keywords:

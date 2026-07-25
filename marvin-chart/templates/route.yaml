@@ -17,10 +17,11 @@ spec:
   path: {{ .Values.route.path }}
   to:
     kind: Service
-    name: {{ include "marvin.fullname" . }}
+    # Split mode serves the UI from its own Service; combined mode has one Service with both ports.
+    name: {{ if eq .Values.mode "split" }}{{ include "marvin.fullname" . }}-frontend{{ else }}{{ include "marvin.fullname" . }}{{ end }}
     weight: 100
   port:
-    targetPort: {{ .Values.route.targetPort | default "http" }}
+    targetPort: {{ if eq .Values.mode "split" }}frontend{{ else }}{{ .Values.route.targetPort | default "http" }}{{ end }}
   {{- if .Values.route.tls.enabled }}
   tls:
     termination: {{ .Values.route.tls.termination }}

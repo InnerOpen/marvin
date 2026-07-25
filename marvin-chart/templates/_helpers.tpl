@@ -93,3 +93,94 @@ DeploymentConfig
 Deployment
 {{- end -}}
 {{- end -}}
+
+{{/*
+Split-mode image references. Backend/frontend default to <image.repository>-backend / -frontend at
+image.tag (falling back to the chart appVersion), and can be overridden via split.<component>.image.
+*/}}
+{{- define "marvin.backendImage" -}}
+{{- $repo := .Values.split.backend.image.repository | default (printf "%s-backend" .Values.image.repository) -}}
+{{- $tag := .Values.split.backend.image.tag | default .Values.image.tag | default .Chart.AppVersion -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
+
+{{- define "marvin.frontendImage" -}}
+{{- $repo := .Values.split.frontend.image.repository | default (printf "%s-frontend" .Values.image.repository) -}}
+{{- $tag := .Values.split.frontend.image.tag | default .Values.image.tag | default .Chart.AppVersion -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
+
+{{/*
+Shared API environment, sourced from the ConfigMap and Secret. Used by the combined container and
+the split backend. Frontend-only variables (FRONTEND_PORT, PUBLIC_MARVIN_API_URL, MARVIN_API_URL)
+are added by each caller. Keep in step with configmap.yaml / secret.yaml.
+*/}}
+{{- define "marvin.apiEnv" -}}
+- name: PRODUCTION
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: production
+- name: ALLOW_SIGNUP
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: allowSignup
+- name: LOG_LEVEL
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: logLevel
+- name: DB_ENGINE
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: dbEngine
+- name: DATA_DIR
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: dataDir
+- name: API_PORT
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: apiPort
+- name: API_HOST
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: apiHost
+- name: SMTP_HOST
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: smtpHost
+- name: SMTP_PORT
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: smtpPort
+- name: SMTP_USER
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: smtpUser
+      optional: true
+- name: SMTP_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: smtpPassword
+      optional: true
+- name: SMTP_FROM_EMAIL
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: smtpFromEmail
+- name: JWT_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: jwtSecret
+{{- end -}}
