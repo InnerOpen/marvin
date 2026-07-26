@@ -41,8 +41,8 @@ class EventLogModel(SqlAlchemyBase, BaseMixins):
     """Timestamp when the event occurred (UTC)."""
 
     # Core identifiers for filtering and relationships
-    workspace_id: Mapped[GUID] = mapped_column(GUID, ForeignKey("groups.id"), index=True, nullable=False)
-    """The workspace this event pertains to."""
+    workspace_id: Mapped[GUID | None] = mapped_column(GUID, ForeignKey("groups.id"), index=True, nullable=True)
+    """The workspace this event pertains to (None for platform/system-scoped events, e.g. a global scheduled task)."""
 
     user_id: Mapped[GUID | None] = mapped_column(GUID, ForeignKey("users.id"), index=True, nullable=True)
     """The user who triggered this event (None for system events)."""
