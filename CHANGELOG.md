@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.28 (2026-07-26)
+
+### Bug Fixes
+
+- **events**: Allow system-scoped events in the audit log
+  ([`bca8a09`](https://github.com/InnerOpen/marvin/commit/bca8a096ccd8569f602a591b3c0af23c429c1f81))
+
+### Features
+
+- **events**: Emit secret_* and variable_* CRUD events
+  ([`07337cf`](https://github.com/InnerOpen/marvin/commit/07337cf0a9aa6679ba46ec0a0c79e4c9998ee44f))
+
+- **events**: Migrate event notifiers to apprise integrations (additive)
+  ([`e95ace6`](https://github.com/InnerOpen/marvin/commit/e95ace6fc7ed8c3e226c943bdeff9ec9517e3621))
+
+
 ## v1.0.0-rc.27 (2026-07-25)
 
 ### Features
