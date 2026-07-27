@@ -10,7 +10,11 @@ set -uo pipefail
 port="${FRONTEND_PORT:-4322}"
 echo "start-frontend.sh: frontend listening on ${port}"
 
-# The @astrojs/node standalone server reads HOST and PORT from the environment.
+# The @astrojs/node standalone server reads HOST and PORT from the environment. Launch through the
+# trust-proxy wrapper (server.mjs) so a TLS-terminating route's X-Forwarded-Proto is honored and
+# Astro's checkOrigin works; ASTRO_NODE_AUTOSTART=disabled stops the standalone entry from also
+# starting its own server on import.
 export HOST="${HOST:-0.0.0.0}"
 export PORT="$port"
-exec node /app/frontend/dist/server/entry.mjs
+export ASTRO_NODE_AUTOSTART=disabled
+exec node /app/frontend/server.mjs

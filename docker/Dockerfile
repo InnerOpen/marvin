@@ -153,6 +153,9 @@ ENV NODE_ENV=production
 # entry.mjs imports cookie/send/unstorage/@astrojs/* from node_modules — so they ship too.
 COPY --from=frontend-builder /frontend/dist /app/frontend/dist
 COPY --from=frontend-builder /frontend/node_modules /app/frontend/node_modules
+# Trust-proxy launcher that honors X-Forwarded-Proto (keeps Astro's checkOrigin working behind a
+# TLS-terminating route); the start script runs it with ASTRO_NODE_AUTOSTART=disabled.
+COPY --from=frontend-builder /frontend/server.mjs /app/frontend/server.mjs
 
 # Default bind port; a deployment (e.g. the Helm chart) overrides FRONTEND_PORT to match its Service.
 ENV FRONTEND_PORT=4322
@@ -178,6 +181,8 @@ COPY --from=frontend-builder /usr/local/bin/node /usr/local/bin/node
 # The built SSR server plus its runtime node_modules (see the frontend stage's note).
 COPY --from=frontend-builder --chown=app:app /frontend/dist /app/frontend/dist
 COPY --from=frontend-builder --chown=app:app /frontend/node_modules /app/frontend/node_modules
+# Trust-proxy launcher (see the frontend stage's note); start.sh runs it with auto-start disabled.
+COPY --from=frontend-builder --chown=app:app /frontend/server.mjs /app/frontend/server.mjs
 
 # FRONTEND_PORT is deliberately not pinned here. start.sh resolves it from AppSettings, which
 # derives it from FRONTEND_URL, so setting either one in the environment or .env moves the port the

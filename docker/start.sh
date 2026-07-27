@@ -33,10 +33,12 @@ esac
 marvin-server &
 backend_pid=$!
 
-# Frontend SSR server. The standalone adapter reads HOST/PORT at runtime; bind all interfaces on
-# its own port so it doesn't collide with the API.
+# Frontend SSR server. Launched through the trust-proxy wrapper (server.mjs) so a TLS-terminating
+# route's X-Forwarded-Proto is honored and Astro's checkOrigin works; ASTRO_NODE_AUTOSTART=disabled
+# stops the standalone entry from also starting its own server on import. Reads HOST/PORT at runtime;
+# bind all interfaces on its own port so it doesn't collide with the API.
 echo "start.sh: frontend listening on ${resolved_port}"
-HOST=0.0.0.0 PORT="$resolved_port" node /app/frontend/dist/server/entry.mjs &
+HOST=0.0.0.0 PORT="$resolved_port" ASTRO_NODE_AUTOSTART=disabled node /app/frontend/server.mjs &
 frontend_pid=$!
 
 # Return as soon as either process exits, propagating its status.
