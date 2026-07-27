@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.29 (2026-07-27)
+
+### Bug Fixes
+
+- **frontend**: Honor X-Forwarded-Proto so checkOrigin works behind a TLS proxy
+  ([`528d1af`](https://github.com/InnerOpen/marvin/commit/528d1af088892444522a2b51c7ff0163ac9f29b0))
+
+### Features
+
+- **helm**: Split UI/API into separate routes, API internal by default
+  ([`073054e`](https://github.com/InnerOpen/marvin/commit/073054e5a40447c40e6e176a299f45b66413a71b))
+
+
 ## v1.0.0-rc.28 (2026-07-26)
 
 ### Bug Fixes
