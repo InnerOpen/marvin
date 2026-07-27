@@ -17,18 +17,24 @@ config:
   # Tighter webhook timeouts for production
   webhookTimeout: 20
 
-# Production route with real domain
+# Production routes with real domains.
 route:
-  host: marvin.yourdomain.com
-  # Send public traffic to the web UI. The API stays reachable on the service's `http` port
-  # for the SDK/CLI and for the browser's own calls.
-  targetPort: frontend
   tls:
     enabled: true
     termination: edge
   annotations:
     # Add any production-specific annotations
     # haproxy.router.openshift.io/rate-limit-connections: "true"
+  # Public web UI.
+  ui:
+    enabled: true
+    host: marvin.yourdomain.com
+  # Public API — enable only if the browser or external SDK/CLI must reach the API directly.
+  # Left off, the frontend reaches it internally over the cluster Service. When enabled, its host
+  # auto-populates config.publicApiUrl.
+  api:
+    enabled: false
+    host: api.marvin.yourdomain.com
 
 # Production storage requirements
 persistence:

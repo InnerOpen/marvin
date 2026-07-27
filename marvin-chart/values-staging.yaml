@@ -14,9 +14,10 @@ config:
   allowSignup: false  # Restrict signups
   logLevel: INFO  # Less verbose than dev
 
-# Staging route
+# Staging route (UI public; API internal over the cluster Service).
 route:
-  host: marvin-staging.apps.example.com
+  ui:
+    host: marvin-staging.apps.example.com
   annotations:
     # Add any staging-specific annotations
 

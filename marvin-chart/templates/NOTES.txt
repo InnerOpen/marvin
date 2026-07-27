@@ -5,20 +5,29 @@ Namespace: {{ .Release.Namespace }}
 Chart version: {{ .Chart.Version }}
 App version: {{ .Chart.AppVersion }}
 
-{{- if .Values.route.enabled }}
-{{- if .Capabilities.APIVersions.Has "route.openshift.io/v1" }}
+{{- if and .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
+{{- if .Values.route.ui.enabled }}
 
-🌐 Your application will be accessible at:
-{{- if .Values.route.host }}
-   https://{{ .Values.route.host }}
+🌐 Web UI:
+{{- if .Values.route.ui.host }}
+   https://{{ .Values.route.ui.host }}
 {{- else }}
-   Route will be auto-assigned. Get the URL with:
-   oc get route {{ include "marvin.fullname" . }} -o jsonpath='{.spec.host}'
+   export UI=$(oc get route {{ include "marvin.fullname" . }} -o jsonpath='{.spec.host}')
+   echo "https://$UI"
 {{- end }}
+{{- end }}
+{{- if .Values.route.api.enabled }}
 
-To get the route URL:
-   export ROUTE=$(oc get route {{ include "marvin.fullname" . }} -o jsonpath='{.spec.host}')
-   echo "Application URL: https://$ROUTE"
+🔌 API (public):
+{{- if .Values.route.api.host }}
+   https://{{ .Values.route.api.host }}
+{{- else }}
+   oc get route {{ include "marvin.fullname" . }}-api -o jsonpath='{.spec.host}'
+{{- end }}
+{{- else }}
+
+🔌 API: internal only — reached over the cluster Service (no public route). The frontend calls it
+   server-side; enable route.api.enabled to expose it for browser/SDK/CLI access.
 {{- end }}
 {{- end }}
 
@@ -42,13 +51,13 @@ To get the route URL:
    1. Check pod status:
       oc get pods -l app.kubernetes.io/name={{ include "marvin.name" . }}
 
-   2. Verify health endpoint:
-{{- if .Values.route.enabled }}
-      curl -v https://$ROUTE/healthz
+   2. Verify health endpoint (the API is internal by default, so port-forward the Service):
+{{- if eq .Values.mode "split" }}
+      oc port-forward svc/{{ include "marvin.fullname" . }}-backend 8080:{{ .Values.service.port }}
 {{- else }}
       oc port-forward svc/{{ include "marvin.fullname" . }} 8080:{{ .Values.service.port }}
-      curl -v http://localhost:8080/healthz
 {{- end }}
+      curl -v http://localhost:8080/healthz
 
    3. Check scheduler state file:
       oc exec $POD -- cat {{ .Values.config.dataDir }}/scheduler_state.json
@@ -57,9 +66,16 @@ To get the route URL:
       oc logs $POD | grep -i "token.*:" | head -20
       (Should NOT show plaintext JWTs)
 
-   5. Reach the web UI (served by the same pod on a second port):
+   5. Reach the web UI:
+{{- if and .Values.route.enabled .Values.route.ui.enabled }}
+      open "https://$UI"
+{{- else if eq .Values.mode "split" }}
+      oc port-forward svc/{{ include "marvin.fullname" . }}-frontend 4322:{{ .Values.service.frontendPort }}
+      open http://localhost:4322
+{{- else }}
       oc port-forward svc/{{ include "marvin.fullname" . }} 4322:{{ .Values.service.frontendPort }}
       open http://localhost:4322
+{{- end }}
 
 {{- if .Values.persistence.enabled }}
 

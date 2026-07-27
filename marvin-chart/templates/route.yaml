@@ -1,32 +1,71 @@
-{{- if .Values.route.enabled }}
-{{- if .Capabilities.APIVersions.Has "route.openshift.io/v1" }}
+{{- if and .Values.route.enabled (.Capabilities.APIVersions.Has "route.openshift.io/v1") }}
+{{- $fullName := include "marvin.fullname" . -}}
+{{- $split := eq .Values.mode "split" -}}
+{{- if .Values.route.ui.enabled }}
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
-  name: {{ include "marvin.fullname" . }}
+  name: {{ $fullName }}
   labels:
     {{- include "marvin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
   {{- with .Values.route.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- if .Values.route.host }}
-  host: {{ .Values.route.host }}
+  {{- with .Values.route.ui.host }}
+  host: {{ . }}
   {{- end }}
-  path: {{ .Values.route.path }}
+  path: {{ .Values.route.ui.path }}
   to:
     kind: Service
     # Split mode serves the UI from its own Service; combined mode has one Service with both ports.
-    name: {{ if eq .Values.mode "split" }}{{ include "marvin.fullname" . }}-frontend{{ else }}{{ include "marvin.fullname" . }}{{ end }}
+    name: {{ if $split }}{{ $fullName }}-frontend{{ else }}{{ $fullName }}{{ end }}
     weight: 100
   port:
-    targetPort: {{ if eq .Values.mode "split" }}frontend{{ else }}{{ .Values.route.targetPort | default "http" }}{{ end }}
+    targetPort: frontend
   {{- if .Values.route.tls.enabled }}
   tls:
     termination: {{ .Values.route.tls.termination }}
-    {{- if .Values.route.tls.insecureEdgeTerminationPolicy }}
-    insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy }}
+    {{- with .Values.route.tls.insecureEdgeTerminationPolicy }}
+    insecureEdgeTerminationPolicy: {{ . }}
+    {{- end }}
+  {{- end }}
+  wildcardPolicy: None
+{{- end }}
+{{- if .Values.route.api.enabled }}
+{{- if .Values.route.ui.enabled }}
+---
+{{- end }}
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ $fullName }}-api
+  labels:
+    {{- include "marvin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with .Values.route.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.route.api.host }}
+  host: {{ . }}
+  {{- end }}
+  path: {{ .Values.route.api.path }}
+  to:
+    kind: Service
+    # Split mode has a dedicated backend Service; combined mode's one Service exposes the API port.
+    name: {{ if $split }}{{ $fullName }}-backend{{ else }}{{ $fullName }}{{ end }}
+    weight: 100
+  port:
+    targetPort: http
+  {{- if .Values.route.tls.enabled }}
+  tls:
+    termination: {{ .Values.route.tls.termination }}
+    {{- with .Values.route.tls.insecureEdgeTerminationPolicy }}
+    insecureEdgeTerminationPolicy: {{ . }}
     {{- end }}
   {{- end }}
   wildcardPolicy: None

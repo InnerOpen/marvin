@@ -123,18 +123,40 @@ service:
   # config.frontendPort automatically and can't drift out of sync with them.
   annotations: {}
 
-# OpenShift Route configuration
+# OpenShift Routes.
+#
+# Two independent routes — a public web UI and an (optional) public API — that resolve to the right
+# Service in BOTH topologies, so the routing is identical whether you run combined or split:
+#   combined: ui → the one Service's `frontend` port,  api → its `http` port
+#   split:    ui → the -frontend Service,               api → the -backend Service
+#
+# By default only the UI is exposed. The frontend reaches the API *internally* over the cluster
+# Service (SSR uses MARVIN_API_URL → the -backend Service in split mode, or localhost in combined),
+# so no public API route is needed to render pages. Expose the API publicly only when the browser
+# must call it directly (client-side/interactive features) or for external SDK/CLI access.
 route:
   enabled: true
-  host: ""  # Auto-generated if empty
-  path: /
-  # Which service port the route sends traffic to: "http" (API) or "frontend" (web UI)
-  targetPort: http
+
+  # TLS + annotations apply to both routes below unless overridden per-route.
   tls:
     enabled: true
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
   annotations: {}
+
+  # Public web UI route — the site users visit.
+  ui:
+    enabled: true
+    host: ""   # auto-assigned by OpenShift if empty
+    path: /
+
+  # Public API route — OFF by default (API is reached internally; see the note above). Enable for
+  # direct browser/SDK/CLI access, then point config.publicApiUrl at it — or just set api.host and
+  # publicApiUrl is auto-derived from it (see configmap.yaml).
+  api:
+    enabled: false
+    host: ""
+    path: /
 
 # Persistent storage
 persistence:

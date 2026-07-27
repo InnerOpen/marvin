@@ -1,3 +1,9 @@
+{{- /* Browser-facing API URL: an explicit config.publicApiUrl wins; otherwise, if a public API
+       route is enabled with a host, derive https://<that host> so the two can't drift. */ -}}
+{{- $publicApiUrl := .Values.config.publicApiUrl -}}
+{{- if and (not $publicApiUrl) .Values.route.enabled .Values.route.api.enabled .Values.route.api.host -}}
+{{- $publicApiUrl = printf "https://%s" .Values.route.api.host -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,7 +18,7 @@ data:
   dataDir: {{ .Values.config.dataDir | quote }}
   apiPort: {{ .Values.config.apiPort | quote }}
   apiHost: {{ .Values.config.apiHost | quote }}
-  publicApiUrl: {{ .Values.config.publicApiUrl | default "" | quote }}
+  publicApiUrl: {{ $publicApiUrl | default "" | quote }}
   frontendPort: {{ .Values.config.frontendPort | quote }}
   schedulerInterval: {{ .Values.config.schedulerInterval | quote }}
   webhookRetryAttempts: {{ .Values.config.webhookRetryAttempts | quote }}
