@@ -1,0 +1,51 @@
+name: Redeploy (OpenShift)
+
+# Manual redeploy — no automatic trigger. Run it from the Actions tab (or `gh workflow run
+# deploy.yml`) to restart a Marvin Deployment so it re-pulls the latest image for its tag
+# (the deployment uses imagePullPolicy: Always, and :develop is a moving tag). This does NOT apply
+# chart/values changes — it only re-pulls the image. For chart changes, run `helm upgrade` yourself.
+#
+# Auth: runs on the in-cluster self-hosted runner and authenticates as the `deployer` ServiceAccount
+# via the OPENSHIFT_SERVER / OPENSHIFT_TOKEN secrets. RBAC: .github/deploy/redeploy-rbac.yaml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      namespace:
+        description: Namespace of the release
+        default: marvin
+        required: true
+      deployment:
+        description: "Deployment to restart (combined: <name>; split: <name>-backend / <name>-frontend)"
+        default: marvin
+        required: true
+
+concurrency:
+  group: redeploy-${{ inputs.namespace }}-${{ inputs.deployment }}
+  cancel-in-progress: false
+
+jobs:
+  redeploy:
+    name: Rollout restart ${{ inputs.deployment }} (${{ inputs.namespace }})
+    runs-on: github-arc-runners
+    steps:
+      - name: Install kubectl
+        run: |
+          set -euo pipefail
+          ver="$(curl -sSL https://dl.k8s.io/release/stable.txt)"
+          curl -sSLo ./kubectl "https://dl.k8s.io/release/${ver}/bin/linux/amd64/kubectl"
+          chmod +x ./kubectl
+
+      - name: Rollout restart (re-pull the image)
+        env:
+          SERVER: ${{ secrets.OPENSHIFT_SERVER }}
+          TOKEN: ${{ secrets.OPENSHIFT_TOKEN }}
+          NS: ${{ inputs.namespace }}
+          DEPLOY: ${{ inputs.deployment }}
+        run: |
+          set -euo pipefail
+          kube() { ./kubectl --server="$SERVER" --token="$TOKEN" --insecure-skip-tls-verify=true "$@"; }
+          echo "Restarting deployment/$DEPLOY in $NS ..."
+          kube -n "$NS" rollout restart "deployment/$DEPLOY"
+          kube -n "$NS" rollout status  "deployment/$DEPLOY" --timeout=180s
+          echo "Done."
