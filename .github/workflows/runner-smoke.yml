@@ -1,0 +1,23 @@
+name: Runner Smoke Test
+
+# Proves the in-cluster ARC self-hosted runners pick up and execute a job. Scoped to its own path
+# so it only fires when this file changes (and manually once it reaches the default branch).
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/runner-smoke.yml
+
+jobs:
+  smoke:
+    name: Hello from the cluster
+    runs-on: github-arc-runners
+    steps:
+      - name: Report where I am
+        run: |
+          echo "✅ Running on an in-cluster ARC runner"
+          echo "runner name : ${RUNNER_NAME:-?}"
+          echo "runner os   : ${RUNNER_OS:-?}"
+          echo "hostname    : $(hostname)"
+          echo "k8s ns      : $(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace 2>/dev/null || echo n/a)"
+          echo "kernel      : $(uname -a)"
