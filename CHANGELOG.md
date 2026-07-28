@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.31 (2026-07-28)
+
+### Performance Improvements
+
+- **logs**: Silence health-probe access-log noise
+  ([`7b3e38e`](https://github.com/InnerOpen/marvin/commit/7b3e38e63d665357661c7622ebb2ee65bed60e13))
+
+
 ## v1.0.0-rc.30 (2026-07-28)
 
 ### Continuous Integration
