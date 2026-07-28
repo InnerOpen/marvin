@@ -6,6 +6,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.30 (2026-07-28)
+
+### Continuous Integration
+
+- Add runner smoke test to verify in-cluster ARC runners
+  ([`b251d0f`](https://github.com/InnerOpen/marvin/commit/b251d0feb495f662c4613f87304270708d011954))
+
+- Remove runner smoke test
+  ([`56880d4`](https://github.com/InnerOpen/marvin/commit/56880d4fa8b4e4d1d0c977cb5005edf4c40d537c))
+
+- **deploy**: Add manual OpenShift redeploy workflow
+  ([`bda2f86`](https://github.com/InnerOpen/marvin/commit/bda2f8680f7bbef11639055afa3f8081d3588372))
+
+### Features
+
+- **helm**: Add iwobble deployment values (split + NFS + plugins)
+  ([`a50da5e`](https://github.com/InnerOpen/marvin/commit/a50da5ee3ead9fc6d80e147d8c0120a614665b9a))
+
+
 ## v1.0.0-rc.29 (2026-07-27)
 
 ### Bug Fixes
