@@ -1,0 +1,45 @@
+# RBAC for the manual "Redeploy (OpenShift)" workflow (.github/workflows/deploy.yml).
+#
+# The in-cluster GitHub Actions runner authenticates as the `deployer` ServiceAccount (in the
+# github-arc-runners namespace). This grants it just enough to roll a Deployment in the `marvin`
+# namespace — restart it so it re-pulls the freshly built :develop image — and nothing more.
+#
+# Apply once:  oc apply -f .github/deploy/redeploy-rbac.yaml
+# For another namespace (e.g. a staging release), copy the Role + RoleBinding with that namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: image-redeployer
+  namespace: marvin
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer-redeploys-marvin
+  namespace: marvin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: image-redeployer
+subjects:
+  - kind: ServiceAccount
+    name: deployer
+    namespace: github-arc-runners
+---
+# A long-lived token for `deployer`, stored as the GitHub secret OPENSHIFT_TOKEN.
+# The token controller populates .data.token after this is created.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: deployer-cd-token
+  namespace: github-arc-runners
+  annotations:
+    kubernetes.io/service-account.name: deployer
+type: kubernetes.io/service-account-token
