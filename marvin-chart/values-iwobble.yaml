@@ -1,0 +1,75 @@
+# Deployment values for the `marvin` release on the iwobble OpenShift cluster.
+# Split topology, GHCR develop images, NFS-persisted sqlite, integration plugins installed at boot.
+#
+#   helm upgrade --install marvin marvin-chart -n marvin -f marvin-chart/values-iwobble.yaml
+#
+# Hosts below are specific to this cluster (apps.ocp4.iwobble.com); change them for another cluster.
+
+mode: split
+
+image:
+  repository: ghcr.io/inneropen/marvin   # backend/frontend derive as -backend / -frontend
+  tag: develop
+  pullPolicy: Always
+
+config:
+  production: true      # OpenShift's random UID can't write /app/dev (dev mode); prod uses DATA_DIR
+  logLevel: INFO
+  dbEngine: sqlite
+
+# NFS-backed PVC (managed-nfs-storage). Single writer only: keep split.backend.replicaCount at 1 —
+# sqlite over NFS is unsafe with concurrent writers. For HA, move dbEngine to postgres instead.
+persistence:
+  enabled: true
+  storageClass: managed-nfs-storage
+  size: 5Gi
+
+# Public UI route + public API route (the browser calls the API directly for login/interactive use).
+# The API host populates config.publicApiUrl automatically (see configmap.yaml).
+route:
+  enabled: true
+  ui:
+    enabled: true
+  api:
+    enabled: true
+    host: marvin-api-marvin.apps.ocp4.iwobble.com
+  tls:
+    enabled: true
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+
+# --- Integration plugins (split backend only) --------------------------------------------------
+# Installed into a shared volume at pod start and exposed via PYTHONPATH; the app discovers them
+# through the `marvin.integrations` entry-point group. Tarball URLs need no `git` in the init image;
+# the SDK tarball on the same pip line satisfies the plugins' marvin-integration-sdk dependency.
+# NOTE: pinned to branch tarballs (SDK default branch is `develop`, plugins `main`) — swap to tags
+# for reproducible builds. Re-downloaded on every pod start, so the backend needs GitHub egress.
+initContainers:
+  - name: install-integrations
+    image: python:3.12-slim
+    command: ["sh", "-c"]
+    args:
+      - >
+        set -eux;
+        pip install --target=/plugins
+        https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
+        https://github.com/InnerOpen/marvin-integration-apprise/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-openai-images/archive/refs/heads/main.tar.gz;
+        echo "--- installed into /plugins ---";
+        ls -1 /plugins
+    volumeMounts:
+      - name: plugins
+        mountPath: /plugins
+
+extraVolumes:
+  - name: plugins
+    emptyDir: {}
+
+extraVolumeMounts:
+  - name: plugins
+    mountPath: /plugins
+
+extraEnv:
+  - name: PYTHONPATH
+    value: /plugins
