@@ -17,6 +17,13 @@ config:
   logLevel: INFO
   dbEngine: sqlite
 
+# Relaxed backend probe cadence (the app also filters probe paths out of the access log). Merged
+# over the chart defaults, so only the period changes: liveness /healthz 10→30s, readiness /readyz 5→15s.
+livenessProbe:
+  periodSeconds: 30
+readinessProbe:
+  periodSeconds: 15
+
 # NFS-backed PVC (managed-nfs-storage). Single writer only: keep split.backend.replicaCount at 1 —
 # sqlite over NFS is unsafe with concurrent writers. For HA, move dbEngine to postgres instead.
 persistence:

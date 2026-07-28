@@ -161,10 +161,10 @@ COPY --from=frontend-builder /frontend/server.mjs /app/frontend/server.mjs
 ENV FRONTEND_PORT=4322
 EXPOSE ${FRONTEND_PORT}
 
-# Liveness proxy: /login renders without auth, and without the backend (login-info is best-effort),
-# so it is a reliable "the SSR server is up" signal. Uses node itself — the slim image has no curl.
+# Liveness proxy: /healthz is a static 200 from the SSR server (no page render, no backend call),
+# so it's a clean "the SSR server is up" signal. Uses node itself — the slim image has no curl.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.FRONTEND_PORT||4322)+'/login',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))" || exit 1
+    CMD node -e "require('http').get('http://127.0.0.1:'+(process.env.FRONTEND_PORT||4322)+'/healthz',r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))" || exit 1
 
 COPY docker/start-frontend.sh /app/start-frontend.sh
 RUN chmod +x /app/start-frontend.sh

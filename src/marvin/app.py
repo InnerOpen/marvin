@@ -7,6 +7,8 @@ initialization and scheduler startup), registers API routes, and provides a `mai
 function to run the application using Uvicorn, primarily for development purposes.
 """
 
+import copy  # Deep-copy Uvicorn's logging config before customizing it
+import logging  # Access-log filtering (silence health probes)
 from collections.abc import AsyncGenerator  # For async generator type hint
 from contextlib import asynccontextmanager  # For creating async context managers (lifespan)
 
@@ -292,6 +294,32 @@ if settings.STORAGE_PROVIDER == "local":
     logger.info(f"Static file serving enabled for local storage at {storage_root} (public URL: {settings.STORAGE_LOCAL_PUBLIC_URL})")
 
 
+class HealthCheckAccessFilter(logging.Filter):
+    """Drop Uvicorn access-log lines for infrastructure probes.
+
+    The k8s liveness/readiness probes (/healthz, /readyz) and the frontend's per-probe login-info
+    poll hit the API every few seconds; logging each one buries real traffic. Uvicorn's access
+    record carries the request path in args[2] (msg '%s - "%s %s HTTP/%s" %d').
+    """
+
+    _NOISY_PATHS = frozenset({"/healthz", "/readyz", "/livez", "/api/app/about/login-info"})
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        path = args[2] if isinstance(args, tuple) and len(args) >= 3 else None
+        if isinstance(path, str) and path.split("?", 1)[0] in self._NOISY_PATHS:
+            return False
+        return True
+
+
+def _uvicorn_log_config() -> dict:
+    """Uvicorn's default logging config with a filter that silences health-probe access lines."""
+    config = copy.deepcopy(uvicorn.config.LOGGING_CONFIG)
+    config.setdefault("filters", {})["health_probes"] = {"()": f"{__name__}.HealthCheckAccessFilter"}
+    config["handlers"]["access"].setdefault("filters", []).append("health_probes")
+    return config
+
+
 def main() -> None:
     """
     Main function to run the Marvin FastAPI application using Uvicorn.
@@ -312,7 +340,8 @@ def main() -> None:
         reload_delay=2 if not settings.PRODUCTION else None,  # Delay before reloading
         log_level="info",  # Uvicorn's own log level
         use_colors=True,  # Enable colored logging output
-        log_config=None,  # Use Uvicorn's default logging config (can be customized)
+        log_config=_uvicorn_log_config(),  # Uvicorn defaults + a filter that drops health-probe lines
+
         workers=1,  # Number of worker processes (typically 1 for dev, more for prod)
         forwarded_allow_ips="*",  # Trust X-Forwarded-For headers from any IP (specific IPs better for prod)
     )

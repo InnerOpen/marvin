@@ -138,22 +138,22 @@ spec:
         - name: frontend
           containerPort: {{ .Values.config.frontendPort }}
           protocol: TCP
-        # The frontend has no /healthz — /login renders without auth or a live backend, so it is a
-        # reliable liveness/readiness signal that the SSR server is up.
+        # /healthz is a static 200 from the SSR server (frontend/src/pages/healthz.ts) — it doesn't
+        # render a page or call the backend, so probing it doesn't trigger a login-info fetch each tick.
         livenessProbe:
           httpGet:
-            path: /login
+            path: /healthz
             port: frontend
           initialDelaySeconds: 10
-          periodSeconds: 10
+          periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 3
         readinessProbe:
           httpGet:
-            path: /login
+            path: /healthz
             port: frontend
           initialDelaySeconds: 5
-          periodSeconds: 5
+          periodSeconds: 15
           timeoutSeconds: 3
           failureThreshold: 3
         resources:
