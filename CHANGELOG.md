@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.32 (2026-07-29)
+
+### Documentation
+
+- **chart**: Add values-k8s.yaml for plain-Kubernetes deploys
+  ([`ce7bd79`](https://github.com/InnerOpen/marvin/commit/ce7bd7928fee6d0a578d834dadc0de1c44a4d4f4))
+
+### Features
+
+- **chart**: Support pinning Service NodePorts
+  ([`1ae6f34`](https://github.com/InnerOpen/marvin/commit/1ae6f34ed8e52d1462acdb56385a91fec0af662f))
+
+
 ## v1.0.0-rc.31 (2026-07-28)
 
 ### Performance Improvements
