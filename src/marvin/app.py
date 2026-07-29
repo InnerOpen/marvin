@@ -182,7 +182,22 @@ if not settings.PRODUCTION:
         allow_headers=["*"],  # Allow all headers
     )
 else:
-    logger.info("CORS middleware not enabled in production environment (or using different production CORS config).")
+    # Production: no wildcard/localhost origins. Enable CORS only when explicit origins
+    # are configured (CORS_ORIGINS) — needed for SPLIT deployments where the UI and API
+    # are on different hosts and the browser calls the API cross-origin. Same-origin /
+    # combined deployments configure nothing and get no CORS middleware.
+    cors_origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
+    if cors_origins:
+        logger.info(f"CORS enabled for production. Allowed origins: {cors_origins}")
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,  # exact origins only — never "*" in production
+            allow_credentials=True,  # UI calls the API with the session cookie
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    else:
+        logger.info("CORS middleware not enabled in production (set CORS_ORIGINS for split UI/API deployments).")
 
 # Add request logging middleware for development
 if not settings.PRODUCTION:

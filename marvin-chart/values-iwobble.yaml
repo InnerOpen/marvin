@@ -16,6 +16,10 @@ config:
   production: true      # OpenShift's random UID can't write /app/dev (dev mode); prod uses DATA_DIR
   logLevel: INFO
   dbEngine: sqlite
+  # Split deploy: UI (marvin-marvin) and API (marvin-api-marvin) are on different hosts, so the
+  # API must allow the UI origin for browser calls. Without this, production adds no CORS
+  # middleware and the token page / client-side features fail with "Failed to fetch" (CORS).
+  corsOrigins: "https://marvin-marvin.apps.ocp4.iwobble.com"
 
 # Relaxed backend probe cadence (the app also filters probe paths out of the access log). Merged
 # over the chart defaults, so only the period changes: liveness /healthz 10→30s, readiness /readyz 5→15s.

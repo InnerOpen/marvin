@@ -200,6 +200,14 @@ config:
   # back to http://localhost:8080, which only works for local single-host access.
   publicApiUrl: ""
 
+  # Comma-separated browser origins allowed to call the API in PRODUCTION — required for
+  # SPLIT deployments where the UI and API are on different hosts and the browser calls the
+  # API cross-origin (e.g. "https://marvin.example.com"). If left empty and a UI route with
+  # an explicit host is enabled, it's derived as https://<ui route host>. Leave empty for
+  # same-origin/combined deployments (no CORS middleware is added). Maps to the API's
+  # CORS_ORIGINS env var.
+  corsOrigins: ""
+
   # Server-rendered frontend (Astro SSR) — the image runs it alongside the API.
   # Pinned rather than derived from FRONTEND_URL: the containerPort has to be a fixed number for
   # the Service to target it. Keep in step with the FRONTEND_URL the deployment advertises.

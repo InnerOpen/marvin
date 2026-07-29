@@ -156,6 +156,11 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
     configMapKeyRef:
       name: {{ include "marvin.fullname" . }}
       key: schedulerInterval
+- name: CORS_ORIGINS
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: corsOrigins
 - name: SMTP_HOST
   valueFrom:
     secretKeyRef:

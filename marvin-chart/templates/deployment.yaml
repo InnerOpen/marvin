@@ -116,6 +116,13 @@ spec:
             configMapKeyRef:
               name: {{ include "marvin.fullname" . }}
               key: publicApiUrl
+        # Allowed browser origins for the API in production (split UI/API deploys). Empty =
+        # no CORS middleware (same-origin/combined). See config.corsOrigins / route.ui.host.
+        - name: CORS_ORIGINS
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: corsOrigins
         # Secrets from Secret
         - name: SMTP_HOST
           valueFrom:

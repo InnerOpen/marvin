@@ -126,6 +126,13 @@ class AppSettings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:4322"
     """URL of the frontend app. Used for OIDC callback redirects in dev. In production same-origin deployments, set to BASE_URL."""
 
+    CORS_ORIGINS: str = ""
+    """Comma-separated list of browser origins allowed to call the API in PRODUCTION
+    (e.g. ``https://marvin.example.com``). Required for SPLIT deployments where the UI
+    and API are served from different hosts and the browser calls the API cross-origin.
+    Leave empty for same-origin/combined deployments — no CORS middleware is added.
+    In non-production, all localhost origins are allowed automatically and this is ignored."""
+
     SCHEDULER_ENABLED: bool = True
     """
     Whether this process runs the scheduler at all.

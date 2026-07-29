@@ -4,6 +4,14 @@
 {{- if and (not $publicApiUrl) .Values.route.enabled .Values.route.api.enabled .Values.route.api.host -}}
 {{- $publicApiUrl = printf "https://%s" .Values.route.api.host -}}
 {{- end -}}
+{{- /* Browser origins allowed to call the API in production (split UI/API deployments,
+       where the browser calls the API cross-origin). An explicit config.corsOrigins wins;
+       otherwise, if the UI route has an explicit host, derive https://<that host>. Empty
+       for same-origin/combined deploys, which need no CORS. */ -}}
+{{- $corsOrigins := .Values.config.corsOrigins -}}
+{{- if and (not $corsOrigins) .Values.route.enabled .Values.route.ui.enabled .Values.route.ui.host -}}
+{{- $corsOrigins = printf "https://%s" .Values.route.ui.host -}}
+{{- end -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,6 +27,7 @@ data:
   apiPort: {{ .Values.config.apiPort | quote }}
   apiHost: {{ .Values.config.apiHost | quote }}
   publicApiUrl: {{ $publicApiUrl | default "" | quote }}
+  corsOrigins: {{ $corsOrigins | default "" | quote }}
   frontendPort: {{ .Values.config.frontendPort | quote }}
   schedulerInterval: {{ .Values.config.schedulerInterval | quote }}
   webhookRetryAttempts: {{ .Values.config.webhookRetryAttempts | quote }}
