@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.33 (2026-07-29)
+
+### Features
+
+- **api**: Enable production CORS for split UI/API deployments
+  ([`43b9a53`](https://github.com/InnerOpen/marvin/commit/43b9a5381c7419f5e00ea39a75817084c74065a7))
+
+
 ## v1.0.0-rc.32 (2026-07-29)
 
 ### Documentation
