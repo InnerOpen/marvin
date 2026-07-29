@@ -121,6 +121,16 @@ service:
   frontendPort: 4322
   # Both ports resolve to the container's named ports, so they track config.apiPort /
   # config.frontendPort automatically and can't drift out of sync with them.
+  #
+  # NodePort pinning — only used when type: NodePort. Empty = let Kubernetes assign
+  # one from the 30000-32767 range. Pin them when you need a stable URL up front:
+  # e.g. so config.publicApiUrl can name the API port BEFORE the first install
+  # (one-shot deploy, no second pass), and so the ports don't change on reinstall.
+  #   http     = the API port (combined Service, or the -backend Service in split)
+  #   frontend = the UI  port (combined Service, or the -frontend Service in split)
+  nodePorts:
+    http: ""
+    frontend: ""
   annotations: {}
 
 # OpenShift Routes.

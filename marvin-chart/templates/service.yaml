@@ -16,10 +16,16 @@ spec:
     targetPort: http
     protocol: TCP
     name: http
+    {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePorts.http }}
+    nodePort: {{ .Values.service.nodePorts.http }}
+    {{- end }}
   - port: {{ .Values.service.frontendPort }}
     targetPort: frontend
     protocol: TCP
     name: frontend
+    {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePorts.frontend }}
+    nodePort: {{ .Values.service.nodePorts.frontend }}
+    {{- end }}
   selector:
     {{- include "marvin.selectorLabels" . | nindent 4 }}
 {{- end }}
