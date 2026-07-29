@@ -1,0 +1,54 @@
+# Deployment values for the `marvin` release on the ProxmoxK8s cluster —
+# plain Kubernetes (kubeadm/kubespray on Flatcar), NOT OpenShift.
+#
+#   helm upgrade --install marvin marvin-chart -n marvin -f marvin-chart/values-k8s.yaml
+#
+# Differences from values-iwobble.yaml (which targets apps.ocp4.iwobble.com):
+#   - route.enabled: false      — k8s has no route.openshift.io/v1 (the Route
+#                                 template no-ops anyway; disabling is just honest).
+#   - service.type: NodePort    — no Route/Ingress here; the browser hits
+#                                 http://<node-ip>:<nodeport>.
+#   - storageClass: local-path  — was managed-nfs-storage (an OCP NFS provisioner).
+#   - mode: combined            — one pod serves UI+API; simplest first cut.
+#                                 Split topology + integration plugins left off for v1.
+
+mode: combined
+
+image:
+  repository: ghcr.io/inneropen/marvin   # backend/frontend derive as -backend / -frontend
+  tag: develop
+  pullPolicy: Always
+
+config:
+  production: true
+  logLevel: INFO
+  dbEngine: sqlite
+  # Browser-facing API URL. Combined SSR reaches the API over localhost, but
+  # client-side calls (login/interactive) need a URL the browser can reach. This
+  # names the pinned API NodePort (service.nodePorts.http = 30271 below), so it's
+  # known up front and stable across reinstalls — no post-deploy second pass.
+  publicApiUrl: "http://192.168.40.50:30271"
+
+service:
+  type: NodePort
+  # Pinned so publicApiUrl (below) can name the API port up front — one-shot deploy,
+  # and the ports survive a reinstall. Must be in the 30000-32767 range.
+  nodePorts:
+    http: 30271       # API  -> http://<node-ip>:30271  (matches config.publicApiUrl)
+    frontend: 32664   # UI   -> http://<node-ip>:32664
+
+# k8s has no Routes; exposure is the NodePort Service above.
+route:
+  enabled: false
+
+persistence:
+  enabled: true
+  storageClass: local-path
+  accessMode: ReadWriteOnce
+  size: 5Gi
+
+# Relaxed probe cadence (mirrors the iwobble overlay).
+livenessProbe:
+  periodSeconds: 30
+readinessProbe:
+  periodSeconds: 15
