@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.35 (2026-07-30)
+
+### Bug Fixes
+
+- **frontend**: Make auth cookie Secure flag runtime-configurable
+  ([`aa86f3f`](https://github.com/InnerOpen/marvin/commit/aa86f3f6db7b62af8bbe71b81d8835c8db7bb830))
+
+
 ## v1.0.0-rc.34 (2026-07-30)
 
 ### Bug Fixes
