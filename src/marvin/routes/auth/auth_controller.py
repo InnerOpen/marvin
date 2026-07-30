@@ -340,7 +340,7 @@ class UserAuthenticationController(BaseUserController):
         Returns:
             dict[str, str]: A confirmation message indicating successful logout.
         """
-        # Delete the access token cookie
-        response.delete_cookie("marvin.access_token", httponly=True, secure=self.settings.PRODUCTION, samesite="lax")
+        # Delete the access token cookie (use the configured name — auth reads settings.AUTH_COOKIE_NAME)
+        response.delete_cookie(self.settings.AUTH_COOKIE_NAME, httponly=True, secure=self.settings.PRODUCTION, samesite="lax")
         self.logger.info("User logged out successfully.")
         return {"message": "Successfully logged out."}

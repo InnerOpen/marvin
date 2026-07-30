@@ -1,11 +1,11 @@
 import { PlatformClient } from "@inneropen/marvin-sdk/platform";
 import type { APIRoute } from "astro";
-import { getServerApiBaseUrl } from "@/lib/api/config";
+import { getCookieName, getServerApiBaseUrl } from "@/lib/api/config";
 
 export const POST: APIRoute = async ({ request, cookies }) => {
   try {
     const body = await request.json();
-    const authToken = cookies.get("marvin.access_token")?.value;
+    const authToken = cookies.get(getCookieName())?.value;
 
     if (!authToken) {
       return new Response(JSON.stringify({ detail: "Not authenticated" }), {

@@ -89,6 +89,16 @@ export function getCookieSecure(): boolean {
 }
 
 /**
+ * The auth cookie name. MUST match the backend's `AUTH_COOKIE_NAME` — the backend reads
+ * `request.cookies[settings.AUTH_COOKIE_NAME]` (dependencies.py), so the frontend has to write and
+ * read the same name or auth silently breaks. Set the one `AUTH_COOKIE_NAME` env on both (shared in
+ * a combined container). Defaults to "marvin.access_token", matching the backend default.
+ */
+export function getCookieName(): string {
+  return serverEnv("AUTH_COOKIE_NAME") || "marvin.access_token";
+}
+
+/**
  * Site-client read token for unauthenticated public API access. Server-only: it is a credential
  * and must never be injected into the page. Read at runtime so the image is not pinned to a token
  * baked in at build.

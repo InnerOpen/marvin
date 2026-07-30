@@ -3,10 +3,11 @@
  */
 
 import type { APIRoute } from "astro";
+import { getCookieName } from "@/lib/api/config";
 
 export const POST: APIRoute = async ({ cookies, redirect }) => {
   // Delete the access token cookie
-  cookies.delete("marvin.access_token", {
+  cookies.delete(getCookieName(), {
     path: "/",
   });
 

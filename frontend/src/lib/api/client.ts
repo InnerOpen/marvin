@@ -1,4 +1,4 @@
-import { getApiUrl, getSiteClientToken, hasApiBackend } from "./config";
+import { getApiUrl, getCookieName, getSiteClientToken, hasApiBackend } from "./config";
 
 export class ApiRequestError extends Error {
   status: number;
@@ -41,7 +41,7 @@ function isRetryable(error: unknown): boolean {
  */
 export function getAuthToken(cookies?: { get: (name: string) => { value?: string } | undefined }): string | undefined {
   if (!cookies) return undefined;
-  const cookie = cookies.get("marvin.access_token");
+  const cookie = cookies.get(getCookieName());
   return cookie?.value;
 }
 
