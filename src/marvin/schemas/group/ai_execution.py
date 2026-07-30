@@ -67,6 +67,11 @@ class AIComposeEntryRequest(_MarvinModel):
     # sent to the model as vision input, so callers should list the most important images first.
     asset_ids: list[UUID4] | None = None
     model_override: str | None = None
+    # Optional tone register for this compose, falling back to the workspace default. Named
+    # `tone_register` in Python but aliased to `register` on the wire — a field literally named
+    # `register` shadows ABCMeta.register and trips a Pydantic warning (see AIAgentRequest). The
+    # compose route reads `body.tone_register`; without this field that raised AttributeError → 502.
+    tone_register: str | None = Field(default=None, alias="register")
     source: str = "editor"  # invocation surface; gated by workspace policy
 
     model_config = ConfigDict(from_attributes=True)
