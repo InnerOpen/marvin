@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.36 (2026-07-30)
+
+### Bug Fixes
+
+- Honor AUTH_COOKIE_NAME setting on the frontend (and backend logout)
+  ([`4fcf05a`](https://github.com/InnerOpen/marvin/commit/4fcf05a35cf7b4a9936c5632f8e75470ef9a142d))
+
+
 ## v1.0.0-rc.35 (2026-07-30)
 
 ### Bug Fixes
