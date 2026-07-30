@@ -29,6 +29,12 @@ config:
   # known up front and stable across reinstalls — no post-deploy second pass.
   publicApiUrl: "http://192.168.40.50:30271"
 
+  # Even "combined" mode exposes the UI (:32664) and API (:30271) on different NodePorts,
+  # i.e. different browser ORIGINS — so client-side calls (login, token create, etc.) are
+  # cross-origin and need CORS. Allow the UI NodePort origin on every node IP. Without this,
+  # production adds no CORS middleware and the browser login fails ("Failed to fetch").
+  corsOrigins: "http://192.168.40.50:32664,http://192.168.40.60:32664,http://192.168.40.61:32664"
+
 service:
   type: NodePort
   # Pinned so publicApiUrl (below) can name the API port up front — one-shot deploy,
