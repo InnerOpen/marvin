@@ -20,6 +20,8 @@ const DEFAULT_API_BASE_URL = "http://localhost:8080";
 /** The shape the SSR server injects onto `window` for browser code to read. */
 export interface MarvinRuntimeConfig {
   apiBaseUrl: string;
+  /** When true, browser API calls go same-origin through the frontend proxy (see getApiBaseUrl). */
+  browserApiProxy?: boolean;
 }
 
 declare global {
@@ -62,6 +64,13 @@ export function getBrowserApiBaseUrl(): string {
  */
 export function getApiBaseUrl(): string {
   if (typeof window !== "undefined") {
+    // Proxy mode (default): route every browser API call same-origin through the frontend's
+    // catch-all proxy (pages/api/[...path].ts), which reads the httpOnly session cookie server-side
+    // and forwards a Bearer token to the backend. Being same-origin, it is immune to the split
+    // UI/API problem where the host-only session cookie never reaches a separate API host (OCP).
+    if (window.__MARVIN_RUNTIME__?.browserApiProxy) {
+      return stripTrailingSlash(window.location.origin);
+    }
     const injected = window.__MARVIN_RUNTIME__?.apiBaseUrl;
     return stripTrailingSlash(injected || DEFAULT_API_BASE_URL);
   }
@@ -96,6 +105,21 @@ export function getCookieSecure(): boolean {
  */
 export function getCookieName(): string {
   return serverEnv("AUTH_COOKIE_NAME") || "marvin.access_token";
+}
+
+/**
+ * Whether browser API calls should route same-origin through the frontend proxy instead of calling
+ * the backend directly. On (default) standardizes the whole UI on the proxy pattern — origin-
+ * independent, so it works for split UI/API deployments and removes the browser's dependency on
+ * backend CORS. Set `MARVIN_BROWSER_API_PROXY=false` to fall back to direct browser→API calls.
+ * Read at runtime and injected into the page by RuntimeConfig.astro.
+ */
+export function getBrowserApiProxyEnabled(): boolean {
+  const explicit = serverEnv("MARVIN_BROWSER_API_PROXY");
+  if (explicit != null && explicit.trim() !== "") {
+    return /^(1|true|yes|on)$/i.test(explicit.trim());
+  }
+  return true;
 }
 
 /**

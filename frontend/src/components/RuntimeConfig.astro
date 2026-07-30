@@ -6,10 +6,11 @@
 //
 // Only browser-safe values belong here. This global is visible to every visitor — never put a
 // credential (e.g. the site-client token) in it.
-import { getBrowserApiBaseUrl } from "@/lib/api/config";
+import { getBrowserApiBaseUrl, getBrowserApiProxyEnabled } from "@/lib/api/config";
 
 const runtimeConfig = {
   apiBaseUrl: getBrowserApiBaseUrl(),
+  browserApiProxy: getBrowserApiProxyEnabled(),
 };
 ---
 <script is:inline set:html={`window.__MARVIN_RUNTIME__=${JSON.stringify(runtimeConfig)}`}></script>
