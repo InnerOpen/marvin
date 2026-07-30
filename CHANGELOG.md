@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.39 (2026-07-30)
+
+### Bug Fixes
+
+- **ai**: Add missing tone_register field to AIComposeEntryRequest
+  ([`f5a9e26`](https://github.com/InnerOpen/marvin/commit/f5a9e2644238705c794aac3abbdc80f5e7c68d1c))
+
+### Chores
+
+- **chart**: Wire OpenAI key into k8s via marvin-ai secret reference
+  ([`ad48f4f`](https://github.com/InnerOpen/marvin/commit/ad48f4fbd3995970b1b5cc0a11d3d7d42b68f6b5))
+
+
 ## v1.0.0-rc.38 (2026-07-30)
 
 ### Features
