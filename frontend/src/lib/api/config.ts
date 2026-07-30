@@ -69,6 +69,26 @@ export function getApiBaseUrl(): string {
 }
 
 /**
+ * Whether auth cookies should carry the `Secure` flag. Browsers only store `Secure` cookies over
+ * HTTPS, so a deploy served over plain HTTP (e.g. a homelab NodePort) MUST set this false or the
+ * session cookie is silently dropped and login never sticks — even though backend auth succeeded.
+ *
+ * Resolved at runtime (never baked in), so one image serves both HTTP and HTTPS deployments:
+ *   1. Explicit `MARVIN_COOKIE_SECURE` ("true"/"false"/"1"/"0") wins.
+ *   2. Otherwise derive from the public URL scheme — https ⇒ secure, http ⇒ not.
+ *   3. Fall back to build mode (production ⇒ secure) when nothing else is known.
+ */
+export function getCookieSecure(): boolean {
+  const explicit = serverEnv("MARVIN_COOKIE_SECURE");
+  if (explicit != null && explicit.trim() !== "") {
+    return /^(1|true|yes|on)$/i.test(explicit.trim());
+  }
+  const publicUrl = serverEnv("PUBLIC_MARVIN_API_URL") || serverEnv("MARVIN_API_URL");
+  if (publicUrl) return publicUrl.trim().startsWith("https:");
+  return import.meta.env.PROD;
+}
+
+/**
  * Site-client read token for unauthenticated public API access. Server-only: it is a credential
  * and must never be injected into the page. Read at runtime so the image is not pinned to a token
  * baked in at build.

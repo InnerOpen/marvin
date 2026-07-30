@@ -3,7 +3,7 @@
  */
 
 import type { APIRoute } from "astro";
-import { getServerApiBaseUrl } from "@/lib/api/config";
+import { getCookieSecure, getServerApiBaseUrl } from "@/lib/api/config";
 
 export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
   try {
@@ -55,7 +55,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
     cookies.set("marvin.access_token", accessToken, {
       path: "/",
       httpOnly: true,
-      secure: import.meta.env.PROD,
+      secure: getCookieSecure(), // HTTPS deploys secure; HTTP (homelab NodePort) must not, or the cookie is dropped
       sameSite: "lax",
       maxAge: 60 * 60 * 24 * 7, // 7 days
     });
