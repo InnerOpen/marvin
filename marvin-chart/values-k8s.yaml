@@ -58,3 +58,15 @@ livenessProbe:
   periodSeconds: 30
 readinessProbe:
   periodSeconds: 15
+
+# AI provider (platform credential mode). Only the API key is needed: AI_DEFAULT_PROVIDER
+# already defaults to "openai" and OPENAI_MODEL to "gpt-4o-mini". The key itself lives in a
+# standalone Secret created out-of-band (never in git):
+#   pass OpenAI/api_key | tr -d '\n' > /tmp/k
+#   kubectl create secret generic marvin-ai -n marvin --from-file=OPENAI_API_KEY=/tmp/k
+extraEnv:
+  - name: OPENAI_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: marvin-ai
+        key: OPENAI_API_KEY
