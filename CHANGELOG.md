@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.38 (2026-07-30)
+
+### Features
+
+- **frontend**: Route browser API calls through a same-origin proxy
+  ([`2bc7bb8`](https://github.com/InnerOpen/marvin/commit/2bc7bb8705b2604cb0c8144dd6ae1c7328a12bc1))
+
+
 ## v1.0.0-rc.37 (2026-07-30)
 
 ### Bug Fixes
