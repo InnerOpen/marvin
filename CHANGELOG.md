@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.34 (2026-07-30)
+
+### Bug Fixes
+
+- **chart**: Set corsOrigins in values-k8s for cross-port NodePort UI
+  ([`50fcded`](https://github.com/InnerOpen/marvin/commit/50fcdedd20a5463f926ab4b0be257ee874d15396))
+
+
 ## v1.0.0-rc.33 (2026-07-29)
 
 ### Features
