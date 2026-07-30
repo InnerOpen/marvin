@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.37 (2026-07-30)
+
+### Bug Fixes
+
+- **frontend**: Add missing scheduled-tasks admin proxy routes
+  ([`39c7d1e`](https://github.com/InnerOpen/marvin/commit/39c7d1ed66e0a73127e93511520fbdbaaad3d844))
+
+
 ## v1.0.0-rc.36 (2026-07-30)
 
 ### Bug Fixes
