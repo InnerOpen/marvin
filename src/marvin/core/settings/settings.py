@@ -359,6 +359,14 @@ class AppSettings(BaseSettings):
     STORAGE_LOCAL_PUBLIC_URL: str = "/assets"
     """Base URL for accessing local files. Default: /assets"""
 
+    STORAGE_LOCAL_PUBLIC_BASE_URL: str | None = None
+    """Absolute public base URL for local assets — set when the site is served from a different
+    origin than the API (a CDN, a tunnel host, or a decoupled static frontend), e.g.
+    https://api.example.com/assets. When set, asset URLs are fully-qualified with this base; files
+    are still mounted at STORAGE_LOCAL_PUBLIC_URL (which must stay a "/"-rooted path — it is the
+    mount path). Unset (default) keeps the relative path for same-origin serving. Mirrors
+    STORAGE_REMOTE_PUBLIC_URL for the local provider."""
+
     STORAGE_S3_ENDPOINT: str | None = None
     """S3-compatible endpoint URL (for R2, MinIO, etc). Optional for AWS S3."""
 

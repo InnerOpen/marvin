@@ -41,10 +41,15 @@ def get_storage_provider(settings: AppSettings | None = None) -> BaseStorageProv
 
         public_url = getattr(settings, "STORAGE_LOCAL_PUBLIC_URL", "/assets")
 
-        # In development, prepend the full backend URL for CORS
-        # Frontend runs on different port (4321) than backend (8080)
-        if not settings.PRODUCTION and not public_url.startswith("http"):
-            # Construct full URL: http://localhost:{API_PORT}/assets
+        # STORAGE_LOCAL_PUBLIC_URL doubles as the static MOUNT path (see app.py), so it must stay a
+        # "/..."-rooted path. To hand clients fully-qualified URLs — a CDN, a tunnel host, or a
+        # decoupled frontend on another origin — set STORAGE_LOCAL_PUBLIC_BASE_URL; it overrides the
+        # URL prefix only, while files still mount at STORAGE_LOCAL_PUBLIC_URL.
+        public_base = getattr(settings, "STORAGE_LOCAL_PUBLIC_BASE_URL", None)
+        if public_base:
+            public_url = public_base
+        elif not settings.PRODUCTION and not public_url.startswith("http"):
+            # Dev: frontend (4321) and API (8080) are different origins, so prepend the API origin.
             public_url = f"http://localhost:{settings.API_PORT}{public_url}"
 
         return LocalStorageProvider(root=root, public_base_url=public_url)
