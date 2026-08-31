@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.40 (2026-08-31)
+
+### Chores
+
+- Remove committed .mcp.json
+  ([`b907103`](https://github.com/InnerOpen/marvin/commit/b9071038d11eecfaa5236840dd6b91541dfefe01))
+
+### Features
+
+- **storage**: STORAGE_LOCAL_PUBLIC_BASE_URL for absolute local-asset URLs
+  ([`7a800ca`](https://github.com/InnerOpen/marvin/commit/7a800ca014b49faa4682a1230d9da314020f988f))
+
+
 ## v1.0.0-rc.39 (2026-07-30)
 
 ### Bug Fixes
