@@ -1,8 +1,9 @@
 """Publishing API forms controller."""
 
+import logging
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from marvin.core.dependencies import get_publishing_context
@@ -13,10 +14,17 @@ from marvin.db.models.platform.forms import Forms
 from marvin.schemas.platform.forms import FormSchemaDefinition
 from marvin.schemas.publishing import FormSubmissionResponse, PublishedFormRead
 from marvin.services.content_validator import ContentValidationError, ContentValidator
+from marvin.services.event_bus_service.event_bus_service import EventBusService
+from marvin.services.event_bus_service.event_types import (
+    EventFormSubmissionData,
+    EventOperation,
+    EventTypes,
+)
 from marvin.services.security.captcha_service import CaptchaService
 from marvin.services.security.rate_limit_service import RateLimitService
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get(
@@ -74,6 +82,7 @@ async def submit_form(
     form_slug: str,
     submission_data: dict,
     request: Request,
+    bg_tasks: BackgroundTasks,
     context: tuple = Depends(get_publishing_context),
     session: Session = Depends(generate_session),
 ) -> FormSubmissionResponse:
@@ -182,6 +191,31 @@ async def submit_form(
         form.submissions_count += 1
         form.last_submission_at = datetime.now(UTC)
         session.commit()
+
+    # Notify subscribers (e.g. an admin email via EmailEventListener). Runs in the background so a
+    # notification failure never fails the visitor's submission; the honeypot path returned earlier,
+    # so confirmed spam never dispatches. Delivery requires a form_submission_received subscription.
+    try:
+        bus = EventBusService(bg_tasks=bg_tasks, session=session)
+        bus.dispatch(
+            integration_id="form_management",
+            group_id=group.id,
+            event_type=EventTypes.form_submission_received,
+            document_data=EventFormSubmissionData(
+                operation=EventOperation.create,
+                form_id=form.id,
+                form_name=form.name,
+                submission_id=submission_id,
+                submission_data=submission_data,
+                workspace_id=group.id,
+                workspace_name=group.name,
+            ),
+            message=f"Form '{form.name}' submission received",
+            entity_id=form.id,
+            entity_type="form",
+        )
+    except Exception as e:
+        logger.error(f"Failed to dispatch form_submission_received event: {e}", exc_info=True)
 
     # Return response
     success_message = settings.get("successMessage", "Thank you for your submission")
