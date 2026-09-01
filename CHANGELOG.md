@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.45 (2026-09-01)
+
+### Features
+
+- **forms**: Rate limiting + CAPTCHA on the entry-type submit path (Phase 1b)
+  ([`0fdc23e`](https://github.com/InnerOpen/marvin/commit/0fdc23e28fd00e84adf2984c22c228186fb49be5))
+
+
 ## v1.0.0-rc.44 (2026-09-01)
 
 ### Features
