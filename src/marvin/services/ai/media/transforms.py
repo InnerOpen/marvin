@@ -51,6 +51,14 @@ def _load(data: bytes) -> tuple[Image.Image, str]:
 def _dump(img: Image.Image, fmt: str) -> bytes:
     out = io.BytesIO()
     if fmt in ("JPG", "JPEG"):
+        # JPEG has no alpha channel. Composite transparency onto WHITE — the naive `convert("RGB")`
+        # keeps whatever RGB sits under a transparent pixel (usually black), turning transparent
+        # backgrounds black. PNG/WEBP below keep their alpha untouched.
+        if img.mode in ("RGBA", "LA", "P"):
+            rgba = img.convert("RGBA")
+            flattened = Image.new("RGB", rgba.size, (255, 255, 255))
+            flattened.paste(rgba, mask=rgba.getchannel("A"))
+            img = flattened
         img.convert("RGB").save(out, format="JPEG", quality=90, optimize=True)
     elif fmt == "WEBP":
         img.save(out, format="WEBP", quality=90)
@@ -59,21 +67,30 @@ def _dump(img: Image.Image, fmt: str) -> bytes:
     return out.getvalue()
 
 
+def _alpha_of(img: Image.Image) -> Image.Image | None:
+    """The alpha channel if the image carries one, so grades can restore it after RGB-only work."""
+    return img.getchannel("A") if img.mode in ("RGBA", "LA") else None
+
+
 def _apply_warmth(img: Image.Image, warmth: float) -> Image.Image:
     """Shift white balance: scale the red channel up and blue down (or vice-versa)."""
     if warmth == 1.0:
         return img
-    img = img.convert("RGB")
-    r, g, b = img.split()
+    alpha = _alpha_of(img)
+    r, g, b = img.convert("RGB").split()
     r = r.point(lambda v: min(255, int(v * warmth)))
     b = b.point(lambda v: min(255, int(v * (2.0 - warmth))))
-    return Image.merge("RGB", (r, g, b))
+    out = Image.merge("RGB", (r, g, b))
+    if alpha is not None:
+        out.putalpha(alpha)  # keep transparency — grading is an RGB-only operation
+    return out
 
 
 def _apply_vignette(img: Image.Image, strength: float) -> Image.Image:
     """Darken toward the corners with a soft radial mask."""
     if strength <= 0:
         return img
+    alpha = _alpha_of(img)
     img = img.convert("RGB")
     w, h = img.size
     # Radial gradient mask: bright center → dark edges.
@@ -86,7 +103,10 @@ def _apply_vignette(img: Image.Image, strength: float) -> Image.Image:
             d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 / max_d
             px[x, y] = int(255 * (1 - min(1.0, d) * strength))
     black = Image.new("RGB", (w, h), (0, 0, 0))
-    return Image.composite(img, black, mask)
+    out = Image.composite(img, black, mask)
+    if alpha is not None:
+        out.putalpha(alpha)  # the vignette darkens RGB toward the edges; transparency is preserved
+    return out
 
 
 def color_grade_params(data: bytes, params: dict) -> bytes | None:
