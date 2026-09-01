@@ -8,7 +8,7 @@ is removed (Phase 3).
 
 from types import SimpleNamespace
 
-from marvin.routes.publish.forms_controller import _derive_submission_title
+from marvin.routes.publish.forms_controller import _derive_submission_title, _published_form_from_entry_type
 from marvin.schemas.platform.entry_type_rendering import CapabilitiesDefinition, SubmissionConfig
 
 
@@ -70,3 +70,28 @@ def test_capabilities_default_has_no_submission():
     caps = CapabilitiesDefinition()
     assert caps.submittable is False
     assert caps.submission is None
+
+
+def _entry_type(**over):
+    base = {
+        "slug": "inquiry",
+        "name": "Inquiry",
+        "description": "Contact inquiries",
+        "schema_json": {"fields": [{"type": "text", "key": "email", "label": "Email"}]},
+    }
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_published_form_exposes_the_type_schema_and_success_message():
+    cfg = SubmissionConfig(enable_honeypot=True, honeypot_field="_website", success_message="Thanks!")
+    pub = _published_form_from_entry_type(_entry_type(), cfg)
+    assert pub.slug == "inquiry"
+    assert pub.form_schema["fields"][0]["key"] == "email"
+    assert pub.metadata["successMessage"] == "Thanks!"
+    assert pub.metadata["honeypotField"] == "_website"
+
+
+def test_published_form_omits_honeypot_field_when_disabled():
+    pub = _published_form_from_entry_type(_entry_type(), SubmissionConfig(enable_honeypot=False))
+    assert pub.metadata["honeypotField"] is None

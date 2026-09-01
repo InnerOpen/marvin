@@ -47,6 +47,26 @@ def _derive_submission_title(cfg: SubmissionConfig, entry_type: EntryTypes, data
     return f"{entry_type.name} submission {datetime.now(UTC).isoformat(timespec='seconds')}"
 
 
+def _published_form_from_entry_type(entry_type: EntryTypes, cfg: SubmissionConfig) -> PublishedFormRead:
+    """Expose a submittable entry type as a public form definition for a schema→form renderer.
+
+    ``form_schema`` carries the entry type's own field schema (``EntryTypeSchemaDefinition``), so the
+    site renders the form from the same schema the submission validates against. ``metadata`` carries
+    the render-time bits: the success message and the honeypot field name (only when enabled, so the
+    renderer knows to include the hidden trap input).
+    """
+    return PublishedFormRead(
+        slug=entry_type.slug,
+        name=entry_type.name,
+        description=entry_type.description,
+        form_schema=entry_type.schema_json or {},
+        metadata={
+            "successMessage": cfg.success_message,
+            "honeypotField": cfg.honeypot_field if cfg.enable_honeypot else None,
+        },
+    )
+
+
 def _submit_to_entry_type(
     entry_type: EntryTypes,
     cfg: SubmissionConfig,
@@ -151,6 +171,17 @@ async def get_form(
 
     # Check permission
     perms.require_permission(Permissions.READ_PUBLISHED_ENTRIES, "form definition")
+
+    # Prefer a submittable entry type with this slug (forms-as-entry-types); fall back to legacy Forms.
+    entry_type = (
+        session.query(EntryTypes)
+        .filter(EntryTypes.group_id == group.id, EntryTypes.slug == form_slug)
+        .first()
+    )
+    if entry_type is not None:
+        caps = CapabilitiesDefinition(**(entry_type.capabilities_json or {}))
+        if caps.submittable:
+            return _published_form_from_entry_type(entry_type, caps.submission or SubmissionConfig())
 
     # Get form
     form = (
