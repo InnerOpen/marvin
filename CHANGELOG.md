@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.43 (2026-09-01)
+
+### Bug Fixes
+
+- **events**: Form_submission_received is no longer a dead event
+  ([`6e30d18`](https://github.com/InnerOpen/marvin/commit/6e30d1832141c3cf500927cd268680e114fd1587))
+
+
 ## v1.0.0-rc.42 (2026-09-01)
 
 ### Features
