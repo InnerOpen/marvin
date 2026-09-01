@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.42 (2026-09-01)
+
+### Features
+
+- **forms**: Route public submits to submittable entry types (forms → entries)
+  ([`c192c6c`](https://github.com/InnerOpen/marvin/commit/c192c6c1e722bf403af842b1fcae253e173706d7))
+
+
 ## v1.0.0-rc.41 (2026-09-01)
 
 ### Bug Fixes
