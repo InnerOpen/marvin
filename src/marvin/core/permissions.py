@@ -76,6 +76,8 @@ class Permissions:
     READ_PUBLISHED_ENTRIES = "read:published_entries"
     READ_DRAFT_ENTRIES = "read:draft_entries"
     READ_ALL_ENTRIES = "read:all_entries"
+    # Public submission → creates an inbox entry of a submittable entry type ("form" submit).
+    WRITE_PUBLIC_ENTRIES = "write:public_entries"
 
     # Collection permissions
     READ_COLLECTIONS = "read:collections"
