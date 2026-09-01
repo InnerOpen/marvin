@@ -84,3 +84,8 @@ extraVolumeMounts:
 extraEnv:
   - name: PYTHONPATH
     value: /plugins
+  # Assets are served off this backend but the site (dev.mashandburnco.com) is a different origin,
+  # so hand out absolute asset URLs via the public tunnel host. Files still mount at /assets
+  # (STORAGE_LOCAL_PUBLIC_URL) — this only sets the URL prefix. See STORAGE_LOCAL_PUBLIC_BASE_URL.
+  - name: STORAGE_LOCAL_PUBLIC_BASE_URL
+    value: https://api.iwobble.com/assets
