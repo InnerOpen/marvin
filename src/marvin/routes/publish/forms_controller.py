@@ -25,6 +25,7 @@ from marvin.services.event_bus_service.event_types import (
     EventOperation,
     EventTypes,
 )
+from marvin.services.secrets.resolver import resolve
 from marvin.services.security.captcha_service import CaptchaService
 from marvin.services.security.rate_limit_service import RateLimitService
 
@@ -67,7 +68,7 @@ def _published_form_from_entry_type(entry_type: EntryTypes, cfg: SubmissionConfi
     )
 
 
-def _submit_to_entry_type(
+async def _submit_to_entry_type(
     entry_type: EntryTypes,
     cfg: SubmissionConfig,
     submission_data: dict,
@@ -79,19 +80,36 @@ def _submit_to_entry_type(
     """Handle a public submission for a submittable entry type: create an ``inbox`` entry.
 
     A submittable entry type IS a form; a submission IS an entry of that type. The submitted values
-    validate against the type's own field schema and land as an ``inbox`` entry (kept out of
-    published output, visible in the admin Entries list). Notification stays on the scoped
-    ``form_submission_received`` event — never ``entry_created``, which fires for every entry.
-
-    NOTE: rate-limiting and CAPTCHA are not yet wired here (rate limits are keyed to ``forms.id`` by
-    FK, and CAPTCHA needs secret-ref resolution) — the honeypot is the current bot gate. See
-    tasks/forms-as-entry-types.md.
+    run the security gauntlet (rate limit → honeypot → CAPTCHA), validate against the type's own
+    field schema, and land as an ``inbox`` entry (kept out of published output, visible in the admin
+    Entries list). Notification stays on the scoped ``form_submission_received`` event — never
+    ``entry_created``, which fires for every entry.
     """
+    ip_address = request.client.host if request.client else "unknown"
+
+    # Rate limit by IP, keyed on this submittable subject (opt-in via rate_limit_max).
+    if cfg.rate_limit_max:
+        window_minutes = max(1, (cfg.rate_limit_window_seconds or 3600) // 60)
+        if not RateLimitService(session).check_subject_limit(
+            entry_type.id, ip_address, cfg.rate_limit_max, window_minutes
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded. Please try again later.",
+            )
+
     # Honeypot — a filled hidden field is almost certainly a bot; return success without persisting.
     if cfg.enable_honeypot:
         if submission_data.get(cfg.honeypot_field):
             return FormSubmissionResponse(success=True, message=cfg.success_message or "Thank you for your submission")
         submission_data.pop(cfg.honeypot_field, None)
+
+    # CAPTCHA — the secret is a {{SLUG}} ref resolved from the workspace secret store, never plaintext.
+    if cfg.enable_captcha:
+        token = submission_data.pop("captchaToken", None)
+        secret = resolve(cfg.captcha_secret_ref, group.id, allow_secrets=True) if cfg.captcha_secret_ref else None
+        if not await CaptchaService().verify(token, cfg.captcha_provider or "hcaptcha", secret):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="CAPTCHA verification failed")
 
     # Validate the submitted values against the entry type's own field schema.
     schema = entry_type.schema_json or {}
@@ -246,7 +264,7 @@ async def submit_form(
     if entry_type is not None:
         caps = CapabilitiesDefinition(**(entry_type.capabilities_json or {}))
         if caps.submittable:
-            return _submit_to_entry_type(
+            return await _submit_to_entry_type(
                 entry_type, caps.submission or SubmissionConfig(), submission_data, request, group, bg_tasks, session
             )
 

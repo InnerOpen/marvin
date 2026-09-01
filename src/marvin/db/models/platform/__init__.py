@@ -17,6 +17,7 @@ from .resource_tags import ResourceTags
 from .resources import Resources
 from .scheduled_tasks import ScheduledTaskExecutionLogModel, ScheduledTaskModel
 from .scheduler_lock import SCHEDULER_LOCK_ID, SchedulerLockModel
+from .submission_rate_limits import SubmissionRateLimits
 from .tags import Tags
 
 # isort: split
@@ -43,6 +44,7 @@ __all__ = [
     "ScheduledTaskExecutionLogModel",
     "ScheduledTaskModel",
     "SchedulerLockModel",
+    "SubmissionRateLimits",
     "Tags",
     # CODE_GEN_ID: PLATFORM_MODEL_ALL
     # END: PLATFORM_MODEL_ALL

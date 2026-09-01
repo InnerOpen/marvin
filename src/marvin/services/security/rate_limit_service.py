@@ -6,6 +6,7 @@ from pydantic import UUID4
 from sqlalchemy.orm import Session
 
 from marvin.db.models.platform.form_rate_limits import FormRateLimits
+from marvin.db.models.platform.submission_rate_limits import SubmissionRateLimits
 
 
 class RateLimitService:
@@ -13,6 +14,42 @@ class RateLimitService:
 
     def __init__(self, session: Session) -> None:
         self.session = session
+
+    def check_subject_limit(
+        self, subject_id: UUID4, identifier: str, max_submissions: int, window_minutes: int
+    ) -> bool:
+        """Windowed rate check for a submittable subject (an entry type). Generalizes ``check_limit``
+        off the ``forms.id`` FK so the entry-type submit path can be rate-limited.
+
+        Returns True if the submission is allowed, False if the limit is exceeded.
+        """
+        now = datetime.now(UTC)
+        window_start = now - timedelta(minutes=window_minutes)
+        record = (
+            self.session.query(SubmissionRateLimits)
+            .filter(
+                SubmissionRateLimits.subject_id == subject_id,
+                SubmissionRateLimits.identifier == identifier,
+                SubmissionRateLimits.window_start >= window_start,
+            )
+            .first()
+        )
+        if not record:
+            record = SubmissionRateLimits(
+                session=self.session,
+                subject_id=subject_id,
+                identifier=identifier,
+                window_start=now,
+                submission_count=1,
+            )
+            self.session.add(record)
+            self.session.commit()
+            return True
+        if record.submission_count >= max_submissions:
+            return False
+        record.submission_count += 1
+        self.session.commit()
+        return True
 
     def check_limit(self, form_id: UUID4, identifier: str, settings: dict | None) -> bool:
         """Check if submission is within rate limit.
