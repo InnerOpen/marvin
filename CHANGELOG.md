@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.41 (2026-09-01)
+
+### Bug Fixes
+
+- **forms**: Read FormRead schema from the ORM's schema_json attribute
+  ([`901e8e2`](https://github.com/InnerOpen/marvin/commit/901e8e2b170cc16b08a7bccac75c6f99674bd78f))
+
+### Chores
+
+- **deploy**: Pin iwobble asset URL env + commit cloudflared connector
+  ([`57146ad`](https://github.com/InnerOpen/marvin/commit/57146ad6fe2341a62752afb44eb85a73253de3ad))
+
+### Features
+
+- **forms**: Emit form_submission_received on public form submit
+  ([`a5a8de2`](https://github.com/InnerOpen/marvin/commit/a5a8de2ea845e53304b15ba1703a495f810b456c))
+
+
 ## v1.0.0-rc.40 (2026-08-31)
 
 ### Chores
