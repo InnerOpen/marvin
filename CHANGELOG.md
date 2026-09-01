@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.44 (2026-09-01)
+
+### Features
+
+- **forms**: Serve submittable entry-type schema from the publishing GET
+  ([`f189cce`](https://github.com/InnerOpen/marvin/commit/f189cced0562d05f9178286d130cf60e88303aa6))
+
+
 ## v1.0.0-rc.43 (2026-09-01)
 
 ### Bug Fixes

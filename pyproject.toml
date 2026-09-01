@@ -1,6 +1,6 @@
 [project]
 name = "marvin"
-version = "1.0.0-rc.43"
+version = "1.0.0-rc.44"
 description = "Marvin"
 readme = "README.md"
 
