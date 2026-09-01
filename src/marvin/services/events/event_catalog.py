@@ -1303,7 +1303,8 @@ _NO_EMITTER: frozenset[str] = frozenset(
         "entry_shared",
         "form_submission_failed",
         "form_submission_processed",
-        "form_submission_received",
+        # form_submission_received now has an emitter (the publishing submit path — legacy Forms and
+        # the submittable entry-type path) — no longer dead.
         "login_failed_multiple_times",
         "mention_created",
         "scheduled_task_cancelled",
