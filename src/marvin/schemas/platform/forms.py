@@ -104,7 +104,10 @@ class FormRead(_MarvinModel):
     slug: str
     name: str
     description: str | None
-    form_schema: dict = Field(serialization_alias="schemaJson")
+    # validation_alias reads from the ORM attribute (Forms.schema_json) under from_attributes —
+    # without it, model_validate(orm_obj) looked for `form_schema`/`formSchema`, found neither on the
+    # ORM row, and 500'd the admin form endpoints. serialization keeps the camelCase `schemaJson`.
+    form_schema: dict = Field(validation_alias="schema_json", serialization_alias="schemaJson")
     settings_json: dict | None = Field(serialization_alias="settingsJson")
     metadata_json: dict | None = Field(serialization_alias="metadataJson")
     status: str
