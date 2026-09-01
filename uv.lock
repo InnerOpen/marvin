@@ -982,7 +982,7 @@ wheels = [
 
 [[package]]
 name = "marvin"
-version = "1.0.0rc45"
+version = "1.0.0rc46"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },

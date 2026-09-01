@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.46 (2026-09-01)
+
+### Bug Fixes
+
+- **media**: Preserve transparency in crop/grade (was flattening onto black)
+  ([`bc21db3`](https://github.com/InnerOpen/marvin/commit/bc21db31a623e013aa61dfad52b3d0d3acff3ce7))
+
+
 ## v1.0.0-rc.45 (2026-09-01)
 
 ### Features
