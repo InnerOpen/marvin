@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.47 (2026-09-04)
+
+### Bug Fixes
+
+- **ai**: Agent 500 — run_agent read body.register (renamed to tone_register)
+  ([`4de61e5`](https://github.com/InnerOpen/marvin/commit/4de61e5aff6a0e66bd806cb7af2fa3a6eadf4632))
+
+
 ## v1.0.0-rc.46 (2026-09-01)
 
 ### Bug Fixes
