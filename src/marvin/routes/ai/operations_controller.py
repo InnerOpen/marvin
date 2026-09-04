@@ -738,7 +738,7 @@ class AIOperationsController(BaseUserController):
             "Be concise."
         )
         # Explicit per-call register wins; otherwise the workspace default; otherwise "auto".
-        system += self._register_clause(body.register or self._default_register(), persona_prompt)
+        system += self._register_clause(body.tone_register or self._default_register(), persona_prompt)
         # Ground the run in what the user is looking at. Prefer a pre-assembled context block
         # (title/status/fields/attachments) so the agent can answer immediately; fall back to the
         # bare id hint when we can't assemble one, so it can still fetch the entity itself.

@@ -8,7 +8,10 @@ degrade-to-None paths, and the workspace-scoping guard on ContextBuilder.with_en
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from marvin.routes.ai.operations_controller import AIOperationsController
+from marvin.schemas.group.ai_execution import AIAgentRequest
 from marvin.services.ai.context import ContextBuilder
 from marvin.services.ai.operations.base import OperationContext
 
@@ -309,3 +312,24 @@ def test_default_register_falls_back_to_auto_when_unset():
     ctrl = _ctrl()
     ctrl.session.query.return_value.filter_by.return_value.first.return_value = None
     assert AIOperationsController._default_register(ctrl) == "auto"
+
+
+# ── The wire alias is `register`; the Python attribute is `tone_register` ─────
+# `register` shadows ABCMeta.register, so the field was renamed to tone_register with an
+# alias. The alias only affects (de)serialization — attribute access is by the Python name.
+# Any handler that reads `body.register` raises AttributeError → 500. That regression shipped
+# on the /api/ai/agent path (run_agent read body.register); these pin the contract.
+
+
+def test_agent_request_populates_tone_register_from_the_wire_alias():
+    body = AIAgentRequest.model_validate({"message": "hi", "register": "playful"})
+    assert body.tone_register == "playful"
+    # And it round-trips back out under the wire name for clients.
+    assert body.model_dump(by_alias=True)["register"] == "playful"
+
+
+def test_agent_request_has_no_register_attribute():
+    # Reading body.register (the wire name) is the exact bug that 500'd the agent endpoint.
+    body = AIAgentRequest.model_validate({"message": "hi", "register": "professional"})
+    with pytest.raises(AttributeError):
+        _ = body.register
