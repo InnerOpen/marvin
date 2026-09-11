@@ -166,3 +166,61 @@ class TestPublishedEntryListItemCarriesData:
 
         assert item.data == {"medium": "Acrylic on canvas", "status": "sold"}
         assert item.description == "Sold. 20 × 20 in."
+
+
+class TestNonPublishableTypesStayPrivate:
+    """Entries of a type with `publishable: false` (submissions) are never served by the publishing
+    API, even when a workflow moves them to `published` as a lifecycle status."""
+
+    def test_non_publishable_ids_picks_only_explicit_false(self):
+        from types import SimpleNamespace
+
+        from marvin.routes.publish.publishing_controller import _non_publishable_type_ids
+
+        types = [
+            SimpleNamespace(id="newsletter", capabilities_json={"publishable": False, "submittable": True}),
+            SimpleNamespace(id="artwork", capabilities_json={"publishable": True}),
+            SimpleNamespace(id="page", capabilities_json=None),
+            SimpleNamespace(id="legacy", capabilities_json={}),
+        ]
+        assert _non_publishable_type_ids(types) == ["newsletter"]
+
+    def test_only_publishable_types_filters_when_needed(self):
+        from types import SimpleNamespace
+
+        from marvin.routes.publish.publishing_controller import _only_publishable_types
+
+        calls = []
+
+        class _Q:
+            def filter(self, *a):
+                calls.append(a)
+                return self
+
+            def all(self):
+                return [SimpleNamespace(id="t-private", capabilities_json={"publishable": False})]
+
+        session = SimpleNamespace(query=lambda model: _Q())
+        base = _Q()
+        out = _only_publishable_types(session, "G", base)
+        assert out is base and len(calls) == 2  # the type lookup filter + the notin_ filter
+
+    def test_only_publishable_types_is_a_no_op_without_private_types(self):
+        from types import SimpleNamespace
+
+        from marvin.routes.publish.publishing_controller import _only_publishable_types
+
+        class _Q:
+            def __init__(self):
+                self.filters = 0
+
+            def filter(self, *a):
+                self.filters += 1
+                return self
+
+            def all(self):
+                return [SimpleNamespace(id="t", capabilities_json={"publishable": True})]
+
+        base = _Q()
+        session = SimpleNamespace(query=lambda model: _Q())
+        assert _only_publishable_types(session, "G", base) is base and base.filters == 0

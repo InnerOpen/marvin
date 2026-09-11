@@ -97,6 +97,27 @@ def _build_entry_type_info(entry: Entries) -> PublishedEntryTypeInfo | None:
     )
 
 
+def _non_publishable_type_ids(entry_types) -> list:
+    """Ids of entry types whose capabilities say `publishable: false` — submissions (contact,
+    newsletter signups…) and other private records. Absent capabilities count as publishable."""
+    out = []
+    for et in entry_types:
+        caps = et.capabilities_json if isinstance(et.capabilities_json, dict) else {}
+        if caps.get("publishable") is False:
+            out.append(et.id)
+    return out
+
+
+def _only_publishable_types(session, group_id, query):
+    """Exclude entries of non-publishable types from a publishing query, whatever their status.
+    A submittable type's entries can be moved to `published` as a workflow status; that must
+    never make them public."""
+    from marvin.db.models.platform import EntryTypes
+
+    excluded = _non_publishable_type_ids(session.query(EntryTypes).filter(EntryTypes.group_id == group_id).all())
+    return query.filter(Entries.entry_type_id.notin_(excluded)) if excluded else query
+
+
 def _is_suggested(ea: EntryAssets) -> bool:
     """A pending AI-suggested asset link — flagged in the junction metadata, awaiting workspace
     review. These must never reach published output, so every asset serializer filters them out."""
@@ -388,6 +409,7 @@ async def list_published_entries(
         )
         .options(*_entry_eager_options_with_type())
     )
+    query = _only_publishable_types(session, group.id, query)
 
     # Filter by entry type if specified
     if entry_type:
@@ -513,11 +535,14 @@ async def get_published_entry(
 
     # Query published entry with eager loading to prevent N+1 queries
     entry = (
-        session.query(Entries)
-        .filter(
-            Entries.group_id == group.id,
-            Entries.slug == slug,
-            Entries.status == settings.PUBLISHING_DEFAULT_STATUS,
+        _only_publishable_types(
+            session,
+            group.id,
+            session.query(Entries).filter(
+                Entries.group_id == group.id,
+                Entries.slug == slug,
+                Entries.status == settings.PUBLISHING_DEFAULT_STATUS,
+            ),
         )
         .options(*_entry_eager_options_with_type())
         .first()
@@ -750,6 +775,7 @@ async def get_published_collection(
         .filter(EntryCollections.collection_id == collection.id)
         .options(*_entry_eager_options_with_type())
     )
+    query = _only_publishable_types(session, group.id, query)
 
     # Only filter to published entries if user doesn't have permission to read all
     if not perms.has_permission(Permissions.READ_ALL_ENTRIES):
@@ -1161,11 +1187,15 @@ async def get_resource_entries(
     from marvin.db.models.platform import EntryResources
 
     entries = (
-        session.query(Entries)
-        .join(EntryResources)
-        .filter(
-            EntryResources.resource_id == resource.id,
-            Entries.status == settings.PUBLISHING_DEFAULT_STATUS,
+        _only_publishable_types(
+            session,
+            group.id,
+            session.query(Entries)
+            .join(EntryResources)
+            .filter(
+                EntryResources.resource_id == resource.id,
+                Entries.status == settings.PUBLISHING_DEFAULT_STATUS,
+            ),
         )
         .options(*_entry_eager_options_with_type())
         .order_by(Entries.published_at.desc())
