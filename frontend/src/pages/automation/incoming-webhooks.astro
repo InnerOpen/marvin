@@ -59,11 +59,11 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
       <div class="form-row">
         <label class="form-field grow">
           <span class="label">Signing secret <span class="muted">(optional — slug of a workspace Secret holding the sender's HMAC key)</span></span>
-          <input class="input" id="iw-signing" placeholder="e.g. BUTTONDOWN_SIGNING_KEY" />
+          <input class="input" id="iw-signing" placeholder="e.g. WEBHOOK_SIGNING_KEY" />
         </label>
         <label class="form-field grow">
           <span class="label">Signature header <span class="muted">(default X-Signature-256)</span></span>
-          <input class="input" id="iw-sig-header" placeholder="e.g. X-Buttondown-Signature" />
+          <input class="input" id="iw-sig-header" placeholder="e.g. X-Hub-Signature-256" />
         </label>
       </div>
       <p class="hint">With a signing secret set, every request must carry <code>sha256=&lt;hex HMAC-SHA256 of the raw body&gt;</code> in that header, or it is rejected.</p>
@@ -145,7 +145,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         <button class="button ghost sm" data-act="edit-signing">${w.signingSecretRef ? "Change" : "Set up signing"}</button>
       </div>
       <div class="signing-edit" hidden>
-        <input class="input" data-signing-ref placeholder="Secret slug, e.g. BUTTONDOWN_SIGNING_KEY" value="${esc(w.signingSecretRef || "")}" />
+        <input class="input" data-signing-ref placeholder="Secret slug, e.g. WEBHOOK_SIGNING_KEY" value="${esc(w.signingSecretRef || "")}" />
         <input class="input" data-signing-header placeholder="Header (default X-Signature-256)" value="${esc(w.signatureHeader || "")}" />
         <button class="button sm" data-act="save-signing">Save</button>
         <button class="button ghost sm" data-act="cancel-signing">Cancel</button>
