@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.51 (2026-09-11)
+
+### Features
+
+- **automations**: Form_submission_received can trigger an automation
+  ([`8f1443d`](https://github.com/InnerOpen/marvin/commit/8f1443d14a9adaa2481c624d2370c75a9fe8c89a))
+
+
 ## v1.0.0-rc.50 (2026-09-11)
 
 ### Features
