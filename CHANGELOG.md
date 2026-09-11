@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.57 (2026-09-11)
+
+### Bug Fixes
+
+- **hooks**: Log the shape of a rejected webhook signature
+  ([`41f9f98`](https://github.com/InnerOpen/marvin/commit/41f9f98a204bcc1c8ae4389531c751bc7d6f3a77))
+
+
 ## v1.0.0-rc.56 (2026-09-11)
 
 ### Chores
