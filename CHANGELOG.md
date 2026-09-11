@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.62 (2026-09-11)
+
+### Bug Fixes
+
+- **publish**: Never serve entries of non-publishable types
+  ([`0e676a2`](https://github.com/InnerOpen/marvin/commit/0e676a230a50c50c4527b6adc4208b894416f939))
+
+
 ## v1.0.0-rc.61 (2026-09-11)
 
 ### Features
