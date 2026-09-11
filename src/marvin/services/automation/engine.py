@@ -45,9 +45,9 @@ def _entry_context(session, group_id, entry_id) -> dict | None:
         "status": entry.status,
         "title": entry.title,
         "slug": entry.slug,
-        "summary": entry.summary,
+        "summary": getattr(entry, "summary", None),
         # Schema fields, so an action can forward content (`${entry.data.body}` → a newsletter API).
-        "data": entry.data_json if isinstance(entry.data_json, dict) else {},
+        "data": data if isinstance(data := getattr(entry, "data_json", None), dict) else {},
     }
 
 
