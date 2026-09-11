@@ -110,3 +110,59 @@ class TestPublishedEntryDataNormalization:
 
     def test_dict_data_is_preserved(self):
         assert self._read(data={"body": "hello"}).data == {"body": "hello"}
+
+
+class TestPublishedEntryListItemCarriesData:
+    """List items carry the entry's schema fields so a site can render a collection from one
+    request. Without this, clients re-fetch every entry (N+1); on a 280-entry collection that
+    timed out and dropped entries. ``data`` follows the same never-null contract as the detail."""
+
+    def _item(self, **overrides):
+        from marvin.schemas.publishing import PublishedEntryListItem
+
+        base = {"slug": "x", "title": "X", "entry_type": "artwork", "status": "published"}
+        base.update(overrides)
+        return PublishedEntryListItem(**base)
+
+    def test_list_item_data_is_preserved(self):
+        assert self._item(data={"medium": "Acrylic on canvas", "size": "20 × 20 in"}).data == {
+            "medium": "Acrylic on canvas",
+            "size": "20 × 20 in",
+        }
+
+    def test_list_item_null_data_normalizes_to_empty_dict(self):
+        assert self._item(data=None).data == {}
+
+    def test_list_item_missing_data_defaults_to_empty_dict(self):
+        assert self._item().data == {}
+
+    def test_list_item_serializes_data_and_description(self):
+        dumped = self._item(data={"body": "hi"}, description="A lede").model_dump(by_alias=True)
+        assert dumped["data"] == {"body": "hi"}
+        assert dumped["description"] == "A lede"
+
+    def test_entry_to_list_item_copies_data_json_and_description(self):
+        from types import SimpleNamespace
+
+        from marvin.routes.publish.publishing_controller import _entry_to_list_item
+
+        entry = SimpleNamespace(
+            slug="weightless-hour",
+            title="Weightless Hour",
+            entry_type=SimpleNamespace(slug="artwork", rendering_json=None, capabilities_json=None),
+            summary="Acrylic on canvas",
+            description="Sold. 20 × 20 in.",
+            data_json={"medium": "Acrylic on canvas", "status": "sold"},
+            metadata_json=None,
+            published_at=None,
+            status="published",
+            entry_collections=[],
+            entry_assets=[],
+            entry_resources=[],
+            tag_names=[],
+        )
+
+        item = _entry_to_list_item(entry, "grace-martin-franklin")
+
+        assert item.data == {"medium": "Acrylic on canvas", "status": "sold"}
+        assert item.description == "Sold. 20 × 20 in."

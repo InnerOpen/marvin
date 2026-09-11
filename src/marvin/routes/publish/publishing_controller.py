@@ -172,6 +172,8 @@ def _entry_to_list_item(entry: Entries, workspace_slug: str, include_order: bool
         "entry_type": entry.entry_type.slug if entry.entry_type else settings.PUBLISHING_UNKNOWN_ENTRY_TYPE,
         "entry_type_info": _build_entry_type_info(entry),
         "summary": entry.summary,
+        "description": entry.description,
+        "data": entry.data_json,
         "published_at": entry.published_at,
         "collections": collections,
         "assets": asset_slugs,

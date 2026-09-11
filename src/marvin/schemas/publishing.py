@@ -180,10 +180,11 @@ class PublishedEntryRead(_MarvinModel):
 
 class PublishedEntryListItem(_MarvinModel):
     """
-    Minimal entry schema for list responses.
+    Entry schema for list responses.
 
-    Used when listing multiple entries - returns only essential fields
-    without full content.
+    Used when listing multiple entries. Carries the entry's schema fields (``data``) alongside
+    the summary, memberships, tags and a resolved featured asset, but not the full asset,
+    resource and collection detail of ``PublishedEntryRead``.
     """
 
     slug: str
@@ -200,6 +201,21 @@ class PublishedEntryListItem(_MarvinModel):
 
     summary: str | None = None
     """Optional short description/summary."""
+
+    description: str | None = None
+    """Longer descriptive lede shown under the title on the entry's own page."""
+
+    data: dict = Field(default_factory=dict)
+    """Entry content structured according to the entry type schema.
+
+    Carried on list items so a site can render a whole collection from one request instead of
+    re-fetching every entry for its fields (an N+1 that times out on large collections)."""
+
+    @field_validator("data", mode="before")
+    @classmethod
+    def _data_never_null(cls, value: object) -> dict:
+        """Same contract as ``PublishedEntryRead.data``: SQL NULL (or any non-dict) becomes ``{}``."""
+        return value if isinstance(value, dict) else {}
 
     published_at: datetime | None = None
     """Timestamp when the entry was published."""
