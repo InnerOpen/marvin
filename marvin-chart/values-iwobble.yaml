@@ -22,11 +22,18 @@ config:
   corsOrigins: "https://marvin-marvin.apps.ocp4.iwobble.com"
 
 # Relaxed backend probe cadence (the app also filters probe paths out of the access log). Merged
-# over the chart defaults, so only the period changes: liveness /healthz 10→30s, readiness /readyz 5→15s.
+# over the chart defaults: liveness /healthz 10→30s, readiness /readyz 5→15s. The single uvicorn
+# worker answers probes late while it serves a burst of slow reads (a site build fetching many
+# entries): with the 5 s default timeout and 3 failures the pod was restarted mid-build
+# (7 restarts, "Completed"/exit 0 = SIGTERM, 2026-09-11) and the API answered 502 for minutes.
+# A restart should mean the process is hung, not busy — so give it 15 s and 5 strikes (~2.5 min).
 livenessProbe:
   periodSeconds: 30
+  timeoutSeconds: 15
+  failureThreshold: 5
 readinessProbe:
   periodSeconds: 15
+  timeoutSeconds: 10
 
 # NFS-backed PVC (managed-nfs-storage). Single writer only: keep split.backend.replicaCount at 1 —
 # sqlite over NFS is unsafe with concurrent writers. For HA, move dbEngine to postgres instead.
