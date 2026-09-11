@@ -47,6 +47,12 @@ class WorkspaceIncomingWebhookModel(SqlAlchemyBase, BaseMixins):
     # The secret credential. Null = no access minted yet. Unique so the receiver can resolve by it.
     token: Mapped[str | None] = mapped_column(sa.String, nullable=True, unique=True, index=True)
 
+    # Optional HMAC verification: when `signing_secret_ref` names a workspace secret, every request must
+    # carry `<signature_header>: sha256=<hex HMAC-SHA256 of the raw body>` computed with that secret
+    # (the Buttondown / GitHub / Stripe-style scheme). The URL token alone stays the credential otherwise.
+    signing_secret_ref: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    signature_header: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+
     # Observability — surfaced in the management UI so an admin can confirm deliveries land.
     received_count: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
     last_received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

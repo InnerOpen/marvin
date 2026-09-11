@@ -56,6 +56,17 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         <span class="label">Description <span class="muted">(optional)</span></span>
         <input class="input" id="iw-desc" placeholder="What sends to this webhook?" />
       </label>
+      <div class="form-row">
+        <label class="form-field grow">
+          <span class="label">Signing secret <span class="muted">(optional — slug of a workspace Secret holding the sender's HMAC key)</span></span>
+          <input class="input" id="iw-signing" placeholder="e.g. BUTTONDOWN_SIGNING_KEY" />
+        </label>
+        <label class="form-field grow">
+          <span class="label">Signature header <span class="muted">(default X-Signature-256)</span></span>
+          <input class="input" id="iw-sig-header" placeholder="e.g. X-Buttondown-Signature" />
+        </label>
+      </div>
+      <p class="hint">With a signing secret set, every request must carry <code>sha256=&lt;hex HMAC-SHA256 of the raw body&gt;</code> in that header, or it is rejected.</p>
       <div class="create-actions">
         <button id="iw-create-btn" class="button">Create</button>
         <button id="iw-cancel" class="button ghost" type="button">Cancel</button>
@@ -132,6 +143,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         <span>·</span>
         <span>last: ${esc(fmtWhen(w.lastReceivedAt))}</span>
         ${!w.enabled ? `<span class="pill">disabled</span>` : ""}
+        ${w.signingSecretRef ? `<span class="pill" title="Requests must be HMAC-signed with secret ${esc(w.signingSecretRef)} (header ${esc(w.signatureHeader || "X-Signature-256")})">signed</span>` : ""}
       </div>
     </div>`;
   }
@@ -161,9 +173,11 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         name,
         description: ($("iw-desc")).value.trim() || undefined,
         enabled: ($("iw-enabled")).checked,
-      });
+        signingSecretRef: ($("iw-signing")).value.trim() || undefined,
+        signatureHeader: ($("iw-sig-header")).value.trim() || undefined,
+      } as any);
       upsert(w);
-      ($("iw-name")).value = ""; ($("iw-desc")).value = "";
+      ($("iw-name")).value = ""; ($("iw-desc")).value = ""; ($("iw-signing")).value = ""; ($("iw-sig-header")).value = "";
       $("iw-create").setAttribute("hidden", "");
       status.textContent = "";
     } catch (e) { status.textContent = `Error: ${e?.message ?? e}`; }

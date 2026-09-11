@@ -21,11 +21,28 @@ from marvin.db.db_setup import generate_session
 from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
 from marvin.services.event_bus_service.event_bus_service import EventBusService
 from marvin.services.event_bus_service.event_types import EventIncomingWebhookData, EventTypes
+from marvin.services.webhooks.incoming_signature import DEFAULT_SIGNATURE_HEADER, verify_signature
 
 router = APIRouter()
 
 # Reject bodies larger than this — an ingress endpoint should never buffer arbitrary payloads.
 _MAX_BODY_BYTES = 512 * 1024
+
+
+def _check_signature(webhook: WorkspaceIncomingWebhookModel, raw: bytes, request: Request) -> None:
+    """When the webhook names a signing secret, the request must carry a valid HMAC — fail closed:
+    an unresolvable secret, a missing header or a mismatch all reject with 401."""
+    ref = (webhook.signing_secret_ref or "").strip()
+    if not ref:
+        return
+    if ref.startswith("{{") and ref.endswith("}}"):
+        ref = ref[2:-2].strip()
+    from marvin.services.secrets.resolver import resolve_secret
+
+    key = resolve_secret(ref, webhook.group_id)
+    header = webhook.signature_header or DEFAULT_SIGNATURE_HEADER
+    if not verify_signature(raw, request.headers.get(header), key):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook signature.")
 
 
 def _resolve_token(path_token: str, authorization: str | None) -> str:
@@ -56,6 +73,7 @@ async def receive_hook(
     raw = await request.body()
     if len(raw) > _MAX_BODY_BYTES:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Payload too large.")
+    _check_signature(webhook, raw, request)
     payload: dict = {}
     if raw:
         try:

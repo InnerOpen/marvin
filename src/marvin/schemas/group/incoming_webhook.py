@@ -18,6 +18,10 @@ class IncomingWebhookCreate(_MarvinModel):
     slug: str | None = None  # generated from name when omitted
     description: str | None = None
     enabled: bool = False
+    # HMAC verification (optional): workspace secret slug holding the sender's signing key, and the
+    # header that carries `sha256=<hex>` (defaults to X-Signature-256 when unset).
+    signing_secret_ref: str | None = None
+    signature_header: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -26,6 +30,8 @@ class IncomingWebhookUpdate(_MarvinModel):
     name: str | None = None
     description: str | None = None
     enabled: bool | None = None
+    signing_secret_ref: str | None = None
+    signature_header: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -38,6 +44,8 @@ class IncomingWebhookRead(_MarvinModel):
     description: str | None = None
     enabled: bool
     token: str | None = None  # the secret; ADMIN-only surface. Null = no token minted yet.
+    signing_secret_ref: str | None = None
+    signature_header: str | None = None
     received_count: int = 0
     last_received_at: datetime | None = None
 
