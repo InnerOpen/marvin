@@ -94,4 +94,8 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
         )
     except Exception as e:
         raise AutomationActionError(f"webhook request failed: {e}") from e
-    return {"status_code": resp.status_code, "ok": resp.is_success, "webhook_id": webhook_id}
+    if not resp.is_success:
+        # A rejected call is a failed step, not a success with a status code nobody reads.
+        # The response body (trimmed) is the only clue an operator gets — keep it.
+        raise AutomationActionError(f"webhook {method} {url} -> {resp.status_code}: {resp.text[:500]}")
+    return {"status_code": resp.status_code, "ok": True, "webhook_id": webhook_id}

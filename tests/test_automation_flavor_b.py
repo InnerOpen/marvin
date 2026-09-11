@@ -756,6 +756,18 @@ class TestDryRun:
         assert seen["url"] == "https://example.test/subscribe" and seen["json"] == {"email": "a@b.c"}
         assert seen["headers"]["Authorization"] == "Token s3cret" and seen["headers"]["X-Plain"] == "keep"
 
+    def test_webhook_non_2xx_is_a_failed_step_with_the_response(self, monkeypatch):
+        import httpx
+        import pytest
+
+        from marvin.services.automation.actions.base import AutomationActionError
+        from marvin.services.automation.actions.webhook import run_webhook
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        monkeypatch.setattr(httpx, "request", lambda *a, **k: SimpleNamespace(status_code=401, is_success=False, text='{"detail":"bad token"}'))
+        with pytest.raises(AutomationActionError, match="401.*bad token"):
+            run_webhook(None, "G", {"kind": "webhook", "url": "https://example.test/hook"}, {"event": {}, "depth": 0}, authorizer_role=ROLE_ADMIN)
+
     def test_webhook_dry_run_reports_auth_scheme_without_resolving(self, monkeypatch):
         import marvin.services.secrets.resolver as resolver
         from marvin.services.automation.actions.webhook import run_webhook
