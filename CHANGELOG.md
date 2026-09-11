@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.60 (2026-09-11)
+
+### Features
+
+- **automations**: Entity_query on the entry step
+  ([`65ffb64`](https://github.com/InnerOpen/marvin/commit/65ffb648e66d06383bcbc70f1d53fb99989baf1f))
+
+
 ## v1.0.0-rc.59 (2026-09-11)
 
 ### Features
