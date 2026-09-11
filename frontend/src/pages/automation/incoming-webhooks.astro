@@ -148,8 +148,14 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         <input class="input" data-signing-ref placeholder="Secret slug, e.g. WEBHOOK_SIGNING_KEY" value="${esc(w.signingSecretRef || "")}" />
         <input class="input" data-signing-header placeholder="Header (default X-Signature-256)" value="${esc(w.signatureHeader || "")}" />
         <button class="button sm" data-act="save-signing">Save</button>
+        <button class="button ghost sm" data-act="gen-signing" title="Create a random key, store it as that secret, and show it once so you can paste it into the sender">Generate key</button>
         <button class="button ghost sm" data-act="cancel-signing">Cancel</button>
         <span class="hint">Leave the secret blank to turn verification off. The sender must put <code>sha256=&lt;hex HMAC of the raw body&gt;</code> in that header.</span>
+        <div class="signing-reveal" hidden>
+          <input class="input url" readonly data-signing-value />
+          <button class="button ghost sm" data-act="copy-signing">Copy</button>
+          <span class="hint">Shown once. Paste it into the sender's signing-key field now; Marvin keeps only the encrypted secret.</span>
+        </div>
       </div>
       <div class="iw-meta">
         <span>${w.receivedCount || 0} received</span>
@@ -227,6 +233,27 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         render();
       } else if (act === "edit-signing" || act === "cancel-signing") {
         btn.closest(".iw-card, .iw-item, [data-id]")?.querySelector(".signing-edit")?.toggleAttribute("hidden", act === "cancel-signing");
+      } else if (act === "gen-signing") {
+        const box = btn.closest(".signing-edit");
+        const refInput = box.querySelector("[data-signing-ref]") as HTMLInputElement;
+        const slug = (refInput.value.trim() || `${w.slug}_SIGNING_KEY`).toUpperCase().replace(/[^A-Z0-9_]+/g, "_");
+        const bytes = new Uint8Array(32); crypto.getRandomValues(bytes);
+        const value = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+        setStatus("Creating secret…");
+        await sdk().secrets.create({ name: `${w.name} signing key`, slug, description: `HMAC signing key for incoming webhook "${w.slug}"`, value });
+        const signatureHeader = (box.querySelector("[data-signing-header]") as HTMLInputElement).value.trim() || null;
+        const updated = await sdk().incomingWebhooks.update(id, { signingSecretRef: slug, signatureHeader } as any);
+        // Re-render would drop the one-time reveal, so patch the card in place instead.
+        webhooks = webhooks.map((x) => (x.id === id ? updated : x));
+        refInput.value = slug;
+        const reveal = box.querySelector(".signing-reveal") as HTMLElement;
+        (reveal.querySelector("[data-signing-value]") as HTMLInputElement).value = value;
+        reveal.removeAttribute("hidden");
+        setStatus("");
+      } else if (act === "copy-signing") {
+        const v = (btn.closest(".signing-reveal").querySelector("[data-signing-value]") as HTMLInputElement).value;
+        await navigator.clipboard.writeText(v);
+        setStatus("Key copied.");
       } else if (act === "save-signing") {
         const box = btn.closest(".signing-edit");
         const signingSecretRef = (box.querySelector("[data-signing-ref]") as HTMLInputElement).value.trim() || null;
@@ -327,6 +354,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   .iw-list :global(.signing-row) { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
   .iw-list :global(.signing-edit) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
   .iw-list :global(.signing-edit .input) { flex: 1; min-width: 200px; }
+  .iw-list :global(.signing-reveal) { flex-basis: 100%; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .iw-list :global(.test-panel) { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
   .iw-list :global(.test-panel[hidden]) { display: none; }
   .iw-list :global(.test-payload) { width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px; resize: vertical; }
