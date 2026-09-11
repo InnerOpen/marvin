@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.52 (2026-09-11)
+
+### Bug Fixes
+
+- **automations**: Entry context tolerates partial entry objects
+  ([`c1821a3`](https://github.com/InnerOpen/marvin/commit/c1821a3506bf8a48a2c8034faf9af7703739e175))
+
+### Features
+
+- **automations**: Entry context carries summary and schema fields
+  ([`433e949`](https://github.com/InnerOpen/marvin/commit/433e949e4d8280a8905df40723b803971d8d3c8f))
+
+
 ## v1.0.0-rc.51 (2026-09-11)
 
 ### Features
