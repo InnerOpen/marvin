@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.50 (2026-09-11)
+
+### Features
+
+- **automations**: Auth_scheme on the webhook action (Token, not only Bearer)
+  ([`a65ba7d`](https://github.com/InnerOpen/marvin/commit/a65ba7d0e065097a31d389db0bc3035904d440bb))
+
+
 ## v1.0.0-rc.49 (2026-09-11)
 
 ### Bug Fixes
