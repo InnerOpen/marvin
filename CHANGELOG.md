@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.54 (2026-09-11)
+
+### Bug Fixes
+
+- **automations**: A non-2xx webhook response fails the step
+  ([`fa4f72f`](https://github.com/InnerOpen/marvin/commit/fa4f72f69cc9a4f3c1a79ad130bf4861f47975d6))
+
+
 ## v1.0.0-rc.53 (2026-09-11)
 
 ### Bug Fixes
