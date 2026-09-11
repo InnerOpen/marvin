@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.61 (2026-09-11)
+
+### Features
+
+- **automations**: Webhook step — method on raw urls, templates in stored urls
+  ([`b88e403`](https://github.com/InnerOpen/marvin/commit/b88e4035a6f91fabf3146151ed3ea9d03284b5c9))
+
+
 ## v1.0.0-rc.60 (2026-09-11)
 
 ### Features
