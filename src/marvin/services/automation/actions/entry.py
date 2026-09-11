@@ -35,7 +35,11 @@ COLLECTION_OPS: dict[str, str] = {
     "remove_from_collection": "remove_from_collection",
 }
 
-ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS)
+# Merge a (templated) dict into the entry's metadata_json — e.g. record an external system's id
+# (`buttondown_subscriber_id: $steps.subscribe.output.body.id`) so later events can find the entry.
+METADATA_OPS = ("set_metadata",)
+
+ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS)
 
 
 def _resolve_target(session, group_id, action: dict, context: dict):
@@ -95,6 +99,28 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
         if result is None:
             raise AutomationActionError(f"entry {entity_id} or collection '{collection_ref}' not found in this workspace")
         return {"entry_id": str(entity_id), "op": op, "collection": collection_ref, "result": result}
+
+    # ── Metadata merge ─────────────────────────────────────────────────────────
+    if op in METADATA_OPS:
+        patch = interpolate(action.get("metadata") or {}, context)
+        if not isinstance(patch, dict) or not patch:
+            raise AutomationActionError("entry set_metadata needs a non-empty `metadata` object")
+        # A template that resolved to nothing must not overwrite a real value with null.
+        patch = {k: v for k, v in patch.items() if v is not None and v != ""}
+        if not patch:
+            raise AutomationActionError("entry set_metadata: every metadata value resolved to empty")
+        if dry_run:
+            return {"dry_run": True, "kind": "entry", "op": op, "entity_id": str(entity_id), "would_merge": patch}
+        from marvin.db.models.platform.entries import Entries
+
+        orm = session.get(Entries, entity_id)
+        if orm is None or orm.group_id != group_id:
+            raise AutomationActionError(f"entry {entity_id} not found in this workspace")
+        merged = {**(orm.metadata_json or {}), **patch}
+        svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
+        if svc.update(entity_id, {"metadata_json": merged}, reaction_depth=depth) is None:
+            raise AutomationActionError(f"entry {entity_id} not found in this workspace")
+        return {"entry_id": str(entity_id), "op": op, "merged": patch}
 
     # ── Status transition ──────────────────────────────────────────────────────
     if dry_run:

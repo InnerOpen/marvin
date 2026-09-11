@@ -1168,6 +1168,67 @@ class TestGeneralizedTriggers:
         ctx = engine._entry_context(SimpleNamespace(get=lambda m, e: entry), "G", "e1")
         assert ctx["data"] == {} and ctx["entry_type"] is None
 
+    def test_webhook_result_carries_response_body(self, monkeypatch):
+        import httpx
+
+        from marvin.services.automation.actions.webhook import run_webhook
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        resp = SimpleNamespace(status_code=201, is_success=True, text='{"id":"sub_1"}', json=lambda: {"id": "sub_1"})
+        monkeypatch.setattr(httpx, "request", lambda *a, **k: resp)
+        out = run_webhook(
+            None, "G", {"kind": "webhook", "url": "https://example.test/subscribe"}, {"event": {}, "depth": 0}, authorizer_role=ROLE_ADMIN
+        )
+        assert out["body"] == {"id": "sub_1"} and out["status_code"] == 201
+
+    def test_set_metadata_merges_templated_values(self, monkeypatch):
+        import marvin.services.entries as entries_mod
+        from marvin.services.automation.actions.entry import run_entry_action
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        eid = uuid4()
+        orm = SimpleNamespace(group_id="G", metadata_json={"keep": 1})
+        saved = {}
+
+        class _Svc:
+            def __init__(self, *a, **k): ...
+            def update(self, entry_id, data, *, reaction_depth=0):
+                saved.update(id=entry_id, data=data)
+                return object()
+
+        monkeypatch.setattr(entries_mod, "EntryService", _Svc)
+        session = SimpleNamespace(get=lambda model, i: orm)
+        ctx = {"event": {"entry_id": str(eid)}, "steps": {"subscribe": {"output": {"body": {"id": "sub_1"}}}}, "depth": 0}
+        out = run_entry_action(
+            session,
+            "G",
+            {
+                "kind": "entry",
+                "op": "set_metadata",
+                "metadata": {"buttondown_subscriber_id": "${steps.subscribe.output.body.id}", "empty": "${steps.subscribe.output.body.missing}"},
+            },
+            ctx,
+            authorizer_role=ROLE_ADMIN,
+        )
+        assert saved["data"] == {"metadata_json": {"keep": 1, "buttondown_subscriber_id": "sub_1"}}
+        assert out["merged"] == {"buttondown_subscriber_id": "sub_1"}
+
+    def test_set_metadata_refuses_when_everything_resolved_empty(self):
+        import pytest
+
+        from marvin.services.automation.actions.base import AutomationActionError
+        from marvin.services.automation.actions.entry import run_entry_action
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        with pytest.raises(AutomationActionError):
+            run_entry_action(
+                None,
+                "G",
+                {"kind": "entry", "op": "set_metadata", "metadata": {"x": "${steps.none.output.id}"}},
+                {"event": {"entry_id": str(uuid4())}, "steps": {}, "depth": 0},
+                authorizer_role=ROLE_ADMIN,
+            )
+
     def test_curated_catalog_excludes_noise(self):
         from marvin.services.automation.triggers import TRIGGER_EVENT_NAMES_SET
 

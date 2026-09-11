@@ -62,7 +62,10 @@ def _created_desc():
 def _entries_query(session, group_id, query: dict):
     """Build an Entries query from a query dict. Same vocabulary as the find_entries tool:
     entry_type (slug), status, text (title contains), has_assets/has_images/has_resources,
-    collection (slug or name). Empty/None filters are simply not applied."""
+    collection (slug or name), metadata ({key: value} equality on metadata_json). Empty/None
+    filters are simply not applied — except metadata, where an empty value matches nothing."""
+    import sqlalchemy as sa
+
     from marvin.db.models.platform.assets import Assets
     from marvin.db.models.platform.collections import Collections
     from marvin.db.models.platform.entries import Entries
@@ -86,6 +89,15 @@ def _entries_query(session, group_id, query: dict):
     if text:
         q = q.filter(Entries.title.ilike(f"%{text}%"))
 
+    # metadata: {key: value} — equality on metadata_json keys (JSON path, works on SQLite + Postgres).
+    # An empty/None value matches NOTHING rather than dropping the filter: a template that resolved
+    # to nothing must never widen the query to the whole workspace.
+    metadata = query.get("metadata")
+    if isinstance(metadata, dict) and metadata:
+        for key, value in metadata.items():
+            if value is None or value == "":
+                return q.filter(sa.false())
+            q = q.filter(Entries.metadata_json[key].as_string() == str(value))
     collection = query.get("collection")
     if collection:
         q = (
