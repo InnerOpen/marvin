@@ -1291,6 +1291,59 @@ class TestGeneralizedTriggers:
                     authorizer_role=ROLE_ADMIN,
                 )
 
+    def test_raw_url_webhook_honours_method(self, monkeypatch):
+        import httpx
+
+        from marvin.services.automation.actions.webhook import run_webhook
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        seen = {}
+
+        def _capture(method, url, **k):
+            seen.update(method=method, url=url, json=k.get("json"))
+            return SimpleNamespace(status_code=200, is_success=True, text="{}", json=lambda: {})
+
+        monkeypatch.setattr(httpx, "request", _capture)
+        run_webhook(
+            None,
+            "G",
+            {"kind": "webhook", "url": "https://example.test/subscribers/${event.payload.id}", "method": "GET"},
+            {"event": {"payload": {"id": "abc"}}, "depth": 0},
+            authorizer_role=ROLE_ADMIN,
+        )
+        assert seen["method"] == "GET" and seen["url"] == "https://example.test/subscribers/abc" and seen["json"] is None
+
+    def test_configured_webhook_url_template_survives_percent_encoding(self, monkeypatch):
+        import httpx
+
+        from marvin.services.automation.actions.webhook import run_webhook
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        wh = SimpleNamespace(
+            group_id="G",
+            enabled=True,
+            url="https://example.test/subscribers/$%7Bevent.payload.id%7D",
+            method="GET",
+            headers_json=None,
+            custom_payload=None,
+            name="lookup",
+        )
+        seen = {}
+
+        def _capture(method, url, **k):
+            seen.update(method=method, url=url)
+            return SimpleNamespace(status_code=200, is_success=True, text="{}", json=lambda: {})
+
+        monkeypatch.setattr(httpx, "request", _capture)
+        run_webhook(
+            SimpleNamespace(get=lambda m, i: wh),
+            "G",
+            {"kind": "webhook", "webhook_id": "w1"},
+            {"event": {"payload": {"id": "abc"}}, "depth": 0},
+            authorizer_role=ROLE_ADMIN,
+        )
+        assert seen == {"method": "GET", "url": "https://example.test/subscribers/abc"}
+
     def test_curated_catalog_excludes_noise(self):
         from marvin.services.automation.triggers import TRIGGER_EVENT_NAMES_SET
 

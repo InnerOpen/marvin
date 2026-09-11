@@ -133,6 +133,7 @@ class WebhookAction(_DefnBase):
     kind: Literal["webhook"]
     webhook_id: str | None = None  # a configured workspace webhook…
     url: str | None = None  # …or (advanced) a raw url
+    method: str | None = None  # raw-url form only: GET | POST (default) | PUT | PATCH | DELETE
     body: dict[str, Any] = Field(default_factory=dict)
     secret_ref: str | None = None  # optional secret ref, sent as `Authorization: <auth_scheme> <secret>`
     auth_scheme: str | None = None  # Bearer (default) | Token | … — some APIs (Buttondown) reject Bearer

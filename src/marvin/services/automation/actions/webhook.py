@@ -40,7 +40,7 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
 
     require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, WEBHOOK_MIN_ROLE, "webhook action")
 
-    method = "POST"
+    method = str(action.get("method") or "POST")
     headers = {"Content-Type": "application/json"}
     body = interpolate(action.get("body") or {}, context)
     url = interpolate(action.get("url"), context) if action.get("url") else None
@@ -54,7 +54,9 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
             raise AutomationActionError("webhook not found for this workspace")
         if wh.enabled is False:
             raise AutomationActionError(f"webhook '{wh.name or webhook_id}' is disabled")
-        url = str(wh.url)
+        # A stored URL may carry a `${event…}` template; the URL type percent-encodes the braces on
+        # save, so restore them before interpolating (e.g. …/subscribers/${event.payload.data.subscriber}).
+        url = interpolate(str(wh.url).replace("$%7B", "${").replace("%7D", "}"), context)
         method = getattr(wh.method, "value", wh.method) or "POST"
         if wh.headers_json:
             # Same treatment as event-bus delivery: `{{SLUG}}` in a header value resolves to the
