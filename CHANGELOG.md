@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.53 (2026-09-11)
+
+### Bug Fixes
+
+- **automations**: Resolve {{SECRET}} refs in configured webhook headers
+  ([`6935bb3`](https://github.com/InnerOpen/marvin/commit/6935bb34f25c2b58a5e77a90d33a00c6a5b1d0e8))
+
+
 ## v1.0.0-rc.52 (2026-09-11)
 
 ### Bug Fixes
