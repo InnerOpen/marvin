@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.49 (2026-09-11)
+
+### Bug Fixes
+
+- **deps**: Httpx is a runtime dependency, not an optional extra
+  ([`90fb7af`](https://github.com/InnerOpen/marvin/commit/90fb7afffc55fd60892d59261250766870429ef4))
+
+### Chores
+
+- **chart**: Relax the iwobble backend liveness probe
+  ([`7271c1b`](https://github.com/InnerOpen/marvin/commit/7271c1b0b51fadb45bfaac9a7e7a6b7a7bc06988))
+
+
 ## v1.0.0-rc.48 (2026-09-11)
 
 ### Features
