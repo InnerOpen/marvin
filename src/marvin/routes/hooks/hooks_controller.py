@@ -99,6 +99,17 @@ async def receive_hook(
 
     source_ip = request.client.host if request.client else None
 
+    # Log the payload's shape (keys only, never values) so a workflow author can see where a sender
+    # puts things — e.g. whether an email is at data.email or data.subscriber.email_address.
+    def _shape(obj, depth=0):
+        if isinstance(obj, dict):
+            return {k: _shape(v, depth + 1) if depth < 2 else type(v).__name__ for k, v in list(obj.items())[:25]}
+        if isinstance(obj, list):
+            return [_shape(obj[0], depth + 1)] if obj else []
+        return type(obj).__name__
+
+    logger.info("incoming webhook %s: payload shape %s", webhook.slug, json.dumps(_shape(payload)))
+
     # Record the delivery before dispatching so the count reflects receipt even if a subscriber fails.
     webhook.received_count = (webhook.received_count or 0) + 1
     webhook.last_received_at = datetime.now(UTC)
