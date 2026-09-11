@@ -138,6 +138,19 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         </div>
       </div>
       ${tokenBlock}
+      <div class="signing-row">
+        <span class="hint">Signing: ${w.signingSecretRef
+          ? `HMAC-SHA256 with secret <code>${esc(w.signingSecretRef)}</code> in header <code>${esc(w.signatureHeader || "X-Signature-256")}</code>`
+          : "off — the URL token is the only credential"}</span>
+        <button class="button ghost sm" data-act="edit-signing">${w.signingSecretRef ? "Change" : "Set up signing"}</button>
+      </div>
+      <div class="signing-edit" hidden>
+        <input class="input" data-signing-ref placeholder="Secret slug, e.g. BUTTONDOWN_SIGNING_KEY" value="${esc(w.signingSecretRef || "")}" />
+        <input class="input" data-signing-header placeholder="Header (default X-Signature-256)" value="${esc(w.signatureHeader || "")}" />
+        <button class="button sm" data-act="save-signing">Save</button>
+        <button class="button ghost sm" data-act="cancel-signing">Cancel</button>
+        <span class="hint">Leave the secret blank to turn verification off. The sender must put <code>sha256=&lt;hex HMAC of the raw body&gt;</code> in that header.</span>
+      </div>
       <div class="iw-meta">
         <span>${w.receivedCount || 0} received</span>
         <span>·</span>
@@ -212,6 +225,15 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         await sdk().incomingWebhooks.delete(id);
         webhooks = webhooks.filter((x) => x.id !== id);
         render();
+      } else if (act === "edit-signing" || act === "cancel-signing") {
+        btn.closest(".iw-card, .iw-item, [data-id]")?.querySelector(".signing-edit")?.toggleAttribute("hidden", act === "cancel-signing");
+      } else if (act === "save-signing") {
+        const box = btn.closest(".signing-edit");
+        const signingSecretRef = (box.querySelector("[data-signing-ref]") as HTMLInputElement).value.trim() || null;
+        const signatureHeader = (box.querySelector("[data-signing-header]") as HTMLInputElement).value.trim() || null;
+        setStatus("Saving…");
+        upsert(await sdk().incomingWebhooks.update(id, { signingSecretRef, signatureHeader } as any));
+        setStatus("");
       } else if (act === "copy") {
         await navigator.clipboard.writeText(hookUrl(w.token));
         setStatus("Copied.");
@@ -302,6 +324,9 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   .iw-list :global(.token-live) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   .iw-list :global(.token-live .url) { flex: 1; min-width: 240px; font-family: var(--mono, monospace); font-size: 12px; }
   .iw-list :global(.token-none) { display: flex; gap: 10px; align-items: center; }
+  .iw-list :global(.signing-row) { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; font-size: 13px; }
+  .iw-list :global(.signing-edit) { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .iw-list :global(.signing-edit .input) { flex: 1; min-width: 200px; }
   .iw-list :global(.test-panel) { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
   .iw-list :global(.test-panel[hidden]) { display: none; }
   .iw-list :global(.test-payload) { width: 100%; box-sizing: border-box; font-family: var(--mono, monospace); font-size: 12px; resize: vertical; }
