@@ -1096,6 +1096,30 @@ class TestGeneralizedTriggers:
         ctx = {"event_type": "asset_uploaded", "asset_type": "image", "user_id": None}
         assert engine.run_automations_for_event(_FakeSession([auto]), "G", ctx, run_action=runner) == 1
 
+    def test_entry_context_carries_summary_and_data(self):
+        from marvin.services.automation import engine
+
+        entry = SimpleNamespace(
+            id="e1",
+            group_id="G",
+            entry_type=SimpleNamespace(slug="newsletter-issue"),
+            status="published",
+            title="Welcome",
+            slug="welcome",
+            summary="Hello",
+            data_json={"body": "# Hi", "preview": "p"},
+        )
+        session = SimpleNamespace(get=lambda model, eid: entry)
+        ctx = engine._entry_context(session, "G", "e1")
+        assert ctx["summary"] == "Hello" and ctx["data"] == {"body": "# Hi", "preview": "p"}
+
+    def test_entry_context_null_data_is_empty_dict(self):
+        from marvin.services.automation import engine
+
+        entry = SimpleNamespace(id="e1", group_id="G", entry_type=None, status="draft", title="T", slug="t", summary=None, data_json=None)
+        ctx = engine._entry_context(SimpleNamespace(get=lambda m, e: entry), "G", "e1")
+        assert ctx["data"] == {} and ctx["entry_type"] is None
+
     def test_curated_catalog_excludes_noise(self):
         from marvin.services.automation.triggers import TRIGGER_EVENT_NAMES_SET
 

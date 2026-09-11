@@ -31,14 +31,24 @@ def _ms_since(started: datetime) -> int:
 
 
 def _entry_context(session, group_id, entry_id) -> dict | None:
-    """Load the minimal entry facts conditions reference (type slug, status, title)."""
+    """Load the entry facts conditions and actions reference: type slug, status, title, slug, summary
+    and the schema fields (`data`)."""
     from marvin.db.models.platform.entries import Entries
 
     entry = session.get(Entries, entry_id)
     if not entry or entry.group_id != group_id:
         return None
     etype = entry.entry_type.slug if entry.entry_type else None
-    return {"id": str(entry.id), "entry_type": etype, "status": entry.status, "title": entry.title, "slug": entry.slug}
+    return {
+        "id": str(entry.id),
+        "entry_type": etype,
+        "status": entry.status,
+        "title": entry.title,
+        "slug": entry.slug,
+        "summary": entry.summary,
+        # Schema fields, so an action can forward content (`${entry.data.body}` → a newsletter API).
+        "data": entry.data_json if isinstance(entry.data_json, dict) else {},
+    }
 
 
 def run_automations_for_event(
