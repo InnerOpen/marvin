@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.59 (2026-09-11)
+
+### Features
+
+- **automations**: Record external ids on entries and target by metadata
+  ([`1380e92`](https://github.com/InnerOpen/marvin/commit/1380e92e6b4500b29d5a26eb81f00faac89303a8))
+
+
 ## v1.0.0-rc.58 (2026-09-11)
 
 ### Features
