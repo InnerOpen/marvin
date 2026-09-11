@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.55 (2026-09-11)
+
+### Features
+
+- **hooks**: Optional HMAC signature verification for incoming webhooks
+  ([`a275465`](https://github.com/InnerOpen/marvin/commit/a2754652c396a605e9dad3f18c334a6087d27cb2))
+
+
 ## v1.0.0-rc.54 (2026-09-11)
 
 ### Bug Fixes
