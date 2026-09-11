@@ -13,6 +13,7 @@ image:
   pullPolicy: Always
 
 config:
+  publicApiUrl: https://api.iwobble.com
   production: true      # OpenShift's random UID can't write /app/dev (dev mode); prod uses DATA_DIR
   logLevel: INFO
   dbEngine: sqlite
@@ -43,7 +44,9 @@ persistence:
   size: 5Gi
 
 # Public UI route + public API route (the browser calls the API directly for login/interactive use).
-# The API host populates config.publicApiUrl automatically (see configmap.yaml).
+# config.publicApiUrl is pinned to the tunnel host below: the auto-derived value would be the
+# LAN-only `.apps` route, which the admin then prints as the address for external systems
+# (incoming-webhook URLs, asset links) — unreachable from Buttondown & co.
 route:
   enabled: true
   ui:
