@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.58 (2026-09-11)
+
+### Features
+
+- **hooks**: Log the key structure of an incoming payload (keys only)
+  ([`4223e10`](https://github.com/InnerOpen/marvin/commit/4223e107ce6e86b96098e0a8acf94f02a184f435))
+
+
 ## v1.0.0-rc.57 (2026-09-11)
 
 ### Bug Fixes
