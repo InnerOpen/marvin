@@ -6,6 +6,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.56 (2026-09-11)
+
+### Chores
+
+- **chart**: Pin iwobble publicApiUrl to the tunnel host
+  ([`2321d42`](https://github.com/InnerOpen/marvin/commit/2321d4243d38ca2153c6a8868d9e2d748d760667))
+
+- **ui**: Vendor-neutral placeholders on the incoming-webhook signing fields
+  ([`5d5913f`](https://github.com/InnerOpen/marvin/commit/5d5913fa9c7107de3505af3184c39baea69f3fd6))
+
+### Features
+
+- **ui**: Edit incoming-webhook signing on the card
+  ([`ccbf5ca`](https://github.com/InnerOpen/marvin/commit/ccbf5caaa6e34954b974b970d2a98d10f0f949fe))
+
+- **ui**: Generate an incoming-webhook signing key (stored as a secret, shown once)
+  ([`d5bbc5d`](https://github.com/InnerOpen/marvin/commit/d5bbc5d78821ff5f5e6aad9061de4c2ea453f008))
+
+
 ## v1.0.0-rc.55 (2026-09-11)
 
 ### Features
