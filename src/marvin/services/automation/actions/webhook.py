@@ -4,7 +4,9 @@ The workflow references a webhook by `webhook_id`; the executor loads that row a
 configured url / method / headers, with its `custom_payload` (interpolated with `$event.*`/`$previous.*`)
 as the body. This reuses the webhooks the admin already set up rather than re-entering a URL.
 
-A raw `url` (+ optional `secret_ref` Bearer) is still accepted as an advanced escape hatch.
+A raw `url` (+ optional `secret_ref`) is still accepted as an advanced escape hatch. The secret is
+sent as `Authorization: <auth_scheme> <secret>`; the scheme defaults to `Bearer`, and `Token` covers
+APIs like Buttondown that reject Bearer.
 """
 
 from .base import AutomationActionError, register_action
@@ -12,7 +14,10 @@ from .base import AutomationActionError, register_action
 DEFAULT_TIMEOUT = 15.0
 
 
-def _bearer(secret_ref: str | None, group_id) -> dict:
+DEFAULT_AUTH_SCHEME = "Bearer"
+
+
+def _auth_header(secret_ref: str | None, group_id, scheme: str | None = None) -> dict:
     ref = (secret_ref or "").strip()
     if ref.startswith("{{") and ref.endswith("}}"):
         ref = ref[2:-2].strip()
@@ -21,7 +26,8 @@ def _bearer(secret_ref: str | None, group_id) -> dict:
     from marvin.services.secrets.resolver import resolve_secret
 
     token = resolve_secret(ref, group_id)
-    return {"Authorization": f"Bearer {token}"} if token else {}
+    scheme = (scheme or DEFAULT_AUTH_SCHEME).strip()
+    return {"Authorization": f"{scheme} {token}"} if token else {}
 
 
 @register_action("webhook")
@@ -69,9 +75,10 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
             "body": None if method == "GET" else body,
             "webhook_id": webhook_id,
             "authorized": bool(action.get("secret_ref")),
+            "auth_scheme": (action.get("auth_scheme") or DEFAULT_AUTH_SCHEME) if action.get("secret_ref") else None,
         }
 
-    headers.update(_bearer(action.get("secret_ref"), group_id))
+    headers.update(_auth_header(action.get("secret_ref"), group_id, action.get("auth_scheme")))
     try:
         resp = httpx.request(
             method,

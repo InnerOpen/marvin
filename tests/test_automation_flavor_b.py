@@ -671,6 +671,71 @@ class TestDryRun:
         assert out["dry_run"] is True and out["method"] == "POST" and out["url"] == "https://example.test/hook"
         assert out["body"] == {"id": "e1"} and out["authorized"] is False
 
+    def test_webhook_secret_defaults_to_bearer_scheme(self, monkeypatch):
+        import httpx
+
+        import marvin.services.secrets.resolver as resolver
+        from marvin.services.automation.actions.webhook import run_webhook
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        seen = {}
+        monkeypatch.setattr(resolver, "resolve_secret", lambda ref, gid: "s3cret" if ref == "HOOK_KEY" else None)
+
+        def _capture(method, url, **k):
+            seen.update(headers=k["headers"])
+            return SimpleNamespace(status_code=201, is_success=True)
+
+        monkeypatch.setattr(httpx, "request", _capture)
+        out = run_webhook(
+            None,
+            "G",
+            {"kind": "webhook", "url": "https://example.test/hook", "secret_ref": "{{HOOK_KEY}}"},
+            {"event": {}, "depth": 0},
+            authorizer_role=ROLE_ADMIN,
+        )
+        assert out["ok"] is True and seen["headers"]["Authorization"] == "Bearer s3cret"
+
+    def test_webhook_auth_scheme_token(self, monkeypatch):
+        """Buttondown-style APIs want `Authorization: Token <key>`; `auth_scheme` selects it."""
+        import httpx
+
+        import marvin.services.secrets.resolver as resolver
+        from marvin.services.automation.actions.webhook import run_webhook
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        seen = {}
+        monkeypatch.setattr(resolver, "resolve_secret", lambda ref, gid: "s3cret")
+
+        def _capture(method, url, **k):
+            seen.update(headers=k["headers"])
+            return SimpleNamespace(status_code=201, is_success=True)
+
+        monkeypatch.setattr(httpx, "request", _capture)
+        run_webhook(
+            None,
+            "G",
+            {"kind": "webhook", "url": "https://example.test/hook", "secret_ref": "{{HOOK_KEY}}", "auth_scheme": "Token"},
+            {"event": {}, "depth": 0},
+            authorizer_role=ROLE_ADMIN,
+        )
+        assert seen["headers"]["Authorization"] == "Token s3cret"
+
+    def test_webhook_dry_run_reports_auth_scheme_without_resolving(self, monkeypatch):
+        import marvin.services.secrets.resolver as resolver
+        from marvin.services.automation.actions.webhook import run_webhook
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        monkeypatch.setattr(resolver, "resolve_secret", lambda *a: (_ for _ in ()).throw(AssertionError("must not resolve in dry run")))
+        out = run_webhook(
+            None,
+            "G",
+            {"kind": "webhook", "url": "https://example.test/hook", "secret_ref": "{{HOOK_KEY}}", "auth_scheme": "Token"},
+            {"event": {}, "depth": 0},
+            authorizer_role=ROLE_ADMIN,
+            dry_run=True,
+        )
+        assert out["authorized"] is True and out["auth_scheme"] == "Token"
+
     def test_emit_event_dry_run_does_not_dispatch(self):
         from marvin.services.automation.actions.emit_event import run_emit_event
         from marvin.services.automation.authz import ROLE_ADMIN
