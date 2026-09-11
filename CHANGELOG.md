@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.48 (2026-09-11)
+
+### Features
+
+- **publish**: Carry entry data and description on list items
+  ([`fadb3f5`](https://github.com/InnerOpen/marvin/commit/fadb3f5220cbc6971bfcd723920e50385bd18441))
+
+
 ## v1.0.0-rc.47 (2026-09-04)
 
 ### Bug Fixes
