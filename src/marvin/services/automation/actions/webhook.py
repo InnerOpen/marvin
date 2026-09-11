@@ -1,8 +1,9 @@
 """`webhook` action — fire one of the workspace's configured webhooks (from `webhook_urls`). No AI.
 
 The workflow references a webhook by `webhook_id`; the executor loads that row and sends its
-configured url / method / headers, with its `custom_payload` (interpolated with `$event.*`/`$previous.*`)
-as the body. This reuses the webhooks the admin already set up rather than re-entering a URL.
+configured url / method / headers (with `{{SLUG}}` secret references resolved), with its
+`custom_payload` (interpolated with `$event.*`/`$previous.*`) as the body. This reuses the webhooks
+the admin already set up rather than re-entering a URL.
 
 A raw `url` (+ optional `secret_ref`) is still accepted as an advanced escape hatch. The secret is
 sent as `Authorization: <auth_scheme> <secret>`; the scheme defaults to `Bearer`, and `Token` covers
@@ -56,7 +57,11 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
         url = str(wh.url)
         method = getattr(wh.method, "value", wh.method) or "POST"
         if wh.headers_json:
-            headers.update(wh.headers_json)
+            # Same treatment as event-bus delivery: `{{SLUG}}` in a header value resolves to the
+            # workspace secret/variable, so `Authorization: Token {{API_KEY}}` never stores the key.
+            from marvin.services.secrets.resolver import resolve_dict
+
+            headers.update(resolve_dict(dict(wh.headers_json), group_id))
         if wh.custom_payload:
             body = interpolate(wh.custom_payload, context)
 

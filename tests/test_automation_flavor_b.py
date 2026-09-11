@@ -720,6 +720,42 @@ class TestDryRun:
         )
         assert seen["headers"]["Authorization"] == "Token s3cret"
 
+    def test_configured_webhook_headers_resolve_secret_refs(self, monkeypatch):
+        """A workspace webhook with `Authorization: Token {{KEY}}` sends the resolved secret, like the
+        event-bus delivery path does — the key itself never sits in the webhook record."""
+        import httpx
+
+        import marvin.services.secrets.resolver as resolver
+        from marvin.services.automation.actions.webhook import run_webhook
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        wh = SimpleNamespace(
+            group_id="G",
+            enabled=True,
+            url="https://example.test/subscribe",
+            method="POST",
+            headers_json={"Authorization": "Token {{HOOK_KEY}}", "X-Plain": "keep"},
+            custom_payload={"email": "$event.email"},
+            name="hook",
+        )
+        seen = {}
+
+        def _capture(method, url, **k):
+            seen.update(url=url, headers=k["headers"], json=k["json"])
+            return SimpleNamespace(status_code=201, is_success=True)
+
+        monkeypatch.setattr(resolver.get_secret_backend(), "get", lambda slug, gid: "s3cret" if slug == "HOOK_KEY" else None, raising=False)
+        monkeypatch.setattr(httpx, "request", _capture)
+        run_webhook(
+            SimpleNamespace(get=lambda model, wid: wh),
+            "G",
+            {"kind": "webhook", "webhook_id": "w1"},
+            {"event": {"email": "a@b.c"}, "depth": 0},
+            authorizer_role=ROLE_ADMIN,
+        )
+        assert seen["url"] == "https://example.test/subscribe" and seen["json"] == {"email": "a@b.c"}
+        assert seen["headers"]["Authorization"] == "Token s3cret" and seen["headers"]["X-Plain"] == "keep"
+
     def test_webhook_dry_run_reports_auth_scheme_without_resolving(self, monkeypatch):
         import marvin.services.secrets.resolver as resolver
         from marvin.services.automation.actions.webhook import run_webhook
