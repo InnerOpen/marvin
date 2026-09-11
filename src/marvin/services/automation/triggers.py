@@ -39,7 +39,16 @@ TRIGGER_EVENT_GROUPS: dict[str, list[str]] = {
     ],
     "Assets": ["asset_uploaded", "asset_updated", "asset_deleted"],
     "Resources": ["resource_created", "resource_updated", "resource_deleted"],
-    "Forms": ["form_created", "form_updated", "form_published", "form_archived", "form_deleted"],
+    # `form_submission_received` is the one that matters for a site: it carries the submitted fields
+    # as `event.submission_data.<key>` and the stored inbox entry as `entry.*`.
+    "Forms": [
+        "form_submission_received",
+        "form_created",
+        "form_updated",
+        "form_published",
+        "form_archived",
+        "form_deleted",
+    ],
     "Entry types": ["entry_type_created", "entry_type_updated", "entry_type_deleted"],
 }
 

@@ -1101,6 +1101,8 @@ class TestGeneralizedTriggers:
 
         assert "asset_uploaded" in TRIGGER_EVENT_NAMES_SET
         assert "entry_published" in TRIGGER_EVENT_NAMES_SET
+        # A site's signup/contact forms are the most common thing to react to.
+        assert "form_submission_received" in TRIGGER_EVENT_NAMES_SET
         for noise in ("ai_operation_executed", "ai_embeddings_reindexed", "webhook_task", "scheduled_task_completed", "automation_ran"):
             assert noise not in TRIGGER_EVENT_NAMES_SET
 
