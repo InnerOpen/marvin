@@ -43,8 +43,20 @@ ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS)
 
 
 def _resolve_target(session, group_id, action: dict, context: dict):
-    """Resolve which entry to act on: by slug, or an id (default: the triggering entry)."""
+    """Resolve which entry to act on: by query, by slug, or an id (default: the triggering entry)."""
     from ..runner import _resolve_entry_id_by_slug
+
+    # `entity_query`: find exactly one entry with the target-selector vocabulary, resolved at
+    # action time so it can use an earlier step's output (`metadata: {ext_id: $steps.lookup.output.body.id}`)
+    # — which a top-level `target` cannot, since targets resolve before any step runs.
+    if action.get("entity_query"):
+        from ..selector import _entries_query
+
+        query = interpolate(action["entity_query"], context)
+        rows = _entries_query(session, group_id, query if isinstance(query, dict) else {}).limit(2).all()
+        if len(rows) != 1:
+            raise AutomationActionError(f"entry action entity_query matched {len(rows)} entries (need exactly 1): {query}")
+        return rows[0].id
 
     slug = interpolate(action.get("entity_slug"), context) if action.get("entity_slug") else None
     if slug:

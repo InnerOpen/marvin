@@ -1229,6 +1229,68 @@ class TestGeneralizedTriggers:
                 authorizer_role=ROLE_ADMIN,
             )
 
+    def test_entity_query_resolves_one_entry_from_step_output(self, monkeypatch):
+        import marvin.services.entries as entries_mod
+        from marvin.services.automation.actions import entry as entry_mod
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        eid = uuid4()
+        seen = {}
+
+        class _Q:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def limit(self, n):
+                return self
+
+            def all(self):
+                return self._rows
+
+        monkeypatch.setattr(
+            "marvin.services.automation.selector._entries_query", lambda session, gid, q: seen.update(q=q) or _Q([SimpleNamespace(id=eid)])
+        )
+        monkeypatch.setattr(
+            entries_mod, "EntryService", lambda *a, **k: SimpleNamespace(set_status=lambda i, st, reaction_depth=0: SimpleNamespace(id=i))
+        )
+        ctx = {"event": {}, "steps": {"lookup": {"output": {"body": {"id": "sub_1"}}}}, "depth": 0}
+        out = entry_mod.run_entry_action(
+            None,
+            "G",
+            {"kind": "entry", "op": "archive", "entity_query": {"entry_type": "newsletter", "metadata": {"ext": "${steps.lookup.output.body.id}"}}},
+            ctx,
+            authorizer_role=ROLE_ADMIN,
+        )
+        assert seen["q"] == {"entry_type": "newsletter", "metadata": {"ext": "sub_1"}} and out["entry_id"] == str(eid)
+
+    def test_entity_query_refuses_ambiguous_or_missing(self, monkeypatch):
+        import pytest
+
+        from marvin.services.automation.actions import entry as entry_mod
+        from marvin.services.automation.actions.base import AutomationActionError
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        class _Q:
+            def __init__(self, rows):
+                self._rows = rows
+
+            def limit(self, n):
+                return self
+
+            def all(self):
+                return self._rows
+
+        for rows in ([], [SimpleNamespace(id=uuid4()), SimpleNamespace(id=uuid4())]):
+            monkeypatch.setattr("marvin.services.automation.selector._entries_query", lambda session, gid, q, rows=rows: _Q(rows))
+            with pytest.raises(AutomationActionError):
+                entry_mod.run_entry_action(
+                    None,
+                    "G",
+                    {"kind": "entry", "op": "archive", "entity_query": {"entry_type": "x"}},
+                    {"event": {}, "depth": 0},
+                    authorizer_role=ROLE_ADMIN,
+                )
+
     def test_curated_catalog_excludes_noise(self):
         from marvin.services.automation.triggers import TRIGGER_EVENT_NAMES_SET
 

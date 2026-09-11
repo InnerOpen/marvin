@@ -108,6 +108,7 @@ class EntryAction(_DefnBase):
     op: Literal["publish", "unpublish", "archive", "restore", "add_to_collection", "remove_from_collection", "set_metadata"]
     entity_id: str | None = None
     entity_slug: str | None = None
+    entity_query: dict[str, Any] | None = None  # find exactly one entry (target-selector vocabulary; values may be templates)
     collection_id: str | None = None  # for add_to_collection / remove_from_collection…
     collection_slug: str | None = None  # …preferred: a collection slug/name (may be a $event.* template)
     metadata: dict[str, Any] | None = None  # for set_metadata: keys merged into metadata_json (values may be templates)
