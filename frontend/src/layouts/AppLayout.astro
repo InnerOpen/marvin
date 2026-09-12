@@ -164,5 +164,81 @@ function isActive(itemPath: string, currentPath: string): boolean {
       <ThemeSwitcher />
       <Marvin />
     </div>
+
+    <div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden>
+      <span>A new version of Marvin is available.</span>
+      <span class="update-banner-detail" data-detail></span>
+      <button type="button" class="button" data-act="reload">Reload</button>
+      <button type="button" class="button secondary" data-act="later" title="Hide until the next deploy">Later</button>
+    </div>
+    <script>
+      // Deploy detection. The page carries the versions it was rendered with (RuntimeConfig);
+      // /version.json reports the live pair. Poll once a minute and whenever the tab regains
+      // focus; on a change, offer a reload rather than forcing one — a forced reload would lose
+      // whatever the user is typing. "Later" hides the bar for that specific version pair only.
+      const runtime = (window as any).__MARVIN_RUNTIME__ ?? {};
+      const rendered = runtime.appVersion as { frontend: string; backend: string } | undefined;
+      const banner = document.getElementById("update-banner");
+      const POLL_MS = 60_000;
+      const DISMISS_KEY = "marvin.update-dismissed";
+      const key = (v: { frontend: string; backend: string }) => `${v.frontend}|${v.backend}`;
+
+      async function check() {
+        if (!rendered || !banner || document.visibilityState === "hidden") return;
+        let live: { frontend: string; backend: string };
+        try {
+          const res = await fetch("/version.json", { cache: "no-store" });
+          if (!res.ok) return;
+          live = await res.json();
+        } catch {
+          return; // transient — try again next tick
+        }
+        const changed: string[] = [];
+        if (live.frontend !== "unknown" && rendered.frontend !== "unknown" && live.frontend !== rendered.frontend) changed.push(`admin ${rendered.frontend} → ${live.frontend}`);
+        if (live.backend !== "unknown" && rendered.backend !== "unknown" && live.backend !== rendered.backend) changed.push(`backend ${rendered.backend} → ${live.backend}`);
+        if (changed.length === 0) return;
+        let dismissed = "";
+        try { dismissed = sessionStorage.getItem(DISMISS_KEY) ?? ""; } catch {}
+        if (dismissed === key(live)) return;
+        (banner.querySelector("[data-detail]") as HTMLElement).textContent = changed.join(" · ");
+        banner.hidden = false;
+      }
+
+      banner?.addEventListener("click", (ev) => {
+        const act = (ev.target as HTMLElement).closest("[data-act]")?.getAttribute("data-act");
+        if (act === "reload") location.reload();
+        if (act === "later") {
+          fetch("/version.json", { cache: "no-store" }).then((r) => r.json()).then((live) => {
+            try { sessionStorage.setItem(DISMISS_KEY, key(live)); } catch {}
+          }).catch(() => {});
+          banner.hidden = true;
+        }
+      });
+
+      setInterval(check, POLL_MS);
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+    </script>
+    <style>
+      .update-banner {
+        position: fixed;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1000;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        padding: 8px 14px;
+        border: 1px solid var(--line, #444);
+        border-top: 0;
+        border-radius: 0 0 var(--radius, 8px) var(--radius, 8px);
+        background: var(--bg-elevated, var(--bg, #1c1c1c));
+        color: var(--ink, inherit);
+        box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+        font-size: 14px;
+      }
+      .update-banner-detail { opacity: 0.7; font-size: 12px; }
+      .update-banner .button { padding: 5px 10px; font-size: 13px; }
+    </style>
   </body>
 </html>

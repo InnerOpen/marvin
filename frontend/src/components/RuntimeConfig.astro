@@ -7,10 +7,13 @@
 // Only browser-safe values belong here. This global is visible to every visitor — never put a
 // credential (e.g. the site-client token) in it.
 import { getBrowserApiBaseUrl, getBrowserApiProxyEnabled } from "@/lib/api/config";
+import { getAppVersion } from "@/lib/version";
 
 const runtimeConfig = {
   apiBaseUrl: getBrowserApiBaseUrl(),
   browserApiProxy: getBrowserApiProxyEnabled(),
+  // The versions this page was rendered with; the update banner compares them with /version.json.
+  appVersion: await getAppVersion(),
 };
 ---
 <script is:inline set:html={`window.__MARVIN_RUNTIME__=${JSON.stringify(runtimeConfig)}`}></script>

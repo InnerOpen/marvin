@@ -145,6 +145,10 @@ ENTRYPOINT ["marvin-server"]
 # at request time (PUBLIC_MARVIN_API_URL / MARVIN_API_URL) and injected per page, so one built
 # image serves any deployment — see frontend/src/lib/api/config.ts + RuntimeConfig.astro.
 FROM ${NODE_IMAGE}:${NODE_VARIENT} AS frontend
+# The build's commit, so the SSR server can tell open tabs when a newer admin has been deployed
+# (frontend/src/lib/version.ts → /version.json → the update banner in AppLayout).
+ARG COMMIT
+ENV GIT_COMMIT_HASH=${COMMIT}
 
 WORKDIR /app/frontend
 ENV NODE_ENV=production
