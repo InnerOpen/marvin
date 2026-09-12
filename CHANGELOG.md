@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.67 (2026-09-12)
+
+### Bug Fixes
+
+- **ui**: Browser fetches in email/webhook pages bypassed the session proxy
+  ([`9dde843`](https://github.com/InnerOpen/marvin/commit/9dde8434a48c7cf3e95b02590508331c7b722dad))
+
+### Features
+
+- **forms**: Submission protection — platform defaults with per-workspace overrides
+  ([`050277b`](https://github.com/InnerOpen/marvin/commit/050277b4094944d7ac32a3e0d68c3583c4b32bac))
+
+
 ## v1.0.0-rc.66 (2026-09-12)
 
 ### Bug Fixes
