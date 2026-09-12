@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.66 (2026-09-12)
+
+### Bug Fixes
+
+- **ui**: Update banner respected hidden only in theory
+  ([`ff9051f`](https://github.com/InnerOpen/marvin/commit/ff9051fd620f023febead6077a1c442cc9b2eae5))
+
+
 ## v1.0.0-rc.65 (2026-09-12)
 
 ### Features
