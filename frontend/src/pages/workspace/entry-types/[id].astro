@@ -26,6 +26,8 @@ const isSystem = entryType?.isSystem ?? false;
 
 const rendering = (entryType?.renderingJson ?? {}) as Record<string, unknown>;
 const capabilities = (entryType?.capabilitiesJson ?? {}) as Record<string, unknown>;
+const submission = (capabilities.submission ?? {}) as Record<string, unknown>;
+const subStr = (k: string) => (submission[k] == null ? "" : String(submission[k]));
 const recipe = (entryType?.recipeJson ?? {}) as Record<string, unknown>;
 // The authoring instructions get their own prose box; the JSON textarea holds the structured contract.
 const recipeInstructions = typeof recipe.instructions === "string" ? recipe.instructions : "";
@@ -187,9 +189,72 @@ const recipeStr = Object.keys(recipeStructured).length ? JSON.stringify(recipeSt
                   <input type="checkbox" id="cap_routable" checked={capabilities.routable !== false} />
                   Routable
                 </label>
+
+                <fieldset id="submission-settings" class="submission-settings" hidden={capabilities.submittable !== true}>
+                  <legend>Submission settings</legend>
+                  <p class="form-help">How public submissions to this type are accepted. Spam controls (domain lists, exempt IPs, surge) are set under Workspace Settings → Submission Protection.</p>
+                  <div class="form-group">
+                    <label for="sub_successMessage">Success message</label>
+                    <input type="text" id="sub_successMessage" data-sub="successMessage" value={subStr("successMessage")} placeholder="Thank you for your submission" />
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="sub_redirectUrl">Redirect URL</label>
+                      <input type="text" id="sub_redirectUrl" data-sub="redirectUrl" value={subStr("redirectUrl")} placeholder="/thanks" />
+                    </div>
+                    <div class="form-group">
+                      <label for="sub_titleTemplate">Entry title template</label>
+                      <input type="text" id="sub_titleTemplate" data-sub="titleTemplate" value={subStr("titleTemplate")} placeholder="Newsletter signup: {{ email }}" />
+                      <p class="form-help">Jinja over the submitted fields; blank = first text value</p>
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="sub_enableHoneypot" data-sub="enableHoneypot" checked={submission.enableHoneypot === true} />
+                      Honeypot field
+                    </label>
+                    <div class="form-group">
+                      <label for="sub_honeypotField">Honeypot field name</label>
+                      <input type="text" id="sub_honeypotField" data-sub="honeypotField" value={subStr("honeypotField")} placeholder="_website" />
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <label class="checkbox-label">
+                      <input type="checkbox" id="sub_enableCaptcha" data-sub="enableCaptcha" checked={submission.enableCaptcha === true} />
+                      CAPTCHA
+                    </label>
+                    <div class="form-group">
+                      <label for="sub_captchaProvider">Provider</label>
+                      <select id="sub_captchaProvider" data-sub="captchaProvider">
+                        <option value="" selected={!submission.captchaProvider}>hcaptcha (default)</option>
+                        <option value="hcaptcha" selected={submission.captchaProvider === "hcaptcha"}>hcaptcha</option>
+                        <option value="turnstile" selected={submission.captchaProvider === "turnstile"}>turnstile</option>
+                        <option value="recaptcha" selected={submission.captchaProvider === "recaptcha"}>recaptcha</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label for="sub_captchaSecretRef">Secret ref</label>
+                      <input type="text" id="sub_captchaSecretRef" data-sub="captchaSecretRef" value={subStr("captchaSecretRef")} placeholder={"{{CAPTCHA_SECRET}}"} />
+                    </div>
+                  </div>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="sub_rateLimitMax">Rate limit (per IP)</label>
+                      <input type="number" id="sub_rateLimitMax" data-sub="rateLimitMax" data-sub-type="number" min="1" value={subStr("rateLimitMax")} placeholder="off" />
+                    </div>
+                    <div class="form-group">
+                      <label for="sub_rateLimitWindowSeconds">Window (seconds)</label>
+                      <input type="number" id="sub_rateLimitWindowSeconds" data-sub="rateLimitWindowSeconds" data-sub-type="number" min="60" value={subStr("rateLimitWindowSeconds")} placeholder="3600" />
+                    </div>
+                  </div>
+                  <label class="checkbox-label">
+                    <input type="checkbox" id="sub_notify" data-sub="notify" checked={submission.notify !== false} />
+                    Emit <code>form_submission_received</code> (workflows, notifications)
+                  </label>
+                </fieldset>
               </div>
             </details>
-            <input type="hidden" name="capabilities_json" id="capabilities_json" />
+            <input type="hidden" name="capabilities_json" id="capabilities_json" value={JSON.stringify(capabilities)} />
           </div>
 
           {/* Recipe (authoring) */}
@@ -366,6 +431,22 @@ const recipeStr = Object.keys(recipeStructured).length ? JSON.stringify(recipeSt
     padding-top: 1rem;
   }
 
+  .submission-settings {
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    display: grid;
+    gap: 0.75rem;
+  }
+  .submission-settings legend {
+    font-weight: 600;
+    padding: 0 0.4rem;
+  }
+  .submission-settings .form-row {
+    align-items: end;
+  }
+
   .checkbox-label {
     display: flex;
     align-items: center;
@@ -406,13 +487,40 @@ const recipeStr = Object.keys(recipeStructured).length ? JSON.stringify(recipeSt
     });
   }
 
+  // The hidden input is seeded with the stored capabilities so anything this form doesn't edit
+  // (future keys, hand-written submission settings) survives a save instead of being rebuilt away.
+  const capabilitiesHidden = document.getElementById('capabilities_json') as HTMLInputElement;
+  let storedCapabilities: Record<string, unknown> = {};
+  try { storedCapabilities = JSON.parse(capabilitiesHidden.value || '{}'); } catch { storedCapabilities = {}; }
+  const storedSubmission = (storedCapabilities.submission ?? {}) as Record<string, unknown>;
+
+  function readSubmissionSettings(): Record<string, unknown> {
+    const out: Record<string, unknown> = { ...storedSubmission };
+    for (const el of document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-sub]')) {
+      const key = el.dataset.sub as string;
+      if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+        out[key] = el.checked;
+      } else if (el.dataset.subType === 'number') {
+        out[key] = el.value.trim() === '' ? null : Number(el.value);
+      } else {
+        out[key] = el.value.trim() === '' ? null : el.value.trim();
+      }
+    }
+    return out;
+  }
+
   function syncCapabilitiesJson() {
-    const hidden = document.getElementById('capabilities_json') as HTMLInputElement;
-    hidden.value = JSON.stringify({
+    const submittable = (document.getElementById('cap_submittable') as HTMLInputElement).checked;
+    const submissionFieldset = document.getElementById('submission-settings') as HTMLFieldSetElement | null;
+    if (submissionFieldset) submissionFieldset.hidden = !submittable;
+    const next: Record<string, unknown> = {
+      ...storedCapabilities,
       publishable: (document.getElementById('cap_publishable') as HTMLInputElement).checked,
-      submittable: (document.getElementById('cap_submittable') as HTMLInputElement).checked,
+      submittable,
       routable: (document.getElementById('cap_routable') as HTMLInputElement).checked,
-    });
+    };
+    if (submittable) next.submission = readSubmissionSettings();
+    capabilitiesHidden.value = JSON.stringify(next);
   }
 
   // Fold the prose Instructions box back into recipe_json on save (it's edited separately so authors
@@ -437,6 +545,10 @@ const recipeStr = Object.keys(recipeStructured).length ? JSON.stringify(recipeSt
   document.getElementById('cap_publishable')?.addEventListener('change', syncCapabilitiesJson);
   document.getElementById('cap_submittable')?.addEventListener('change', syncCapabilitiesJson);
   document.getElementById('cap_routable')?.addEventListener('change', syncCapabilitiesJson);
+  for (const el of document.querySelectorAll('[data-sub]')) {
+    el.addEventListener('input', syncCapabilitiesJson);
+    el.addEventListener('change', syncCapabilitiesJson);
+  }
 
   const isRenderedCheckbox = document.getElementById('is_rendered') as HTMLInputElement;
   const renderingDetails = document.getElementById('rendering-details') as HTMLDetailsElement;
