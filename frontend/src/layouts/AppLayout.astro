@@ -237,6 +237,9 @@ function isActive(itemPath: string, currentPath: string): boolean {
         box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
         font-size: 14px;
       }
+      /* Astro scopes this sheet, so `.update-banner { display: flex }` outranks the browser's
+         [hidden] rule; restate it or the bar never hides. */
+      .update-banner[hidden] { display: none; }
       .update-banner-detail { opacity: 0.7; font-size: 12px; }
       .update-banner .button { padding: 5px 10px; font-size: 13px; }
     </style>
