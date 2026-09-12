@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.63 (2026-09-12)
+
+### Bug Fixes
+
+- **ui**: Workflow builder keeps what it cannot edit, and edits the new step fields
+  ([`57956e7`](https://github.com/InnerOpen/marvin/commit/57956e7162922f6f07f281d2ef4b2218cdc1c3d1))
+
+### Features
+
+- **webhooks**: A "workflow" webhook type, and delivery logs for workflow steps
+  ([`680997a`](https://github.com/InnerOpen/marvin/commit/680997a7225a12973fcd4615ee01425780176cb3))
+
+
 ## v1.0.0-rc.62 (2026-09-11)
 
 ### Bug Fixes
