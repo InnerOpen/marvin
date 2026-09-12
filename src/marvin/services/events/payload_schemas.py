@@ -338,6 +338,22 @@ def get_payload_example(event_type: str) -> dict:
             "workspaceId": "<workspace-uuid>",
             "workspaceName": "My Workspace",
             "submissionData": {"name": "John Doe", "message": "Hello!"},
+            "status": "inbox",
+            "flagged": False,
+            "reviewReasons": [],
+            "ipAddress": "203.0.113.7",
+            "userAgent": "Mozilla/5.0",
+        },
+        "submission_surge_detected": {
+            "documentType": "form_submission",
+            "operation": "info",
+            "formId": "<entry-type-uuid>",
+            "formName": "Newsletter",
+            "workspaceId": "<workspace-uuid>",
+            "workspaceName": "My Workspace",
+            "submissionCount": 50,
+            "threshold": 50,
+            "windowMinutes": 10,
         },
         # --- API client events ---
         "api_client_created": {

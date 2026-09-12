@@ -13,6 +13,7 @@ from .entry_resources import EntryResources
 from .entry_tags import EntryTags
 from .entry_types import EntryTypes
 from .event_log import EventLogModel
+from .platform_settings import PlatformSettingsModel
 from .resource_tags import ResourceTags
 from .resources import Resources
 from .scheduled_tasks import ScheduledTaskExecutionLogModel, ScheduledTaskModel
@@ -38,6 +39,7 @@ __all__ = [
     "EntryTags",
     "EntryTypes",
     "EventLogModel",
+    "PlatformSettingsModel",
     "ResourceTags",
     "Resources",
     "SCHEDULER_LOCK_ID",

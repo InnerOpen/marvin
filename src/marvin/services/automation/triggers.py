@@ -43,6 +43,7 @@ TRIGGER_EVENT_GROUPS: dict[str, list[str]] = {
     # as `event.submission_data.<key>` and the stored inbox entry as `entry.*`.
     "Forms": [
         "form_submission_received",
+        "submission_surge_detected",
         "form_created",
         "form_updated",
         "form_published",

@@ -1,0 +1,150 @@
+---
+import Breadcrumb from "@/components/Breadcrumb.astro";
+import SubmissionProtectionFields from "@/components/SubmissionProtectionFields.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getWorkspaceSubmissionProtection, type SubmissionProtectionStatus } from "@/lib/api/submissionProtection";
+import type { WorkspaceRole } from "@/lib/api/types";
+import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { requireAuth } from "@/lib/auth";
+
+const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+
+let workspace: any = null;
+let status: SubmissionProtectionStatus | null = null;
+let currentUserRole: WorkspaceRole | null = null;
+let error: string | null = null;
+
+try {
+  workspace = await getCurrentWorkspace(authToken);
+  if (workspace) {
+    const [members, sp] = await Promise.all([
+      listWorkspaceMembers(workspace.id, authToken),
+      getWorkspaceSubmissionProtection(workspace.id, authToken),
+    ]);
+    status = sp;
+    const me = members.find((m) => (m as any).userId === currentUser.id || (m as any).user_id === currentUser.id);
+    currentUserRole = (me as any)?.workspaceRole || (me as any)?.workspace_role || null;
+    if (!currentUserRole && currentUser.admin === true) currentUserRole = "ADMIN" as WorkspaceRole;
+  }
+} catch (e) {
+  console.error("[settings/submission-protection] Error loading:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const canManage = currentUserRole === "OWNER" || currentUserRole === "ADMIN";
+---
+
+<AppLayout title="Submission Protection" eyebrow="Workspace">
+  <Breadcrumb items={[
+    { label: "Workspace Settings", href: "/workspace/settings" },
+    { label: "Publishing", href: "/workspace/settings?tab=publishing" },
+    { label: "Submission Protection" }
+  ]} />
+
+  <div class="toolbar">
+    <div>
+      <h2>Submission Protection</h2>
+      <p>Spam controls for public form submissions to {workspace?.name || 'this workspace'}. Each field inherits the platform default unless you override it.</p>
+    </div>
+  </div>
+
+  {error && <div class="alert error">Could not load settings: {error}</div>}
+
+  {status && workspace && (
+    <div class="settings-container">
+      <form id="sp-form" class="settings-section" data-workspace-id={workspace.id}>
+        <h3>Policy</h3>
+        <p>Suspicious submissions in <strong>Review</strong> mode land in <em>Needs review</em> with the reason on the entry; automations can skip them with a condition on <code>$event.flagged</code>.</p>
+        <SubmissionProtectionFields
+          value={status.workspaceOverride}
+          defaults={status.platformDefaults}
+          inheritable={true}
+          editable={canManage}
+        />
+        {canManage && (
+          <div class="form-actions">
+            <button type="submit" id="sp-save" class="button">Save</button>
+            <span id="sp-status" class="status-text" role="status"></span>
+          </div>
+        )}
+      </form>
+    </div>
+  )}
+</AppLayout>
+
+<script>
+  import { createSdkClient } from '@/lib/sdk';
+  import { initSubmissionProtectionForm, readSubmissionProtectionForm } from '@/lib/submissionProtectionForm';
+
+  const form = document.getElementById('sp-form') as HTMLFormElement | null;
+  const saveBtn = document.getElementById('sp-save') as HTMLButtonElement | null;
+  const statusEl = document.getElementById('sp-status');
+
+  if (form) {
+    initSubmissionProtectionForm(form, Boolean(saveBtn));
+  }
+  if (form && saveBtn) {
+    const sdk = createSdkClient();
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const workspaceId = form.dataset.workspaceId;
+      if (!workspaceId) return;
+      saveBtn.disabled = true;
+      if (statusEl) statusEl.textContent = 'Saving…';
+      try {
+        const override = readSubmissionProtectionForm(form);
+        await sdk.workspaces.updatePreferences(workspaceId, { submission_protection_json: override } as any);
+        if (statusEl) statusEl.textContent = 'Saved.';
+      } catch (err) {
+        if (statusEl) statusEl.textContent = 'Error: ' + (err instanceof Error ? err.message : 'save failed');
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+  }
+</script>
+
+<style>
+  .settings-container {
+    max-width: 800px;
+  }
+  .settings-section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .settings-section h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .settings-section > p {
+    margin: 0 0 20px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .form-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+  }
+  .status-text {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .alert.error {
+    padding: 12px 16px;
+    border: 1px solid #c33;
+    border-radius: var(--radius);
+    color: #c33;
+    margin-bottom: 16px;
+  }
+</style>

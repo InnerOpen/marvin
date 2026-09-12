@@ -584,6 +584,19 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="submission_surge_detected",
+        name="Submission Surge Detected",
+        description="One form received an unusual burst of submissions within the configured window.",
+        category="Forms",
+        variables=COMMON_VARS
+        + [
+            EventVariable("form_name", "Name of the form", "Newsletter", type="name"),
+            EventVariable("submission_count", "Submissions seen in the window", "50"),
+            EventVariable("threshold", "Configured surge threshold", "50"),
+            EventVariable("window_minutes", "Window length in minutes", "10"),
+        ],
+    ),
+    CatalogEntry(
         event_type="form_submission_processed",
         name="Form Submission Processed",
         description="A form submission was successfully processed.",

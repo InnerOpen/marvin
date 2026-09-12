@@ -22,6 +22,7 @@ from marvin.db.db_setup import generate_session
 from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
 from marvin.services.event_bus_service.event_bus_service import EventBusService
 from marvin.services.event_bus_service.event_types import EventIncomingWebhookData, EventTypes
+from marvin.services.security.client_info import get_client_ip
 from marvin.services.webhooks.incoming_signature import DEFAULT_SIGNATURE_HEADER, verify_signature
 
 router = APIRouter()
@@ -97,7 +98,7 @@ async def receive_hook(
         except (json.JSONDecodeError, ValueError):
             payload = {}
 
-    source_ip = request.client.host if request.client else None
+    source_ip = get_client_ip(request)
 
     # Log the payload's shape (keys only, never values) so a workflow author can see where a sender
     # puts things — e.g. whether an email is at data.email or data.subscriber.email_address.

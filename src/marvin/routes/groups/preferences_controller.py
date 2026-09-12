@@ -19,6 +19,13 @@ from marvin.schemas.group.preferences import (
     GroupPreferencesRead,
     GroupPreferencesUpdate,
 )
+from marvin.schemas.platform.submission_protection import (
+    SubmissionProtectionOverride,
+    SubmissionProtectionSettings,
+    SubmissionProtectionStatus,
+    resolve_submission_protection,
+)
+from marvin.services.platform_settings import SUBMISSION_PROTECTION_KEY, PlatformSettingsService
 
 # APIRouter for group preferences
 router = APIRouter(prefix="/groups/{group_id}/preferences", route_class=MarvinCrudRoute)
@@ -85,6 +92,25 @@ class GroupPreferencesController(BaseUserController):
             )
 
         return preferences.preferences
+
+    @router.get(
+        "/submission-protection",
+        response_model=SubmissionProtectionStatus,
+        summary="Get Submission Protection (platform defaults, workspace override, effective)",
+    )
+    def get_submission_protection(self, group_id: UUID4) -> SubmissionProtectionStatus:
+        """Workspace members can read the merged policy; it is edited through PATCH on the preferences
+        (`submission_protection_json`) and the platform defaults through the admin API."""
+        if not self._user_has_workspace_access(group_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+        platform = PlatformSettingsService(self.session).get(SUBMISSION_PROTECTION_KEY)
+        prefs = self.repo.get_one(group_id, "group_id")
+        override = (prefs.submission_protection_json if prefs else None) or {}
+        return SubmissionProtectionStatus(
+            platform_defaults=SubmissionProtectionSettings.model_validate(platform or {}),
+            workspace_override=SubmissionProtectionOverride.model_validate(override),
+            effective=resolve_submission_protection(platform, override),
+        )
 
     @router.patch("", response_model=GroupPreferencesRead, summary="Update Workspace Preferences and Settings")
     def update_preferences(self, group_id: UUID4, data: GroupPreferencesUpdate) -> GroupPreferencesRead:

@@ -22,7 +22,6 @@ from pydantic import BaseModel  # For response model definition
 from sqlalchemy.orm.session import Session  # SQLAlchemy session type
 from starlette.datastructures import URLPath  # For constructing absolute URLs
 
-# Marvin core components and utilities
 from marvin.core import root_logger, security
 from marvin.core.config import get_app_settings
 from marvin.core.dependencies import get_current_user  # Dependency for authenticated user
@@ -39,6 +38,9 @@ from marvin.services.event_bus_service.event_types import (
     EventTokenRefreshData,  # Data for token refresh event
     EventTypes,  # Enum for event types
 )
+
+# Marvin core components and utilities
+from marvin.services.security.client_info import get_client_ip
 
 # Routers for public and user-authenticated authentication endpoints
 public_router = APIRouter(tags=["Authentication"])  # Tag for OpenAPI docs
@@ -134,12 +136,7 @@ class PublicAuthenticiationController(BasePublicController):
             HTTPException (401 Unauthorized): If authentication fails (incorrect credentials).
         """
         # Attempt to get the client's real IP address, considering proxies
-        client_ip = "unknown"
-        if "x-forwarded-for" in request.headers:
-            # The first IP in X-Forwarded-For is generally the original client
-            client_ip = request.headers["x-forwarded-for"].split(",")[0].strip()
-        elif request.client and request.client.host:
-            client_ip = request.client.host
+        client_ip = get_client_ip(request)
 
         self.logger.info(f"Token requested from IP: {client_ip} for user: {data.username}")
 

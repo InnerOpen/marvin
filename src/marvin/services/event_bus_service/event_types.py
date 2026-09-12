@@ -389,6 +389,8 @@ class EventTypes(EventTypeBase):
     """Event dispatched when suspicious activity is detected."""
     login_failed_multiple_times = auto()
     """Event dispatched when multiple login failures occur."""
+    submission_surge_detected = auto()
+    """Event dispatched when one submittable entry type receives an unusual burst of submissions."""
     session_expired = auto()
     """Event dispatched when a user session expires."""
 
@@ -728,6 +730,32 @@ class EventFormSubmissionData(EventDocumentDataBase):
     """The workspace containing the form."""
     workspace_name: str | None = None
     """The human-readable name of the workspace."""
+    status: str | None = None
+    """Status the submission landed with: ``inbox``, or ``needs_review`` when flagged."""
+    flagged: bool = False
+    """True when submission protection found the submission suspicious."""
+    review_reasons: list[str] = []
+    """Why it was flagged (e.g. ``disposable_domain:mailinator.com``); empty when not flagged."""
+    ip_address: str | None = None
+    """Submitter IP (only when client-info capture is enabled)."""
+    user_agent: str | None = None
+    """Submitter user agent (only when client-info capture is enabled)."""
+
+
+class EventSubmissionSurgeData(EventDocumentDataBase):
+    """Data payload for ``submission_surge_detected``."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.form_submission
+    operation: "EventOperation"
+    form_id: UUID4
+    """The submittable entry type receiving the surge."""
+    form_name: str
+    workspace_id: UUID4
+    workspace_name: str | None = None
+    submission_count: int
+    """Submissions seen in the window when the threshold was crossed."""
+    threshold: int
+    window_minutes: int
 
 
 class EventSecretData(EventDocumentDataBase):

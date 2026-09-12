@@ -23,11 +23,14 @@ from marvin.services.event_bus_service.event_bus_service import EventBusService
 from marvin.services.event_bus_service.event_types import (
     EventFormSubmissionData,
     EventOperation,
+    EventSubmissionSurgeData,
     EventTypes,
 )
 from marvin.services.secrets.resolver import resolve
 from marvin.services.security.captcha_service import CaptchaService
+from marvin.services.security.client_info import ClientInfo, get_client_ip
 from marvin.services.security.rate_limit_service import RateLimitService
+from marvin.services.security.submission_protection import SubmissionProtectionService, evaluate
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -68,6 +71,34 @@ def _published_form_from_entry_type(entry_type: EntryTypes, cfg: SubmissionConfi
     )
 
 
+def _detect_surge(protection: SubmissionProtectionService, policy, entry_type: EntryTypes, group, bus: EventBusService) -> None:
+    """Count this submission toward the form's surge window and announce the crossing, once."""
+    try:
+        count = protection.record_and_detect_surge(policy, entry_type.id)
+        if count is None:
+            return
+        bus.dispatch(
+            integration_id="form_management",
+            group_id=group.id,
+            event_type=EventTypes.submission_surge_detected,
+            document_data=EventSubmissionSurgeData(
+                operation=EventOperation.info,
+                form_id=entry_type.id,
+                form_name=entry_type.name,
+                workspace_id=group.id,
+                workspace_name=group.name,
+                submission_count=count,
+                threshold=policy.surge_threshold or count,
+                window_minutes=policy.surge_window_minutes,
+            ),
+            message=f"Submission surge on '{entry_type.name}': {count} in {policy.surge_window_minutes} min",
+            entity_id=entry_type.id,
+            entity_type="entry_type",
+        )
+    except Exception as e:  # never let bookkeeping fail a submission that was already accepted
+        logger.error(f"Surge detection failed: {e}", exc_info=True)
+
+
 async def _submit_to_entry_type(
     entry_type: EntryTypes,
     cfg: SubmissionConfig,
@@ -85,14 +116,13 @@ async def _submit_to_entry_type(
     Entries list). Notification stays on the scoped ``form_submission_received`` event — never
     ``entry_created``, which fires for every entry.
     """
-    ip_address = request.client.host if request.client else "unknown"
+    client = ClientInfo.from_request(request)
+    ip_address = client.ip_address
 
     # Rate limit by IP, keyed on this submittable subject (opt-in via rate_limit_max).
     if cfg.rate_limit_max:
         window_minutes = max(1, (cfg.rate_limit_window_seconds or 3600) // 60)
-        if not RateLimitService(session).check_subject_limit(
-            entry_type.id, ip_address, cfg.rate_limit_max, window_minutes
-        ):
+        if not RateLimitService(session).check_subject_limit(entry_type.id, ip_address, cfg.rate_limit_max, window_minutes):
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Rate limit exceeded. Please try again later.",
@@ -122,9 +152,22 @@ async def _submit_to_entry_type(
         except HTTPException:
             raise
         except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid submission data: {str(e)}"
-            ) from e
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid submission data: {str(e)}") from e
+
+    # Submission protection (platform defaults + workspace overrides): a suspicious submission is
+    # still accepted in ``review`` mode — it lands as ``needs_review`` with the reasons recorded — and
+    # only ``reject`` mode turns it away. Exempt IPs skip the checks entirely.
+    protection = SubmissionProtectionService(session)
+    policy = protection.effective_settings(group.id)
+    verdict = evaluate(policy, submission_data, ip_address)
+    if verdict.suspicious and policy.mode == "reject":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This submission could not be accepted.")
+    entry_status = "needs_review" if verdict.suspicious else "inbox"
+    submission_meta: dict = {"received_at": datetime.now(UTC).isoformat()}
+    if policy.capture_client_info:
+        submission_meta.update(client.as_metadata())
+    if verdict.suspicious:
+        submission_meta["review_reasons"] = verdict.reasons
 
     # One event bus for both the entry service (entry_created) and the scoped submission event.
     bus = EventBusService(bg_tasks=bg_tasks, session=session)
@@ -133,7 +176,8 @@ async def _submit_to_entry_type(
             "entry_type_id": entry_type.id,
             "title": _derive_submission_title(cfg, entry_type, submission_data),
             "data_json": submission_data,
-            "status": "inbox",
+            "status": entry_status,
+            "metadata_json": {"submission": submission_meta},
             "created_by": None,
         }
     )
@@ -152,6 +196,11 @@ async def _submit_to_entry_type(
                     submission_data=submission_data,
                     workspace_id=group.id,
                     workspace_name=group.name,
+                    status=entry_status,
+                    flagged=verdict.suspicious,
+                    review_reasons=verdict.reasons,
+                    ip_address=client.ip_address if policy.capture_client_info else None,
+                    user_agent=client.user_agent if policy.capture_client_info else None,
                 ),
                 message=f"Submission received for '{entry_type.name}'",
                 entity_id=entry.id,
@@ -159,6 +208,8 @@ async def _submit_to_entry_type(
             )
         except Exception as e:
             logger.error(f"Failed to dispatch form_submission_received event: {e}", exc_info=True)
+
+    _detect_surge(protection, policy, entry_type, group, bus)
 
     return FormSubmissionResponse(
         success=True,
@@ -191,11 +242,7 @@ async def get_form(
     perms.require_permission(Permissions.READ_PUBLISHED_ENTRIES, "form definition")
 
     # Prefer a submittable entry type with this slug (forms-as-entry-types); fall back to legacy Forms.
-    entry_type = (
-        session.query(EntryTypes)
-        .filter(EntryTypes.group_id == group.id, EntryTypes.slug == form_slug)
-        .first()
-    )
+    entry_type = session.query(EntryTypes).filter(EntryTypes.group_id == group.id, EntryTypes.slug == form_slug).first()
     if entry_type is not None:
         caps = CapabilitiesDefinition(**(entry_type.capabilities_json or {}))
         if caps.submittable:
@@ -249,24 +296,16 @@ async def submit_form(
 
     # Either permission grants submit: public-entry submit (the new entry-type path) or the legacy
     # form-submissions permission (which existing site tokens already hold).
-    perms.require_any_permission(
-        [Permissions.WRITE_PUBLIC_ENTRIES, Permissions.WRITE_FORM_SUBMISSIONS], "form submission"
-    )
+    perms.require_any_permission([Permissions.WRITE_PUBLIC_ENTRIES, Permissions.WRITE_FORM_SUBMISSIONS], "form submission")
 
     # Forms are folding into submittable entry types: if a submittable entry type matches this slug,
     # the submission becomes an inbox entry of that type. Otherwise fall through to the legacy Forms
     # path (keeps existing forms working during migration; the submit URL is unchanged either way).
-    entry_type = (
-        session.query(EntryTypes)
-        .filter(EntryTypes.group_id == group.id, EntryTypes.slug == form_slug)
-        .first()
-    )
+    entry_type = session.query(EntryTypes).filter(EntryTypes.group_id == group.id, EntryTypes.slug == form_slug).first()
     if entry_type is not None:
         caps = CapabilitiesDefinition(**(entry_type.capabilities_json or {}))
         if caps.submittable:
-            return await _submit_to_entry_type(
-                entry_type, caps.submission or SubmissionConfig(), submission_data, request, group, bg_tasks, session
-            )
+            return await _submit_to_entry_type(entry_type, caps.submission or SubmissionConfig(), submission_data, request, group, bg_tasks, session)
 
     # Get form
     form = (
@@ -286,7 +325,7 @@ async def submit_form(
     settings = form.settings_json or {}
 
     # Rate limiting check
-    ip_address = request.client.host if request.client else "unknown"
+    ip_address = get_client_ip(request)
     rate_limit_service = RateLimitService(session)
     if not rate_limit_service.check_limit(form.id, ip_address, settings):
         raise HTTPException(

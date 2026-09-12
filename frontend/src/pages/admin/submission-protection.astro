@@ -1,0 +1,158 @@
+---
+import SubmissionProtectionFields from "@/components/SubmissionProtectionFields.astro";
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import {
+  type EmailDomainPresets,
+  getEmailDomainPresets,
+  getPlatformSubmissionProtection,
+  type SubmissionProtectionSettings,
+} from "@/lib/api/submissionProtection";
+import { requireAdmin } from "@/lib/auth";
+
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+
+let settings: SubmissionProtectionSettings | null = null;
+let presets: EmailDomainPresets | null = null;
+let error: string | null = null;
+try {
+  [settings, presets] = await Promise.all([getPlatformSubmissionProtection(authToken), getEmailDomainPresets(authToken)]);
+} catch (e) {
+  console.error("[admin/submission-protection] Failed to load:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+---
+
+<AdminLayout title="Submission Protection">
+  <div class="toolbar">
+    <div>
+      <h2>Submission Protection</h2>
+      <p>Platform-wide defaults for public form submissions. Every workspace inherits these and can override any field.</p>
+    </div>
+  </div>
+
+  {error && <div class="alert error">Could not load settings: {error}</div>}
+
+  {settings && (
+    <div class="page-container">
+      <form id="sp-form" class="settings-section">
+        <h3>Defaults</h3>
+        <p>Suspicious submissions are still accepted in <strong>Review</strong> mode — they land in the workspace's <em>Needs review</em> collection with the reason recorded, so nothing real is lost to a false positive.</p>
+        <SubmissionProtectionFields
+          value={settings}
+          defaults={settings}
+          presetCounts={presets ? { disposable: presets.disposable.length, personal: presets.personal.length } : undefined}
+        />
+        <div class="form-actions">
+          <button type="submit" id="sp-save" class="button">Save Defaults</button>
+          <span id="sp-status" class="status-text" role="status"></span>
+        </div>
+      </form>
+
+      {presets && (
+        <details class="settings-section">
+          <summary>Bundled presets</summary>
+          <div class="preset-grid">
+            <div>
+              <h4>Disposable ({presets.disposable.length})</h4>
+              <p class="preset-list">{presets.disposable.join(", ")}</p>
+            </div>
+            <div>
+              <h4>Personal ({presets.personal.length})</h4>
+              <p class="preset-list">{presets.personal.join(", ")}</p>
+            </div>
+          </div>
+        </details>
+      )}
+    </div>
+  )}
+</AdminLayout>
+
+<script>
+  import { updatePlatformSubmissionProtection, type SubmissionProtectionSettings } from '@/lib/api/submissionProtection';
+  import { initSubmissionProtectionForm, readSubmissionProtectionForm } from '@/lib/submissionProtectionForm';
+
+  const form = document.getElementById('sp-form') as HTMLFormElement | null;
+  const saveBtn = document.getElementById('sp-save') as HTMLButtonElement | null;
+  const statusEl = document.getElementById('sp-status');
+
+  if (form && saveBtn) {
+    initSubmissionProtectionForm(form, true);
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      saveBtn.disabled = true;
+      if (statusEl) statusEl.textContent = 'Saving…';
+      try {
+        const data = readSubmissionProtectionForm(form) as unknown as SubmissionProtectionSettings;
+        await updatePlatformSubmissionProtection(data);
+        if (statusEl) statusEl.textContent = 'Saved.';
+      } catch (err) {
+        if (statusEl) statusEl.textContent = 'Error: ' + (err instanceof Error ? err.message : 'save failed');
+      } finally {
+        saveBtn.disabled = false;
+      }
+    });
+  }
+</script>
+
+<style>
+  .page-container {
+    max-width: 800px;
+  }
+  .settings-section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .settings-section h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .settings-section > p {
+    margin: 0 0 20px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .settings-section summary {
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .form-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+  }
+  .status-text {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .preset-grid {
+    display: grid;
+    gap: 16px;
+    margin-top: 16px;
+  }
+  .preset-grid h4 {
+    margin: 0 0 6px;
+    font-size: 14px;
+  }
+  .preset-list {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .alert.error {
+    padding: 12px 16px;
+    border: 1px solid #c33;
+    border-radius: var(--radius);
+    color: #c33;
+    margin-bottom: 16px;
+  }
+</style>

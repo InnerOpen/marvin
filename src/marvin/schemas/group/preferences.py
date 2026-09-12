@@ -13,6 +13,7 @@ from sqlalchemy.orm.interfaces import LoaderOption  # Type for loader options
 # Corresponding SQLAlchemy models (used in loader_options)
 # from marvin.db.models.groups import Groups # Groups model itself is used in a potentially confusing way in loader_options
 from marvin.schemas._marvin import _MarvinModel  # Base Pydantic model
+from marvin.schemas.platform.submission_protection import SubmissionProtectionOverride
 
 
 class GroupPreferencesCreate(_MarvinModel):
@@ -60,6 +61,8 @@ class GroupPreferencesCreate(_MarvinModel):
     """DEPRECATED: Social media links. Use site_metadata_json with 'social' key instead."""
     site_metadata_json: dict | None = None
     """Flexible metadata for framework-specific settings. Include social links under 'social' key, SEO under 'seo', etc."""
+    submission_protection_json: dict | None = None
+    """Workspace override of the platform submission-protection defaults; null fields inherit."""
 
     model_config = ConfigDict(from_attributes=True)  # Allows creating from ORM model attributes
 
@@ -110,6 +113,8 @@ class GroupPreferencesUpdate(_MarvinModel):  # Typically, update schemas allow p
     """Optional: DEPRECATED - Social media links. Use site_metadata_json with 'social' key instead."""
     site_metadata_json: dict | None = None
     """Optional: Flexible metadata for framework-specific settings. Include social links under 'social' key, SEO under 'seo', etc."""
+    submission_protection_json: SubmissionProtectionOverride | None = None
+    """Optional: workspace override of the platform submission-protection defaults; null fields inherit."""
 
     model_config = ConfigDict(from_attributes=True)
 

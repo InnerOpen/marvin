@@ -73,6 +73,12 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         sa.JSON, nullable=True, doc="Flexible metadata for framework-specific or custom site settings."
     )
 
+    submission_protection_json: Mapped[dict | None] = mapped_column(
+        sa.JSON,
+        nullable=True,
+        doc="Workspace override of the platform submission-protection defaults (null fields inherit).",
+    )
+
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:
         """

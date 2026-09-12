@@ -1,0 +1,210 @@
+---
+/**
+ * The submission-protection field set, used by both the platform admin page (concrete values) and the
+ * workspace settings page (override with a per-field "use platform default" toggle).
+ *
+ * Markup contract for src/lib/submissionProtectionForm.ts: each `.sp-field[data-field]` holds one
+ * `[data-sp-control]` and, when `inheritable`, one `.sp-inherit-toggle`.
+ */
+import type { SubmissionProtectionOverride, SubmissionProtectionSettings } from "@/lib/api/submissionProtection";
+
+interface Props {
+  value: Partial<SubmissionProtectionOverride>;
+  defaults: SubmissionProtectionSettings;
+  inheritable?: boolean;
+  editable?: boolean;
+  presetCounts?: { disposable: number; personal: number };
+}
+
+const { value, defaults, inheritable = false, editable = true, presetCounts } = Astro.props;
+
+type Key = keyof SubmissionProtectionSettings;
+const isInherited = (key: Key) => inheritable && (value[key] === null || value[key] === undefined);
+const current = <K extends Key>(key: K): SubmissionProtectionSettings[K] =>
+  (isInherited(key) ? defaults[key] : (value[key] as SubmissionProtectionSettings[K])) ?? defaults[key];
+
+const fmt = (v: unknown): string => {
+  if (v === null || v === undefined) return "off";
+  if (Array.isArray(v)) return v.length ? `${v.length} listed` : "none";
+  if (typeof v === "boolean") return v ? "on" : "off";
+  return String(v);
+};
+const lines = (v: string[] | null | undefined) => (v ?? []).join("\n");
+
+const disposableNote = presetCounts ? ` (${presetCounts.disposable} domains bundled)` : "";
+const personalNote = presetCounts ? ` (${presetCounts.personal} domains bundled)` : "";
+---
+
+<div class="sp-fields" data-inheritable={inheritable ? "1" : undefined}>
+  <div class="sp-field" data-field="mode">
+    <div class="sp-head">
+      <span class="sp-label">Mode</span>
+      {inheritable && (
+        <label class="sp-inherit"><input type="checkbox" class="sp-inherit-toggle" checked={isInherited("mode")} disabled={!editable} /> Use platform default <em>({fmt(defaults.mode)})</em></label>
+      )}
+    </div>
+    <select data-sp-control name="mode">
+      <option value="review" selected={current("mode") === "review"}>Review — accept, but land suspicious submissions in Needs review</option>
+      <option value="reject" selected={current("mode") === "reject"}>Reject — refuse suspicious submissions</option>
+      <option value="off" selected={current("mode") === "off"}>Off — no domain checks</option>
+    </select>
+    <small>Honeypot, CAPTCHA and per-form rate limits still apply; this governs the email-domain checks below.</small>
+  </div>
+
+  <div class="sp-field" data-field="blockDisposableDomains">
+    <div class="sp-head">
+      <span class="sp-label">Block disposable email domains</span>
+      {inheritable && (
+        <label class="sp-inherit"><input type="checkbox" class="sp-inherit-toggle" checked={isInherited("blockDisposableDomains")} disabled={!editable} /> Use platform default <em>({fmt(defaults.blockDisposableDomains)})</em></label>
+      )}
+    </div>
+    <label class="sp-check"><input type="checkbox" data-sp-control name="blockDisposableDomains" checked={current("blockDisposableDomains")} /> Flag throwaway providers such as mailinator and yopmail{disposableNote}</label>
+  </div>
+
+  <div class="sp-field" data-field="blockPersonalDomains">
+    <div class="sp-head">
+      <span class="sp-label">Block personal email domains</span>
+      {inheritable && (
+        <label class="sp-inherit"><input type="checkbox" class="sp-inherit-toggle" checked={isInherited("blockPersonalDomains")} disabled={!editable} /> Use platform default <em>({fmt(defaults.blockPersonalDomains)})</em></label>
+      )}
+    </div>
+    <label class="sp-check"><input type="checkbox" data-sp-control name="blockPersonalDomains" checked={current("blockPersonalDomains")} /> Flag consumer webmail such as gmail and yahoo — for business-only forms{personalNote}</label>
+  </div>
+
+  <div class="sp-field" data-field="blockedDomains">
+    <div class="sp-head">
+      <span class="sp-label">Blocked domains</span>
+      {inheritable && (
+        <label class="sp-inherit"><input type="checkbox" class="sp-inherit-toggle" checked={isInherited("blockedDomains")} disabled={!editable} /> Use platform default <em>({fmt(defaults.blockedDomains)})</em></label>
+      )}
+    </div>
+    <textarea data-sp-control name="blockedDomains" rows="3" placeholder="spam.example&#10;junkmail.test">{lines(current("blockedDomains"))}</textarea>
+    <small>One domain per line. Subdomains match too.</small>
+  </div>
+
+  <div class="sp-field" data-field="allowedDomains">
+    <div class="sp-head">
+      <span class="sp-label">Allowed domains only</span>
+      {inheritable && (
+        <label class="sp-inherit"><input type="checkbox" class="sp-inherit-toggle" checked={isInherited("allowedDomains")} disabled={!editable} /> Use platform default <em>({fmt(defaults.allowedDomains)})</em></label>
+      )}
+    </div>
+    <textarea data-sp-control name="allowedDomains" rows="3" placeholder="yourcompany.example">{lines(current("allowedDomains"))}</textarea>
+    <small>Leave empty to accept any domain. When set, every other domain is treated as suspicious.</small>
+  </div>
+
+  <div class="sp-field" data-field="exemptIps">
+    <div class="sp-head">
+      <span class="sp-label">Exempt IP addresses</span>
+      {inheritable && (
+        <label class="sp-inherit"><input type="checkbox" class="sp-inherit-toggle" checked={isInherited("exemptIps")} disabled={!editable} /> Use platform default <em>({fmt(defaults.exemptIps)})</em></label>
+      )}
+    </div>
+    <textarea data-sp-control name="exemptIps" rows="3" placeholder="203.0.113.5&#10;10.0.0.0/8">{lines(current("exemptIps"))}</textarea>
+    <small>Submissions from these IPs or CIDR ranges skip every check — your office, monitoring, test rigs.</small>
+  </div>
+
+  <div class="sp-field" data-field="captureClientInfo">
+    <div class="sp-head">
+      <span class="sp-label">Capture client info</span>
+      {inheritable && (
+        <label class="sp-inherit"><input type="checkbox" class="sp-inherit-toggle" checked={isInherited("captureClientInfo")} disabled={!editable} /> Use platform default <em>({fmt(defaults.captureClientInfo)})</em></label>
+      )}
+    </div>
+    <label class="sp-check"><input type="checkbox" data-sp-control name="captureClientInfo" checked={current("captureClientInfo")} /> Record the submitter's IP address, user agent and referring page on the entry and in the event</label>
+  </div>
+
+  <div class="sp-field" data-field="surgeThreshold">
+    <div class="sp-head">
+      <span class="sp-label">Surge threshold</span>
+      {inheritable && (
+        <label class="sp-inherit"><input type="checkbox" class="sp-inherit-toggle" checked={isInherited("surgeThreshold")} disabled={!editable} /> Use platform default <em>({fmt(defaults.surgeThreshold)})</em></label>
+      )}
+    </div>
+    <input type="number" data-sp-control name="surgeThreshold" min="1" step="1" value={current("surgeThreshold") ?? ""} placeholder="off" />
+    <small>Emit a <code>submission_surge_detected</code> event when one form gets this many submissions inside the window. Blank disables it.</small>
+  </div>
+
+  <div class="sp-field" data-field="surgeWindowMinutes">
+    <div class="sp-head">
+      <span class="sp-label">Surge window (minutes)</span>
+      {inheritable && (
+        <label class="sp-inherit"><input type="checkbox" class="sp-inherit-toggle" checked={isInherited("surgeWindowMinutes")} disabled={!editable} /> Use platform default <em>({fmt(defaults.surgeWindowMinutes)})</em></label>
+      )}
+    </div>
+    <input type="number" data-sp-control name="surgeWindowMinutes" min="1" step="1" value={current("surgeWindowMinutes")} />
+  </div>
+</div>
+
+<style>
+  .sp-fields {
+    display: grid;
+    gap: 22px;
+  }
+  .sp-field {
+    display: grid;
+    gap: 8px;
+  }
+  .sp-head {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px 16px;
+  }
+  .sp-label {
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .sp-inherit {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .sp-inherit em {
+    font-style: normal;
+    opacity: 0.85;
+  }
+  .sp-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 14px;
+  }
+  .sp-check input {
+    margin-top: 3px;
+  }
+  .sp-field small {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .sp-field select,
+  .sp-field textarea,
+  .sp-field input[type="number"] {
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--panel);
+    color: inherit;
+  }
+  .sp-field textarea {
+    resize: vertical;
+  }
+  .sp-field input[type="number"] {
+    max-width: 160px;
+  }
+  .sp-field select:disabled,
+  .sp-field textarea:disabled,
+  .sp-field input:disabled {
+    background: var(--panel-2);
+    color: var(--muted);
+    cursor: not-allowed;
+  }
+  .sp-field.is-inherited .sp-check {
+    color: var(--muted);
+  }
+</style>
