@@ -123,6 +123,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
               <label class="check small"><input type="checkbox" id="wf-t-assets" /> has assets</label>
               <label class="check small"><input type="checkbox" id="wf-t-resources" /> has resources</label>
             </div>
+            <div class="tf target-meta">
+              <span>Metadata equals <span class="muted">(key = value; values may be templates like <code>{"${event.payload.id}"}</code>)</span></span>
+              <div id="wf-t-meta"></div>
+            </div>
             <div class="target-preview-row">
               <button type="button" class="button secondary sm" id="wf-preview-btn">Preview matches</button>
               <span class="hint" id="wf-preview-status"></span>
@@ -303,8 +307,19 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const ENTRY_OP_LABELS: Record<string, string> = {
     publish: "Publish", unpublish: "Unpublish", archive: "Archive", restore: "Restore from archive",
     add_to_collection: "Add to collection", remove_from_collection: "Remove from collection",
+    set_metadata: "Set metadata",
   };
   const COLLECTION_OPS = new Set(["add_to_collection", "remove_from_collection"]);
+  const METADATA_OPS = new Set(["set_metadata"]);
+  const TARGET_MODE_HINTS: Record<string, string> = {
+    default: "Acts on the triggering entry (or each entry a Run-on target matches).",
+    slug: "Point at one entry by slug — a literal or a template such as <code>$event.payload.entry_slug</code>.",
+    query: "Find exactly one entry at run time. Same keys as Run-on: <code>entry_type</code>, <code>status</code>, <code>text</code>, <code>collection</code>, <code>metadata</code> — values may be <code>${event…}</code> / <code>${steps.&lt;id&gt;.output…}</code> templates.",
+  };
+  // The action object each step row was opened with. Saving overlays the form's fields onto it, so
+  // anything the form can't edit (id, input, config, body, a raw-url webhook…) survives a round trip.
+  const ORIGINAL_ACTION = new WeakMap<Element, any>();
+  let originalTarget: any = null;  // same idea for the top-level `target` selector
   const COND_OP_LABELS: Record<string, string> = {
     eq: "equals", neq: "not equals", contains: "contains", in: "is one of",
     starts_with: "starts with", exists: "exists", changed: "changed",
@@ -334,10 +349,62 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     return row;
   }
 
+  // ── Key/value list editor (entry metadata to set, target metadata filter) ─
+  function kvRow(key = "", value: unknown = "") {
+    const row = document.createElement("div");
+    row.className = "kv-row";
+    // Non-string values (numbers, booleans, objects) show as JSON; if the text is left untouched the
+    // original value is written back unchanged, so a round trip never retypes it as a string.
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    if (typeof value !== "string") row.dataset.orig = text;
+    row.innerHTML = `
+      <input class="input kv-key" placeholder="key" value="${esc(key)}" />
+      <input class="input kv-value" placeholder="value" value="${esc(text)}" />
+      <button type="button" class="icon-btn" title="Remove">✕</button>`;
+    row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
+    return row;
+  }
+  function kvEditor(entries: Record<string, unknown> | undefined, addLabel = "+ Add key"): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "kv-editor";
+    const rows = document.createElement("div");
+    rows.className = "kv-rows";
+    Object.entries(entries || {}).forEach(([k, v]) => rows.appendChild(kvRow(k, v)));
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "linkish"; add.textContent = addLabel;
+    add.addEventListener("click", () => rows.appendChild(kvRow()));
+    wrap.append(rows, add);
+    return wrap;
+  }
+  function readKv(editor: Element | null): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    editor?.querySelectorAll(".kv-row").forEach((r) => {
+      const key = (r.querySelector(".kv-key") as HTMLInputElement).value.trim();
+      if (!key) return;
+      const text = (r.querySelector(".kv-value") as HTMLInputElement).value;
+      const orig = (r as HTMLElement).dataset.orig;
+      out[key] = orig !== undefined && orig === text ? JSON.parse(orig) : text;
+    });
+    return out;
+  }
+
+  // Parse a JSON-object textarea; the error carries a label so save() can say which step is wrong.
+  function parseJsonObject(text: string | undefined, label: string): any {
+    const raw = (text || "").trim();
+    if (!raw) throw new Error(`${label}: enter a JSON query, or choose another target.`);
+    let parsed: any;
+    try { parsed = JSON.parse(raw); } catch (e: any) { throw new Error(`${label}: ${e.message}`); }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(`${label}: must be a JSON object such as {"entry_type": "post"}.`);
+    }
+    return parsed;
+  }
+
   // ── Action rows (kind-dependent fields) ───────────────────────────────────
   function actionRow(a: any = {}) {
     const row = document.createElement("div");
     row.className = "row action-row";
+    ORIGINAL_ACTION.set(row, a);
     const selectedKind = a.kind || defaultKind();
     const aiOpsAvailable = (OPTIONS.operations || []).length > 0;
     const kinds = orderedKinds()
@@ -384,23 +451,55 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     } else if (kind === "entry") {
       const opList = Object.entries(ENTRY_OP_LABELS)
         .map(([op, label]) => `<option value="${esc(op)}" ${a.op === op ? "selected" : ""}>${esc(label)}</option>`).join("");
-      const showColl = COLLECTION_OPS.has(a.op);
+      const targetMode = a.entity_query ? "query" : a.entity_slug ? "slug" : "default";
+      const modeOpt = (v: string, label: string) => `<option value="${v}" ${targetMode === v ? "selected" : ""}>${label}</option>`;
       wrap.innerHTML = `
         <select class="input a-op">${opList}</select>
-        <input class="input a-entity-slug" placeholder="Target entry by slug — e.g. $event.payload.entry_slug" value="${esc(a.entity_slug ?? "")}" />
-        <span class="hint small">Which entry to act on. Leave blank to use the triggering entry (or each entry a Run-on target matches); or point at one by slug (e.g. <code>$event.payload.entry_slug</code>).</span>
-        <label class="a-collection-wrap tf" ${showColl ? "" : "hidden"}><span>Collection</span>
-          <input class="input a-collection" placeholder="slug or name — e.g. featured" value="${esc(a.collection_slug ?? "")}" /></label>`;
-      // Toggle the collection field when the op switches to/from a membership op.
+        <div class="a-meta-wrap tf" ${METADATA_OPS.has(a.op) ? "" : "hidden"}><span>Metadata to set <span class="muted">(merged into the entry's metadata)</span></span></div>
+        <label class="a-collection-wrap tf" ${COLLECTION_OPS.has(a.op) ? "" : "hidden"}><span>Collection</span>
+          <input class="input a-collection" placeholder="slug or name — e.g. featured" value="${esc(a.collection_slug ?? "")}" /></label>
+        <div class="a-target-wrap tf"><span>Target entry</span>
+          <select class="input a-target-mode">
+            ${modeOpt("default", "Triggering entry (default)")}
+            ${modeOpt("slug", "By slug")}
+            ${modeOpt("query", "By query (find exactly one)")}
+          </select>
+          <input class="input a-entity-slug" placeholder="e.g. $event.payload.entry_slug" value="${esc(a.entity_slug ?? "")}" ${targetMode === "slug" ? "" : "hidden"} />
+          <textarea class="input mono a-entity-query" rows="4" spellcheck="false" ${targetMode === "query" ? "" : "hidden"}>${esc(a.entity_query ? JSON.stringify(a.entity_query, null, 2) : "")}</textarea>
+          <span class="hint small a-target-hint">${TARGET_MODE_HINTS[targetMode]}</span>
+        </div>`;
+      wrap.querySelector(".a-meta-wrap")!.appendChild(kvEditor(a.metadata, "+ Add field"));
+      // Show only the fields the chosen op / target mode actually uses.
       const opSel = wrap.querySelector(".a-op") as HTMLSelectElement;
-      const collWrap = wrap.querySelector(".a-collection-wrap") as HTMLElement;
-      opSel.addEventListener("change", () => collWrap.toggleAttribute("hidden", !COLLECTION_OPS.has(opSel.value)));
+      opSel.addEventListener("change", () => {
+        wrap.querySelector(".a-collection-wrap")!.toggleAttribute("hidden", !COLLECTION_OPS.has(opSel.value));
+        wrap.querySelector(".a-meta-wrap")!.toggleAttribute("hidden", !METADATA_OPS.has(opSel.value));
+      });
+      const modeSel = wrap.querySelector(".a-target-mode") as HTMLSelectElement;
+      modeSel.addEventListener("change", () => {
+        wrap.querySelector(".a-entity-slug")!.toggleAttribute("hidden", modeSel.value !== "slug");
+        wrap.querySelector(".a-entity-query")!.toggleAttribute("hidden", modeSel.value !== "query");
+        wrap.querySelector(".a-target-hint")!.innerHTML = TARGET_MODE_HINTS[modeSel.value];
+      });
     } else if (kind === "emit_event") {
       const evs = (OPTIONS.triggers || []).map((t: string) => `<option value="${esc(t)}" ${a.event === t ? "selected" : ""}>${esc(prettyEvent(t))}</option>`).join("");
       wrap.innerHTML = `<select class="input a-event">${evs}</select><span class="hint small">Re-emits this event so other workflows can react.</span>`;
     } else if (kind === "handler") {
       wrap.innerHTML = `<input class="input a-task" list="wf-handlers" placeholder="request_site_rebuild" value="${esc(a.task ?? "")}" /><span class="hint small">An internal task to run (e.g. request_site_rebuild, ai_reindex_embeddings).</span>`;
     } else if (kind === "webhook") {
+      if (a.url && !a.webhook_id) {
+        // The raw-url form (url/method/body/secret_ref/auth_scheme) has no form editor. Show it
+        // read-only; readDefinition() keeps the original object rather than rebuilding it.
+        const method = String(a.method || "POST").toUpperCase();
+        const auth = a.secret_ref ? ` · secret {{${a.secret_ref}}}${a.auth_scheme ? ` via ${a.auth_scheme}` : ""}` : "";
+        const bodyKeys = Object.keys(a.body || {});
+        const body = bodyKeys.length ? ` · body {${bodyKeys.join(", ")}}` : "";
+        wrap.innerHTML = `<div class="step-ro"><code>Raw URL · ${esc(method)} ${esc(a.url)}${esc(auth)}${esc(body)}</code>
+          <span class="hint small">This step has settings the guided builder can't edit — it's saved as-is.
+            <button type="button" class="linkish a-edit-json">Edit as JSON</button></span></div>`;
+        wrap.querySelector(".a-edit-json")!.addEventListener("click", () => setJsonMode(true));
+        return wrap;
+      }
       const whs = OPTIONS.webhooks || [];
       if (!whs.length) {
         wrap.innerHTML = `<p class="muted small">No webhooks configured yet — <a href="/automation/webhooks">add one</a> first.</p>`;
@@ -421,36 +520,45 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       return field ? { field, op, value } : null;
     }).filter(Boolean);
 
-    const actions = [...document.querySelectorAll(".action-row")].map((r) => {
+    const actions = [...document.querySelectorAll(".action-row")].map((r, i) => {
       const kind = (r.querySelector(".a-kind") as HTMLSelectElement).value;
+      // Overlay the form's fields onto the action the row was opened with, so nothing the form can't
+      // edit is lost. A changed kind starts fresh — the old fields belong to a different shape.
+      const orig = ORIGINAL_ACTION.get(r);
+      const step: any = orig?.kind === kind ? { ...orig } : { kind };
+      const field = (sel: string) => r.querySelector(sel) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
+      const setOrDrop = (key: string, value: unknown) => { if (value) step[key] = value; else delete step[key]; };
       if (kind === "operation") {
-        const op = (r.querySelector(".a-op") as HTMLSelectElement | null)?.value;
+        const op = field(".a-op")?.value;
         if (!op) return null;
-        const slug = (r.querySelector(".a-entity-slug") as HTMLInputElement | null)?.value.trim();
-        const step: any = { kind, op, write_back: (r.querySelector(".a-writeback") as HTMLInputElement)?.checked || false };
-        if (slug) step.entity_slug = slug;
+        step.op = op;
+        setOrDrop("entity_slug", field(".a-entity-slug")?.value.trim());
+        step.write_back = (field(".a-writeback") as HTMLInputElement | null)?.checked || false;
         return step;
       }
       if (kind === "entry") {
-        const op = (r.querySelector(".a-op") as HTMLSelectElement | null)?.value;
+        const op = field(".a-op")?.value;
         if (!op) return null;
-        const slug = (r.querySelector(".a-entity-slug") as HTMLInputElement | null)?.value.trim();
-        const step: any = { kind, op };
-        if (slug) step.entity_slug = slug;
-        if (COLLECTION_OPS.has(op)) {
-          const coll = (r.querySelector(".a-collection") as HTMLInputElement | null)?.value.trim();
-          if (coll) step.collection_slug = coll;
-        }
+        step.op = op;
+        const mode = field(".a-target-mode")?.value || "default";
+        setOrDrop("entity_slug", mode === "slug" ? field(".a-entity-slug")?.value.trim() : null);
+        setOrDrop("entity_query", mode === "query" ? parseJsonObject(field(".a-entity-query")?.value, `Step ${i + 1} target query`) : null);
+        setOrDrop("collection_slug", COLLECTION_OPS.has(op) ? field(".a-collection")?.value.trim() : null);
+        const metadata = readKv(r.querySelector(".a-meta-wrap"));
+        setOrDrop("metadata", METADATA_OPS.has(op) && Object.keys(metadata).length ? metadata : null);
         return step;
       }
-      if (kind === "emit_event") return { kind, event: (r.querySelector(".a-event") as HTMLSelectElement).value };
+      if (kind === "emit_event") { step.event = field(".a-event")!.value; return step; }
       if (kind === "handler") {
-        const task = (r.querySelector(".a-task") as HTMLInputElement).value.trim();
-        return task ? { kind, task } : null;
+        const task = field(".a-task")!.value.trim();
+        if (!task) return null;
+        step.task = task;
+        return step;
       }
       if (kind === "webhook") {
-        const webhookId = (r.querySelector(".a-webhook") as HTMLSelectElement | null)?.value;
-        return webhookId ? { kind, webhook_id: webhookId } : null;
+        const sel = field(".a-webhook");
+        if (sel) { step.webhook_id = sel.value; return step; }
+        return step.url || step.webhook_id ? step : null;  // read-only raw-url step, or nothing to pick
       }
       return null;
     }).filter(Boolean);
@@ -478,14 +586,20 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   // The optional "Run on" selector (FROM clause). Returns {} or { target: {...} }.
   function readTarget() {
     if (!($("wf-target-on") as HTMLInputElement).checked) return {};
-    const query: any = {};
-    const type = ($("wf-t-type") as HTMLInputElement).value.trim(); if (type) query.entry_type = type;
-    const status = ($("wf-t-status") as HTMLSelectElement).value; if (status) query.status = status;
-    const text = ($("wf-t-text") as HTMLInputElement).value.trim(); if (text) query.text = text;
-    const coll = ($("wf-t-collection") as HTMLInputElement).value.trim(); if (coll) query.collection = coll;
-    if (($("wf-t-images") as HTMLInputElement).checked) query.has_images = true;
-    if (($("wf-t-assets") as HTMLInputElement).checked) query.has_assets = true;
-    if (($("wf-t-resources") as HTMLInputElement).checked) query.has_resources = true;
+    // Overlay onto the loaded query so keys this form doesn't know survive; `query` is the legacy
+    // alias for `text` and is folded into it.
+    const query: any = { ...(originalTarget?.query ?? {}) };
+    delete query.query;
+    const setOrDrop = (key: string, value: unknown) => { if (value) query[key] = value; else delete query[key]; };
+    setOrDrop("entry_type", ($("wf-t-type") as HTMLInputElement).value.trim());
+    setOrDrop("status", ($("wf-t-status") as HTMLSelectElement).value);
+    setOrDrop("text", ($("wf-t-text") as HTMLInputElement).value.trim());
+    setOrDrop("collection", ($("wf-t-collection") as HTMLInputElement).value.trim());
+    setOrDrop("has_images", ($("wf-t-images") as HTMLInputElement).checked);
+    setOrDrop("has_assets", ($("wf-t-assets") as HTMLInputElement).checked);
+    setOrDrop("has_resources", ($("wf-t-resources") as HTMLInputElement).checked);
+    const metadata = readKv($("wf-t-meta"));
+    setOrDrop("metadata", Object.keys(metadata).length ? metadata : null);
     return { target: { entity: "entry", query } };
   }
 
@@ -549,6 +663,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     // Restore the "Run on" target selector.
     const tgt = def.target;
     const tq = tgt?.query ?? {};
+    originalTarget = tgt ?? null;
     ($("wf-target-on") as HTMLInputElement).checked = !!tgt;
     ($("wf-t-type") as HTMLInputElement).value = tq.entry_type ?? "";
     ($("wf-t-status") as HTMLSelectElement).value = tq.status ?? "";
@@ -557,6 +672,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     ($("wf-t-images") as HTMLInputElement).checked = !!tq.has_images;
     ($("wf-t-assets") as HTMLInputElement).checked = !!tq.has_assets;
     ($("wf-t-resources") as HTMLInputElement).checked = !!tq.has_resources;
+    const metaWrap = $("wf-t-meta"); metaWrap.innerHTML = "";
+    metaWrap.appendChild(kvEditor(tq.metadata));
     syncTargetBody();
     ($("wf-preview-result") as HTMLElement).setAttribute("hidden", "");
 
@@ -574,12 +691,17 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   function closeBuilder() { builder.setAttribute("hidden", ""); editingId = null; }
 
   function setJsonMode(on: boolean) {
+    if (on) {
+      // keep them in sync when switching — a malformed target-query textarea can't be serialized,
+      // so stay in the guided view and point at it instead.
+      let def: any;
+      try { def = readDefinition(); } catch (e: any) { statusEl.textContent = e.message; return; }
+      ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(def, null, 2);
+    }
     jsonMode = on;
     guided.toggleAttribute("hidden", on);
     jsonEditor.toggleAttribute("hidden", !on);
     $("wf-json-toggle").textContent = on ? "Use guided builder" : "Edit as JSON";
-    // keep them in sync when switching
-    if (on) ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(readDefinition(), null, 2);
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -655,6 +777,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     if (q.has_images) parts.push("with images");
     else if (q.has_assets) parts.push("with assets");
     if (q.has_resources) parts.push("with resources");
+    if (q.metadata && typeof q.metadata === "object") {
+      parts.push(...Object.entries(q.metadata).map(([k, v]) => `${k} = ${typeof v === "string" ? v : JSON.stringify(v)}`));
+    }
     const noun = `${t?.entity || "entry"}${parts.length ? "" : " (all)"}`;
     return `${noun}${parts.length ? " " + parts.join(", ") : "s"}`;
   }
@@ -918,6 +1043,16 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.a-fields) { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-left: 2px; }
   .workflows-page :global(.icon-btn) { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 6px; margin-left: auto; }
   .workflows-page :global(.icon-btn:hover) { color: var(--color-error); background: color-mix(in srgb, var(--color-error) 10%, transparent); }
+  .workflows-page :global(.a-entity-query) { font-size: 12px; min-height: 80px; }
+  /* Key/value list editor (entry metadata, target metadata filter) */
+  .workflows-page :global(.kv-editor) { display: flex; flex-direction: column; gap: 4px; }
+  .workflows-page :global(.kv-rows) { display: flex; flex-direction: column; gap: 6px; }
+  .workflows-page :global(.kv-row) { display: grid; grid-template-columns: 1fr 1.6fr auto; gap: 6px; align-items: center; }
+  .workflows-page :global(.kv-editor > .linkish) { align-self: flex-start; font-size: 12px; }
+  /* Read-only summary for a step the guided builder can't edit (e.g. a raw-url webhook) */
+  .workflows-page :global(.step-ro) { display: flex; flex-direction: column; gap: 4px; }
+  .workflows-page :global(.step-ro code) { font-family: ui-monospace, monospace; font-size: 12px; padding: 6px 9px; border-radius: 6px; background: color-mix(in srgb, var(--ink) 6%, transparent); overflow-wrap: anywhere; }
+  .workflows-page :global(.step-ro .linkish) { font-size: 12px; padding: 0 3px; }
   .workflows-page :global(.linkish) { border: none; background: none; color: var(--accent); cursor: pointer; font-size: 13px; padding: 3px 6px; border-radius: 6px; font-weight: 500; }
   .workflows-page :global(.linkish:hover) { background: color-mix(in srgb, var(--accent) 12%, transparent); }
   .workflows-page :global(.linkish.danger) { color: var(--color-error); }

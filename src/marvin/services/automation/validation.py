@@ -182,15 +182,16 @@ def validate_definition(definition: dict | None) -> list[dict]:
         # An AI `operation` or an `entry` action operates on an entity — both default to
         # $event.entry_id. Under a trigger with no entry (and no target selector), that resolves to
         # nothing unless the author targets one from the payload, by slug (entity_slug — preferred,
-        # human-readable) or id (entity_id).
-        if kind in ("operation", "entry") and not has_entry and not act.get("entity_slug") and not act.get("entity_id"):
+        # human-readable), by id (entity_id), or by a run-time lookup (entity_query, entry actions).
+        targets_own_entry = any(act.get(k) for k in ("entity_slug", "entity_id", "entity_query"))
+        if kind in ("operation", "entry") and not has_entry and not targets_own_entry:
             what = act.get("op", kind)
             issues.append(
                 _issue(
                     "warning",
                     f"Step “{what}” runs on an entry, but this {_pretty(ttype)} trigger has none. "
-                    "Point it at one with entity_slug (e.g. $event.payload.entry_slug), add a Run-on target, "
-                    "or use an entry trigger.",
+                    "Point it at one with entity_slug (e.g. $event.payload.entry_slug) or entity_query, "
+                    "add a Run-on target, or use an entry trigger.",
                     "action",
                     i,
                 )

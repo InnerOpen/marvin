@@ -1009,6 +1009,24 @@ class TestValidateDefinition:
         )
         assert issues == []
 
+    def test_entity_query_clears_the_entry_action_warning(self):
+        # An entry step that finds its own target at run time (entity_query) is valid on a webhook too.
+        issues = self._v(
+            {
+                "trigger": {"type": "incoming_webhook", "webhook": "x"},
+                "conditions": [],
+                "actions": [
+                    {
+                        "kind": "entry",
+                        "op": "set_metadata",
+                        "entity_query": {"entry_type": "newsletter", "metadata": {"ext_id": "${event.payload.id}"}},
+                        "metadata": {"sent": "true"},
+                    }
+                ],
+            }
+        )
+        assert issues == []
+
     def test_webhook_payload_condition_is_clean(self):
         assert (
             self._v(
