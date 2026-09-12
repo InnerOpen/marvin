@@ -41,6 +41,13 @@ def clear_settings_cache() -> dict:
     return {"message": "Settings cache cleared"}
 
 
+@public_router.get("/version", summary="Get the running application version")
+def get_app_version() -> dict[str, str]:
+    """The backend's version string, unauthenticated. It is already public in the image tags;
+    the admin frontend's update banner compares it across deploys (see /version.json there)."""
+    return {"version": APP_VERSION}
+
+
 @router.get("", response_model=AppInfo, summary="Get Basic Application Information")
 def get_app_info() -> AppInfo:
     """

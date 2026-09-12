@@ -16,13 +16,13 @@ export function getFrontendVersion(): string {
   return sha ? sha.slice(0, 12) : "dev";
 }
 
-/** The backend's reported version (its /api/app/about), cached briefly so page renders stay cheap. */
+/** The backend's reported version (public /api/app/about/version), cached briefly so page renders stay cheap. */
 export async function getBackendVersion(): Promise<string> {
   const now = Date.now();
   if (backendCache && now - backendCache.at < BACKEND_CACHE_MS) return backendCache.value;
   let value = "unknown";
   try {
-    const res = await fetch(`${getServerApiBaseUrl()}/api/app/about`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(`${getServerApiBaseUrl()}/api/app/about/version`, { signal: AbortSignal.timeout(3000) });
     if (res.ok) {
       const body = (await res.json()) as { version?: string };
       if (body?.version) value = String(body.version);
