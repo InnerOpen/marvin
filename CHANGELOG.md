@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.65 (2026-09-12)
+
+### Features
+
+- **app**: Public /api/app/about/version for the admin update banner
+  ([`76aec4e`](https://github.com/InnerOpen/marvin/commit/76aec4ef21fb0605ceaf9859a76763a3628b89b1))
+
+
 ## v1.0.0-rc.64 (2026-09-12)
 
 ### Features
