@@ -114,6 +114,16 @@ export function getCookieName(): string {
  * backend CORS. Set `MARVIN_BROWSER_API_PROXY=false` to fall back to direct browser→API calls.
  * Read at runtime and injected into the page by RuntimeConfig.astro.
  */
+/**
+ * Base URL for hand-written browser `fetch()` calls in page scripts (the SDK resolves this itself via
+ * getApiBaseUrl). In proxy mode (the default) it is empty so the call is same-origin and the
+ * catch-all proxy forwards the httpOnly session cookie as a Bearer token — the public API host
+ * never receives that cookie, so targeting it directly from the browser always yields 401.
+ */
+export function getBrowserFetchBaseUrl(): string {
+  return getBrowserApiProxyEnabled() ? "" : getBrowserApiBaseUrl();
+}
+
 export function getBrowserApiProxyEnabled(): boolean {
   const explicit = serverEnv("MARVIN_BROWSER_API_PROXY");
   if (explicit != null && explicit.trim() !== "") {

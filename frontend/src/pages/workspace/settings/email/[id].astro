@@ -2,7 +2,7 @@
 import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
-import { getBrowserApiBaseUrl } from "@/lib/api/config";
+import { getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -16,7 +16,7 @@ let subscriptions: any[] = [];
 let wsId: string | null = null;
 let error: string | null = null;
 
-const apiUrl = getBrowserApiBaseUrl();
+const apiUrl = getBrowserFetchBaseUrl();
 
 try {
   const workspace = await getCurrentWorkspace(authToken!);

@@ -2,7 +2,7 @@
 import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { getBrowserApiBaseUrl } from "@/lib/api/config";
+import { getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -14,7 +14,7 @@ try {
   console.error("[email-test] Error loading workspace:", e);
 }
 
-const apiUrl = getBrowserApiBaseUrl();
+const apiUrl = getBrowserFetchBaseUrl();
 ---
 
 <AppLayout title="Test Emails" eyebrow="Workspace">

@@ -2,7 +2,7 @@
 import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { getBrowserApiBaseUrl } from "@/lib/api/config";
+import { getBrowserApiBaseUrl, getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { listEmailTemplates } from "@/lib/api/emailTemplates";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 
@@ -40,7 +40,7 @@ try {
 }
 
 const groupId = (workspace as any)?.id ?? (workspace as any)?.groupId;
-const apiUrl = getBrowserApiBaseUrl();
+const apiUrl = getBrowserFetchBaseUrl();
 
 // Build template_id → [event_type, ...] and (template_id|event_type) → subscription_id
 const eventsByTemplateId: Record<string, string[]> = {};
