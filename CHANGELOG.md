@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.68 (2026-09-12)
+
+### Bug Fixes
+
+- **ui**: Entry-type editor no longer drops capabilities.submission on save
+  ([`9dac064`](https://github.com/InnerOpen/marvin/commit/9dac064b0f34a9e723130559e233ca2826e98ac4))
+
+
 ## v1.0.0-rc.67 (2026-09-12)
 
 ### Bug Fixes
