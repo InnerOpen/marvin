@@ -66,6 +66,7 @@ try {
               <option value="user">User</option>
               <option value="entries">Entries</option>
               <option value="event_driven">Event-Driven</option>
+              <option value="workflow">Workflow (called from a workflow step)</option>
             </select>
           </label>
         </div>
@@ -160,10 +161,11 @@ try {
     user: 'Fires on a schedule and includes workspace member statistics (total members, new members since last run) alongside your custom payload.',
     entries: 'Fires on a schedule and includes content entry statistics (totals, published, draft, new since last run) alongside your custom payload.',
     event_driven: 'Fires immediately when a subscribed workspace event occurs (e.g. entry published, member added). Connect events from the Events page after creating.',
+    workflow: 'Never fires on its own. A workflow’s “Call webhook” step sends it — URL, method, headers and payload live here so the workflow just points at it. Templates (${event…}, {{SECRET}}) resolve at send time.',
   };
 
   function updateFieldVisibility() {
-    const isEventDriven = typeSelect.value === 'event_driven';
+    const isEventDriven = typeSelect.value === 'event_driven' || typeSelect.value === 'workflow';
     scheduledField.style.display = isEventDriven ? 'none' : '';
     scheduledInput.required = !isEventDriven;
     evSection.style.display = isEventDriven ? '' : 'none';
@@ -247,7 +249,7 @@ try {
       if (k && v) headers[k] = v;
     });
 
-    const isEventDriven = typeSelect.value === 'event_driven';
+    const isEventDriven = typeSelect.value === 'event_driven' || typeSelect.value === 'workflow';
     const selectedEvents = Array.from(evCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
 
     const payload: Record<string, unknown> = {

@@ -62,6 +62,7 @@ if (webhook) {
 
 const webhookType = (webhook as any)?.webhookType ?? (webhook as any)?.webhook_type ?? "generic";
 const isEventDriven = webhookType === "event_driven";
+const isWorkflow = webhookType === "workflow";
 const existingHeaders = (webhook as any)?.headers ?? {};
 const existingSubscribedEvents: string[] =
   (webhook as any)?.subscribedEvents ?? (webhook as any)?.subscribed_events ?? [];
@@ -113,6 +114,7 @@ const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPa
                 <option value="user" selected={webhookType === 'user'}>User</option>
                 <option value="entries" selected={webhookType === 'entries'}>Entries</option>
                 <option value="event_driven" selected={webhookType === 'event_driven'}>Event-Driven</option>
+                <option value="workflow" selected={webhookType === 'workflow'}>Workflow (called from a workflow step)</option>
               </select>
             </label>
           </div>
@@ -302,10 +304,11 @@ const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPa
     user: 'Fires on a schedule and includes workspace member statistics (total members, new members since last run) alongside your custom payload.',
     entries: 'Fires on a schedule and includes content entry statistics (totals, published, draft, new since last run) alongside your custom payload.',
     event_driven: 'Fires immediately when a subscribed workspace event occurs (e.g. entry published, member added). Connect events from the Events page after creating.',
+    workflow: 'Never fires on its own. A workflow’s “Call webhook” step sends it — URL, method, headers and payload live here so the workflow just points at it. Templates (${event…}, {{SECRET}}) resolve at send time.',
   };
 
   function updateFieldVisibility() {
-    const isEventDriven = typeSelect.value === 'event_driven';
+    const isEventDriven = typeSelect.value === 'event_driven' || typeSelect.value === 'workflow';
     if (scheduledField) scheduledField.style.display = isEventDriven ? 'none' : '';
     if (scheduledInput) scheduledInput.required = !isEventDriven;
     if (typeDesc) typeDesc.textContent = TYPE_DESCRIPTIONS[typeSelect.value] ?? '';
@@ -381,7 +384,7 @@ const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPa
       if (k && v) headers[k] = v;
     });
 
-    const isEventDriven = typeSelect.value === 'event_driven';
+    const isEventDriven = typeSelect.value === 'event_driven' || typeSelect.value === 'workflow';
     const selectedEvents = Array.from(evCheckboxes).filter(cb => cb.checked).map(cb => cb.value);
 
     const payload: Record<string, unknown> = {

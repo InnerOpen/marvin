@@ -22,6 +22,18 @@ config:
   # middleware and the token page / client-side features fail with "Failed to fetch" (CORS).
   corsOrigins: "https://marvin-marvin.apps.ocp4.iwobble.com"
 
+# Backend headroom. One uvicorn worker by design (SQLite over NFS is single-writer), so the only
+# lever under a burst of slow reads is CPU: the chart default of 500m had the worker answering
+# probes late enough to be restarted (2026-09-11). Memory rarely exceeds 300Mi; the limit is for
+# image-processing peaks.
+resources:
+  requests:
+    cpu: 250m
+    memory: 384Mi
+  limits:
+    cpu: "1"
+    memory: 768Mi
+
 # Relaxed backend probe cadence (the app also filters probe paths out of the access log). Merged
 # over the chart defaults: liveness /healthz 10→30s, readiness /readyz 5→15s. The single uvicorn
 # worker answers probes late while it serves a burst of slow reads (a site build fetching many

@@ -31,6 +31,24 @@ def _auth_header(secret_ref: str | None, group_id, scheme: str | None = None) ->
     return {"Authorization": f"{scheme} {token}"} if token else {}
 
 
+def _log_delivery(webhook_id, group_id, status, http_status, error, request_payload, response_body=None) -> None:
+    """A configured webhook called from a workflow shows up in the Webhooks delivery log like an
+    event-bus delivery would — otherwise an operator looking for "did it fire?" finds nothing."""
+    if not webhook_id:
+        return
+    from marvin.services.event_bus_service.publisher import _log_webhook_execution
+
+    _log_webhook_execution(
+        webhook_id,
+        group_id,
+        status,
+        http_status_code=http_status,
+        error_message=error,
+        request_payload=request_payload if isinstance(request_payload, dict) else None,
+        response_body=(response_body or "")[:2000] if response_body else None,
+    )
+
+
 @register_action("webhook")
 def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_role=None, dry_run=False) -> dict:
     import httpx
@@ -95,11 +113,14 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
             timeout=DEFAULT_TIMEOUT,
         )
     except Exception as e:
+        _log_delivery(webhook_id, group_id, "failed", None, str(e), body)
         raise AutomationActionError(f"webhook request failed: {e}") from e
     if not resp.is_success:
         # A rejected call is a failed step, not a success with a status code nobody reads.
         # The response body (trimmed) is the only clue an operator gets — keep it.
+        _log_delivery(webhook_id, group_id, "failed", resp.status_code, resp.text[:500], body, resp.text)
         raise AutomationActionError(f"webhook {method} {url} -> {resp.status_code}: {resp.text[:500]}")
+    _log_delivery(webhook_id, group_id, "success", resp.status_code, None, body, getattr(resp, "text", None))
     # Hand the response to later steps (`$steps.<id>.output.body.<field>`): parsed JSON when it is
     # JSON, else the trimmed text — a subscribe call's returned id is what a follow-up step records.
     try:

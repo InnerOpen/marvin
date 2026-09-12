@@ -499,6 +499,7 @@ class WebhookMode(str, Enum):
     user = "user"
     entries = "entries"
     event_driven = "event_driven"
+    workflow = "workflow"
 
 
 WEBHOOK_MODE_DESCRIPTIONS: dict[str, str] = {
@@ -508,6 +509,8 @@ WEBHOOK_MODE_DESCRIPTIONS: dict[str, str] = {
     "alongside your custom payload.",
     "event_driven": "Fires immediately when a subscribed workspace event occurs (e.g. entry published, member added). "
     "Connect events from the Events page after creating.",
+    "workflow": "Never fires on its own. A workflow's “Call webhook” step sends it — URL, method, headers and payload "
+    "live here so the workflow just points at it. Templates (${event…}, {{SECRET}}) resolve at send time.",
 }
 
 

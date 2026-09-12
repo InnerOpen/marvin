@@ -38,10 +38,11 @@ router = APIRouter(prefix="/groups/webhooks")
 def _validate_webhook_mode(data: WebhookCreate) -> None:
     """Enforce scheduling constraints based on webhook_type.
 
-    event_driven webhooks fire on subscribed events (connected via the Events page),
-    so they don't need a scheduled_time. All other types require one.
+    event_driven webhooks fire on subscribed events (connected via the Events page) and
+    workflow webhooks only when a workflow step calls them, so neither needs a
+    scheduled_time. All other types require one.
     """
-    if data.webhook_type != WebhookMode.event_driven:
+    if data.webhook_type not in (WebhookMode.event_driven, WebhookMode.workflow):
         if not data.scheduled_time:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
