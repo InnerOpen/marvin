@@ -25,6 +25,17 @@ First user agent: `workshop` (read-only, brand voice) for `mash-burn-co`. Thread
 
 - [x] Added after the n8n settings review: per-agent `allow_writes` (default off) on top of the allowlist; caller still needs AUTHOR+.
 
+## RAG vocabulary + workspace overview (2026-09-13, after the image fix)
+Jared asked Chat and workshop "summary of what's in the RAG": Chat guessed Red/Amber/Green; workshop keyword-searched "RAG".
+- [x] `workspace_preamble(name, tool_names)` — injected first in `_run_agent_core` for every persona run: which workspace,
+      what the content is, that "the RAG / knowledge base / index" means it, and which bound tool answers which question.
+- [x] `workspace_overview` read-only tool (library_read): entries by type+status, collections, assets, resources, tags, index coverage.
+      `ask` may use it (allowlist + prompt updated).
+- [x] `model_agent_system_prompt()` shared by the agent `model` kind and `/chat`: names the RAG synonyms, says it can't see them,
+      points to Ask/Marvin instead of guessing.
+- [x] Tests: registration/category, preamble content + tool gating, ask allowlist, model prompt, DB-backed overview counts.
+- [ ] Full suite green; commit; push; roll out backend (frontend untouched); re-ask both agents the RAG question.
+
 ## Review
 - Shipped v1 as designed plus `allow_writes` (from the n8n settings review). Caller-role bound: an agent never exceeds the user.
 - Kept `/api/ai/agent` byte-for-byte in behaviour by extracting its tail into `_run_agent_core`; named agents reuse it.

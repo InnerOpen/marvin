@@ -75,7 +75,7 @@ def test_agent_read_marks_system_agents_without_an_id():
 def test_system_agents_match_the_reserved_slugs_and_shapes():
     assert tuple(SYSTEM_AGENTS) == SYSTEM_AGENT_SLUGS
     assert SYSTEM_AGENTS["marvin"].tool_allowlist is None  # everything the role allows
-    assert SYSTEM_AGENTS["ask"].tool_allowlist == ("search_content",)
+    assert SYSTEM_AGENTS["ask"].tool_allowlist == ("search_content", "workspace_overview")
     assert SYSTEM_AGENTS["chat"].kind == "model"
     assert all(s.is_system for s in SYSTEM_AGENTS.values())
 
@@ -287,3 +287,41 @@ def test_view_image_describes_from_pixels_without_writing_back(monkeypatch):
     # nothing written to the asset: only the execution row is added
     added = [call.args[0] for call in session.add.call_args_list]
     assert len(added) == 1 and added[0].operation_slug == "tool:view_image" and added[0].status == "completed"
+
+
+# ── workspace preamble + overview ─────────────────────────────────────────────
+
+
+def test_workspace_overview_is_registered_read_only_and_categorised_as_a_read():
+    spec = next(t for t in list_tools() if t.name == "workspace_overview")
+    assert spec.read_only is True and spec.min_role == ROLE_VIEWER
+    assert category_of("workspace_overview", read_only=True) == "library_read"
+    assert resolve_policy(AgentSpec(slug="w", name="W"), "workspace_overview", "library_read", ROLE_VIEWER)[0] == POLICY_ALLOW
+
+
+def test_workspace_preamble_names_the_rag_and_mentions_only_bound_tools():
+    from marvin.services.ai.agents import workspace_preamble
+
+    text = workspace_preamble("Mash & Burn Co.", ["search_content", "get_entry"])
+    assert '"Mash & Burn Co." workspace' in text
+    assert "the RAG" in text and "knowledge base" in text
+    assert "search_content" in text
+    assert "workspace_overview" not in text and "find_entries" not in text
+
+    full = workspace_preamble(None, ["workspace_overview", "search_content", "find_entries"])
+    assert "this workspace of Marvin" in full
+    assert full.index("workspace_overview") < full.index("search_content") < full.index("find_entries")
+
+
+def test_ask_agent_may_use_the_overview_tool():
+    ask = SYSTEM_AGENTS["ask"]
+    assert set(ask.tool_allowlist) == {"search_content", "workspace_overview"}
+
+
+def test_model_agent_prompt_says_what_it_cannot_see_and_where_to_go():
+    from marvin.services.ai.agents import model_agent_system_prompt
+
+    text = model_agent_system_prompt("Chat")
+    assert "NO tools" in text and "the RAG" in text
+    assert "Ask agent" in text and "Marvin agent" in text
+    assert "gloomy" not in text and "gloomy" in model_agent_system_prompt("Marvin", gloomy=True)

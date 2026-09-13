@@ -791,14 +791,12 @@ class AIOperationsController(BaseUserController):
         if not model:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No model configured. Set a default model on the provider.")
 
+        from marvin.services.ai.agents import model_agent_system_prompt
+
         assistant_name, persona_prompt = self._persona()
         register = body.tone_register or spec.default_register or self._default_register()
         if spec.kind == "model":
-            system = spec.system_prompt or (
-                f"You are {spec.name if not spec.is_system else assistant_name}, a helpful assistant for this "
-                "headless-CMS workspace. "
-                "Answer conversationally and concisely. You have no tools and no access to the workspace's content here."
-            )
+            system = spec.system_prompt or model_agent_system_prompt(spec.name if not spec.is_system else assistant_name)
             system += self._register_clause(register, persona_prompt)
             return self._run_model_agent(spec, provider, model, system, body)
 
@@ -912,6 +910,12 @@ class AIOperationsController(BaseUserController):
             "Be concise."
         )
 
+    def _workspace_name(self) -> str | None:
+        from marvin.db.models.groups.groups import Groups
+
+        group = self.session.query(Groups).filter(Groups.id == self.group_id).first()
+        return getattr(group, "name", None)
+
     def _run_agent_core(
         self,
         *,
@@ -930,6 +934,7 @@ class AIOperationsController(BaseUserController):
 
         from marvin.core.config import get_app_settings
         from marvin.services.ai.agent import run_agent_loop
+        from marvin.services.ai.agents import workspace_preamble
         from marvin.services.ai.base import CompletionOptions, Message
         from marvin.services.ai.pricing import estimate_cost
 
@@ -938,6 +943,9 @@ class AIOperationsController(BaseUserController):
         # (title/status/fields/attachments) so the agent can answer immediately; fall back to the
         # bare id hint when we can't assemble one, so it can still fetch the entity itself.
         context_block = self._agent_context_block(body.entity_type, entity_id)
+        # Environment facts come first, the agent's own persona after: what "the RAG" means here and which
+        # of the bound tools answers which kind of question.
+        system = workspace_preamble(self._workspace_name(), [t.name for t in tools]) + "\n\n" + system
         user_msg = body.message
         if context_block:
             system += (
@@ -1110,14 +1118,11 @@ class AIOperationsController(BaseUserController):
         if not model:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No model configured.")
 
+        from marvin.services.ai.agents import model_agent_system_prompt
+
         _app = get_app_settings()
         assistant_name, persona_prompt = self._persona()
-        gloomy = " (if faintly gloomy)" if assistant_name == "Marvin" else ""
-        system = (
-            f"You are {assistant_name}, a helpful{gloomy} assistant for this headless-CMS workspace. "
-            "Answer conversationally and concisely. You have no tools and no access to the workspace's "
-            "content here — if the user needs answers grounded in their entries, tell them to use /ask."
-        )
+        system = model_agent_system_prompt(assistant_name, gloomy=assistant_name == "Marvin")
         if persona_prompt:
             system += f"\n\nVoice and tone: {persona_prompt}"
         messages = [Message(role="system", content=system), Message(role="user", content=body.message)]

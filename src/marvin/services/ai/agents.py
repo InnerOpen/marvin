@@ -13,16 +13,57 @@ System agents are code so every workspace has them without seeding:
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from marvin.schemas.group.agent import SYSTEM_AGENT_SLUGS
 from marvin.services.ai.operations.base import INVOCATION_SOURCES, ROLE_VIEWER
 
 ASK_SYSTEM_PROMPT = (
-    "You answer questions about this workspace using ONLY what the search_content tool returns. "
-    "Search first, then answer from the results and name the entries you drew on. If the results "
-    "don't contain the answer, say so plainly rather than guessing. Never invent content."
+    "You answer questions about this workspace using ONLY what your tools return: search_content for "
+    "content by meaning, workspace_overview for what the workspace contains overall. Search first, then "
+    "answer from the results and name the entries you drew on. If the results don't contain the answer, "
+    "say so plainly rather than guessing. Never invent content."
 )
+
+# Users call the indexed workspace content "the RAG", "the knowledge base", "the index" or "what you know".
+# Every persona run gets this preamble so no agent mistakes the vocabulary (Chat once answered a "summary of
+# the RAG" with Red/Amber/Green) and knows which tool answers which kind of question. Only tools actually
+# bound for the run are mentioned.
+CONTENT_SYNONYMS = '"the RAG", "the knowledge base", "the index", "your content" or "what you know"'
+
+
+def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) -> str:
+    names = set(tool_names)
+    where = f'the "{workspace_name}" workspace' if workspace_name else "this workspace"
+    lines = [
+        f"You are working inside {where} of Marvin, a headless CMS. Its content — entries (typed records such as "
+        "notes, projects and pages), collections, assets (images and files) and resources (links) — is indexed for "
+        f"semantic search. When the user says {CONTENT_SYNONYMS}, they mean this workspace content, never a status "
+        "colour scheme or anything outside the workspace."
+    ]
+    if "workspace_overview" in names:
+        lines.append(
+            "To say what the workspace CONTAINS overall — a summary of the RAG, what is indexed and how much — call "
+            "workspace_overview first, then drill into specifics."
+        )
+    if "search_content" in names:
+        lines.append("To find content by MEANING (a topic, a question, 'anything about X') call search_content.")
+    if "find_entries" in names:
+        lines.append("find_entries is a keyword/filter lookup: use it for exact titles, statuses or types, not for concepts.")
+    return "\n".join(lines)
+
+
+def model_agent_system_prompt(name: str, *, gloomy: bool = False) -> str:
+    """System prompt for a `model` agent (plain conversation, no tools): says what it cannot see and where to go."""
+    mood = " (if faintly gloomy)" if gloomy else ""
+    return (
+        f"You are {name}, a helpful{mood} assistant for this Marvin workspace. Answer conversationally and concisely. "
+        "You have NO tools and NO access to the workspace's content here — the entries, collections, assets and "
+        f"resources users may call {CONTENT_SYNONYMS}. If a question needs that content (what is in it, a summary "
+        "of it, anything grounded in their entries), say you cannot see it and point them to the Ask agent "
+        "(grounded answers with citations) or the Marvin agent (full tools) instead of guessing."
+    )
 
 
 @dataclass(frozen=True)
@@ -59,7 +100,7 @@ SYSTEM_AGENTS: dict[str, AgentSpec] = {
         name="Ask",
         description="Grounded answers from your content only (semantic search; no writes).",
         system_prompt=ASK_SYSTEM_PROMPT,
-        tool_allowlist=("search_content",),
+        tool_allowlist=("search_content", "workspace_overview"),
         is_system=True,
     ),
     "chat": AgentSpec(
