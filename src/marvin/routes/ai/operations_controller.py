@@ -714,18 +714,17 @@ class AIOperationsController(BaseUserController):
 
     @router.get("/agents/catalog", summary="Tool catalog for the permission matrix (categories, tools, operations)")
     def agents_catalog(self) -> dict:
-        from marvin.services.ai.agents import catalog_tools
         from marvin.services.ai.tools.categories import CATEGORIES
 
-        return {"categories": [c.__dict__ for c in CATEGORIES], "tools": catalog_tools()}
+        return {"categories": [c.__dict__ for c in CATEGORIES], "tools": self._catalog_with_mcp()}
 
     @router.get("/agents/{slug}/permissions", summary="Effective permission matrix of an agent for the caller")
     def agent_permissions(self, slug: str) -> dict:
-        from marvin.services.ai.agents import catalog_tools, permission_matrix
+        from marvin.services.ai.agents import permission_matrix
 
         spec = self._agent_or_404(slug)
         role = self._user_role()
-        return {"agent": spec.slug, "role": role, "allowWrites": spec.allow_writes, "rows": permission_matrix(spec, role, catalog_tools())}
+        return {"agent": spec.slug, "role": role, "allowWrites": spec.allow_writes, "rows": permission_matrix(spec, role, self._catalog_with_mcp())}
 
     @router.get("/agents/{slug}", response_model=AgentRead, summary="Get an agent")
     def get_agent(self, slug: str) -> AgentRead:
@@ -808,8 +807,14 @@ class AIOperationsController(BaseUserController):
         system = spec.system_prompt or self._default_agent_system_prompt(assistant_name if spec.is_system else spec.name)
         system += self._register_clause(register, persona_prompt)
         return self._run_agent_core(
-            provider=provider, model=model, system=system, body=body, entity_id=entity_id, tools=tools,
-            max_steps=max_steps, operation_slug=f"agent:{spec.slug}",
+            provider=provider,
+            model=model,
+            system=system,
+            body=body,
+            entity_id=entity_id,
+            tools=tools,
+            max_steps=max_steps,
+            operation_slug=f"agent:{spec.slug}",
         )
 
     # ── Agent helpers ──────────────────────────────────────────────────
@@ -909,6 +914,26 @@ class AIOperationsController(BaseUserController):
             "only when the reading is genuinely forked; never append a 'did you mean…' to an unambiguous request. "
             "Be concise."
         )
+
+    def _catalog_with_mcp(self) -> list[dict]:
+        """The registry catalog plus the MCP tools discovered right now, so the matrix can show and
+        override real `mcp__server__tool` names rather than a blind category row."""
+        from marvin.services.ai.agents import catalog_tools
+        from marvin.services.ai.operations.base import ROLE_VIEWER
+
+        catalog = catalog_tools()
+        for t in self._external_mcp_tools():
+            catalog.append(
+                {
+                    "name": t.name,
+                    "category": t.category,
+                    "description": t.description,
+                    "kind": "mcp",
+                    "readOnly": t.category == "mcp_read",
+                    "minRole": ROLE_VIEWER,
+                }
+            )
+        return catalog
 
     def _workspace_name(self) -> str | None:
         from marvin.db.models.groups.groups import Groups
@@ -1316,6 +1341,7 @@ class AIOperationsController(BaseUserController):
         from marvin.db.models.groups.mcp_servers import WorkspaceMcpServerModel
         from marvin.services.ai import mcp_client
         from marvin.services.ai.agent import AgentTool
+        from marvin.services.ai.tools.categories import category_of
 
         servers = self.session.query(WorkspaceMcpServerModel).filter_by(group_id=self.group_id, enabled=True).all()
         tools: list = []
@@ -1346,7 +1372,8 @@ class AIOperationsController(BaseUserController):
                         description=f"[{server.name}] {t.description}".strip(),
                         input_schema=t.input_schema or {"type": "object", "properties": {}},
                         run=_run,
-                        category="mcp",
+                        # the server's own hints place the tool: read-only → a read row, destructive → its own row
+                        category=category_of(f"mcp__{prefix}__{t.name}", read_only=t.read_only, destructive=t.destructive),
                     )
                 )
         return tools

@@ -19,11 +19,30 @@ DEFAULT_TIMEOUT = 20.0  # seconds, per call
 
 @dataclass
 class McpToolInfo:
-    """A tool advertised by an external MCP server's tools/list."""
+    """A tool advertised by an external MCP server's tools/list.
+
+    `read_only` / `destructive` come from the server's tool annotations (readOnlyHint,
+    destructiveHint); None when the server sends no annotations — callers must treat that as
+    "unknown, assume it writes".
+    """
 
     name: str
     description: str
     input_schema: dict
+    read_only: bool | None = None
+    destructive: bool | None = None
+
+
+def tool_info_from_listed(t) -> McpToolInfo:
+    """Build a McpToolInfo from an `mcp.types.Tool`, keeping the hints the server chose to send."""
+    ann = getattr(t, "annotations", None)
+    return McpToolInfo(
+        name=t.name,
+        description=t.description or "",
+        input_schema=t.inputSchema or {},
+        read_only=getattr(ann, "readOnlyHint", None) if ann else None,
+        destructive=getattr(ann, "destructiveHint", None) if ann else None,
+    )
 
 
 class McpClientError(Exception):
@@ -73,7 +92,7 @@ async def _open_session(url: str, transport: str, headers: dict | None, timeout:
 async def _alist_tools(url, transport, headers, timeout) -> list[McpToolInfo]:
     async with _open_session(url, transport, headers, timeout) as session:
         listed = await session.list_tools()
-        return [McpToolInfo(name=t.name, description=t.description or "", input_schema=t.inputSchema or {}) for t in listed.tools]
+        return [tool_info_from_listed(t) for t in listed.tools]
 
 
 async def _acall_tool(url, transport, headers, name, args, timeout) -> tuple[str, bool]:

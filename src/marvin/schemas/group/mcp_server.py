@@ -49,6 +49,8 @@ class McpServerToolInfo(_MarvinModel):
     name: str
     description: str
     input_schema: dict = {}
+    read_only: bool | None = None  # readOnlyHint, when the server sends annotations
+    destructive: bool | None = None  # destructiveHint
 
     model_config = ConfigDict(from_attributes=True)
 

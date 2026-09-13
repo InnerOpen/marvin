@@ -348,7 +348,7 @@ const builtins = agents.filter((a) => a.isSystem);
     function renderMatrix(container: HTMLElement, policy: Record<string, PolicyValue> | null | undefined, allowWrites: boolean) {
       const p = policy ?? {};
       container.innerHTML = catalog.categories
-        .filter((c) => (byCat.get(c.id) ?? []).length || c.id === "mcp")
+        .filter((c) => (byCat.get(c.id) ?? []).length || c.id.startsWith("mcp"))
         .map((c) => {
           const inherit = c.writes ? (allowWrites ? "Default (allow — writes on)" : "Default (block — read-only)") : "Default (allow)";
           const tools = (byCat.get(c.id) ?? [])
@@ -357,7 +357,10 @@ const builtins = agents.filter((a) => a.isSystem);
                 `<div class="mx-row"><div><code>${esc(t.name)}</code><span class="mx-tdesc" title="${esc(t.description)}">${esc(t.description)}</span></div>${sel(t.name, p[t.name], "Inherit")}</div>`,
             )
             .join("");
-          const note = c.id === "mcp" ? `<div class="mx-row"><span class="mx-tdesc">Tools are discovered from connected servers at run time; the group policy applies to all of them.</span></div>` : "";
+          const note =
+            c.id.startsWith("mcp") && !tools
+              ? `<div class="mx-row"><span class="mx-tdesc">No connected-server tools in this row right now; the group policy applies to any discovered at run time.</span></div>`
+              : "";
           return `<div class="mx-group"><div class="mx-head"><div><strong>${esc(c.label)}</strong> <span class="mx-desc">· ${esc(c.description)}${c.writes ? " · writes" : ""}</span></div>${sel(c.id, p[c.id], inherit)}</div>${tools}${note}</div>`;
         })
         .join("");

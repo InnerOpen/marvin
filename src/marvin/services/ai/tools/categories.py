@@ -2,7 +2,8 @@
 Tool categories — the rows of an agent's permission matrix.
 
 Every tool an agent can bind belongs to exactly one category: registry tools by name (below),
-AI operations to `ai_ops`, external MCP tools to `mcp`. A category says whether its actions write.
+AI operations to `ai_ops`, external MCP tools to `mcp_read` / `mcp` / `mcp_destructive` by the
+server's tool annotations. A category says whether its actions write.
 The matrix is data-driven from this file plus the registry, so a new tool only needs a line here.
 """
 
@@ -31,7 +32,9 @@ CATEGORIES: tuple[ToolCategory, ...] = (
     ToolCategory("agents_read", "Agents: read", False, "List the workspace's agents"),
     ToolCategory("agents_run", "Agents: delegate", True, "Run another agent on the caller's behalf"),
     ToolCategory("ai_ops", "AI operations", True, "LLM generations with write-back: summaries, tags, alt text, rewrites"),
-    ToolCategory("mcp", "External MCP tools", True, "Tools from connected MCP servers"),
+    ToolCategory("mcp_read", "External MCP: read", False, "Connected-server tools the server marks read-only (readOnlyHint)"),
+    ToolCategory("mcp", "External MCP: write", True, "Connected-server tools that write, or send no hints (assumed to write)"),
+    ToolCategory("mcp_destructive", "External MCP: destructive", True, "Connected-server tools the server marks destructive (delete, move…)"),
     ToolCategory("other_read", "Other: read", False, "Read-only tools not yet categorised"),
     ToolCategory("other_write", "Other: write", True, "Writing tools not yet categorised"),
 )
@@ -77,12 +80,21 @@ CATEGORY_BY_TOOL: dict[str, str] = {
 }
 
 
-def category_of(name: str, *, read_only: bool | None = None) -> str:
-    """Category id for a bound tool name. Unknown registry tools fall back on their read_only flag."""
+MCP_CATEGORIES = ("mcp_read", "mcp", "mcp_destructive")
+
+
+def category_of(name: str, *, read_only: bool | None = None, destructive: bool | None = None) -> str:
+    """Category id for a bound tool name. Unknown registry tools fall back on their read_only flag.
+
+    External `mcp__*` tools are placed by the server's own annotations: read-only → `mcp_read`,
+    destructive → `mcp_destructive`, anything else (including "no hints sent") → `mcp` (writes).
+    """
     if name in CATEGORY_BY_TOOL:
         return CATEGORY_BY_TOOL[name]
     if name.startswith("mcp__"):
-        return "mcp"
+        if destructive:
+            return "mcp_destructive"
+        return "mcp_read" if read_only else "mcp"
     if read_only is None:
         return "other_write"
     return "other_read" if read_only else "other_write"

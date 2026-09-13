@@ -117,7 +117,12 @@ class McpServersController(BaseUserController):
             return McpServerTestResult(
                 success=True,
                 message=f"Connected — {len(tools)} tool(s) available.",
-                tools=[McpServerToolInfo(name=t.name, description=t.description, input_schema=t.input_schema) for t in tools],
+                tools=[
+                    McpServerToolInfo(
+                        name=t.name, description=t.description, input_schema=t.input_schema, read_only=t.read_only, destructive=t.destructive
+                    )
+                    for t in tools
+                ],
             )
         except Exception as e:
             return McpServerTestResult(success=False, message=str(e), tools=[])

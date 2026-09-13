@@ -187,8 +187,37 @@ def test_every_agent_facing_registry_tool_has_a_category():
             )
 
 
+def test_category_of_places_mcp_tools_by_their_hints():
+    assert category_of("mcp__n8n__send_telegram") == "mcp"  # no hints → assume it writes
+    assert category_of("mcp__brain__read_note", read_only=True) == "mcp_read"
+    assert category_of("mcp__brain__delete_note", read_only=False, destructive=True) == "mcp_destructive"
+    assert category_of("mcp__brain__odd", read_only=True, destructive=True) == "mcp_destructive"  # destructive wins
+
+
+def test_mcp_tool_info_keeps_the_servers_annotations():
+    from types import SimpleNamespace
+
+    from marvin.services.ai.mcp_client import tool_info_from_listed
+
+    hints = SimpleNamespace(readOnlyHint=True, destructiveHint=False)
+    listed = SimpleNamespace(name="read-note", description="Read a note", inputSchema={"type": "object"}, annotations=hints)
+    info = tool_info_from_listed(listed)
+    assert (info.read_only, info.destructive) == (True, False)
+    bare = tool_info_from_listed(SimpleNamespace(name="x", description=None, inputSchema=None, annotations=None))
+    assert (bare.read_only, bare.destructive, bare.input_schema) == (None, None, {})
+
+
+def test_read_only_agent_reaches_read_only_mcp_tools_but_not_writes():
+    ro = AgentSpec(slug="w", name="W")
+    assert resolve_policy(ro, "mcp__brain__read_note", "mcp_read", ROLE_VIEWER)[0] == POLICY_ALLOW
+    assert resolve_policy(ro, "mcp__brain__create_note", "mcp", ROLE_EDITOR)[0] == POLICY_BLOCK
+    assert resolve_policy(ro, "mcp__brain__delete_note", "mcp_destructive", ROLE_EDITOR)[0] == POLICY_BLOCK
+    rw = AgentSpec(slug="w", name="W", allow_writes=True, tool_policy={"mcp_destructive": "block"})
+    assert resolve_policy(rw, "mcp__brain__create_note", "mcp", ROLE_EDITOR)[0] == POLICY_ALLOW
+    assert resolve_policy(rw, "mcp__brain__delete_note", "mcp_destructive", ROLE_EDITOR) == (POLICY_BLOCK, "category policy")
+
+
 def test_category_of_falls_back_sensibly():
-    assert category_of("mcp__n8n__send_telegram") == "mcp"
     assert category_of("future_tool", read_only=True) == "other_read"
     assert category_of("future_tool", read_only=False) == "other_write"
 
@@ -219,12 +248,20 @@ def test_resolve_policy_precedence_allowlist_then_tool_then_category():
 def test_permission_matrix_rows_cover_the_catalog_and_keep_mcp():
     rows = permission_matrix(AgentSpec(slug="w", name="W"), ROLE_VIEWER, catalog_tools())
     ids = [r["id"] for r in rows]
-    assert "entries_read" in ids and "entries_author" in ids and "ai_ops" in ids and "mcp" in ids
+    assert "entries_read" in ids and "entries_author" in ids and "ai_ops" in ids
+    assert [i for i in ids if i.startswith("mcp")] == ["mcp_read", "mcp", "mcp_destructive"]
     entries = next(r for r in rows if r["id"] == "entries_read")
     assert entries["default"] == POLICY_ALLOW and all(t["decision"] == POLICY_ALLOW for t in entries["tools"])
     author = next(r for r in rows if r["id"] == "entries_author")
     assert author["default"] == POLICY_BLOCK and {t["name"] for t in author["tools"]} == {"compose_entry", "revise_entry"}
     assert next(r for r in rows if r["id"] == "mcp")["tools"] == []
+    # discovered MCP tools handed in by the controller land in their hinted rows
+    with_mcp = catalog_tools() + [
+        {"name": "mcp__brain__read_note", "category": "mcp_read", "description": "", "kind": "mcp", "readOnly": True, "minRole": ROLE_VIEWER}
+    ]
+    rows = permission_matrix(AgentSpec(slug="w", name="W"), ROLE_VIEWER, with_mcp)
+    read_row = next(r for r in rows if r["id"] == "mcp_read")
+    assert read_row["default"] == POLICY_ALLOW and read_row["tools"][0]["decision"] == POLICY_ALLOW
 
 
 def test_schema_validates_policy_values_and_suggestions():

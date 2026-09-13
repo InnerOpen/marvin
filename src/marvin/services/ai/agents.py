@@ -247,7 +247,7 @@ def permission_matrix(spec: AgentSpec, role: int, catalog: list[dict]) -> list[d
     `catalog` items are {name, category, description, kind} (see catalog_tools). External MCP tools
     are discovered at run time, so their category appears with no tools listed.
     """
-    from marvin.services.ai.tools.categories import CATEGORIES
+    from marvin.services.ai.tools.categories import CATEGORIES, MCP_CATEGORIES
 
     by_cat: dict[str, list[dict]] = {c.id: [] for c in CATEGORIES}
     for item in catalog:
@@ -259,8 +259,8 @@ def permission_matrix(spec: AgentSpec, role: int, catalog: list[dict]) -> list[d
         for item in sorted(by_cat.get(cat.id, []), key=lambda i: i["name"]):
             decision, reason = resolve_policy(spec, item["name"], cat.id, role)
             tools.append({**item, "decision": decision, "reason": reason, "override": policy.get(item["name"])})
-        if not tools and cat.id not in ("mcp",):
-            continue  # nothing to show for an empty category (keep mcp: it is discovered at run time)
+        if not tools and cat.id not in MCP_CATEGORIES:
+            continue  # nothing to show for an empty category (keep the MCP rows: discovered at run time)
         rows.append(
             {
                 "id": cat.id,
@@ -276,7 +276,7 @@ def permission_matrix(spec: AgentSpec, role: int, catalog: list[dict]) -> list[d
 
 
 def catalog_tools() -> list[dict]:
-    """Everything an agent could bind, minus run-time MCP tools: registry tools + AI operations."""
+    """Everything an agent could bind, minus run-time MCP tools (the controller adds those): registry tools + AI operations."""
     from marvin.services.ai.operations import list_operations
     from marvin.services.ai.tools import list_tools
     from marvin.services.ai.tools.categories import category_of
