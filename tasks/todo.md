@@ -51,8 +51,14 @@ agent chat page. Ask-first stays v2 (threads).
       Allow/Block), delete; built-ins read-only. Nav entry.
 - [x] Frontend `ai-ask.astro` rework: agent picker (default `ask`), transcript + history, register toggle, citations
       for `ask` (operation path), tools-used for others, reindex kept, "manage agents" link. Nav label → "Ask".
-- [ ] Bubble: `/agents` shows effective read-only/rw from the same policy.
-- [ ] Biome/astro check + pytest green; commit; push; roll out backend + frontend; verify.
+- [x] Bubble: `/agents` shows read-only/rw (allowWrites); effective matrix lives in Ask's Tools panel.
+- [x] Image attachments: Ask keeps the attachment for the whole conversation (chip shown once); new read-only
+      `view_image` tool (library_read) describes from pixels via the vision model, persisting only the execution row —
+      read-only agents (workshop) can now answer "what is this?" without `describe-image`'s write-back.
+- [x] Biome/astro check + full pytest green; `de56ba94` pushed; CI green; backend + frontend rolled out 2026-09-13 22:45 UTC; migration + routes + pages verified.
 
 ## Review
-(at the end)
+- Matrix is data-driven (categories.py + registry flags); the caller-role cap is enforced in resolve_policy, not the UI.
+- Kept `ask` on the operation path in the chat page so citations stay exact; other agents use the run endpoint.
+- Gotchas: SDK `assets.upload` requires `{slug, name}`; Astro scoped styles need `:global()` for innerHTML-rendered matrix rows; roll out BOTH deployments.
+- Deferred: ask-first (needs threads), provider breadth adapter, extra operations (moderation, image/audio/video).

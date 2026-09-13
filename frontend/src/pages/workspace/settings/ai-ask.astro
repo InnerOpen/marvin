@@ -164,7 +164,7 @@ const agentsJson = JSON.stringify(agents);
     // ── State ──
     type Turn = { role: "user" | "assistant"; content: string };
     let history: Turn[] = [];
-    let attachment: { id: string; name: string } | null = null;
+    let attachment: { id: string; name: string; shown?: boolean } | null = null;
     const AGENT_KEY = "ask.agent";
     try {
       const saved = sessionStorage.getItem(AGENT_KEY);
@@ -271,7 +271,7 @@ const agentsJson = JSON.stringify(agents);
         const base = file.name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "attachment";
         const asset: any = await createSdkClient().assets.upload(file, { slug: `ask-${base}-${Date.now().toString(36)}`, name: file.name });
         attachment = { id: String(asset.id), name: asset.name ?? file.name };
-        attachmentName.textContent = `Attached: ${attachment.name}`;
+        attachmentName.textContent = `Attached for this conversation: ${attachment.name}`;
         attachmentEl.hidden = false;
         setStatus("Attached — the agent will see this asset.", "success");
       } catch (e) {
@@ -328,7 +328,9 @@ const agentsJson = JSON.stringify(agents);
       }
       sendBtn.disabled = true;
       setStatus("Thinking…");
-      addTurn("user", esc(message) + (attachment ? `<div class="turn-attach">📎 ${esc(attachment.name)}</div>` : ""));
+      const firstUse = attachment && !attachment.shown;
+      if (attachment) attachment.shown = true;
+      addTurn("user", esc(message) + (firstUse ? `<div class="turn-attach">📎 ${esc(attachment.name)}</div>` : ""));
       questionEl.value = "";
       const register = registerSel.value as "auto" | "professional" | "playful";
       try {
@@ -371,8 +373,7 @@ const agentsJson = JSON.stringify(agents);
         }
         addTurn("assistant", renderMarkdown(answer), meta);
         history.push({ role: "user", content: message }, { role: "assistant", content: answer });
-        setStatus("");
-        clearAttachment();
+        setStatus(attachment ? "Attachment stays with this conversation; remove it with ×." : "");
       } catch (e) {
         addTurn("assistant", `<span class="turn-error">Error: ${esc(e instanceof Error ? e.message : e)}</span>`);
         setStatus("");

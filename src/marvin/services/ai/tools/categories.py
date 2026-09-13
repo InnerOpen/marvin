@@ -62,6 +62,7 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "list_tags": "library_read",
     "list_assets": "library_read",
     "get_asset": "library_read",
+    "view_image": "library_read",  # reads pixels via a vision model; writes nothing back
     "import_asset": "assets_import",
     "list_events": "automation_read",
     "list_scheduled_tasks": "automation_read",

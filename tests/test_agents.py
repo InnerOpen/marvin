@@ -3,6 +3,7 @@
 Pure-level tests (no DB, no network) for services/ai/agents.py and schemas/group/agent.py.
 """
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -233,3 +234,56 @@ def test_schema_validates_policy_values_and_suggestions():
         AgentCreate(slug="w2", name="w", tool_policy={"links": "ask"})  # ask-first is v2
     with pytest.raises(ValidationError):
         AgentCreate(slug="w2", name="w", suggestions=[str(i) for i in range(9)])
+
+
+# ── view_image (read-only vision) ────────────────────────────────────────────
+
+
+def test_view_image_is_registered_read_only_and_categorised_as_a_read():
+    spec = next(t for t in list_tools() if t.name == "view_image")
+    assert spec.read_only is True and spec.min_role == ROLE_VIEWER
+    assert category_of("view_image", read_only=True) == "library_read"
+    # so a read-only agent may use it
+    assert resolve_policy(AgentSpec(slug="w", name="W"), "view_image", "library_read", ROLE_VIEWER)[0] == POLICY_ALLOW
+
+
+def test_view_image_describes_from_pixels_without_writing_back(monkeypatch):
+    from marvin.services.ai.tools import builtins_vision as bv
+
+    class FakeBuilder:
+        def __init__(self, *_): ...
+
+        def with_asset(self, _id):
+            return self
+
+        def with_asset_images(self, limit=1):
+            return self
+
+        def build(self):
+            asset = {"name": "unnamed.jpg", "slug": "ask-unnamed", "mime_type": "image/jpeg", "image_data": "AAAA"}
+            return SimpleNamespace(assets=[asset])
+
+    class FakeProvider:
+        provider_type = "openai"
+
+        def complete(self, messages, model, opts):
+            # the user message must be multimodal: text + an image part
+            content = messages[-1].content
+            assert isinstance(content, list) and any(getattr(part, "data", None) == "AAAA" for part in content)
+            description = "A close-up of raw selvedge denim with a copper rivet."
+            return SimpleNamespace(content=description, prompt_tokens=10, completion_tokens=12, total_tokens=22)
+
+    monkeypatch.setattr("marvin.services.ai.context.ContextBuilder", FakeBuilder)
+    monkeypatch.setattr("marvin.services.ai.entity_resolve.resolve_entity_id", lambda s, g, t, i: "5161836e-77a0-4ee7-8f3e-25f6d94117e3")
+    monkeypatch.setattr(bv, "_default_model", lambda ctx: "gpt-4o-mini", raising=False)
+    monkeypatch.setattr("marvin.services.ai.tools.builtins_agents._default_model", lambda ctx: "gpt-4o-mini")
+    session = MagicMock()
+    session.query.return_value.filter_by.return_value.first.return_value = None  # no ai_models row → can't assert incompatibility
+    ctx = SimpleNamespace(session=session, group_id="g1", user=SimpleNamespace(id="u1"), provider=FakeProvider(), logger=MagicMock())
+
+    out = json.loads(bv.view_image(ctx, {"asset": "5161836e-77a0-4ee7-8f3e-25f6d94117e3", "question": "what fabric?"}))
+    assert out["description"].startswith("A close-up")
+    assert out["asset"]["name"] == "unnamed.jpg"
+    # nothing written to the asset: only the execution row is added
+    added = [call.args[0] for call in session.add.call_args_list]
+    assert len(added) == 1 and added[0].operation_slug == "tool:view_image" and added[0].status == "completed"

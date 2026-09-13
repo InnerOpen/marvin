@@ -4,6 +4,7 @@ from . import (
     builtins_agents,  # registers list_agents / run_agent (external interop with workspace agents)  # noqa: F401
     builtins_authoring,  # registers authoring tools (compose_entry / revise_entry)  # noqa: F401
     builtins_insights,  # registers insights tools (executions/events/tasks)  # noqa: F401
+    builtins_vision,  # registers view_image (read-only look at an image asset)  # noqa: F401
 )
 from .base import (
     TOOL_REGISTRY,

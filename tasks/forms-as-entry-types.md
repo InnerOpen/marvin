@@ -35,12 +35,17 @@ and `form_rate_limits` tables are gone**; everything is `entry_types` + `entries
       the current bot gate.
 
 ## Phase 2 — Frontend: packaged schema→form renderer (MarvinRenderersCore)
-- [ ] Port the admin `SchemaForm.astro` + `schema-fields/*` into MarvinRenderersCore as a public,
-      unstyled `FormRenderer` consuming `EntryTypeSchemaDefinition.fields`; emit plain field names
-      (not `dataJson.<key>`); infer input type from field type + pattern; drop asset/resource kinds.
-- [ ] Expose the type's schema to the site (publishing API already serves entry-type schema).
-- [ ] `mashandburnco/src/pages/contact.astro`: replace hand-coded fields with `<FormRenderer>`;
-      keep the honeypot + `/api/forms/{slug}` POST + progressive-enhancement script.
+- [x] `FormRenderer.astro` in MarvinRenderersCore — unstyled, plain field names, honeypot, built-in
+      progressive-enhancement submit; text/textarea/select/number/boolean/date, infers email/tel.
+      Typecheck + `astro check` + 38 tests green. **Published: `@inneropen/marvin-renderers-core@1.1.0-next.10`.**
+- [x] Backend: publishing `GET /forms/{slug}` serves a submittable type's `formSchema` + metadata
+      (successMessage, honeypotField). Pushed (`f189cced`), image built — **needs backend rollout**.
+- [x] `mashandburnco`: added the dep; `lib/forms.ts` build-time schema fetch (MARVIN_* env, static
+      fallback); **newsletter** panel now renders via `<FormRenderer>` (schema-driven, no hand-coded
+      markup), styled back to the compact inline look via `:global`. Build green (26 pages), pushed.
+- [ ] Contact form stays bespoke for now (project prefill + labeled/dynamic subject/project selects
+      the generic renderer can't yet do). Swap it once FormRenderer learns labeled/dynamic `select`
+      options + URL prefill. THEN it's lossless.
 
 ## Phase 3 — Remove the forms tables entirely (no Forms in the DB)
 - [ ] Migrate the 2 live forms (contact, newsletter) → submittable entry types (same slugs, same

@@ -1,7 +1,7 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
+import { type Agent, type Catalog, getCatalog, listAgents } from "@/lib/api/aiAgents";
 import { getAuthToken } from "@/lib/api/client";
-import { getCatalog, listAgents, type Agent, type Catalog } from "@/lib/api/aiAgents";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -15,7 +15,9 @@ try {
   const [a, c, providers] = await Promise.all([
     listAgents(authToken),
     getCatalog(authToken),
-    createSdkClient(authToken).ai.providers.list().catch(() => [] as any[]),
+    createSdkClient(authToken)
+      .ai.providers.list()
+      .catch(() => [] as any[]),
   ]);
   agents = a;
   catalog = c;
