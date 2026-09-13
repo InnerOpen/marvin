@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.72 (2026-09-13)
+
+### Features
+
+- **ai**: Read-only view_image tool + sticky attachments in Ask
+  ([`5e83570`](https://github.com/InnerOpen/marvin/commit/5e8357096e2dbe30595f5e04f25b6e15361d12ea))
+
+
 ## v1.0.0-rc.71 (2026-09-13)
 
 ### Features
