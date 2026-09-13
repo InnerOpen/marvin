@@ -11,12 +11,30 @@ the controller, where it can reuse gating/repos.
 """
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from marvin.services.ai.base import AIProvider, CompletionOptions, Message, ToolDefinition
 
 DEFAULT_MAX_STEPS = 6
+
+# A reply that only *announces* a tool call ("give me a moment to check") ends the turn with nothing
+# done — there is no later turn in a request/response loop. Ask the model once to do it now.
+_DEFERRAL = re.compile(
+    r"\b(give me a (moment|second|minute)|one (moment|second)|hold on|bear with me|"
+    r"let me (check|look|search|find|fetch|pull|see|dig|have a look|take a look|get)|"
+    r"i(?:'ll| will| am going to| shall)( just)? (check|look|search|find|fetch|pull|see|dig|get|scrape|gather))\b",
+    re.IGNORECASE,
+)
+NUDGE = (
+    "Do it now: call the tool in this turn instead of describing what you will do. There is no later "
+    "turn — a reply that only promises to check is a failed reply."
+)
+
+
+def looks_like_deferral(text: str | None) -> bool:
+    return bool(text) and _DEFERRAL.search(text) is not None
 
 
 @dataclass
@@ -63,6 +81,7 @@ def run_agent_loop(
     by_name = {t.name: t for t in tools}
     result = AgentResult(answer="")
     convo: list[Message] = list(messages)
+    nudged = False
 
     def account(completion) -> None:
         result.prompt_tokens += completion.prompt_tokens or 0
@@ -74,6 +93,11 @@ def run_agent_loop(
         account(completion)
 
         if not completion.tool_calls:
+            if tools and not nudged and looks_like_deferral(completion.content):
+                nudged = True
+                convo.append(Message(role="assistant", content=completion.content or ""))
+                convo.append(Message(role="user", content=NUDGE))
+                continue
             result.answer = completion.content
             return result
 

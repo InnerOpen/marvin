@@ -325,3 +325,15 @@ def test_model_agent_prompt_says_what_it_cannot_see_and_where_to_go():
     assert "NO tools" in text and "the RAG" in text
     assert "Ask agent" in text and "Marvin agent" in text
     assert "gloomy" not in text and "gloomy" in model_agent_system_prompt("Marvin", gloomy=True)
+
+
+def test_workspace_preamble_lists_connected_mcp_servers_and_tells_the_agent_to_act():
+    from marvin.services.ai.agents import external_servers, workspace_preamble
+
+    names = ["search_content", "mcp__brain__read_note", "mcp__brain__search_vault", "mcp__cloudflare_mcp__docs"]
+    assert external_servers(names) == {"brain": 2, "cloudflare_mcp": 1}
+    text = workspace_preamble("W", names)
+    assert "brain (2 tools, named mcp__brain__*)" in text and "cloudflare_mcp (1 tools" in text
+    assert "Act, don't announce" in text
+    assert "Connected external sources" not in workspace_preamble("W", ["search_content"])
+    assert "Act, don't announce" not in workspace_preamble("W", [])

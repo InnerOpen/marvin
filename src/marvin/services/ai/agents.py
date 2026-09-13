@@ -33,6 +33,17 @@ ASK_SYSTEM_PROMPT = (
 CONTENT_SYNONYMS = '"the RAG", "the knowledge base", "the index", "your content" or "what you know"'
 
 
+def external_servers(tool_names: Iterable[str]) -> dict[str, int]:
+    """`{server_prefix: tool_count}` from bound `mcp__<server>__<tool>` names."""
+    counts: dict[str, int] = {}
+    for name in tool_names:
+        if name.startswith("mcp__"):
+            parts = name.split("__", 2)
+            if len(parts) == 3:
+                counts[parts[1]] = counts.get(parts[1], 0) + 1
+    return counts
+
+
 def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) -> str:
     names = set(tool_names)
     where = f'the "{workspace_name}" workspace' if workspace_name else "this workspace"
@@ -51,6 +62,18 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
         lines.append("To find content by MEANING (a topic, a question, 'anything about X') call search_content.")
     if "find_entries" in names:
         lines.append("find_entries is a keyword/filter lookup: use it for exact titles, statuses or types, not for concepts.")
+    servers = external_servers(names)
+    if servers:
+        listed = ", ".join(f"{slug} ({n} tools, named mcp__{slug}__*)" for slug, n in sorted(servers.items()))
+        lines.append(
+            f"Connected external sources (MCP servers): {listed}. When the user names one of these — "
+            "'check the brain', 'in my vault' — answer from that server's tools, not from workspace content."
+        )
+    if names:
+        lines.append(
+            "Act, don't announce: when a question needs a tool, call it in this same turn. Never reply with "
+            "'let me check' or 'give me a moment' — there is no later turn."
+        )
     return "\n".join(lines)
 
 

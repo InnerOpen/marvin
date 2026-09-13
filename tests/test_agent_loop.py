@@ -118,3 +118,45 @@ def test_agent_max_steps_forces_final_answer():
     assert result.answer == "forced final"
     assert len(result.steps) == 2  # two tool dispatches within budget
     assert provider.calls[-1][1] == "none"  # final answer requested with tools disabled
+
+
+def _echo_tool():
+    return AgentTool(name="echo", description="echo", input_schema={"type": "object"}, run=lambda a: json.dumps(a))
+
+
+def test_deferral_without_a_tool_call_is_nudged_once_then_the_tool_runs():
+    provider = ScriptedProvider(
+        [
+            _result(content="*sigh* Give me a moment to check the brain."),
+            _result(tool_calls=[ToolCall(id="c1", name="echo", arguments={"q": "today"})]),
+            _result(content="Today's entry says: rest."),
+        ]
+    )
+    res = run_agent_loop(provider, "m", [Message(role="user", content="today's brain entry?")], [_echo_tool()])
+    assert res.answer == "Today's entry says: rest."
+    assert [s.tool for s in res.steps] == ["echo"]
+    # the second call carries the deferral and the nudge, so the model sees what it did wrong
+    second_call = provider.calls[1][0]
+    assert second_call[-2].role == "assistant" and "Give me a moment" in second_call[-2].content
+    assert second_call[-1].role == "user" and "Do it now" in second_call[-1].content
+
+
+def test_deferral_is_nudged_only_once_then_taken_as_the_answer():
+    provider = ScriptedProvider([_result(content="Let me check that."), _result(content="Let me check that again.")])
+    res = run_agent_loop(provider, "m", [Message(role="user", content="?")], [_echo_tool()])
+    assert res.answer == "Let me check that again." and len(provider.calls) == 2
+
+
+def test_deferral_with_no_tools_bound_is_returned_as_is():
+    provider = ScriptedProvider([_result(content="Give me a moment.")])
+    res = run_agent_loop(provider, "m", [Message(role="user", content="?")], [])
+    assert res.answer == "Give me a moment." and len(provider.calls) == 1
+
+
+def test_plain_answer_mentioning_a_moment_in_passing_is_not_a_deferral():
+    from marvin.services.ai.agent import looks_like_deferral
+
+    assert looks_like_deferral("I'll check the vault for that.")
+    assert looks_like_deferral("*groans* Give me a second.")
+    assert not looks_like_deferral("The coat took a moment of patience and three fittings.")
+    assert not looks_like_deferral(None)

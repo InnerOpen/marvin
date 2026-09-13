@@ -52,11 +52,17 @@ try {
 }
 
 // Simplified navigation following 80% rule
+const ASK_PATH = "/workspace/settings/ai-ask";
+
 // Primary sidebar contains only daily-use features
 const navGroups = [
   {
     label: null,
-    items: [{ href: "/", label: "Dashboard", icon: "⌂" }],
+    items: [
+      { href: "/", label: "Dashboard", icon: "⌂" },
+      // Quick link to the agent chat; the page itself gates on AI being enabled.
+      { href: ASK_PATH, label: "Ask", icon: "💬" },
+    ],
   },
   {
     label: "Content",
@@ -101,7 +107,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
   // The Workspace "Settings" item lands on /workspace (dashboard) and owns the settings
   // sections, but NOT sibling content routes like /workspace/entries or /workspace/assets.
   if (itemPath === "/workspace") {
-    return currentPath === "/workspace" || currentPath.startsWith("/workspace/settings");
+    return currentPath === "/workspace" || (currentPath.startsWith("/workspace/settings") && currentPath !== ASK_PATH);
   }
   return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`);
 }
