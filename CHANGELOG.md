@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.70 (2026-09-13)
+
+### Features
+
+- **ai**: Workspace agents v1 — definable persona/model agents, run endpoint, bubble picker, MCP
+  tools
+  ([`75d4410`](https://github.com/InnerOpen/marvin/commit/75d4410f021ccf73bc66c15bb4261cd166ced0b7))
+
+
 ## v1.0.0-rc.69 (2026-09-13)
 
 ### Bug Fixes
