@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.69 (2026-09-13)
+
+### Bug Fixes
+
+- **email**: Unresolved template variables no longer mail the unresolved sentinel
+  ([`b1c775b`](https://github.com/InnerOpen/marvin/commit/b1c775b0612a8a05c259a26c089c44026b5dd376))
+
+
 ## v1.0.0-rc.68 (2026-09-12)
 
 ### Bug Fixes
