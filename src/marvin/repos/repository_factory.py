@@ -29,6 +29,7 @@ from marvin.db.models.groups import (
     ReportEntryModel,
     ReportModel,
 )
+from marvin.db.models.groups.agents import WorkspaceAgentModel
 from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
 from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
 from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
@@ -43,6 +44,7 @@ from marvin.db.models.users.password_reset import PasswordResetModel
 # Import all necessary Pydantic schemas for repository typing
 from marvin.schemas.event.event import EventNotifierOptionsRead
 from marvin.schemas.group import GroupRead
+from marvin.schemas.group.agent import AgentRead
 from marvin.schemas.group.ai_settings import WorkspaceAISettingsRead
 from marvin.schemas.group.email_event_subscription import EmailEventSubscriptionRead
 from marvin.schemas.group.event import (
@@ -266,6 +268,11 @@ class AllRepositories:
         Scoped by `group_id`.
         """
         return GroupRepositoryGeneric(self.session, PK_ID, GroupWebhooksModel, WebhookRead, group_id=self.group_id)
+
+    @cached_property
+    def agents(self) -> GroupRepositoryGeneric[AgentRead, WorkspaceAgentModel]:
+        """Workspace-defined AI agents (system agents are code, not rows), scoped by group."""
+        return GroupRepositoryGeneric(self.session, PK_ID, WorkspaceAgentModel, AgentRead, group_id=self.group_id)
 
     @cached_property
     def email_event_subscriptions(self) -> GroupRepositoryGeneric[EmailEventSubscriptionRead, EmailEventSubscriptionModel]:

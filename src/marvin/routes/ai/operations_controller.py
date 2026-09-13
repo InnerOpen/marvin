@@ -6,12 +6,14 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 
+from marvin.db.models.groups.agents import WorkspaceAgentModel
 from marvin.db.models.groups.ai_executions import AIExecutionModel
 from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
 from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
 from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.controller import controller
+from marvin.schemas.group.agent import AgentCreate, AgentRead, AgentUpdate
 from marvin.schemas.group.ai_execution import (
     AIAgentRequest,
     AIComposeEntryRequest,
@@ -669,43 +671,22 @@ class AIOperationsController(BaseUserController):
 
     @router.post("/agent", summary="Run the Marvin agent (tool-calling loop)")
     def run_agent(self, body: AIAgentRequest) -> dict:
-        """Run the server-side agent: an iterative tool-calling loop over Marvin's capabilities.
+        """Run the default agent (`marvin`): an iterative tool-calling loop over Marvin's capabilities.
 
-        v1 tools are Marvin's own read/authoring surfaces — search, browse, list types, and compose
-        a draft. The model decides which to call; the loop runs them and feeds results back until it
-        answers. Requires a tool-capable provider (OpenAI/Azure/Anthropic/Ollama). Composing still
-        creates an `inbox` draft for human review; the agent never publishes.
+        Tools are Marvin's own read/authoring surfaces — search, browse, list types, compose a draft —
+        plus AI operations and allow-listed external MCP tools. The model decides which to call; the
+        loop runs them and feeds results back until it answers. Requires a tool-capable provider.
+        Composing still creates an `inbox` draft for human review; the agent never publishes.
+        Named agents (system or workspace-defined) run through `POST /agents/{slug}/run`.
         """
-        import time
-        from datetime import UTC, datetime
-
-        from marvin.core.config import get_app_settings
-        from marvin.services.ai.agent import DEFAULT_MAX_STEPS, run_agent_loop
-        from marvin.services.ai.base import CompletionOptions, Message
-        from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
         from marvin.services.ai.operations.base import ROLE_AUTHOR
-        from marvin.services.ai.pricing import estimate_cost
 
-        # AUTHOR or higher — the agent can create/modify content.
-        if not self.user.admin:
-            role = 0
-            for m in self.user.workspace_memberships:
-                if m.group_id == self.group_id:
-                    role = WORKSPACE_ROLE_HIERARCHY.get(m.workspace_role, 0)
-                    break
-            if role < ROLE_AUTHOR:
-                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="AUTHOR role or higher required.")
-
+        # AUTHOR or higher — the default agent can create/modify content.
+        self._require_role(ROLE_AUTHOR, "AUTHOR role or higher required.")
         self._check_invocation_source(body.source, ("agent", "editor", "api", "mcp"))
         self._check_budget()
 
-        try:
-            provider = get_workspace_ai_provider(self.session, self.group_id)
-        except AIDisabledError as e:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
-        except Exception as e:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"AI provider error: {e}") from e
-
+        provider = self._agent_provider()
         model = body.model_override or self._default_model()
         if not model:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No model configured. Set a default model on the provider.")
@@ -713,13 +694,194 @@ class AIOperationsController(BaseUserController):
 
         entity_id = self._resolve_entity_id(body.entity_type, body.entity_id)
         tools = self._build_agent_tools(provider)
-
-        _app = get_app_settings()
-        configured_max_steps = int(body.max_steps or getattr(_app, "AI_AGENT_MAX_STEPS", DEFAULT_MAX_STEPS) or DEFAULT_MAX_STEPS)
-        max_steps = min(configured_max_steps, 12)
+        max_steps = self._agent_max_steps(body)
 
         assistant_name, persona_prompt = self._persona()
-        system = (
+        system = self._default_agent_system_prompt(assistant_name)
+        # Explicit per-call register wins; otherwise the workspace default; otherwise "auto".
+        system += self._register_clause(body.tone_register or self._default_register(), persona_prompt)
+        return self._run_agent_core(
+            provider=provider, model=model, system=system, body=body, entity_id=entity_id, tools=tools, max_steps=max_steps, operation_slug="agent"
+        )
+
+    # ── Agents (definable: system + workspace rows) ─────────────────────
+
+    @router.get("/agents", response_model=list[AgentRead], summary="List agents (built-in + workspace-defined)")
+    def list_agents(self) -> list[AgentRead]:
+        from marvin.services.ai.agents import list_agents as _list
+
+        return [self._agent_read(spec) for spec in _list(self.session, self.group_id)]
+
+    @router.get("/agents/{slug}", response_model=AgentRead, summary="Get an agent")
+    def get_agent(self, slug: str) -> AgentRead:
+        return self._agent_read(self._agent_or_404(slug))
+
+    @router.post("/agents", response_model=AgentRead, status_code=status.HTTP_201_CREATED, summary="Define an agent")
+    def create_agent(self, data: AgentCreate) -> AgentRead:
+        from marvin.services.ai.agents import spec_from_row
+        from marvin.services.ai.operations.base import ROLE_ADMIN
+
+        self._require_role(ROLE_ADMIN, "ADMIN role or higher required to define agents.")
+        exists = self.session.query(WorkspaceAgentModel).filter_by(group_id=self.group_id, slug=data.slug).first()
+        if exists:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"An agent with slug '{data.slug}' already exists.")
+        row = WorkspaceAgentModel(session=self.session, group_id=self.group_id, created_by=self.user.id, **data.model_dump())
+        self.session.add(row)
+        self.session.commit()
+        self.session.refresh(row)
+        return self._agent_read(spec_from_row(row))
+
+    @router.patch("/agents/{slug}", response_model=AgentRead, summary="Update an agent")
+    def update_agent(self, slug: str, data: AgentUpdate) -> AgentRead:
+        from marvin.services.ai.agents import spec_from_row
+        from marvin.services.ai.operations.base import ROLE_ADMIN
+
+        self._require_role(ROLE_ADMIN, "ADMIN role or higher required to edit agents.")
+        row = self._agent_row_or_404(slug)
+        for k, v in data.model_dump(exclude_unset=True).items():
+            setattr(row, k, v)
+        self.session.commit()
+        self.session.refresh(row)
+        return self._agent_read(spec_from_row(row))
+
+    @router.delete("/agents/{slug}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an agent")
+    def delete_agent(self, slug: str) -> None:
+        from marvin.services.ai.operations.base import ROLE_ADMIN
+
+        self._require_role(ROLE_ADMIN, "ADMIN role or higher required to delete agents.")
+        row = self._agent_row_or_404(slug)
+        self.session.delete(row)
+        self.session.commit()
+
+    @router.post("/agents/{slug}/run", summary="Run a named agent (built-in or workspace-defined)")
+    def run_named_agent(self, slug: str, body: AIAgentRequest) -> dict:
+        """Same loop as `/agent`, shaped by the agent: its prompt, model, tool allowlist and write policy.
+
+        Who may talk to it is the agent's `min_role`; what it may *do* is still bound by the caller's
+        own role (a VIEWER running `marvin` gets its read-only tools). `model` agents are a plain
+        completion — no tools, no retrieval.
+        """
+        from marvin.services.ai.agents import may_talk
+        from marvin.services.ai.operations.base import ROLE_AUTHOR
+
+        spec = self._agent_or_404(slug)
+        role = self._user_role()
+        ok, reason = may_talk(spec, role, body.source)
+        if not ok:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+        self._check_invocation_source(body.source, ("agent", "editor", "api", "mcp"))
+        self._check_budget()
+
+        provider = self._agent_provider()
+        model = body.model_override or spec.model_override or self._default_model()
+        if not model:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No model configured. Set a default model on the provider.")
+
+        assistant_name, persona_prompt = self._persona()
+        register = body.tone_register or spec.default_register or self._default_register()
+        if spec.kind == "model":
+            system = spec.system_prompt or (
+                f"You are {spec.name if not spec.is_system else assistant_name}, a helpful assistant for this "
+                "headless-CMS workspace. "
+                "Answer conversationally and concisely. You have no tools and no access to the workspace's content here."
+            )
+            system += self._register_clause(register, persona_prompt)
+            return self._run_model_agent(spec, provider, model, system, body)
+
+        self._require_tool_capable(provider, model)
+        entity_id = self._resolve_entity_id(body.entity_type, body.entity_id)
+        # Write tools bind only if the agent allows writes AND the caller could author anyway.
+        allow_writes = spec.allow_writes and role >= ROLE_AUTHOR
+        tools = self._build_agent_tools(provider, allowlist=spec.tool_allowlist, allow_writes=allow_writes)
+        max_steps = self._agent_max_steps(body)
+        system = spec.system_prompt or self._default_agent_system_prompt(assistant_name if spec.is_system else spec.name)
+        system += self._register_clause(register, persona_prompt)
+        return self._run_agent_core(
+            provider=provider, model=model, system=system, body=body, entity_id=entity_id, tools=tools,
+            max_steps=max_steps, operation_slug=f"agent:{spec.slug}",
+        )
+
+    # ── Agent helpers ──────────────────────────────────────────────────
+
+    def _require_role(self, min_role: int, detail: str) -> None:
+        if self._user_role() < min_role:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+    def _agent_provider(self):
+        from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
+
+        try:
+            return get_workspace_ai_provider(self.session, self.group_id)
+        except AIDisabledError as e:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"AI provider error: {e}") from e
+
+    def _agent_max_steps(self, body: AIAgentRequest) -> int:
+        from marvin.core.config import get_app_settings
+        from marvin.services.ai.agent import DEFAULT_MAX_STEPS
+
+        _app = get_app_settings()
+        configured = int(body.max_steps or getattr(_app, "AI_AGENT_MAX_STEPS", DEFAULT_MAX_STEPS) or DEFAULT_MAX_STEPS)
+        return min(configured, 12)
+
+    def _agent_or_404(self, slug: str):
+        from marvin.services.ai.agents import resolve_agent
+
+        spec = resolve_agent(self.session, self.group_id, slug)
+        if spec is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No agent '{slug}'.")
+        return spec
+
+    def _agent_row_or_404(self, slug: str) -> WorkspaceAgentModel:
+        from marvin.schemas.group.agent import SYSTEM_AGENT_SLUGS
+
+        slug = (slug or "").strip().lower()
+        if slug in SYSTEM_AGENT_SLUGS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"'{slug}' is a built-in agent and cannot be edited.")
+        row = self.session.query(WorkspaceAgentModel).filter_by(group_id=self.group_id, slug=slug).first()
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No agent '{slug}'.")
+        return row
+
+    @staticmethod
+    def _agent_read(spec) -> AgentRead:
+        return AgentRead(
+            id=spec.id,
+            slug=spec.slug,
+            name=spec.name,
+            description=spec.description,
+            kind=spec.kind,
+            system_prompt=spec.system_prompt,
+            model_override=spec.model_override,
+            tool_allowlist=list(spec.tool_allowlist) if spec.tool_allowlist is not None else None,
+            default_register=spec.default_register,
+            min_role=spec.min_role,
+            sources=list(spec.sources),
+            enabled=spec.enabled,
+            allow_writes=spec.allow_writes,
+            is_system=spec.is_system,
+        )
+
+    @staticmethod
+    def _restrict_tools(tools: list, allowlist, allow_writes: bool) -> list:
+        """Apply an agent's allowlist and write policy to the bound toolset.
+
+        Registry tools carry `read_only`; AI operations (LLM generations with write-back) and external
+        MCP tools count as writes, so with writes off only read-only registry tools survive.
+        """
+        from marvin.services.ai.agents import filter_tools
+        from marvin.services.ai.tools import list_tools
+
+        out = filter_tools(tools, allowlist)
+        if not allow_writes:
+            read_only = {s.name for s in list_tools() if s.read_only}
+            out = [t for t in out if t.name in read_only]
+        return out
+
+    @staticmethod
+    def _default_agent_system_prompt(assistant_name: str) -> str:
+        return (
             f"You are {assistant_name}, the assistant for this headless CMS workspace. Use the provided tools to "
             "search, browse, and (only when asked) author content. Prefer tools over guessing and ground "
             "your answer in what they return. To answer what EXISTS in the workspace — the tag vocabulary, "
@@ -737,8 +899,29 @@ class AIOperationsController(BaseUserController):
             "only when the reading is genuinely forked; never append a 'did you mean…' to an unambiguous request. "
             "Be concise."
         )
-        # Explicit per-call register wins; otherwise the workspace default; otherwise "auto".
-        system += self._register_clause(body.tone_register or self._default_register(), persona_prompt)
+
+    def _run_agent_core(
+        self,
+        *,
+        provider,
+        model,
+        system: str,
+        body: AIAgentRequest,
+        entity_id,
+        tools: list,
+        max_steps: int,
+        operation_slug: str,
+    ) -> dict:
+        """The shared tail of every persona run: context block, history, execution row, loop, bookkeeping."""
+        import time
+        from datetime import UTC, datetime
+
+        from marvin.core.config import get_app_settings
+        from marvin.services.ai.agent import run_agent_loop
+        from marvin.services.ai.base import CompletionOptions, Message
+        from marvin.services.ai.pricing import estimate_cost
+
+        _app = get_app_settings()
         # Ground the run in what the user is looking at. Prefer a pre-assembled context block
         # (title/status/fields/attachments) so the agent can answer immediately; fall back to the
         # bare id hint when we can't assemble one, so it can still fetch the entity itself.
@@ -764,7 +947,7 @@ class AIOperationsController(BaseUserController):
         execution = AIExecutionModel(
             session=self.session,
             group_id=self.group_id,
-            operation_slug="agent",
+            operation_slug=operation_slug,
             provider_type=provider.provider_type,
             model_id=model,
             status="running",
@@ -819,6 +1002,64 @@ class AIOperationsController(BaseUserController):
             "answer": result.answer,
             "steps": [{"tool": s.tool, "arguments": s.arguments, "result": s.result} for s in result.steps],
             "stoppedReason": result.stopped_reason,
+            "executionId": str(execution.id),
+            "totalTokens": result.total_tokens,
+            "estimatedCostUsd": execution.estimated_cost_usd,
+        }
+
+    def _run_model_agent(self, spec, provider, model: str, system: str, body: AIAgentRequest) -> dict:
+        """A `model` agent: plain completion with the agent's prompt and the caller's history; no tools."""
+        import time
+        from datetime import UTC, datetime
+
+        from marvin.core.config import get_app_settings
+        from marvin.services.ai.base import CompletionOptions, Message
+        from marvin.services.ai.pricing import estimate_cost
+
+        _app = get_app_settings()
+        messages = [
+            Message(role="system", content=system),
+            *self._bounded_history(body.history),
+            Message(role="user", content=body.message),
+        ]
+        log_inputs, log_outputs = self._logging_policy()
+        execution = AIExecutionModel(
+            session=self.session,
+            group_id=self.group_id,
+            operation_slug=f"agent:{spec.slug}",
+            provider_type=provider.provider_type,
+            model_id=model,
+            status="running",
+            triggered_by=self.user.id,
+            trigger_type=body.source,
+            input_json={"message": body.message} if log_inputs else None,
+        )
+        execution.started_at = datetime.now(UTC)
+        self.session.add(execution)
+        self.session.commit()
+        start = time.monotonic()
+        try:
+            opts = CompletionOptions(temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7), max_tokens=self._max_output_tokens())
+            result = provider.complete(messages, model, opts)
+        except Exception as e:
+            self._fail_execution(execution, str(e), start)
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Agent failed: {e}") from e
+        execution.status = "completed"
+        execution.completed_at = datetime.now(UTC)
+        execution.duration_ms = int((time.monotonic() - start) * 1000)
+        execution.prompt_tokens = result.prompt_tokens
+        execution.completion_tokens = result.completion_tokens
+        execution.total_tokens = result.total_tokens
+        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, result.prompt_tokens, result.completion_tokens)
+        execution.output_json = {"answer": result.content} if log_outputs else None
+        self.session.commit()
+        self.session.refresh(execution)
+        self._emit_ai_event(execution, "completed", None)
+        self._emit_budget_thresholds(execution)
+        return {
+            "answer": result.content,
+            "steps": [],
+            "stoppedReason": "final",
             "executionId": str(execution.id),
             "totalTokens": result.total_tokens,
             "estimatedCostUsd": execution.estimated_cost_usd,
@@ -939,7 +1180,7 @@ class AIOperationsController(BaseUserController):
                 detail=f"Model '{model}' is configured as not supporting tools. Choose a tool-capable model.",
             )
 
-    def _build_agent_tools(self, provider) -> list:
+    def _build_agent_tools(self, provider, allowlist=None, allow_writes: bool = True) -> list:
         """Bind the agent's in-process toolset: the core tool registry + the AI operations.
 
         Each registry ToolSpec reachable from the "agent" source and allowed for this user's role
@@ -1033,7 +1274,7 @@ class AIOperationsController(BaseUserController):
 
         # Growth plane: allowlisted tools from the workspace's enabled external MCP servers.
         tools.extend(self._external_mcp_tools())
-        return tools
+        return self._restrict_tools(tools, allowlist, allow_writes)
 
     def _external_mcp_tools(self) -> list:
         """Load allowlisted tools from the workspace's ENABLED external MCP servers as AgentTools.

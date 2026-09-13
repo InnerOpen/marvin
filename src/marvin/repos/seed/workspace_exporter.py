@@ -61,6 +61,7 @@ class WorkspaceExporter:
             "mcp_servers": self._export_mcp_servers(),
             "smtp_profiles": self._export_smtp_profiles(),
             "webhooks": self._export_webhooks(),
+            "agents": self._export_agents(),
             "incoming_webhooks": self._export_incoming_webhooks(),
             "automations": self._export_automations(),
             "scheduled_tasks": self._export_scheduled_tasks(),
@@ -85,6 +86,7 @@ class WorkspaceExporter:
             f"{len(export_data['mcp_servers'])} MCP servers, "
             f"{len(export_data['smtp_profiles'])} SMTP profiles, "
             f"{len(export_data['webhooks'])} webhooks, "
+            f"{len(export_data['agents'])} agents, "
             f"{len(export_data['incoming_webhooks'])} incoming webhooks, "
             f"{len(export_data['automations'])} automations, "
             f"{len(export_data['scheduled_tasks'])} scheduled tasks, "
@@ -706,6 +708,28 @@ class WorkspaceExporter:
                 "scheduledTime": r.scheduled_time.isoformat() if r.scheduled_time else None,
             }
             for r in self._group_rows(GroupWebhooksModel, order_col="name")
+        ]
+
+    def _export_agents(self) -> list[dict[str, Any]]:
+        """Workspace-defined AI agents (the system agents are code, not data)."""
+        from marvin.db.models.groups.agents import WorkspaceAgentModel
+
+        return [
+            {
+                "slug": r.slug,
+                "name": r.name,
+                "description": r.description,
+                "kind": r.kind,
+                "systemPrompt": r.system_prompt,
+                "modelOverride": r.model_override,
+                "toolAllowlist": r.tool_allowlist,
+                "defaultRegister": r.default_register,
+                "minRole": r.min_role,
+                "sources": r.sources,
+                "enabled": r.enabled,
+                "allowWrites": r.allow_writes,
+            }
+            for r in self._group_rows(WorkspaceAgentModel)
         ]
 
     def _export_incoming_webhooks(self) -> list[dict[str, Any]]:

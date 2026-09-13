@@ -127,6 +127,7 @@ class WorkspaceSeedLoader:
             "mcp_servers": 0,
             "smtp_profiles": 0,
             "webhooks": 0,
+            "agents": 0,
             "incoming_webhooks": 0,
             "automations": 0,
             "scheduled_tasks": 0,
@@ -252,6 +253,7 @@ class WorkspaceSeedLoader:
             results["mcp_servers"] = self._import_mcp_servers(data.get("mcp_servers", []))
             results["smtp_profiles"] = self._import_smtp_profiles(data.get("smtp_profiles", []))
             results["webhooks"] = self._import_webhooks(data.get("webhooks", []))
+            results["agents"] = self._import_agents(data.get("agents", []))
             results["incoming_webhooks"] = self._import_incoming_webhooks(data.get("incoming_webhooks", []))
             results["email_templates"] = self._import_email_templates(data.get("email_templates", []))
             results["email_subscriptions"] = self._import_email_subscriptions(data.get("email_subscriptions", []))
@@ -1113,6 +1115,42 @@ class WorkspaceSeedLoader:
                 },
             ),
         )
+
+    def _import_agents(self, rows: list[dict[str, Any]]) -> int:
+        """Upsert workspace agents by slug (system slugs are skipped — they are code)."""
+        if not self.repos.group_id or not rows:
+            return 0
+        from marvin.db.models.groups.agents import WorkspaceAgentModel
+        from marvin.schemas.group.agent import SYSTEM_AGENT_SLUGS
+
+        session = self.repos.session
+        n = 0
+        for d in rows:
+            slug = (d.get("slug") or "").strip().lower()
+            if not slug or slug in SYSTEM_AGENT_SLUGS or not d.get("name"):
+                continue
+            fields = {
+                "name": d.get("name"),
+                "description": d.get("description"),
+                "kind": d.get("kind") or "persona",
+                "system_prompt": d.get("systemPrompt"),
+                "model_override": d.get("modelOverride"),
+                "tool_allowlist": d.get("toolAllowlist"),
+                "default_register": d.get("defaultRegister"),
+                "min_role": int(d.get("minRole") or 1),
+                "sources": d.get("sources"),
+                "enabled": bool(d.get("enabled", True)),
+                "allow_writes": bool(d.get("allowWrites", False)),
+            }
+            existing = session.query(WorkspaceAgentModel).filter_by(group_id=self.repos.group_id, slug=slug).first()
+            if existing:
+                for k, v in fields.items():
+                    setattr(existing, k, v)
+            else:
+                session.add(WorkspaceAgentModel(session=session, group_id=self.repos.group_id, slug=slug, **fields))
+            n += 1
+        session.flush()
+        return n
 
     def _import_webhooks(self, rows: list[dict[str, Any]]) -> int:
         if not self.repos.group_id or not rows:

@@ -11,7 +11,7 @@
 
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { askWorkspace, runAgent, sendChat } from "@/lib/api/aiBubble";
+import { askWorkspace, listAgents, runAgent, runAgentAs, sendChat } from "@/lib/api/aiBubble";
 import { listAgentTools } from "@/lib/api/aiTools";
 import { getActiveContext } from "@/lib/marvin/context";
 import { getHistory } from "@/lib/marvin/history";
@@ -156,7 +156,11 @@ const agent: Capability = {
     // "review and suggest" works without naming the entity. Null when the page declared no
     // context or the user dismissed it — then this is a plain, unscoped ask.
     try {
-      res = await runAgent(arg, getActiveContext(), getHistory(), takeRegister());
+      const slug = getActiveAgent();
+      res =
+        slug === "marvin"
+          ? await runAgent(arg, getActiveContext(), getHistory(), takeRegister())
+          : await runAgentAs(slug, arg, getActiveContext(), getHistory(), takeRegister());
     } catch (err: any) {
       const msg = String(err?.message || err);
       // The agent needs a tool-capable provider; degrade to a helpful hint rather than snark.
@@ -289,8 +293,77 @@ const tools: Capability = {
   },
 };
 
+// ── Active agent (which named agent free text goes to) ───────────────────────
+const AGENT_KEY = "marvin.agent";
+
+export function getActiveAgent(): string {
+  try {
+    return sessionStorage.getItem(AGENT_KEY) || "marvin";
+  } catch {
+    return "marvin";
+  }
+}
+
+export function setActiveAgent(slug: string): void {
+  try {
+    if (slug === "marvin") sessionStorage.removeItem(AGENT_KEY);
+    else sessionStorage.setItem(AGENT_KEY, slug);
+  } catch {
+    /* storage unavailable — the switch lasts for this page only */
+  }
+}
+
+// ── Built-in skill: Agents (list) ────────────────────────────────────────────
+const agents: Capability = {
+  id: "agents",
+  label: "Agents",
+  hint: "List the agents you can talk to; switch with /use <slug>.",
+  commands: ["agents"],
+  noArg: true,
+  async run(): Promise<MarvinResult> {
+    const list = await listAgents();
+    const active = getActiveAgent();
+    const rows = list
+      .filter((a) => a.enabled)
+      .map((a) => {
+        const flags = [a.kind, a.allowWrites ? "" : "read-only", a.isSystem ? "built-in" : ""]
+          .filter(Boolean)
+          .join(" · ");
+        const desc = a.description ? `<br><span class="mv-muted">${esc(a.description)}</span>` : "";
+        return `<li><code>${esc(a.slug)}</code>${a.slug === active ? " <strong>(active)</strong>" : ""} — ${esc(a.name)}<span class="mv-muted"> · ${esc(flags)}</span>${desc}</li>`;
+      })
+      .join("");
+    return {
+      html: `<div class="mv-help">Agents:<ul>${rows}</ul>Switch with <code>/use &lt;slug&gt;</code>; <code>/use marvin</code> goes back to the default.</div>`,
+    };
+  },
+};
+
+// ── Built-in skill: Use (switch the active agent) ────────────────────────────
+const use: Capability = {
+  id: "use",
+  label: "Use agent",
+  hint: "Route free text to a named agent, e.g. /use workshop.",
+  commands: ["use"],
+  async run(arg: string): Promise<MarvinResult> {
+    const slug = arg.trim().toLowerCase();
+    const list = await listAgents();
+    const hit = list.find((a) => a.slug === slug && a.enabled);
+    if (!hit) {
+      return {
+        html: `<div class="mv-answer">No agent called <code>${esc(slug)}</code>. <code>/agents</code> lists them.</div>`,
+      };
+    }
+    setActiveAgent(slug);
+    const mode = hit.allowWrites ? "" : ", read-only";
+    return {
+      html: `<div class="mv-answer">Talking to <strong>${esc(hit.name)}</strong> (<code>${esc(slug)}</code>${mode}). Free text goes there until <code>/use marvin</code>.</div>`,
+    };
+  },
+};
+
 // ── Registry ─────────────────────────────────────────────────────────────────
-export const CAPABILITIES: Capability[] = [agent, ask, chat, tools];
+export const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use];
 
 /** Register a new skill at runtime (e.g. from a plugin bundle). */
 export function registerCapability(cap: Capability): void {

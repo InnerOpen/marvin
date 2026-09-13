@@ -36,3 +36,62 @@ export async function runAgent(
     ...(history?.length ? { history } : {}),
   });
 }
+
+// ── Named agents (system + workspace-defined) ────────────────────────────────
+// Not in the SDK yet; same-origin fetch through the proxy (cookie → Bearer server-side).
+
+import { getApiBaseUrl } from "./config";
+
+export interface AgentSummary {
+  slug: string;
+  name: string;
+  kind: "persona" | "model";
+  description?: string | null;
+  isSystem: boolean;
+  enabled: boolean;
+  allowWrites: boolean;
+}
+
+async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${getApiBaseUrl()}${path}`, {
+    credentials: "include",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    ...init,
+  });
+  if (!res.ok) {
+    let detail: unknown = res.statusText;
+    try {
+      detail = (await res.json())?.detail ?? detail;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+  }
+  return res.json() as Promise<T>;
+}
+
+export function listAgents() {
+  return api<AgentSummary[]>("/api/ai/agents");
+}
+
+/** Run a named agent — same shape as runAgent, routed to `/api/ai/agents/{slug}/run`. */
+export function runAgentAs(
+  slug: string,
+  message: string,
+  context?: { entityType?: string; entityId?: string } | null,
+  history?: { role: "user" | "assistant"; content: string }[],
+  register?: "auto" | "professional" | "playful",
+) {
+  return api<any>(`/api/ai/agents/${encodeURIComponent(slug)}/run`, {
+    method: "POST",
+    body: JSON.stringify({
+      message,
+      source: "editor",
+      ...(register ? { register } : {}),
+      ...(context?.entityType && context.entityId
+        ? { entityType: context.entityType, entityId: context.entityId }
+        : {}),
+      ...(history?.length ? { history } : {}),
+    }),
+  });
+}
