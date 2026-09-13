@@ -97,7 +97,9 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
         const duration = Date.now() - startTime;
         const context = typeof window === "undefined" ? "SSR" : "Client";
         const statusEmoji = response.ok ? "✅" : "❌";
-        console.debug(`[${context}] ${statusEmoji} ${init.method || "GET"} ${path} → ${response.status} (${duration}ms)`);
+        console.debug(
+          `[${context}] ${statusEmoji} ${init.method || "GET"} ${path} → ${response.status} (${duration}ms)`,
+        );
       }
 
       // Handle 401 Unauthorized - redirect to login
@@ -163,6 +165,10 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
         throw error;
       }
 
+      // 204 / empty bodies (DELETE) have nothing to parse.
+      if (response.status === 204 || response.headers.get("content-length") === "0") {
+        return undefined as T;
+      }
       const data = (await response.json()) as T;
       return data;
     } catch (error) {

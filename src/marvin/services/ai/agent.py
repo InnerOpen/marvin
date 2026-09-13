@@ -28,6 +28,7 @@ class AgentTool:
     description: str
     input_schema: dict
     run: Callable[[dict], str]
+    category: str = ""  # permission-matrix row, see tools/categories.py
 
 
 @dataclass

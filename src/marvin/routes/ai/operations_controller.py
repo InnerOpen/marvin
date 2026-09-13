@@ -712,6 +712,21 @@ class AIOperationsController(BaseUserController):
 
         return [self._agent_read(spec) for spec in _list(self.session, self.group_id)]
 
+    @router.get("/agents/catalog", summary="Tool catalog for the permission matrix (categories, tools, operations)")
+    def agents_catalog(self) -> dict:
+        from marvin.services.ai.agents import catalog_tools
+        from marvin.services.ai.tools.categories import CATEGORIES
+
+        return {"categories": [c.__dict__ for c in CATEGORIES], "tools": catalog_tools()}
+
+    @router.get("/agents/{slug}/permissions", summary="Effective permission matrix of an agent for the caller")
+    def agent_permissions(self, slug: str) -> dict:
+        from marvin.services.ai.agents import catalog_tools, permission_matrix
+
+        spec = self._agent_or_404(slug)
+        role = self._user_role()
+        return {"agent": spec.slug, "role": role, "allowWrites": spec.allow_writes, "rows": permission_matrix(spec, role, catalog_tools())}
+
     @router.get("/agents/{slug}", response_model=AgentRead, summary="Get an agent")
     def get_agent(self, slug: str) -> AgentRead:
         return self._agent_read(self._agent_or_404(slug))
@@ -762,7 +777,6 @@ class AIOperationsController(BaseUserController):
         completion — no tools, no retrieval.
         """
         from marvin.services.ai.agents import may_talk
-        from marvin.services.ai.operations.base import ROLE_AUTHOR
 
         spec = self._agent_or_404(slug)
         role = self._user_role()
@@ -790,9 +804,8 @@ class AIOperationsController(BaseUserController):
 
         self._require_tool_capable(provider, model)
         entity_id = self._resolve_entity_id(body.entity_type, body.entity_id)
-        # Write tools bind only if the agent allows writes AND the caller could author anyway.
-        allow_writes = spec.allow_writes and role >= ROLE_AUTHOR
-        tools = self._build_agent_tools(provider, allowlist=spec.tool_allowlist, allow_writes=allow_writes)
+        # The agent's matrix decides per tool; a write still needs the caller to be AUTHOR+.
+        tools = self._build_agent_tools(provider, agent=spec, role=role)
         max_steps = self._agent_max_steps(body)
         system = spec.system_prompt or self._default_agent_system_prompt(assistant_name if spec.is_system else spec.name)
         system += self._register_clause(register, persona_prompt)
@@ -860,24 +873,23 @@ class AIOperationsController(BaseUserController):
             sources=list(spec.sources),
             enabled=spec.enabled,
             allow_writes=spec.allow_writes,
+            tool_policy=dict(spec.tool_policy) if spec.tool_policy else None,
+            icon=spec.icon,
+            suggestions=list(spec.suggestions) if spec.suggestions else None,
             is_system=spec.is_system,
         )
 
     @staticmethod
-    def _restrict_tools(tools: list, allowlist, allow_writes: bool) -> list:
-        """Apply an agent's allowlist and write policy to the bound toolset.
+    def _restrict_tools(tools: list, agent, role: int) -> list:
+        """Apply an agent's allowlist, permission matrix and write policy to the bound toolset.
 
-        Registry tools carry `read_only`; AI operations (LLM generations with write-back) and external
-        MCP tools count as writes, so with writes off only read-only registry tools survive.
+        Every bound tool carries a category (registry tools by name, AI operations `ai_ops`,
+        external MCP `mcp`); `resolve_policy` decides per tool and never lets a write through to a
+        caller below AUTHOR, whatever the matrix says.
         """
-        from marvin.services.ai.agents import filter_tools
-        from marvin.services.ai.tools import list_tools
+        from marvin.services.ai.agents import POLICY_ALLOW, resolve_policy
 
-        out = filter_tools(tools, allowlist)
-        if not allow_writes:
-            read_only = {s.name for s in list_tools() if s.read_only}
-            out = [t for t in out if t.name in read_only]
-        return out
+        return [t for t in tools if resolve_policy(agent, t.name, t.category or "other_write", role)[0] == POLICY_ALLOW]
 
     @staticmethod
     def _default_agent_system_prompt(assistant_name: str) -> str:
@@ -1180,7 +1192,7 @@ class AIOperationsController(BaseUserController):
                 detail=f"Model '{model}' is configured as not supporting tools. Choose a tool-capable model.",
             )
 
-    def _build_agent_tools(self, provider, allowlist=None, allow_writes: bool = True) -> list:
+    def _build_agent_tools(self, provider, agent=None, role: int | None = None) -> list:
         """Bind the agent's in-process toolset: the core tool registry + the AI operations.
 
         Each registry ToolSpec reachable from the "agent" source and allowed for this user's role
@@ -1195,6 +1207,7 @@ class AIOperationsController(BaseUserController):
 
         from marvin.services.ai.agent import AgentTool
         from marvin.services.ai.tools import ToolContext, ToolSpec, list_tools
+        from marvin.services.ai.tools.categories import category_of
 
         ctx = ToolContext(
             session=self.session,
@@ -1214,6 +1227,7 @@ class AIOperationsController(BaseUserController):
                 description=spec.description,
                 input_schema=spec.input_schema,
                 run=_bind(spec),
+                category=category_of(spec.name, read_only=spec.read_only),
             )
             for spec in list_tools()
             if "agent" in spec.sources and role >= spec.min_role
@@ -1269,12 +1283,15 @@ class AIOperationsController(BaseUserController):
                         },
                     },
                     run=_make_op_run(op.slug),
+                    category="ai_ops",
                 )
             )
 
         # Growth plane: allowlisted tools from the workspace's enabled external MCP servers.
         tools.extend(self._external_mcp_tools())
-        return self._restrict_tools(tools, allowlist, allow_writes)
+        if agent is None:
+            return tools
+        return self._restrict_tools(tools, agent, role if role is not None else self._user_role())
 
     def _external_mcp_tools(self) -> list:
         """Load allowlisted tools from the workspace's ENABLED external MCP servers as AgentTools.
@@ -1324,6 +1341,7 @@ class AIOperationsController(BaseUserController):
                         description=f"[{server.name}] {t.description}".strip(),
                         input_schema=t.input_schema or {"type": "object", "properties": {}},
                         run=_run,
+                        category="mcp",
                     )
                 )
         return tools

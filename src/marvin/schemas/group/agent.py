@@ -9,6 +9,7 @@ from marvin.schemas._marvin import _MarvinModel
 from marvin.services.ai.operations.base import INVOCATION_SOURCES
 
 AgentKind = Literal["persona", "model"]
+PolicyValue = Literal["allow", "block"]
 REGISTERS = ("auto", "professional", "playful")
 # Built-in agents are code, not rows; a user-defined agent may not shadow them.
 SYSTEM_AGENT_SLUGS = ("marvin", "ask", "chat")
@@ -50,6 +51,10 @@ class AgentBase(_MarvinModel):
     # Bind non-read-only tools (authoring, links, AI ops, external MCP)? Off by default; the caller
     # still needs AUTHOR+ for them to actually bind.
     allow_writes: bool = False
+    # Permission matrix overrides keyed by category id or tool name.
+    tool_policy: dict[str, PolicyValue] | None = None
+    icon: str | None = Field(default=None, max_length=16)
+    suggestions: list[str] | None = Field(default=None, max_length=8)
 
     @field_validator("default_register")
     @classmethod
@@ -93,6 +98,9 @@ class AgentUpdate(_MarvinModel):
     sources: list[str] | None = None
     enabled: bool | None = None
     allow_writes: bool | None = None
+    tool_policy: dict[str, PolicyValue] | None = None
+    icon: str | None = Field(default=None, max_length=16)
+    suggestions: list[str] | None = Field(default=None, max_length=8)
 
     @field_validator("default_register")
     @classmethod

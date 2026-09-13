@@ -728,6 +728,9 @@ class WorkspaceExporter:
                 "sources": r.sources,
                 "enabled": r.enabled,
                 "allowWrites": r.allow_writes,
+                "toolPolicy": r.tool_policy,
+                "icon": r.icon,
+                "suggestions": r.suggestions,
             }
             for r in self._group_rows(WorkspaceAgentModel)
         ]

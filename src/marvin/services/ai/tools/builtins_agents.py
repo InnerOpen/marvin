@@ -13,7 +13,7 @@ import json
 import time
 from datetime import UTC, datetime
 
-from marvin.services.ai.operations.base import ROLE_AUTHOR, ROLE_VIEWER
+from marvin.services.ai.operations.base import ROLE_VIEWER
 
 from .base import ToolContext, register_tool
 
@@ -100,7 +100,7 @@ def run_agent(ctx: ToolContext, args: dict) -> str:
     from marvin.core.config import get_app_settings
     from marvin.db.models.groups.ai_executions import AIExecutionModel
     from marvin.services.ai.agent import AgentTool, run_agent_loop
-    from marvin.services.ai.agents import filter_tools, may_talk, resolve_agent
+    from marvin.services.ai.agents import may_talk, resolve_agent
     from marvin.services.ai.base import CompletionOptions, Message
     from marvin.services.ai.pricing import estimate_cost
     from marvin.services.ai.tools import list_tools
@@ -137,15 +137,18 @@ def run_agent(ctx: ToolContext, args: dict) -> str:
 
     tools: list = []
     if spec.kind == "persona":
-        bound = [
-            AgentTool(name=s.name, description=s.description, input_schema=s.input_schema, run=(lambda a, s=s: s.handler(ctx, a)))
-            for s in list_tools()
-            if "agent" in s.sources
-            and role >= s.min_role
-            and s.name not in ("run_agent", "list_agents")
-            and (s.read_only or (spec.allow_writes and role >= ROLE_AUTHOR))
-        ]
-        tools = filter_tools(bound, spec.tool_allowlist)
+        from marvin.services.ai.agents import POLICY_ALLOW, resolve_policy
+        from marvin.services.ai.tools.categories import category_of
+
+        for s in list_tools():
+            if "agent" not in s.sources or role < s.min_role or s.name in ("run_agent", "list_agents"):
+                continue
+            cat = category_of(s.name, read_only=s.read_only)
+            if resolve_policy(spec, s.name, cat, role)[0] != POLICY_ALLOW:
+                continue
+            tools.append(
+                AgentTool(name=s.name, description=s.description, input_schema=s.input_schema, run=(lambda a, s=s: s.handler(ctx, a)), category=cat)
+            )
 
     _app = get_app_settings()
     opts = CompletionOptions(temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7), max_tokens=None)

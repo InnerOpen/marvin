@@ -45,6 +45,10 @@ class WorkspaceAgentModel(SqlAlchemyBase, BaseMixins):
     # Whether non-read-only tools (authoring, links, AI ops, external MCP) may be bound; the caller still
     # needs AUTHOR+ for them to actually bind. Default off: a new agent is read-only until you say otherwise.
     allow_writes: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Permission matrix overrides: {category_id | tool_name: "allow" | "block"}; None = defaults only.
+    tool_policy: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    icon: Mapped[str | None] = mapped_column(String(16), nullable=True)  # an emoji, for pickers
+    suggestions: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)  # starter prompts shown in chat
     created_by: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
 
     @auto_init()

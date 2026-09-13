@@ -156,3 +156,80 @@ def test_write_policy_defaults_off_for_user_agents_and_on_for_marvin():
     assert SYSTEM_AGENTS["ask"].allow_writes is False
     assert spec_from_row(_row(allow_writes=True)).allow_writes is True
     assert spec_from_row(_row()).allow_writes is False  # row without the attr → off
+
+
+# ── Permission matrix ────────────────────────────────────────────────────────
+
+from marvin.services.ai.agents import (  # noqa: E402 — appended section
+    POLICY_ALLOW,
+    POLICY_BLOCK,
+    catalog_tools,
+    permission_matrix,
+    resolve_policy,
+)
+from marvin.services.ai.tools import list_tools  # noqa: E402
+from marvin.services.ai.tools.categories import CATEGORY_BY_ID, CATEGORY_BY_TOOL, category_of  # noqa: E402
+
+
+def test_every_agent_facing_registry_tool_has_a_category():
+    uncategorised = [
+        t.name for t in list_tools() if ("agent" in t.sources or t.name in ("list_agents", "run_agent")) and t.name not in CATEGORY_BY_TOOL
+    ]
+    assert uncategorised == [], f"add these to CATEGORY_BY_TOOL: {uncategorised}"
+    # and the mapping only names known categories, with read/write agreeing with the registry flag
+    for t in list_tools():
+        cat = CATEGORY_BY_TOOL.get(t.name)
+        if cat:
+            assert cat in CATEGORY_BY_ID
+            assert CATEGORY_BY_ID[cat].writes == (not t.read_only), (
+                f"{t.name}: category writes={CATEGORY_BY_ID[cat].writes} vs read_only={t.read_only}"
+            )
+
+
+def test_category_of_falls_back_sensibly():
+    assert category_of("mcp__n8n__send_telegram") == "mcp"
+    assert category_of("future_tool", read_only=True) == "other_read"
+    assert category_of("future_tool", read_only=False) == "other_write"
+
+
+def test_resolve_policy_reads_allow_and_writes_follow_allow_writes():
+    ro = AgentSpec(slug="w", name="W")  # allow_writes False
+    assert resolve_policy(ro, "search_content", "entries_read", ROLE_VIEWER)[0] == POLICY_ALLOW
+    decision, why = resolve_policy(ro, "compose_entry", "entries_author", ROLE_EDITOR)
+    assert decision == POLICY_BLOCK and "read-only" in why
+    rw = AgentSpec(slug="w", name="W", allow_writes=True)
+    assert resolve_policy(rw, "compose_entry", "entries_author", ROLE_AUTHOR)[0] == POLICY_ALLOW
+
+
+def test_resolve_policy_never_lets_a_write_through_below_author():
+    rw = AgentSpec(slug="w", name="W", allow_writes=True, tool_policy={"entries_author": "allow", "compose_entry": "allow"})
+    decision, why = resolve_policy(rw, "compose_entry", "entries_author", ROLE_VIEWER)
+    assert decision == POLICY_BLOCK and "AUTHOR" in why
+
+
+def test_resolve_policy_precedence_allowlist_then_tool_then_category():
+    spec = AgentSpec(slug="w", name="W", allow_writes=True, tool_policy={"links": "block", "attach_tag": "allow"})
+    assert resolve_policy(spec, "attach_tag", "links", ROLE_EDITOR) == (POLICY_ALLOW, "tool policy")
+    assert resolve_policy(spec, "attach_asset", "links", ROLE_EDITOR) == (POLICY_BLOCK, "category policy")
+    listed = AgentSpec(slug="w", name="W", tool_allowlist=("get_entry",))
+    assert resolve_policy(listed, "search_content", "entries_read", ROLE_EDITOR)[1] == "not in the agent's allowlist"
+
+
+def test_permission_matrix_rows_cover_the_catalog_and_keep_mcp():
+    rows = permission_matrix(AgentSpec(slug="w", name="W"), ROLE_VIEWER, catalog_tools())
+    ids = [r["id"] for r in rows]
+    assert "entries_read" in ids and "entries_author" in ids and "ai_ops" in ids and "mcp" in ids
+    entries = next(r for r in rows if r["id"] == "entries_read")
+    assert entries["default"] == POLICY_ALLOW and all(t["decision"] == POLICY_ALLOW for t in entries["tools"])
+    author = next(r for r in rows if r["id"] == "entries_author")
+    assert author["default"] == POLICY_BLOCK and {t["name"] for t in author["tools"]} == {"compose_entry", "revise_entry"}
+    assert next(r for r in rows if r["id"] == "mcp")["tools"] == []
+
+
+def test_schema_validates_policy_values_and_suggestions():
+    ok = AgentCreate(slug="w2", name="w", tool_policy={"links": "block"}, icon="🧵", suggestions=["What's on the bench?"])
+    assert ok.tool_policy == {"links": "block"} and ok.suggestions == ["What's on the bench?"]
+    with pytest.raises(ValidationError):
+        AgentCreate(slug="w2", name="w", tool_policy={"links": "ask"})  # ask-first is v2
+    with pytest.raises(ValidationError):
+        AgentCreate(slug="w2", name="w", suggestions=[str(i) for i in range(9)])

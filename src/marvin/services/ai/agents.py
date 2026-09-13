@@ -39,6 +39,9 @@ class AgentSpec:
     sources: tuple[str, ...] = INVOCATION_SOURCES
     enabled: bool = True
     allow_writes: bool = False  # bind non-read-only tools? (caller still needs AUTHOR+)
+    tool_policy: dict | None = None  # {category_id | tool_name: allow|block} overrides
+    icon: str | None = None
+    suggestions: tuple[str, ...] | None = None
     is_system: bool = False
     id: str | None = None
 
@@ -87,6 +90,9 @@ def spec_from_row(row) -> AgentSpec:
         sources=tuple(srcs) if srcs else INVOCATION_SOURCES,
         enabled=bool(row.enabled),
         allow_writes=bool(getattr(row, "allow_writes", False)),
+        tool_policy=dict(getattr(row, "tool_policy", None) or {}) or None,
+        icon=getattr(row, "icon", None),
+        suggestions=tuple(getattr(row, "suggestions", None) or ()) or None,
         is_system=False,
         id=str(row.id),
     )
@@ -127,3 +133,112 @@ def may_talk(spec: AgentSpec, role: int, source: str) -> tuple[bool, str]:
     if source not in spec.sources:
         return False, f"agent '{spec.slug}' is not callable from source '{source}'"
     return True, ""
+
+
+# ── Permission matrix ────────────────────────────────────────────────────────
+
+POLICY_ALLOW = "allow"
+POLICY_BLOCK = "block"
+
+
+def default_policy(spec: AgentSpec, category_id: str) -> str:
+    """What a category does when the matrix says nothing: reads allow, writes follow allow_writes."""
+    from marvin.services.ai.tools.categories import category_writes
+
+    if not category_writes(category_id):
+        return POLICY_ALLOW
+    return POLICY_ALLOW if spec.allow_writes else POLICY_BLOCK
+
+
+def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int) -> tuple[str, str]:
+    """Decide allow|block for one tool and say why.
+
+    Order: the hard allowlist, then a tool-level entry, then a category-level entry, then the
+    category default. A write is never allowed to a caller below AUTHOR — an agent cannot do more
+    than the user it works for, whatever the matrix says.
+    """
+    from marvin.services.ai.operations.base import ROLE_AUTHOR
+    from marvin.services.ai.tools.categories import category_writes
+
+    if spec.tool_allowlist is not None and tool_name not in spec.tool_allowlist:
+        return POLICY_BLOCK, "not in the agent's allowlist"
+    policy = spec.tool_policy or {}
+    if tool_name in policy:
+        decision, reason = policy[tool_name], "tool policy"
+    elif category_id in policy:
+        decision, reason = policy[category_id], "category policy"
+    else:
+        decision = default_policy(spec, category_id)
+        reason = "category default" if category_writes(category_id) else "read access"
+        if category_writes(category_id) and not spec.allow_writes:
+            reason = "agent is read-only"
+    if decision == POLICY_ALLOW and category_writes(category_id) and role < ROLE_AUTHOR:
+        return POLICY_BLOCK, "caller role is below AUTHOR"
+    return decision, reason
+
+
+def permission_matrix(spec: AgentSpec, role: int, catalog: list[dict]) -> list[dict]:
+    """Rows for the UI: every category with its default and each known tool's effective decision.
+
+    `catalog` items are {name, category, description, kind} (see catalog_tools). External MCP tools
+    are discovered at run time, so their category appears with no tools listed.
+    """
+    from marvin.services.ai.tools.categories import CATEGORIES
+
+    by_cat: dict[str, list[dict]] = {c.id: [] for c in CATEGORIES}
+    for item in catalog:
+        by_cat.setdefault(item["category"], []).append(item)
+    policy = spec.tool_policy or {}
+    rows = []
+    for cat in CATEGORIES:
+        tools = []
+        for item in sorted(by_cat.get(cat.id, []), key=lambda i: i["name"]):
+            decision, reason = resolve_policy(spec, item["name"], cat.id, role)
+            tools.append({**item, "decision": decision, "reason": reason, "override": policy.get(item["name"])})
+        if not tools and cat.id not in ("mcp",):
+            continue  # nothing to show for an empty category (keep mcp: it is discovered at run time)
+        rows.append(
+            {
+                "id": cat.id,
+                "label": cat.label,
+                "writes": cat.writes,
+                "description": cat.description,
+                "default": policy.get(cat.id) or default_policy(spec, cat.id),
+                "override": policy.get(cat.id),
+                "tools": tools,
+            }
+        )
+    return rows
+
+
+def catalog_tools() -> list[dict]:
+    """Everything an agent could bind, minus run-time MCP tools: registry tools + AI operations."""
+    from marvin.services.ai.operations import list_operations
+    from marvin.services.ai.tools import list_tools
+    from marvin.services.ai.tools.categories import category_of
+
+    out = [
+        {
+            "name": t.name,
+            "category": category_of(t.name, read_only=t.read_only),
+            "description": t.description,
+            "kind": "tool",
+            "readOnly": t.read_only,
+            "minRole": t.min_role,
+        }
+        for t in list_tools()
+        if "agent" in t.sources or t.name in ("list_agents", "run_agent")
+    ]
+    out += [
+        {
+            "name": op.slug.replace("-", "_"),
+            "category": "ai_ops",
+            "description": op.description,
+            "kind": "operation",
+            "readOnly": False,
+            "minRole": op.min_role,
+        }
+        for op in list_operations()
+        if "agent" in op.invocation_sources
+    ]
+    return out

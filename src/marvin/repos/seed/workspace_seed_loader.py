@@ -1141,6 +1141,9 @@ class WorkspaceSeedLoader:
                 "sources": d.get("sources"),
                 "enabled": bool(d.get("enabled", True)),
                 "allow_writes": bool(d.get("allowWrites", False)),
+                "tool_policy": d.get("toolPolicy"),
+                "icon": d.get("icon"),
+                "suggestions": d.get("suggestions"),
             }
             existing = session.query(WorkspaceAgentModel).filter_by(group_id=self.repos.group_id, slug=slug).first()
             if existing:

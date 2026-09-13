@@ -1,5 +1,6 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
+import { type Agent, listAgents } from "@/lib/api/aiAgents";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -8,6 +9,7 @@ const authed = !!authToken;
 
 let aiEnabled = false;
 let settingsError: string | null = null;
+let agents: Agent[] = [];
 
 // Gate the surface on AI being enabled AND valid auth (see ai-frontend-gating).
 if (authed) {
@@ -18,22 +20,33 @@ if (authed) {
     settingsError = e instanceof Error ? e.message : String(e);
     console.error("[ai-ask] Error loading AI settings:", e);
   }
+  try {
+    agents = (await listAgents(authToken)).filter((a) => a.enabled);
+  } catch (e) {
+    console.error("[ai-ask] Error loading agents:", e);
+  }
 }
+const agentsJson = JSON.stringify(agents);
 ---
 
-<AppLayout title="Ask Workspace" eyebrow="Settings">
+<AppLayout title="Ask" eyebrow="Settings">
   <div class="page-header">
     <div class="breadcrumb">
       <a href="/workspace/settings?tab=ai">AI</a>
       <span>›</span>
-      <span>Ask Workspace</span>
+      <span>Ask</span>
     </div>
-    <h2>Ask Workspace</h2>
-    <p>Ask a question and get an answer grounded in your workspace content, with citations</p>
+    <div class="page-header-row">
+      <div>
+        <h2>Ask</h2>
+        <p>Talk to an agent. <strong>Ask</strong> answers from your content with citations; the others do what they're defined to do.</p>
+      </div>
+      <a href="/workspace/settings/ai-agents" class="button secondary small">Manage agents</a>
+    </div>
   </div>
 
   {!authed ? (
-    <div class="alert alert-error"><strong>Authentication required.</strong> Sign in to use workspace Q&A.</div>
+    <div class="alert alert-error"><strong>Authentication required.</strong> Sign in to use Ask.</div>
   ) : !aiEnabled ? (
     <div class="alert alert-info">
       AI is currently disabled for this workspace.
@@ -42,32 +55,65 @@ if (authed) {
     </div>
   ) : (
   <>
-    <div class="ask-card">
-      <label class="field-label" for="question">Your question</label>
-      <textarea id="question" class="question-input" rows="3"
-        placeholder="e.g. What suppliers do we use for packaging?"></textarea>
-      <div class="ask-actions">
-        <button id="ask-btn" class="button">Ask</button>
-        <span id="ask-status" class="status"></span>
+    <div class="chat" data-agents={agentsJson}>
+      <!-- Toolbar: agent picker, tone, tools panel -->
+      <div class="toolbar">
+        <label class="tb-field">
+          <span class="tb-label">Agent</span>
+          <select id="agent" class="input">
+            {agents.map((a) => (
+              <option value={a.slug} selected={a.slug === "ask"}>
+                {(a.icon ? a.icon + " " : "") + a.name}{a.allowWrites ? "" : " · read-only"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label class="tb-field">
+          <span class="tb-label">Tone</span>
+          <select id="register" class="input">
+            <option value="auto">Auto</option>
+            <option value="professional">Professional</option>
+            <option value="playful">Playful</option>
+          </select>
+        </label>
+        <div class="tb-actions">
+          <button id="tools-btn" class="button secondary small" type="button" aria-expanded="false">Tools</button>
+          <button id="new-btn" class="button secondary small" type="button">New conversation</button>
+        </div>
       </div>
-    </div>
+      <p id="agent-desc" class="agent-desc"></p>
 
-    <div id="answer-panel" class="answer-panel" style="display:none">
-      <div class="answer-head">
-        <span class="answer-eyebrow">Answer</span>
-        <span id="answer-meta" class="answer-meta"></span>
+      <div id="tools-panel" class="tools-panel" hidden></div>
+
+      <div id="suggestions" class="suggestions" hidden></div>
+
+      <div id="transcript" class="transcript" aria-live="polite">
+        <div class="transcript-empty" id="transcript-empty">Ask something to start. Cmd/Ctrl+Enter sends.</div>
       </div>
-      <div id="answer-body" class="answer-body"></div>
-      <div id="sources-block" class="sources-block" style="display:none">
-        <div class="sources-label">Sources</div>
-        <ol id="sources-list" class="sources-list"></ol>
+
+      <!-- Composer -->
+      <div class="composer">
+        <div id="attachment" class="attachment" hidden>
+          <span id="attachment-name"></span>
+          <button id="attachment-remove" class="link-btn" type="button" title="Remove attachment">×</button>
+        </div>
+        <textarea id="question" class="question-input" rows="3" placeholder="Ask a question, or give the agent a goal…"></textarea>
+        <div class="composer-actions">
+          <div class="composer-left">
+            <input id="file" type="file" hidden />
+            <button id="attach-btn" class="button secondary small" type="button" title="Attach a file (uploaded as an asset the agent can see)">📎 Attach</button>
+            <button id="mic-btn" class="button secondary small" type="button" title="Dictate (browser speech recognition)" hidden>🎙 Speak</button>
+            <span id="status" class="status"></span>
+          </div>
+          <button id="send-btn" class="button" type="button">Send</button>
+        </div>
       </div>
     </div>
 
     <div class="reindex-card">
       <div class="reindex-info">
         <strong>Search index</strong>
-        <span>Rebuild embeddings so answers reflect the latest entries and resources. Runs on demand; a scheduled task can keep it fresh automatically.</span>
+        <span>Rebuild embeddings so grounded answers reflect the latest entries and resources. Runs on demand; a scheduled task can keep it fresh automatically.</span>
       </div>
       <div class="reindex-action">
         <button id="reindex-btn" class="button secondary">Reindex now</button>
@@ -79,274 +125,356 @@ if (authed) {
 </AppLayout>
 
 <script>
-  import { createSdkClient } from '@/lib/sdk';
+  import { getPermissions, runAgent, type Agent, type Permissions } from "@/lib/api/aiAgents";
+  import { renderMarkdown } from "@/lib/marvin/capabilities";
+  import { createSdkClient } from "@/lib/sdk";
 
-  const questionEl = document.getElementById('question') as HTMLTextAreaElement | null;
-  const askBtn = document.getElementById('ask-btn') as HTMLButtonElement | null;
-  const askStatus = document.getElementById('ask-status');
-  const answerPanel = document.getElementById('answer-panel');
-  const answerBody = document.getElementById('answer-body');
-  const answerMeta = document.getElementById('answer-meta');
-  const sourcesBlock = document.getElementById('sources-block');
-  const sourcesList = document.getElementById('sources-list');
-  const reindexBtn = document.getElementById('reindex-btn') as HTMLButtonElement | null;
-  const reindexStatus = document.getElementById('reindex-status');
+  const root = document.querySelector<HTMLElement>(".chat");
+  if (root) {
+    const agents: Agent[] = JSON.parse(root.dataset.agents || "[]");
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
+    const agentSel = $<HTMLSelectElement>("agent")!;
+    const registerSel = $<HTMLSelectElement>("register")!;
+    const desc = $<HTMLElement>("agent-desc")!;
+    const toolsBtn = $<HTMLButtonElement>("tools-btn")!;
+    const toolsPanel = $<HTMLElement>("tools-panel")!;
+    const newBtn = $<HTMLButtonElement>("new-btn")!;
+    const suggestionsEl = $<HTMLElement>("suggestions")!;
+    const transcript = $<HTMLElement>("transcript")!;
+    const emptyNote = $<HTMLElement>("transcript-empty")!;
+    const questionEl = $<HTMLTextAreaElement>("question")!;
+    const sendBtn = $<HTMLButtonElement>("send-btn")!;
+    const statusEl = $<HTMLElement>("status")!;
+    const fileInput = $<HTMLInputElement>("file")!;
+    const attachBtn = $<HTMLButtonElement>("attach-btn")!;
+    const attachmentEl = $<HTMLElement>("attachment")!;
+    const attachmentName = $<HTMLElement>("attachment-name")!;
+    const attachmentRemove = $<HTMLButtonElement>("attachment-remove")!;
+    const micBtn = $<HTMLButtonElement>("mic-btn")!;
+    const reindexBtn = $<HTMLButtonElement>("reindex-btn");
+    const reindexStatus = $<HTMLElement>("reindex-status");
 
-  function entityHref(type: string, id: string): string | null {
-    if (type === 'entry') return `/workspace/entries/${id}`;
-    if (type === 'resource') return `/workspace/resources/${id}`;
-    return null;
-  }
+    const esc = (s: unknown) =>
+      String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const setStatus = (msg: string, kind: "" | "error" | "success" = "") => {
+      statusEl.textContent = msg;
+      statusEl.className = `status ${kind}`.trim();
+    };
 
-  async function ask() {
-    const question = questionEl?.value.trim();
-    if (!question) {
-      askStatus!.textContent = 'Enter a question first.';
-      askStatus!.className = 'status error';
-      return;
-    }
-    askBtn!.disabled = true;
-    askStatus!.textContent = 'Thinking…';
-    askStatus!.className = 'status';
-
+    // ── State ──
+    type Turn = { role: "user" | "assistant"; content: string };
+    let history: Turn[] = [];
+    let attachment: { id: string; name: string } | null = null;
+    const AGENT_KEY = "ask.agent";
     try {
-      const exec: any = await createSdkClient().ai.operations.execute('answer-workspace-question', {
-        input: { question },
-      });
+      const saved = sessionStorage.getItem(AGENT_KEY);
+      if (saved && agents.some((a) => a.slug === saved)) agentSel.value = saved;
+    } catch {
+      /* storage unavailable */
+    }
+    const current = () => agents.find((a) => a.slug === agentSel.value) ?? agents[0];
 
-      const out = exec?.outputJson ?? exec?.output_json ?? {};
-      const answer = out.answer ?? '(no answer returned)';
-      const retrieved = out.retrieved_sources ?? [];
-
-      answerBody!.textContent = answer;
-
-      const tokens = exec?.totalTokens ?? exec?.total_tokens;
-      answerMeta!.textContent = tokens ? `${tokens.toLocaleString()} tokens` : '';
-
-      // Render unique cited sources as links (dedupe by entity, keep first index).
-      sourcesList!.innerHTML = '';
-      const seen = new Set<string>();
-      for (const s of retrieved) {
-        const key = `${s.entity_type}:${s.entity_id}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const li = document.createElement('li');
-        const href = entityHref(s.entity_type, s.entity_id);
-        if (href) {
-          const a = document.createElement('a');
-          a.href = href;
-          a.textContent = s.title || key;
-          li.appendChild(a);
-        } else {
-          li.textContent = s.title || key;
-        }
-        li.appendChild(document.createTextNode(' '));
-        const badge = document.createElement('span');
-        badge.className = 'source-type';
-        badge.textContent = s.entity_type;
-        li.appendChild(badge);
-        sourcesList!.appendChild(li);
+    function syncAgent() {
+      const a = current();
+      if (!a) return;
+      try {
+        sessionStorage.setItem(AGENT_KEY, a.slug);
+      } catch {
+        /* ignore */
       }
-      sourcesBlock!.style.display = seen.size ? '' : 'none';
-      answerPanel!.style.display = '';
-      askStatus!.textContent = '';
-    } catch (err: any) {
-      askStatus!.textContent = `Error: ${err.message}`;
-      askStatus!.className = 'status error';
-    } finally {
-      askBtn!.disabled = false;
+      desc.textContent = a.description ?? "";
+      // Starter prompts, if the agent defines any.
+      const sugg = a.suggestions ?? [];
+      suggestionsEl.innerHTML = sugg.map((s) => `<button type="button" class="chip">${esc(s)}</button>`).join("");
+      suggestionsEl.hidden = sugg.length === 0;
+      suggestionsEl.querySelectorAll<HTMLButtonElement>(".chip").forEach((b) =>
+        b.addEventListener("click", () => {
+          questionEl.value = b.textContent ?? "";
+          questionEl.focus();
+        }),
+      );
+      if (a.defaultRegister) registerSel.value = a.defaultRegister;
+      if (!toolsPanel.hidden) void loadTools();
     }
+    agentSel.addEventListener("change", syncAgent);
+    syncAgent();
+
+    // ── Tools panel (the agent's effective permissions for you) ──
+    async function loadTools() {
+      const a = current();
+      if (!a) return;
+      toolsPanel.innerHTML = `<div class="tp-loading">Loading…</div>`;
+      try {
+        const p: Permissions = await getPermissions(a.slug);
+        const rows = p.rows
+          .map((r) => {
+            const tools = r.tools.length
+              ? r.tools
+                  .map(
+                    (t) =>
+                      `<li class="${t.decision}"><code>${esc(t.name)}</code><span class="tp-why">${t.decision === "allow" ? "allowed" : "blocked · " + esc(t.reason)}</span></li>`,
+                  )
+                  .join("")
+              : `<li class="tp-note">discovered at run time</li>`;
+            return `<div class="tp-group"><div class="tp-head"><strong>${esc(r.label)}</strong><span class="tp-default ${r.default}">${r.default === "allow" ? "allow" : "block"}${r.writes ? " · writes" : ""}</span></div><ul>${tools}</ul></div>`;
+          })
+          .join("");
+        toolsPanel.innerHTML = `<div class="tp-title">What <strong>${esc(a.name)}</strong> can do as you ${p.allowWrites ? "" : "<span class='tp-ro'>(read-only agent)</span>"}</div>${rows}`;
+      } catch (e) {
+        toolsPanel.innerHTML = `<div class="tp-loading">Couldn't load tools: ${esc(e instanceof Error ? e.message : e)}</div>`;
+      }
+    }
+    toolsBtn.addEventListener("click", () => {
+      toolsPanel.hidden = !toolsPanel.hidden;
+      toolsBtn.setAttribute("aria-expanded", String(!toolsPanel.hidden));
+      if (!toolsPanel.hidden) void loadTools();
+    });
+
+    // ── Transcript ──
+    function addTurn(role: Turn["role"], html: string, meta = "") {
+      emptyNote.hidden = true;
+      const el = document.createElement("div");
+      el.className = `turn ${role}`;
+      el.innerHTML = `<div class="turn-body">${html}</div>${meta ? `<div class="turn-meta">${meta}</div>` : ""}`;
+      transcript.appendChild(el);
+      el.scrollIntoView({ block: "nearest" });
+      return el;
+    }
+    function entityHref(type: string, id: string): string | null {
+      if (type === "entry") return `/workspace/entries/${id}`;
+      if (type === "resource") return `/workspace/resources/${id}`;
+      if (type === "asset") return `/workspace/assets/${id}`;
+      return null;
+    }
+    newBtn.addEventListener("click", () => {
+      history = [];
+      transcript.querySelectorAll(".turn").forEach((t) => t.remove());
+      emptyNote.hidden = false;
+      clearAttachment();
+      setStatus("");
+    });
+
+    // ── Attachments: upload as an asset, then run with it as context ──
+    function clearAttachment() {
+      attachment = null;
+      attachmentEl.hidden = true;
+      fileInput.value = "";
+    }
+    attachBtn.addEventListener("click", () => fileInput.click());
+    attachmentRemove.addEventListener("click", clearAttachment);
+    fileInput.addEventListener("change", async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      setStatus(`Uploading ${file.name}…`);
+      attachBtn.disabled = true;
+      try {
+        const base = file.name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "attachment";
+        const asset: any = await createSdkClient().assets.upload(file, { slug: `ask-${base}-${Date.now().toString(36)}`, name: file.name });
+        attachment = { id: String(asset.id), name: asset.name ?? file.name };
+        attachmentName.textContent = `Attached: ${attachment.name}`;
+        attachmentEl.hidden = false;
+        setStatus("Attached — the agent will see this asset.", "success");
+      } catch (e) {
+        setStatus(`Couldn't upload: ${e instanceof Error ? e.message : e}`, "error");
+      } finally {
+        attachBtn.disabled = false;
+      }
+    });
+
+    // ── Voice input (browser speech recognition; Chrome/Edge, partial Safari) ──
+    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SR) {
+      micBtn.hidden = false;
+      let rec: any = null;
+      let listening = false;
+      micBtn.addEventListener("click", () => {
+        if (listening) {
+          rec?.stop();
+          return;
+        }
+        rec = new SR();
+        rec.lang = navigator.language || "en-US";
+        rec.interimResults = true;
+        rec.continuous = false;
+        const base = questionEl.value ? questionEl.value.replace(/\s*$/, " ") : "";
+        rec.onresult = (ev: any) => {
+          let text = "";
+          for (let i = 0; i < ev.results.length; i++) text += ev.results[i][0].transcript;
+          questionEl.value = base + text;
+        };
+        rec.onstart = () => {
+          listening = true;
+          micBtn.textContent = "■ Stop";
+          setStatus("Listening…");
+        };
+        rec.onend = () => {
+          listening = false;
+          micBtn.textContent = "🎙 Speak";
+          setStatus("");
+          questionEl.focus();
+        };
+        rec.onerror = (ev: any) => setStatus(`Speech: ${ev.error}`, "error");
+        rec.start();
+      });
+    }
+
+    // ── Send ──
+    async function send() {
+      const message = questionEl.value.trim();
+      const a = current();
+      if (!message || !a) {
+        setStatus("Type something first.", "error");
+        return;
+      }
+      sendBtn.disabled = true;
+      setStatus("Thinking…");
+      addTurn("user", esc(message) + (attachment ? `<div class="turn-attach">📎 ${esc(attachment.name)}</div>` : ""));
+      questionEl.value = "";
+      const register = registerSel.value as "auto" | "professional" | "playful";
+      try {
+        let answer = "";
+        let meta = "";
+        if (a.slug === "ask" && !attachment) {
+          // Grounded Q&A keeps the operation path: it returns the retrieved sources for citations.
+          const exec: any = await createSdkClient().ai.operations.execute("answer-workspace-question", {
+            input: { question: message },
+          });
+          const out = exec?.outputJson ?? exec?.output_json ?? {};
+          answer = out.answer ?? "(no answer returned)";
+          const seen = new Set<string>();
+          const sources: string[] = [];
+          for (const s of out.retrieved_sources ?? []) {
+            const key = `${s.entity_type}:${s.entity_id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const href = entityHref(s.entity_type, s.entity_id);
+            sources.push(href ? `<a href="${href}">${esc(s.title || key)}</a>` : esc(s.title || key));
+          }
+          const tokens = exec?.totalTokens ?? exec?.total_tokens;
+          meta = [sources.length ? `<span>Sources:</span> ${sources.join(" · ")}` : "", tokens ? `${tokens.toLocaleString()} tokens` : ""]
+            .filter(Boolean)
+            .join(" · ");
+        } else {
+          const res = await runAgent(a.slug, message, {
+            history: history.slice(-12),
+            register,
+            ...(attachment ? { entityType: "asset", entityId: attachment.id } : {}),
+          });
+          answer = res.answer ?? "(no answer)";
+          const used = [...new Set((res.steps ?? []).map((s) => s.tool))];
+          meta = [
+            used.length ? `<span>Used:</span> ${used.map((t) => `<code>${esc(t)}</code>`).join(" ")}` : "",
+            res.totalTokens ? `${Number(res.totalTokens).toLocaleString()} tokens` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ");
+        }
+        addTurn("assistant", renderMarkdown(answer), meta);
+        history.push({ role: "user", content: message }, { role: "assistant", content: answer });
+        setStatus("");
+        clearAttachment();
+      } catch (e) {
+        addTurn("assistant", `<span class="turn-error">Error: ${esc(e instanceof Error ? e.message : e)}</span>`);
+        setStatus("");
+      } finally {
+        sendBtn.disabled = false;
+        questionEl.focus();
+      }
+    }
+    sendBtn.addEventListener("click", send);
+    questionEl.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send();
+    });
+
+    // ── Reindex (kept from the RAG page) ──
+    reindexBtn?.addEventListener("click", async () => {
+      reindexBtn.disabled = true;
+      if (reindexStatus) {
+        reindexStatus.textContent = "Reindexing…";
+        reindexStatus.className = "status";
+      }
+      try {
+        const res: any = await createSdkClient().ai.operations.reindex({ scope: "workspace" });
+        if (reindexStatus) {
+          reindexStatus.textContent = `Indexed ${res?.entities_indexed ?? 0} items (${res?.chunks_indexed ?? 0} chunks).`;
+          reindexStatus.className = "status success";
+        }
+      } catch (err: any) {
+        if (reindexStatus) {
+          reindexStatus.textContent = `Error: ${err.message}`;
+          reindexStatus.className = "status error";
+        }
+      } finally {
+        reindexBtn.disabled = false;
+      }
+    });
   }
-
-  askBtn?.addEventListener('click', ask);
-  questionEl?.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') ask();
-  });
-
-  reindexBtn?.addEventListener('click', async () => {
-    reindexBtn.disabled = true;
-    reindexStatus!.textContent = 'Reindexing…';
-    reindexStatus!.className = 'status';
-    try {
-      const res: any = await createSdkClient().ai.operations.reindex({ scope: 'workspace' });
-      const entities = res?.entities_indexed ?? 0;
-      const chunks = res?.chunks_indexed ?? 0;
-      reindexStatus!.textContent = `Indexed ${entities} items (${chunks} chunks).`;
-      reindexStatus!.className = 'status success';
-    } catch (err: any) {
-      reindexStatus!.textContent = `Error: ${err.message}`;
-      reindexStatus!.className = 'status error';
-    } finally {
-      reindexBtn.disabled = false;
-    }
-  });
 </script>
 
 <style>
-  .page-header {
-    margin-bottom: 24px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
-
-  .page-header h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
+  .page-header { margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+  .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+  .page-header-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .page-header h2 { margin: 0 0 6px; font-size: 22px; font-weight: 600; }
   .page-header p { margin: 0; color: var(--muted); font-size: 14px; }
-
-  .alert {
-    padding: 16px;
-    margin-bottom: 24px;
-    border-radius: var(--radius);
-    background: var(--color-error-bg);
-    color: var(--color-error);
-    border: 1px solid var(--color-error);
-  }
-
-  .alert-info {
-    background: var(--panel);
-    color: var(--ink);
-    border: 1px solid var(--line);
-    font-size: 14px;
-  }
-
-  .alert-info a { color: var(--accent); }
-
-  .ask-card {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 20px;
-    margin-bottom: 20px;
-  }
-
-  .field-label {
-    display: block;
-    font-size: 13px;
-    font-weight: 600;
-    margin-bottom: 8px;
-  }
-
-  .question-input {
-    width: 100%;
-    padding: 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    font-size: 15px;
-    font-family: inherit;
-    background: var(--bg);
-    color: var(--ink);
-    box-sizing: border-box;
-    resize: vertical;
-  }
-
-  .question-input:focus { border-color: var(--accent); outline: none; }
-
-  .ask-actions {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    margin-top: 12px;
-  }
-
-  .status { font-size: 13px; color: var(--muted); }
-  .status.success { color: var(--accent); }
-  .status.error { color: var(--color-error); }
-
-  .answer-panel {
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 20px;
-    margin-bottom: 20px;
-  }
-
-  .answer-head {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-
-  .answer-eyebrow {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--muted);
-  }
-
-  .answer-meta { font-size: 12px; color: var(--muted); }
-
-  .answer-body {
-    font-size: 15px;
-    line-height: 1.6;
-    color: var(--ink);
-    white-space: pre-wrap;
-  }
-
-  .sources-block {
-    margin-top: 20px;
-    padding-top: 16px;
-    border-top: 1px solid var(--line);
-  }
-
-  .sources-label {
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--muted);
-    margin-bottom: 10px;
-  }
-
-  /* The <li>/<a>/badge nodes are created in JS, so they lack Astro's scope
-     attribute — their styles must be :global() to apply. */
-  .sources-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
-  .sources-list :global(li) { font-size: 14px; }
-  .sources-list :global(a) { color: var(--accent); text-decoration: none; }
-  .sources-list :global(a:hover) { text-decoration: underline; }
-
-  .sources-list :global(.source-type) {
-    display: inline-block;
-    margin-left: 8px;
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    color: var(--muted);
-    background: var(--bg);
-    border: 1px solid var(--line);
-  }
-
-  .reindex-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    padding: 20px;
-  }
-
-  .reindex-info { display: flex; flex-direction: column; gap: 4px; }
-  .reindex-info strong { font-size: 14px; font-weight: 600; }
-  .reindex-info span { font-size: 13px; color: var(--muted); max-width: 60ch; }
-
-  .reindex-action { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-
+  .alert { padding: 14px 16px; margin-bottom: 20px; border-radius: var(--radius); font-size: 14px; border: 1px solid var(--line); background: var(--panel); }
+  .alert-error { background: var(--color-error-bg); color: var(--color-error); border-color: var(--color-error); }
   .muted { color: var(--muted); }
+
+  .chat { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; }
+  .tb-field { display: grid; gap: 6px; min-width: 200px; }
+  .tb-label { font-size: 12px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+  .tb-actions { display: flex; gap: 8px; margin-left: auto; }
+  .input { width: 100%; padding: 9px 12px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 14px; background: var(--bg); color: var(--ink); box-sizing: border-box; }
+  .input:focus { border-color: var(--accent); outline: none; }
+  .agent-desc { margin: 10px 0 0; font-size: 13px; color: var(--muted); min-height: 1em; }
+
+  .tools-panel { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); padding: 12px 14px; }
+  .tools-panel :global(.tp-title) { font-size: 13px; margin-bottom: 10px; }
+  .tools-panel :global(.tp-ro) { color: var(--muted); }
+  .tools-panel :global(.tp-loading) { font-size: 13px; color: var(--muted); }
+  .tools-panel :global(.tp-group) { border-top: 1px solid var(--line); padding: 8px 0; }
+  .tools-panel :global(.tp-head) { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
+  .tools-panel :global(.tp-default) { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+  .tools-panel :global(.tp-default.block) { color: var(--color-error); }
+  .tools-panel :global(ul) { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 16px; }
+  .tools-panel :global(li) { font-size: 12px; display: flex; gap: 8px; align-items: baseline; }
+  .tools-panel :global(li.block code) { text-decoration: line-through; color: var(--muted); }
+  .tools-panel :global(.tp-why) { color: var(--muted); }
+  .tools-panel :global(.tp-note) { color: var(--muted); font-style: italic; }
+
+  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .suggestions :global(.chip) { font-size: 13px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; }
+  .suggestions :global(.chip:hover) { border-color: var(--accent); }
+
+  .transcript { margin-top: 16px; display: grid; gap: 12px; max-height: 60vh; overflow-y: auto; padding-right: 4px; }
+  .transcript-empty { font-size: 13px; color: var(--muted); padding: 12px 0; }
+  .transcript :global(.turn) { border-radius: var(--radius); padding: 12px 14px; font-size: 14px; line-height: 1.55; }
+  .transcript :global(.turn.user) { background: var(--panel-2); margin-left: 15%; }
+  .transcript :global(.turn.assistant) { background: var(--bg); border: 1px solid var(--line); margin-right: 15%; }
+  .transcript :global(.turn-attach) { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .transcript :global(.turn-meta) { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+  .transcript :global(.turn-meta span) { font-weight: 500; }
+  .transcript :global(.turn-meta code) { font-size: 12px; }
+  .transcript :global(.turn-error) { color: var(--color-error); }
+  .transcript :global(.turn-body p) { margin: 0 0 8px; }
+  .transcript :global(.turn-body p:last-child) { margin-bottom: 0; }
+
+  .composer { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
+  .attachment { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 4px 10px; border: 1px dashed var(--line); border-radius: 999px; margin-bottom: 8px; }
+  .link-btn { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 2px; }
+  .question-input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 15px; font-family: inherit; line-height: 1.5; resize: vertical; background: var(--bg); color: var(--ink); box-sizing: border-box; }
+  .question-input:focus { border-color: var(--accent); outline: none; }
+  .composer-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+  .composer-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .status { font-size: 13px; color: var(--muted); }
+  .status.error { color: var(--color-error); }
+  .status.success { color: var(--accent); }
+
+  .reindex-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; flex-wrap: wrap; }
+  .reindex-info { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  .reindex-info strong { color: var(--ink); font-size: 14px; }
+  .reindex-action { display: flex; align-items: center; gap: 12px; }
+  @media (max-width: 720px) { .transcript :global(.turn.user), .transcript :global(.turn.assistant) { margin: 0; } }
 </style>
