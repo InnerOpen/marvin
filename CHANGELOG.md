@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.74 (2026-09-13)
+
+### Bug Fixes
+
+- **ai**: Agents act instead of promising; preamble lists MCP servers; Ask in sidebar
+  ([`699540f`](https://github.com/InnerOpen/marvin/commit/699540fd756494f7beda88408e036103898200f2))
+
+
 ## v1.0.0-rc.73 (2026-09-13)
 
 ### Features
