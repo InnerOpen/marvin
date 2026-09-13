@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.71 (2026-09-13)
+
+### Features
+
+- **ai**: Agent permission matrix + Agents settings page + Ask becomes the agent chat
+  ([`de56ba9`](https://github.com/InnerOpen/marvin/commit/de56ba94fd71957ddcdf7900ff6fc2c78c20067a))
+
+
 ## v1.0.0-rc.70 (2026-09-13)
 
 ### Features
