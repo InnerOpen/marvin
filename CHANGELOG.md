@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.75 (2026-09-13)
+
+### Features
+
+- **ai**: MCP tools placed by their own hints — read / write / destructive rows
+  ([`8929438`](https://github.com/InnerOpen/marvin/commit/8929438cdd36a6f5b0ad80569676e1196cb7e327))
+
+
 ## v1.0.0-rc.74 (2026-09-13)
 
 ### Bug Fixes
