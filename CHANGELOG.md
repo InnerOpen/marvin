@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.73 (2026-09-13)
+
+### Features
+
+- **ai**: Agents know what "the RAG" is + workspace_overview tool
+  ([`7ab55c2`](https://github.com/InnerOpen/marvin/commit/7ab55c2d37df6eff59cd5c0cb03101295ab569d4))
+
+
 ## v1.0.0-rc.72 (2026-09-13)
 
 ### Features
