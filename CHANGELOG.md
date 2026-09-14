@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.76 (2026-09-14)
+
+### Features
+
+- **ai**: Ask threads — server-side agent conversations (agents v2, slice A)
+  ([`49d1aae`](https://github.com/InnerOpen/marvin/commit/49d1aae1d26407a5feb5bf47d4dd6fbf77c1577f))
+
+
 ## v1.0.0-rc.75 (2026-09-13)
 
 ### Features
