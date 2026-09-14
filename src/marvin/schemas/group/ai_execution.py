@@ -131,6 +131,9 @@ class AIAgentRequest(_MarvinModel):
     # (its stored turns are the history and `history` above is ignored). Either way the question
     # and answer are appended and the id comes back as `threadId`. Omitted = stateless, as before.
     thread_id: str | None = None
+    # Live progress: a UUID the CLIENT mints so it can poll `GET /agents/runs/{id}/progress` while
+    # this POST is still in flight. Omitted = no progress is recorded.
+    client_run_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

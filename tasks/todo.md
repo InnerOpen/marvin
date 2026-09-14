@@ -88,15 +88,19 @@ Substrate first (server-side thread), then the two features that need it. Thread
 no token streaming (providers are sync). Each slice committed + rolled out on its own.
 
 ## Slice A — threads
-- [ ] Models `ai_threads` / `ai_thread_messages` (+ status/pending_json now, for C) + migration `f7b3c4d5e6a8`.
-- [ ] Service `services/ai/threads.py`: get_or_create, history_rows, append_turn (truncated results; names only when log_outputs off), extract_sources, touch.
-- [ ] Controller: `AIAgentRequest.thread_id`; runs resolve/create the thread, persist both turns, return `threadId` + `sources`; `GET/GET one/PATCH/DELETE /threads`.
-- [ ] Frontend: Ask page uses `threadId` (drawer: list/reopen/rename/delete); `ask` routed through `/agents/ask/run`, citations from the `search_content` step.
-- [ ] Tests `tests/test_ai_threads.py` (db_session); ruff + full suite; Biome + astro check; commit, push, rollout, verify in pod.
+- [x] Models `ai_threads` / `ai_thread_messages` (+ status/pending_json now, for C) + migration `f7b3c4d5e6a8` (up/down/up verified on SQLite).
+- [x] Service `services/ai/threads.py`: resolve/create, history_rows, append_turn (truncated results; names only when log_outputs off), extract_sources, touch.
+- [x] Controller: `AIAgentRequest.thread_id` ("new" opens, id continues, omitted = stateless); runs persist both turns, return `threadId` + `sources`; `GET/GET one/PATCH/DELETE /threads`.
+- [x] Frontend: Ask page uses `threadId` (Threads panel: list/reopen/rename/delete); `ask` routed through `/agents/ask/run`, citations from the `search_content` step.
+- [x] Tests `tests/test_ai_threads.py` (10, db_session); full suite green; Biome + astro clean; `49d1aae1` pushed, Docker Build green, both deployments rolled out 2026-09-14 ~00:50 UTC.
 
 ## Slice B — live steps
-- [ ] `run_agent_loop(on_event=)`; `services/ai/run_progress.py` (process-local, like model_pull._JOBS); `client_run_id` + `GET /agents/runs/{id}/progress`.
-- [ ] Ask page: placeholder bubble with a polled step timeline.
+- [x] `run_agent_loop(on_event=)` (thinking / tool_call / tool_result; a raising listener never kills a run); `services/ai/run_progress.py` (process-local, owner-scoped, cap 100 + 10-min TTL); `client_run_id` + `GET /agents/runs/{id}/progress`.
+- [x] Ask page: placeholder bubble with a step timeline polled every 700 ms, replaced by the answer; tests in test_agent_loop + test_run_progress.
+
+## Backlog (from Jared, 2026-09-13)
+- [ ] **Custom tones**: the three registers (auto / professional / playful) are code (`REGISTERS` + `_register_clause`);
+      let a workspace define its own named tones (label + voice instructions) and pick them in Ask / agents / the bubble.
 
 ## Slice C — ask first
 - [ ] `PolicyValue` gains `ask`; `resolve_policy` + role cap; `AgentTool.requires_approval`; loop pends ask calls, `ResumeState`; serialize/deserialize messages.

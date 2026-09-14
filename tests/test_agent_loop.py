@@ -160,3 +160,65 @@ def test_plain_answer_mentioning_a_moment_in_passing_is_not_a_deferral():
     assert looks_like_deferral("*groans* Give me a second.")
     assert not looks_like_deferral("The coat took a moment of patience and three fittings.")
     assert not looks_like_deferral(None)
+
+
+# ── Live events (on_event) ───────────────────────────────────────────────────
+
+
+def test_loop_reports_thinking_and_tool_events_in_order():
+    provider = ScriptedProvider(
+        [
+            _result(tool_calls=[ToolCall(id="c1", name="echo", arguments={"x": 1}), ToolCall(id="c2", name="nope", arguments={})]),
+            _result(content="done"),
+        ]
+    )
+    tool = AgentTool(name="echo", description="echo", input_schema={}, run=lambda a: json.dumps(a))
+    events = []
+
+    result = run_agent_loop(provider, "m", [Message(role="user", content="hi")], [tool], on_event=events.append)
+
+    assert result.answer == "done"
+    assert [(e["type"], e.get("tool")) for e in events] == [
+        ("thinking", None),
+        ("tool_call", "echo"),
+        ("tool_result", "echo"),
+        ("tool_call", "nope"),
+        ("tool_result", "nope"),
+        ("thinking", None),
+    ]
+    assert events[1]["arguments"] == {"x": 1}
+    assert events[2]["ok"] is True
+    assert events[4]["ok"] is False  # unknown tool
+
+
+def test_loop_reports_a_failing_tool_as_not_ok():
+    def boom(_):
+        raise RuntimeError("nope")
+
+    provider = ScriptedProvider([_result(tool_calls=[ToolCall(id="c1", name="boom", arguments={})]), _result(content="ok")])
+    events = []
+    run_agent_loop(
+        provider,
+        "m",
+        [Message(role="user", content="hi")],
+        [AgentTool(name="boom", description="", input_schema={}, run=boom)],
+        on_event=events.append,
+    )
+    assert [e for e in events if e["type"] == "tool_result"] == [{"type": "tool_result", "tool": "boom", "ok": False}]
+
+
+def test_a_raising_listener_never_kills_the_run():
+    def bad_listener(_):
+        raise RuntimeError("listener bug")
+
+    provider = ScriptedProvider([_result(tool_calls=[ToolCall(id="c1", name="echo", arguments={})]), _result(content="fine")])
+    tool = AgentTool(name="echo", description="", input_schema={}, run=lambda a: "{}")
+    result = run_agent_loop(provider, "m", [Message(role="user", content="hi")], [tool], on_event=bad_listener)
+    assert result.answer == "fine"
+    assert len(result.steps) == 1
+
+
+def test_loop_without_a_listener_is_unchanged():
+    provider = ScriptedProvider([_result(content="plain")])
+    result = run_agent_loop(provider, "m", [Message(role="user", content="hi")], [])
+    assert result.answer == "plain"

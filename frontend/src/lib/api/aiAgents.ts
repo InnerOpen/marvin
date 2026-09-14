@@ -121,6 +121,20 @@ export interface ThreadDetail extends Thread {
 /** `threadId` value that asks a run to open a fresh server-side thread. */
 export const NEW_THREAD = "new";
 
+/** One live event of an in-flight run (see services/ai/run_progress.py). */
+export interface RunEvent {
+  type: "thinking" | "tool_call" | "tool_result";
+  tool?: string;
+  arguments?: unknown;
+  ok?: boolean;
+  at: number;
+}
+export interface RunProgress {
+  id: string;
+  status: "running" | "completed" | "failed" | "awaiting_approval";
+  events: RunEvent[];
+}
+
 const json = (body: unknown): RequestInit => ({
   method: "POST",
   headers: { "Content-Type": "application/json" },
@@ -160,6 +174,8 @@ export function runAgent(
   opts: {
     history?: { role: "user" | "assistant"; content: string }[];
     threadId?: string;
+    /** A UUID the caller mints; poll `getRunProgress(id)` while this call is pending. */
+    clientRunId?: string;
     register?: Register;
     entityType?: string;
     entityId?: string;
@@ -174,10 +190,16 @@ export function runAgent(
       ...(opts.register ? { register: opts.register } : {}),
       ...(opts.entityType && opts.entityId ? { entityType: opts.entityType, entityId: opts.entityId } : {}),
       ...(opts.threadId ? { threadId: opts.threadId } : {}),
+      ...(opts.clientRunId ? { clientRunId: opts.clientRunId } : {}),
       ...(opts.history?.length && !opts.threadId ? { history: opts.history } : {}),
     }),
     authToken,
   );
+}
+
+/** Live steps of a run started with `clientRunId`; 404 = nothing recorded (unknown / expired / another replica). */
+export function getRunProgress(runId: string, authToken?: string): Promise<RunProgress> {
+  return fetchApi<RunProgress>(`/api/ai/agents/runs/${encodeURIComponent(runId)}/progress`, {}, authToken);
 }
 
 // ── Threads (server-side Ask conversations; own-only, admins see all) ──

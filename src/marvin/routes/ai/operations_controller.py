@@ -730,6 +730,21 @@ class AIOperationsController(BaseUserController):
 
         return {"categories": [c.__dict__ for c in CATEGORIES], "tools": self._catalog_with_mcp()}
 
+    @router.get("/agents/runs/{run_id}/progress", summary="Live steps of an in-flight agent run (poll while the run POST is pending)")
+    def agent_run_progress(self, run_id: str) -> dict:
+        """`{status, events}` for a run started with `client_run_id`; 404 when unknown, expired, or not yours.
+
+        Process-local (see services/ai/run_progress.py) — with several backend replicas a poll may miss;
+        clients treat 404 as "no live steps", never as a failed run.
+        """
+        from marvin.services.ai import run_progress
+
+        rid = run_progress.normalize_run_id(run_id)
+        run = run_progress.get(rid, (self.group_id, self.user.id)) if rid else None
+        if run is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No such run (unknown, expired, or not yours).")
+        return run.to_dict()
+
     @router.get("/agents/{slug}/permissions", summary="Effective permission matrix of an agent for the caller")
     def agent_permissions(self, slug: str) -> dict:
         from marvin.services.ai.agents import permission_matrix
@@ -923,6 +938,23 @@ class AIOperationsController(BaseUserController):
 
     # ── Agent helpers ──────────────────────────────────────────────────
 
+    def _start_progress(self, body: AIAgentRequest):
+        """(run_id, on_event) for a run the client wants to watch, or (None, None)."""
+        from marvin.services.ai import run_progress
+
+        run_id = run_progress.normalize_run_id(body.client_run_id)
+        if run_id is None:
+            return None, None
+        run_progress.start(run_id, (self.group_id, self.user.id))
+        return run_id, lambda event: run_progress.push(run_id, event)
+
+    @staticmethod
+    def _finish_progress(run_id: str | None, status_: str) -> None:
+        from marvin.services.ai import run_progress
+
+        if run_id is not None:
+            run_progress.finish(run_id, status_)
+
     def _require_role(self, min_role: int, detail: str) -> None:
         if self._user_role() < min_role:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
@@ -1114,19 +1146,23 @@ class AIOperationsController(BaseUserController):
         self.session.commit()
 
         start = time.monotonic()
+        run_id, on_event = self._start_progress(body)
         try:
             opts = CompletionOptions(
                 temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7),
                 max_tokens=self._max_output_tokens(),
             )
-            result = run_agent_loop(provider, model, messages, tools, opts, max_steps=max_steps)
+            result = run_agent_loop(provider, model, messages, tools, opts, max_steps=max_steps, on_event=on_event)
         except HTTPException:
+            self._finish_progress(run_id, "failed")
             raise
         except Exception as e:
+            self._finish_progress(run_id, "failed")
             self._fail_execution(execution, str(e), start)
             self._emit_ai_event(execution, "failed", str(e))
             self._maybe_emit_quota(execution, str(e))
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Agent failed: {e}") from e
+        self._finish_progress(run_id, "completed")
 
         execution.status = "completed"
         execution.completed_at = datetime.now(UTC)

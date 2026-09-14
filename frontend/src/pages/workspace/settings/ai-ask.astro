@@ -131,12 +131,14 @@ const agentsJson = JSON.stringify(agents);
     type Agent,
     deleteThread,
     getPermissions,
+    getRunProgress,
     getThread,
     listThreads,
     NEW_THREAD,
     type Permissions,
     renameThread,
     runAgent,
+    type RunEvent,
     type Source,
     type Thread,
   } from "@/lib/api/aiAgents";
@@ -481,6 +483,53 @@ const agentsJson = JSON.stringify(agents);
       });
     }
 
+    // ── Live steps: a placeholder bubble that fills in while the run is in flight ──
+    const PROGRESS_POLL_MS = 700;
+    const PROGRESS_MAX_MISSES = 40;
+    function stepsHtml(events: RunEvent[]): string {
+      const rows: string[] = [];
+      for (const ev of events) {
+        if (ev.type === "tool_call") {
+          rows.push(`<li class="step running"><code>${esc(ev.tool)}</code><span class="step-args">${esc(argsPreview(ev.arguments))}</span></li>`);
+        } else if (ev.type === "tool_result") {
+          const last = rows.length - 1;
+          if (last >= 0) rows[last] = rows[last].replace('class="step running"', `class="step ${ev.ok === false ? "failed" : "done"}"`);
+        }
+      }
+      const thinking = events.length === 0 || events[events.length - 1]?.type === "thinking";
+      const tail = thinking ? `<li class="step thinking">${rows.length ? "thinking…" : "starting…"}</li>` : "";
+      return `<ul class="steps">${rows.join("")}${tail}</ul>`;
+    }
+    function argsPreview(args: unknown): string {
+      if (!args || typeof args !== "object") return "";
+      const parts = Object.entries(args as Record<string, unknown>).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`);
+      const text = parts.join(", ");
+      return text.length > 90 ? `${text.slice(0, 89)}…` : text;
+    }
+    function watchRun(runId: string, placeholder: HTMLElement): () => void {
+      const body = placeholder.querySelector<HTMLElement>(".turn-body")!;
+      let stopped = false;
+      let missed = 0;
+      const tick = async () => {
+        if (stopped) return;
+        try {
+          const p = await getRunProgress(runId);
+          missed = 0;
+          if (!stopped) body.innerHTML = stepsHtml(p.events);
+        } catch {
+          // 404 until the server has registered the run (or ever, on another replica): keep the
+          // placeholder as-is and give up quietly after a while — the answer still arrives.
+          missed += 1;
+          if (missed > PROGRESS_MAX_MISSES) stopped = true;
+        }
+        if (!stopped) setTimeout(tick, PROGRESS_POLL_MS);
+      };
+      setTimeout(tick, PROGRESS_POLL_MS);
+      return () => {
+        stopped = true;
+      };
+    }
+
     // ── Send ──
     async function send() {
       const message = questionEl.value.trim();
@@ -496,14 +545,22 @@ const agentsJson = JSON.stringify(agents);
       addTurn("user", esc(message) + (firstUse ? `<div class="turn-attach">📎 ${esc(attachment.name)}</div>` : ""));
       questionEl.value = "";
       const register = registerSel.value as "auto" | "professional" | "playful";
+      // The placeholder shows live steps while the run is in flight, then becomes the answer.
+      const runId = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
+      const placeholder = addTurn("assistant", stepsHtml([]));
+      placeholder.classList.add("pending");
+      const stopWatching = runId ? watchRun(runId, placeholder) : () => {};
       try {
         // Every agent goes through the run endpoint; the thread on the server is the memory, and
         // citations come back from the run's own search_content results.
         const res = await runAgent(a.slug, message, {
           threadId: threadId ?? NEW_THREAD,
+          ...(runId ? { clientRunId: runId } : {}),
           register,
           ...(attachment ? { entityType: "asset", entityId: attachment.id } : {}),
         });
+        stopWatching();
+        placeholder.remove();
         const answer = res.answer ?? "(no answer)";
         addTurn("assistant", renderMarkdown(answer), assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens));
         const wasNew = !threadId;
@@ -511,6 +568,8 @@ const agentsJson = JSON.stringify(agents);
         if (wasNew && !threadsPanel.hidden) void loadThreads();
         setStatus(attachment ? "Attachment stays with this conversation; remove it with ×." : "");
       } catch (e) {
+        stopWatching();
+        placeholder.remove();
         addTurn("assistant", `<span class="turn-error">Error: ${esc(e instanceof Error ? e.message : e)}</span>`);
         setStatus("");
       } finally {
@@ -606,6 +665,17 @@ const agentsJson = JSON.stringify(agents);
   .transcript :global(.turn-meta span) { font-weight: 500; }
   .transcript :global(.turn-meta code) { font-size: 12px; }
   .transcript :global(.turn-error) { color: var(--color-error); }
+  .transcript :global(.turn.pending) { border-style: dashed; }
+  .transcript :global(.steps) { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+  .transcript :global(.step) { display: flex; gap: 8px; align-items: baseline; color: var(--muted); }
+  .transcript :global(.step::before) { content: "○"; flex: none; }
+  .transcript :global(.step.running::before) { content: "◐"; color: var(--accent); }
+  .transcript :global(.step.done::before) { content: "●"; color: var(--accent); }
+  .transcript :global(.step.failed::before) { content: "●"; color: var(--color-error); }
+  .transcript :global(.step.thinking) { font-style: italic; }
+  .transcript :global(.step.thinking::before) { content: "…"; }
+  .transcript :global(.step code) { color: var(--ink); font-size: 12px; }
+  .transcript :global(.step-args) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .transcript :global(.turn-body p) { margin: 0 0 8px; }
   .transcript :global(.turn-body p:last-child) { margin-bottom: 0; }
 

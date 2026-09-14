@@ -68,6 +68,19 @@ class AgentResult:
     stopped_reason: str = "complete"  # "complete" | "max_steps"
 
 
+EventListener = Callable[[dict], None]
+
+
+def _notify(on_event: EventListener | None, event: dict) -> None:
+    """Tell the listener; a listener that raises must never kill the run."""
+    if on_event is None:
+        return
+    try:
+        on_event(event)
+    except Exception:  # noqa: BLE001 — progress reporting is best-effort
+        pass
+
+
 def run_agent_loop(
     provider: AIProvider,
     model: str,
@@ -75,8 +88,14 @@ def run_agent_loop(
     tools: list[AgentTool],
     options: CompletionOptions | None = None,
     max_steps: int = DEFAULT_MAX_STEPS,
+    on_event: EventListener | None = None,
 ) -> AgentResult:
-    """Drive the tool-calling loop and return the final answer plus the tool-call trace."""
+    """Drive the tool-calling loop and return the final answer plus the tool-call trace.
+
+    `on_event` (optional) hears the run as it happens: `{"type": "thinking"}` before each model
+    call, `{"type": "tool_call", "tool", "arguments"}` / `{"type": "tool_result", "tool", "ok"}`
+    around each tool — the feed behind a live step timeline.
+    """
     tool_defs = [ToolDefinition(name=t.name, description=t.description, input_schema=t.input_schema) for t in tools]
     by_name = {t.name: t for t in tools}
     result = AgentResult(answer="")
@@ -89,6 +108,7 @@ def run_agent_loop(
         result.total_tokens += completion.total_tokens or 0
 
     for _step in range(max_steps):
+        _notify(on_event, {"type": "thinking"})
         completion = provider.complete_with_tools(convo, model, tool_defs, options)
         account(completion)
 
@@ -104,18 +124,24 @@ def run_agent_loop(
         convo.append(Message(role="assistant", content=completion.content or "", tool_calls=completion.tool_calls))
         for call in completion.tool_calls:
             tool = by_name.get(call.name)
+            _notify(on_event, {"type": "tool_call", "tool": call.name, "arguments": call.arguments or {}})
+            ok = True
             if tool is None:
+                ok = False
                 out = json.dumps({"error": f"unknown tool: {call.name}"})
             else:
                 try:
                     out = tool.run(call.arguments or {})
                 except Exception as e:  # tool failures are surfaced to the model, not fatal
+                    ok = False
                     out = json.dumps({"error": str(e)})
+            _notify(on_event, {"type": "tool_result", "tool": call.name, "ok": ok})
             result.steps.append(AgentStep(tool=call.name, arguments=call.arguments or {}, result=out))
             convo.append(Message(role="tool", content=out, tool_call_id=call.id))
 
     # Step budget exhausted: force a final answer with tools disabled (keeps the tool history valid).
     convo.append(Message(role="user", content="You have used your tool budget. Give your best final answer now, using what you've gathered."))
+    _notify(on_event, {"type": "thinking"})
     final = provider.complete_with_tools(convo, model, tool_defs, options, tool_choice="none")
     account(final)
     result.answer = final.content
