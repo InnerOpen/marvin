@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.77 (2026-09-14)
+
+### Features
+
+- **ai**: Live agent steps — run progress polled while the run is in flight (agents v2, slice B)
+  ([`4cafa46`](https://github.com/InnerOpen/marvin/commit/4cafa46619da91993be2ddec52ec6fbf14e6d171))
+
+
 ## v1.0.0-rc.76 (2026-09-14)
 
 ### Features
