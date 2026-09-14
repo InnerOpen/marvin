@@ -39,7 +39,7 @@ const agentsJson = JSON.stringify(agents);
     <div class="page-header-row">
       <div>
         <h2>Ask</h2>
-        <p>Talk to an agent. <strong>Ask</strong> answers from your content with citations; the others do what they're defined to do.</p>
+        <p>Talk to an agent. <strong>Ask</strong> answers from your content with citations; the others do what they're defined to do. Conversations are saved as threads you can reopen.</p>
       </div>
       <a href="/workspace/settings/ai-agents" class="button secondary small">Manage agents</a>
     </div>
@@ -77,12 +77,14 @@ const agentsJson = JSON.stringify(agents);
           </select>
         </label>
         <div class="tb-actions">
+          <button id="threads-btn" class="button secondary small" type="button" aria-expanded="false">Threads</button>
           <button id="tools-btn" class="button secondary small" type="button" aria-expanded="false">Tools</button>
           <button id="new-btn" class="button secondary small" type="button">New conversation</button>
         </div>
       </div>
       <p id="agent-desc" class="agent-desc"></p>
 
+      <div id="threads-panel" class="threads-panel" hidden></div>
       <div id="tools-panel" class="tools-panel" hidden></div>
 
       <div id="suggestions" class="suggestions" hidden></div>
@@ -125,7 +127,19 @@ const agentsJson = JSON.stringify(agents);
 </AppLayout>
 
 <script>
-  import { getPermissions, runAgent, type Agent, type Permissions } from "@/lib/api/aiAgents";
+  import {
+    type Agent,
+    deleteThread,
+    getPermissions,
+    getThread,
+    listThreads,
+    NEW_THREAD,
+    type Permissions,
+    renameThread,
+    runAgent,
+    type Source,
+    type Thread,
+  } from "@/lib/api/aiAgents";
   import { renderMarkdown } from "@/lib/marvin/capabilities";
   import { createSdkClient } from "@/lib/sdk";
 
@@ -138,6 +152,8 @@ const agentsJson = JSON.stringify(agents);
     const desc = $<HTMLElement>("agent-desc")!;
     const toolsBtn = $<HTMLButtonElement>("tools-btn")!;
     const toolsPanel = $<HTMLElement>("tools-panel")!;
+    const threadsBtn = $<HTMLButtonElement>("threads-btn")!;
+    const threadsPanel = $<HTMLElement>("threads-panel")!;
     const newBtn = $<HTMLButtonElement>("new-btn")!;
     const suggestionsEl = $<HTMLElement>("suggestions")!;
     const transcript = $<HTMLElement>("transcript")!;
@@ -162,8 +178,9 @@ const agentsJson = JSON.stringify(agents);
     };
 
     // ── State ──
-    type Turn = { role: "user" | "assistant"; content: string };
-    let history: Turn[] = [];
+    // The conversation lives server-side: `threadId` is the thread this transcript continues (null =
+    // the next send opens a new one). Reloading the page loses the view, not the thread.
+    let threadId: string | null = null;
     let attachment: { id: string; name: string; shown?: boolean } | null = null;
     const AGENT_KEY = "ask.agent";
     try {
@@ -196,7 +213,11 @@ const agentsJson = JSON.stringify(agents);
       if (a.defaultRegister) registerSel.value = a.defaultRegister;
       if (!toolsPanel.hidden) void loadTools();
     }
-    agentSel.addEventListener("change", syncAgent);
+    agentSel.addEventListener("change", () => {
+      if (threadId) resetConversation();
+      syncAgent();
+      if (!threadsPanel.hidden) void loadThreads();
+    });
     syncAgent();
 
     // ── Tools panel (the agent's effective permissions for you) ──
@@ -231,7 +252,7 @@ const agentsJson = JSON.stringify(agents);
     });
 
     // ── Transcript ──
-    function addTurn(role: Turn["role"], html: string, meta = "") {
+    function addTurn(role: "user" | "assistant", html: string, meta = "") {
       emptyNote.hidden = true;
       const el = document.createElement("div");
       el.className = `turn ${role}`;
@@ -246,12 +267,154 @@ const agentsJson = JSON.stringify(agents);
       if (type === "asset") return `/workspace/assets/${id}`;
       return null;
     }
-    newBtn.addEventListener("click", () => {
-      history = [];
+    function sourcesHtml(sources: Source[] | undefined | null): string {
+      const seen = new Set<string>();
+      const links: string[] = [];
+      for (const s of sources ?? []) {
+        const key = `${s.entityType}:${s.entityId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const href = entityHref(s.entityType, s.entityId);
+        links.push(href ? `<a href="${href}">${esc(s.title || key)}</a>` : esc(s.title || key));
+      }
+      return links.length ? `<span>Sources:</span> ${links.join(" · ")}` : "";
+    }
+    function usedHtml(tools: string[]): string {
+      const used = [...new Set(tools)];
+      return used.length ? `<span>Used:</span> ${used.map((t) => `<code>${esc(t)}</code>`).join(" ")}` : "";
+    }
+    function assistantMeta(sources: Source[] | undefined | null, tools: string[], tokens: number | undefined | null): string {
+      return [sourcesHtml(sources), usedHtml(tools), tokens ? `${Number(tokens).toLocaleString()} tokens` : ""].filter(Boolean).join(" · ");
+    }
+    function resetConversation() {
+      threadId = null;
       transcript.querySelectorAll(".turn").forEach((t) => t.remove());
       emptyNote.hidden = false;
       clearAttachment();
       setStatus("");
+      threadsPanel.querySelectorAll(".th-row.active").forEach((r) => r.classList.remove("active"));
+    }
+    newBtn.addEventListener("click", resetConversation);
+
+    // ── Threads panel: your saved conversations with this agent ──
+    const when = (iso: string | null | undefined) => {
+      if (!iso) return "";
+      const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
+      return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+    };
+    function threadRow(t: Thread): string {
+      const active = t.id === threadId ? " active" : "";
+      return `<div class="th-row${active}" data-id="${esc(t.id)}">
+        <button type="button" class="th-open" title="Reopen this conversation">
+          <span class="th-title">${esc(t.title || "(untitled)")}</span>
+          <span class="th-when">${esc(when(t.lastMessageAt || t.createdAt))}${t.status === "awaiting_approval" ? " · awaiting approval" : ""}</span>
+        </button>
+        <span class="th-actions">
+          <button type="button" class="link-btn th-rename" title="Rename">✎</button>
+          <button type="button" class="link-btn th-delete" title="Delete">🗑</button>
+        </span>
+      </div>`;
+    }
+    async function loadThreads() {
+      const a = current();
+      if (!a) return;
+      threadsPanel.innerHTML = `<div class="tp-loading">Loading…</div>`;
+      try {
+        const rows = await listThreads({ agent: a.slug, limit: 50 });
+        threadsPanel.innerHTML = rows.length
+          ? `<div class="tp-title">Conversations with <strong>${esc(a.name)}</strong></div>${rows.map(threadRow).join("")}`
+          : `<div class="tp-loading">No saved conversations with ${esc(a.name)} yet — send a message to start one.</div>`;
+      } catch (e) {
+        threadsPanel.innerHTML = `<div class="tp-loading">Couldn't load threads: ${esc(e instanceof Error ? e.message : e)}</div>`;
+      }
+    }
+    async function openThread(id: string) {
+      setStatus("Opening…");
+      try {
+        const t = await getThread(id);
+        if (t.agentSlug !== agentSel.value && agents.some((a) => a.slug === t.agentSlug)) {
+          agentSel.value = t.agentSlug;
+          syncAgent();
+        }
+        threadId = null;
+        transcript.querySelectorAll(".turn").forEach((el) => el.remove());
+        clearAttachment();
+        for (const m of t.messages) {
+          if (m.role === "user") addTurn("user", esc(m.content));
+          else addTurn("assistant", renderMarkdown(m.content), assistantMeta(m.metaJson?.sources, (m.stepsJson ?? []).map((s) => s.tool), m.metaJson?.totalTokens));
+        }
+        emptyNote.hidden = t.messages.length > 0;
+        threadId = t.id;
+        threadsPanel.querySelectorAll(".th-row").forEach((r) => r.classList.toggle("active", (r as HTMLElement).dataset.id === t.id));
+        setStatus("");
+        questionEl.focus();
+      } catch (e) {
+        setStatus(`Couldn't open thread: ${e instanceof Error ? e.message : e}`, "error");
+      }
+    }
+    function startRename(row: HTMLElement) {
+      const id = row.dataset.id!;
+      const titleEl = row.querySelector<HTMLElement>(".th-title")!;
+      const input = document.createElement("input");
+      input.className = "input th-rename-input";
+      input.value = titleEl.textContent === "(untitled)" ? "" : (titleEl.textContent ?? "");
+      titleEl.replaceWith(input);
+      input.focus();
+      input.select();
+      let done = false;
+      const finish = async (save: boolean) => {
+        if (done) return;
+        done = true;
+        const title = input.value.trim();
+        if (save) {
+          try {
+            await renameThread(id, title || null);
+          } catch (e) {
+            setStatus(`Couldn't rename: ${e instanceof Error ? e.message : e}`, "error");
+          }
+        }
+        void loadThreads();
+      };
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") void finish(true);
+        if (e.key === "Escape") void finish(false);
+      });
+      input.addEventListener("blur", () => void finish(true));
+    }
+    threadsPanel.addEventListener("click", async (e) => {
+      const target = e.target as HTMLElement;
+      const row = target.closest<HTMLElement>(".th-row");
+      if (!row) return;
+      const id = row.dataset.id!;
+      if (target.closest(".th-open")) {
+        void openThread(id);
+      } else if (target.closest(".th-rename")) {
+        startRename(row);
+      } else if (target.closest(".th-delete")) {
+        // Two clicks to delete — no modal dialogs.
+        const btn = target.closest<HTMLButtonElement>(".th-delete")!;
+        if (btn.dataset.armed !== "1") {
+          btn.dataset.armed = "1";
+          btn.textContent = "Sure?";
+          setTimeout(() => {
+            btn.dataset.armed = "";
+            btn.textContent = "🗑";
+          }, 3000);
+          return;
+        }
+        try {
+          await deleteThread(id);
+          if (threadId === id) resetConversation();
+          void loadThreads();
+        } catch (err) {
+          setStatus(`Couldn't delete: ${err instanceof Error ? err.message : err}`, "error");
+        }
+      }
+    });
+    threadsBtn.addEventListener("click", () => {
+      threadsPanel.hidden = !threadsPanel.hidden;
+      threadsBtn.setAttribute("aria-expanded", String(!threadsPanel.hidden));
+      if (!threadsPanel.hidden) void loadThreads();
     });
 
     // ── Attachments: upload as an asset, then run with it as context ──
@@ -334,45 +497,18 @@ const agentsJson = JSON.stringify(agents);
       questionEl.value = "";
       const register = registerSel.value as "auto" | "professional" | "playful";
       try {
-        let answer = "";
-        let meta = "";
-        if (a.slug === "ask" && !attachment) {
-          // Grounded Q&A keeps the operation path: it returns the retrieved sources for citations.
-          const exec: any = await createSdkClient().ai.operations.execute("answer-workspace-question", {
-            input: { question: message },
-          });
-          const out = exec?.outputJson ?? exec?.output_json ?? {};
-          answer = out.answer ?? "(no answer returned)";
-          const seen = new Set<string>();
-          const sources: string[] = [];
-          for (const s of out.retrieved_sources ?? []) {
-            const key = `${s.entity_type}:${s.entity_id}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            const href = entityHref(s.entity_type, s.entity_id);
-            sources.push(href ? `<a href="${href}">${esc(s.title || key)}</a>` : esc(s.title || key));
-          }
-          const tokens = exec?.totalTokens ?? exec?.total_tokens;
-          meta = [sources.length ? `<span>Sources:</span> ${sources.join(" · ")}` : "", tokens ? `${tokens.toLocaleString()} tokens` : ""]
-            .filter(Boolean)
-            .join(" · ");
-        } else {
-          const res = await runAgent(a.slug, message, {
-            history: history.slice(-12),
-            register,
-            ...(attachment ? { entityType: "asset", entityId: attachment.id } : {}),
-          });
-          answer = res.answer ?? "(no answer)";
-          const used = [...new Set((res.steps ?? []).map((s) => s.tool))];
-          meta = [
-            used.length ? `<span>Used:</span> ${used.map((t) => `<code>${esc(t)}</code>`).join(" ")}` : "",
-            res.totalTokens ? `${Number(res.totalTokens).toLocaleString()} tokens` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ");
-        }
-        addTurn("assistant", renderMarkdown(answer), meta);
-        history.push({ role: "user", content: message }, { role: "assistant", content: answer });
+        // Every agent goes through the run endpoint; the thread on the server is the memory, and
+        // citations come back from the run's own search_content results.
+        const res = await runAgent(a.slug, message, {
+          threadId: threadId ?? NEW_THREAD,
+          register,
+          ...(attachment ? { entityType: "asset", entityId: attachment.id } : {}),
+        });
+        const answer = res.answer ?? "(no answer)";
+        addTurn("assistant", renderMarkdown(answer), assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens));
+        const wasNew = !threadId;
+        threadId = res.threadId ?? threadId;
+        if (wasNew && !threadsPanel.hidden) void loadThreads();
         setStatus(attachment ? "Attachment stays with this conversation; remove it with ×." : "");
       } catch (e) {
         addTurn("assistant", `<span class="turn-error">Error: ${esc(e instanceof Error ? e.message : e)}</span>`);
@@ -431,7 +567,18 @@ const agentsJson = JSON.stringify(agents);
   .input:focus { border-color: var(--accent); outline: none; }
   .agent-desc { margin: 10px 0 0; font-size: 13px; color: var(--muted); min-height: 1em; }
 
-  .tools-panel { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); padding: 12px 14px; }
+  .threads-panel, .tools-panel { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); padding: 12px 14px; }
+  .threads-panel :global(.tp-title) { font-size: 13px; margin-bottom: 6px; }
+  .threads-panel :global(.tp-loading) { font-size: 13px; color: var(--muted); }
+  .threads-panel :global(.th-row) { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding: 6px 0; }
+  .threads-panel :global(.th-row.active) { background: var(--panel-2); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: var(--radius); }
+  .threads-panel :global(.th-open) { flex: 1; display: grid; gap: 2px; text-align: left; border: 0; background: none; cursor: pointer; color: var(--ink); padding: 2px 0; font: inherit; }
+  .threads-panel :global(.th-title) { font-size: 14px; }
+  .threads-panel :global(.th-when) { font-size: 12px; color: var(--muted); }
+  .threads-panel :global(.th-actions) { display: flex; gap: 6px; }
+  .threads-panel :global(.th-actions .link-btn) { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1; padding: 2px 4px; }
+  .threads-panel :global(.th-actions .link-btn:hover) { color: var(--ink); }
+  .threads-panel :global(.th-rename-input) { width: 100%; font-size: 14px; padding: 4px 8px; border: 1px solid var(--accent); border-radius: var(--radius); background: var(--bg); color: var(--ink); font-family: inherit; box-sizing: border-box; }
   .tools-panel :global(.tp-title) { font-size: 13px; margin-bottom: 10px; }
   .tools-panel :global(.tp-ro) { color: var(--muted); }
   .tools-panel :global(.tp-loading) { font-size: 13px; color: var(--muted); }

@@ -73,14 +73,53 @@ export interface Permissions {
   rows: MatrixRow[];
 }
 
+export interface Source {
+  entityType: string;
+  entityId: string;
+  title?: string | null;
+}
 export interface AgentRunResult {
   answer: string;
   steps: { tool: string; arguments: unknown; result?: unknown }[];
+  /** Citations gathered from the run's `search_content` results. */
+  sources?: Source[];
   stoppedReason: string;
   executionId: string;
+  /** The server-side thread this turn was stored on (only when the run asked for one). */
+  threadId?: string | null;
   totalTokens: number;
   estimatedCostUsd?: number | null;
 }
+
+export interface Thread {
+  id: string;
+  agentSlug: string;
+  title?: string | null;
+  entityType?: string | null;
+  entityId?: string | null;
+  createdBy: string;
+  status: "open" | "awaiting_approval" | "archived";
+  totalTokens: number;
+  lastMessageAt?: string | null;
+  createdAt?: string | null;
+}
+export interface ThreadMessage {
+  id: string;
+  seq: number;
+  role: "user" | "assistant";
+  content: string;
+  stepsJson?: { tool: string; arguments?: unknown; result?: string }[] | null;
+  metaJson?: { sources?: Source[]; totalTokens?: number } | null;
+  executionId?: string | null;
+  createdAt?: string | null;
+}
+export interface ThreadDetail extends Thread {
+  messages: ThreadMessage[];
+  pending: { id: string; tool: string; arguments: unknown }[];
+}
+
+/** `threadId` value that asks a run to open a fresh server-side thread. */
+export const NEW_THREAD = "new";
 
 const json = (body: unknown): RequestInit => ({
   method: "POST",
@@ -110,12 +149,17 @@ export function deleteAgent(slug: string, authToken?: string): Promise<void> {
   return fetchApi<void>(`/api/ai/agents/${encodeURIComponent(slug)}`, { method: "DELETE" }, authToken);
 }
 
-/** Run a named agent. `history` = prior turns, oldest first, excluding this message. */
+/**
+ * Run a named agent. Stateless callers pass `history` (prior turns, oldest first, excluding this
+ * message); thread-backed callers pass `threadId` (NEW_THREAD to open one) and the server keeps the
+ * history — `history` is then ignored.
+ */
 export function runAgent(
   slug: string,
   message: string,
   opts: {
     history?: { role: "user" | "assistant"; content: string }[];
+    threadId?: string;
     register?: Register;
     entityType?: string;
     entityId?: string;
@@ -129,8 +173,32 @@ export function runAgent(
       source: "editor",
       ...(opts.register ? { register: opts.register } : {}),
       ...(opts.entityType && opts.entityId ? { entityType: opts.entityType, entityId: opts.entityId } : {}),
-      ...(opts.history?.length ? { history: opts.history } : {}),
+      ...(opts.threadId ? { threadId: opts.threadId } : {}),
+      ...(opts.history?.length && !opts.threadId ? { history: opts.history } : {}),
     }),
     authToken,
   );
+}
+
+// ── Threads (server-side Ask conversations; own-only, admins see all) ──
+
+export function listThreads(opts: { agent?: string; limit?: number } = {}, authToken?: string): Promise<Thread[]> {
+  const q = new URLSearchParams();
+  if (opts.agent) q.set("agent", opts.agent);
+  if (opts.limit) q.set("limit", String(opts.limit));
+  const qs = q.toString();
+  return fetchApi<Thread[]>(`/api/ai/threads${qs ? `?${qs}` : ""}`, {}, authToken);
+}
+export function getThread(id: string, authToken?: string): Promise<ThreadDetail> {
+  return fetchApi<ThreadDetail>(`/api/ai/threads/${encodeURIComponent(id)}`, {}, authToken);
+}
+export function renameThread(id: string, title: string | null, authToken?: string): Promise<Thread> {
+  return fetchApi<Thread>(
+    `/api/ai/threads/${encodeURIComponent(id)}`,
+    { ...json({ title }), method: "PATCH" },
+    authToken,
+  );
+}
+export function deleteThread(id: string, authToken?: string): Promise<void> {
+  return fetchApi<void>(`/api/ai/threads/${encodeURIComponent(id)}`, { method: "DELETE" }, authToken);
 }

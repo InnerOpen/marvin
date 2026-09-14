@@ -127,6 +127,10 @@ class AIAgentRequest(_MarvinModel):
     model_override: str | None = None
     max_steps: int | None = None  # tool-dispatch budget (server clamps)
     source: str = "agent"  # invocation surface; gated by workspace policy
+    # Server-side conversation (Ask threads). "new" opens a thread for this run; an id continues one
+    # (its stored turns are the history and `history` above is ignored). Either way the question
+    # and answer are appended and the id comes back as `threadId`. Omitted = stateless, as before.
+    thread_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

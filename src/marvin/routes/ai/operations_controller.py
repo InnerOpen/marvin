@@ -23,8 +23,12 @@ from marvin.schemas.group.ai_execution import (
     AIReviseEntryRequest,
     AIToolInvokeRequest,
 )
+from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, AIThreadRead, AIThreadUpdate
 
 router = APIRouter(prefix="/ai", route_class=MarvinCrudRoute)
+
+# `thread_id` value that asks a run to open a fresh thread (see AIAgentRequest.thread_id).
+NEW_THREAD = "new"
 
 
 @controller(router)
@@ -701,7 +705,15 @@ class AIOperationsController(BaseUserController):
         # Explicit per-call register wins; otherwise the workspace default; otherwise "auto".
         system += self._register_clause(body.tone_register or self._default_register(), persona_prompt)
         return self._run_agent_core(
-            provider=provider, model=model, system=system, body=body, entity_id=entity_id, tools=tools, max_steps=max_steps, operation_slug="agent"
+            provider=provider,
+            model=model,
+            system=system,
+            body=body,
+            entity_id=entity_id,
+            tools=tools,
+            max_steps=max_steps,
+            operation_slug="agent",
+            agent_slug="marvin",
         )
 
     # ── Agents (definable: system + workspace rows) ─────────────────────
@@ -815,7 +827,99 @@ class AIOperationsController(BaseUserController):
             tools=tools,
             max_steps=max_steps,
             operation_slug=f"agent:{spec.slug}",
+            agent_slug=spec.slug,
         )
+
+    # ── Threads (server-side Ask conversations) ─────────────────────────
+    # Any future literal `/threads/<word>` route must be declared before `/threads/{thread_id}`.
+
+    @router.get("/threads", response_model=list[AIThreadRead], summary="List my Ask threads (admins: every thread)")
+    def list_threads(self, agent: str | None = None, limit: int = 50) -> list[AIThreadRead]:
+        from marvin.services.ai.threads import list_threads
+
+        rows = list_threads(self.session, self.group_id, self.user.id, see_all=self._sees_all_threads(), agent_slug=agent, limit=limit)
+        return [AIThreadRead.model_validate(r) for r in rows]
+
+    @router.get("/threads/{thread_id}", response_model=AIThreadDetail, summary="Get a thread with its messages")
+    def get_thread(self, thread_id: str) -> AIThreadDetail:
+        thread = self._thread_or_404(thread_id)
+        return self._thread_detail(thread)
+
+    @router.patch("/threads/{thread_id}", response_model=AIThreadRead, summary="Rename a thread")
+    def update_thread(self, thread_id: str, data: AIThreadUpdate) -> AIThreadRead:
+        thread = self._thread_or_404(thread_id)
+        if "title" in data.model_fields_set:
+            thread.title = (data.title or "").strip() or None
+        self.session.commit()
+        self.session.refresh(thread)
+        return AIThreadRead.model_validate(thread)
+
+    @router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a thread")
+    def delete_thread(self, thread_id: str) -> None:
+        thread = self._thread_or_404(thread_id)
+        self.session.delete(thread)
+        self.session.commit()
+
+    # ── Thread helpers ─────────────────────────────────────────────────
+
+    def _sees_all_threads(self) -> bool:
+        from marvin.services.ai.operations.base import ROLE_ADMIN
+
+        return self._user_role() >= ROLE_ADMIN
+
+    def _thread_or_404(self, thread_id: str, agent_slug: str | None = None):
+        from marvin.services.ai.threads import ThreadAgentMismatch, ThreadNotFound, resolve_thread
+
+        try:
+            return resolve_thread(self.session, self.group_id, thread_id, self.user.id, see_all=self._sees_all_threads(), agent_slug=agent_slug)
+        except ThreadNotFound:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No thread '{thread_id}'.") from None
+        except ThreadAgentMismatch as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+
+    @staticmethod
+    def _thread_detail(thread) -> AIThreadDetail:
+        detail = AIThreadDetail.model_validate(thread)
+        detail.messages = [AIThreadMessageRead.model_validate(m) for m in sorted(thread.messages, key=lambda m: m.seq)]
+        detail.pending = list((thread.pending_json or {}).get("calls") or [])
+        return detail
+
+    def _thread_for_run(self, body: AIAgentRequest, agent_slug: str):
+        """The existing thread this run continues, or None (stateless, or a thread to open after the run)."""
+        if not body.thread_id or body.thread_id == NEW_THREAD:
+            return None
+        return self._thread_or_404(body.thread_id, agent_slug=agent_slug)
+
+    def _run_history(self, body: AIAgentRequest, thread) -> list:
+        """History for the model: the thread's stored turns when there is one, else the client's replay."""
+        from marvin.services.ai.threads import history_rows
+
+        return self._bounded_history(history_rows(thread) if thread is not None else body.history)
+
+    def _record_thread_turns(self, thread, body: AIAgentRequest, agent_slug: str, execution, answer: str, steps, sources: list[dict], tokens: int):
+        """After a successful run: open the thread if this is its first turn, then store question + answer."""
+        from marvin.services.ai.threads import append_turn, create_thread, touch
+
+        if thread is None:
+            if body.thread_id != NEW_THREAD:
+                return None
+            thread = create_thread(self.session, self.group_id, self.user.id, agent_slug, body.message, body.entity_type, execution.entity_id)
+        _, log_outputs = self._logging_policy()
+        append_turn(self.session, thread, "user", body.message)
+        append_turn(
+            self.session,
+            thread,
+            "assistant",
+            answer or "",
+            steps=steps,
+            meta={"sources": sources, "totalTokens": tokens},
+            execution_id=execution.id,
+            log_outputs=log_outputs,
+        )
+        touch(thread, tokens)
+        execution.metadata_json = {**(execution.metadata_json or {}), "thread_id": str(thread.id)}
+        self.session.commit()
+        return thread
 
     # ── Agent helpers ──────────────────────────────────────────────────
 
@@ -952,6 +1056,7 @@ class AIOperationsController(BaseUserController):
         tools: list,
         max_steps: int,
         operation_slug: str,
+        agent_slug: str,
     ) -> dict:
         """The shared tail of every persona run: context block, history, execution row, loop, bookkeeping."""
         import time
@@ -962,8 +1067,10 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai.agents import workspace_preamble
         from marvin.services.ai.base import CompletionOptions, Message
         from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.threads import extract_sources
 
         _app = get_app_settings()
+        thread = self._thread_for_run(body, agent_slug)
         # Ground the run in what the user is looking at. Prefer a pre-assembled context block
         # (title/status/fields/attachments) so the agent can answer immediately; fall back to the
         # bare id hint when we can't assemble one, so it can still fetch the entity itself.
@@ -984,7 +1091,7 @@ class AIOperationsController(BaseUserController):
             user_msg += f"\n\n(Context: the user is currently looking at {body.entity_type} {entity_id}.)"
         messages = [
             Message(role="system", content=system),
-            *self._bounded_history(body.history),
+            *self._run_history(body, thread),
             Message(role="user", content=user_msg),
         ]
 
@@ -1038,6 +1145,8 @@ class AIOperationsController(BaseUserController):
             if log_outputs
             else {"steps": len(result.steps)}
         )
+        sources = extract_sources(result.steps)
+        thread = self._record_thread_turns(thread, body, agent_slug, execution, result.answer, result.steps, sources, result.total_tokens)
         self.session.commit()
         self.session.refresh(execution)
         self._emit_ai_event(execution, "completed", None)
@@ -1046,8 +1155,10 @@ class AIOperationsController(BaseUserController):
         return {
             "answer": result.answer,
             "steps": [{"tool": s.tool, "arguments": s.arguments, "result": s.result} for s in result.steps],
+            "sources": sources,
             "stoppedReason": result.stopped_reason,
             "executionId": str(execution.id),
+            "threadId": str(thread.id) if thread is not None else None,
             "totalTokens": result.total_tokens,
             "estimatedCostUsd": execution.estimated_cost_usd,
         }
@@ -1062,9 +1173,10 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai.pricing import estimate_cost
 
         _app = get_app_settings()
+        thread = self._thread_for_run(body, spec.slug)
         messages = [
             Message(role="system", content=system),
-            *self._bounded_history(body.history),
+            *self._run_history(body, thread),
             Message(role="user", content=body.message),
         ]
         log_inputs, log_outputs = self._logging_policy()
@@ -1097,6 +1209,7 @@ class AIOperationsController(BaseUserController):
         execution.total_tokens = result.total_tokens
         execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, result.prompt_tokens, result.completion_tokens)
         execution.output_json = {"answer": result.content} if log_outputs else None
+        thread = self._record_thread_turns(thread, body, spec.slug, execution, result.content, [], [], result.total_tokens)
         self.session.commit()
         self.session.refresh(execution)
         self._emit_ai_event(execution, "completed", None)
@@ -1104,8 +1217,10 @@ class AIOperationsController(BaseUserController):
         return {
             "answer": result.content,
             "steps": [],
+            "sources": [],
             "stoppedReason": "final",
             "executionId": str(execution.id),
+            "threadId": str(thread.id) if thread is not None else None,
             "totalTokens": result.total_tokens,
             "estimatedCostUsd": execution.estimated_cost_usd,
         }
