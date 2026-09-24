@@ -41,6 +41,12 @@ TOKEN_REFRESH_TASK = "instagram-token-refresh"
 POLL_INTERVAL_SECONDS = 120
 TOKEN_REFRESH_INTERVAL_SECONDS = 30 * 24 * 3600  # long-lived tokens last 60 days
 
+# This workspace's icons are emoji (see any existing entry type); an icon-set name would render as
+# literal text. One colour across the four so the social content reads as a family in the sidebar.
+SOCIAL_COLOR = "#C13584"
+RULES_ICON = "💬"
+SENT_ICON = "📤"
+
 # Smart collections give the two content types a home in the sidebar. Rules match on entry type and
 # status only (see services/collections/smart_collections.py), which is all we need: one collection per
 # type. Named "Social" rather than "Instagram" so Threads/email reply types can join the same rules later.
@@ -49,7 +55,8 @@ COLLECTIONS = [
         "name": "Social — Auto-Responses",
         "slug": "social-auto-responses",
         "description": "Canned replies keyed by keyword. Draft rules are inert; published ones fire.",
-        "icon": "message-circle",
+        "icon": RULES_ICON,
+        "color": SOCIAL_COLOR,
         "sort_order": 50,
         "is_smart": True,
         "is_public": False,
@@ -59,7 +66,8 @@ COLLECTIONS = [
         "name": "Social — Sent",
         "slug": "social-sent",
         "description": "Every automated reply actually sent, newest first. One entry per comment answered.",
-        "icon": "send",
+        "icon": SENT_ICON,
+        "color": SOCIAL_COLOR,
         "sort_order": 51,
         "is_smart": True,
         "is_public": False,
@@ -70,11 +78,13 @@ COLLECTIONS = [
 # Internal content: never rendered, submitted or routed — the CMS is just the editor for it.
 INTERNAL_CAPABILITIES = {"publishable": False, "submittable": False, "routable": False}
 
+
 ENTRY_TYPES = [
     {
         "slug": RULES_TYPE,
         "name": "IG Auto-Reply Rule",
-        "icon": "message-circle",
+        "icon": RULES_ICON,
+        "color": SOCIAL_COLOR,
         "description": "Keyword → private-reply rule for Instagram comments. Only published rules apply.",
         "schema_json": {
             "fields": [
@@ -88,7 +98,8 @@ ENTRY_TYPES = [
     {
         "slug": LOG_TYPE,
         "name": "IG Reply Log",
-        "icon": "send",
+        "icon": SENT_ICON,
+        "color": SOCIAL_COLOR,
         "description": "One entry per private reply sent. Its comment_id is what stops a comment being answered twice.",
         "schema_json": {
             "fields": [
@@ -184,7 +195,7 @@ def upsert_entry_types(session, workspace: Groups) -> dict[str, EntryTypes]:
     for spec in ENTRY_TYPES:
         et = session.query(EntryTypes).filter(EntryTypes.group_id == workspace.id, EntryTypes.slug == spec["slug"]).first()
         if et:
-            for key in ("name", "icon", "description", "schema_json", "capabilities_json"):
+            for key in ("name", "icon", "color", "description", "schema_json", "capabilities_json"):
                 setattr(et, key, spec[key])
             logger.info("  ✓ Entry type '%s' updated", spec["slug"])
         else:
@@ -206,6 +217,7 @@ def upsert_collections(session, workspace: Groups) -> None:
         row = session.query(Collections).filter(Collections.group_id == workspace.id, Collections.slug == spec["slug"]).first()
         if row:
             row.name, row.description, row.smart_rules, row.is_smart = spec["name"], spec["description"], spec["smart_rules"], True
+            row.icon, row.color = spec["icon"], spec["color"]
             logger.info("  ✓ Collection '%s' updated", spec["slug"])
         else:
             repos.collections.create(CollectionCreate(**spec))
