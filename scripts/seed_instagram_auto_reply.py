@@ -67,7 +67,9 @@ ENTRY_TYPES = [
             "fields": [
                 {"key": "comment_id", "label": "Comment ID", "type": "text", "required": True, "readOnly": True},
                 {"key": "media_id", "label": "Post ID", "type": "text", "readOnly": True},
-                {"key": "username", "label": "Commenter", "type": "text", "readOnly": True},
+                {"key": "commenter", "label": "Commenter", "type": "text", "readOnly": True},
+                {"key": "username", "label": "Username (if Meta shares it)", "type": "text", "readOnly": True},
+                {"key": "user_id", "label": "Instagram user ID", "type": "text", "readOnly": True},
                 {"key": "keyword", "label": "Matched keyword", "type": "text", "readOnly": True},
                 {"key": "reply", "label": "Reply sent", "type": "textarea", "readOnly": True},
                 {"key": "text", "label": "Comment text", "type": "textarea", "readOnly": True},
@@ -90,8 +92,8 @@ AUTO_REPLY_TASK_CONFIG = {
         "records_entry_type": LOG_TYPE,
         "slug_prefix": "ig-reply-",
         "slug_field": "comment_id",
-        "title_template": "Reply to @{username} ({keyword})",
-        "status": "draft",
+        "title_template": "{keyword} → {commenter}",
+        "status": "published",
     },
 }
 

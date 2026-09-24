@@ -64,6 +64,7 @@ def test_seed_creates_types_tasks_and_draft_rules_once(db_session, workspace, mo
     assert auto.task_type == "run_integration_action"
     assert auto.task_config["args"]["dry_run"] is True
     assert auto.task_config["inputs"]["rules"] == {"entry_type": "ig-auto-reply", "status": "published", "as": "records"}
+    assert auto.task_config["outputs"]["status"] == "published"  # a sent reply is final, not a draft
     assert auto.next_run_at is not None
 
     rules = db_session.query(Entries).filter(Entries.group_id == gid, Entries.entry_type_id == types["ig-auto-reply"].id).all()

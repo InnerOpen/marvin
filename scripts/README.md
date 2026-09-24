@@ -56,7 +56,7 @@ uv run scripts/seed_instagram_auto_reply.py --workspace mash-burn-co
 ```
 
 **What it does:**
-- ✅ Entry types `ig-auto-reply` (rules: post id, keywords, reply — only `published` rules apply) and `ig-reply-log` (one entry per DM sent; dedupe)
+- ✅ Entry types `ig-auto-reply` (rules: post id, keywords, reply — only `published` rules apply) and `ig-reply-log` (one `published` entry per DM sent; its `comment_id` is the dedupe)
 - ✅ Scheduled task `instagram-auto-reply` (`run_integration_action` → `auto_reply`, every 2 min) — created **disabled, in dry-run**
 - ✅ Scheduled task `instagram-token-refresh` (`refresh_token`, every 30 days) — disabled
 - ✅ Three sample rules (size / link / price) as drafts
