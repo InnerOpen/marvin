@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.81 (2026-09-24)
+
+### Bug Fixes
+
+- **integrations**: Emoji icons and a colour for the IG types and collections
+  ([`8a8d183`](https://github.com/InnerOpen/marvin/commit/8a8d183634ad9e50e04131821cb87295a0fe5fb5))
+
+
 ## v1.0.0-rc.80 (2026-09-24)
 
 ### Features
