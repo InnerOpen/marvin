@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.79 (2026-09-24)
+
+### Bug Fixes
+
+- **integrations**: IG reply log entries are published, titled by commenter
+  ([`71c65ad`](https://github.com/InnerOpen/marvin/commit/71c65adcac995daefc6298db0b79ecd435e569b4))
+
+
 ## v1.0.0-rc.78 (2026-09-24)
 
 ### Features
