@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.80 (2026-09-24)
+
+### Features
+
+- **integrations**: Smart collections for IG rules and sent replies
+  ([`53f896f`](https://github.com/InnerOpen/marvin/commit/53f896fb2452cfb464938545a29c9fa239eca7b8))
+
+
 ## v1.0.0-rc.79 (2026-09-24)
 
 ### Bug Fixes
