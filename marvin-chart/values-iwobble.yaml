@@ -88,7 +88,8 @@ initContainers:
         https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
         https://github.com/InnerOpen/marvin-integration-apprise/archive/refs/heads/main.tar.gz
         https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
-        https://github.com/InnerOpen/marvin-integration-openai-images/archive/refs/heads/main.tar.gz;
+        https://github.com/InnerOpen/marvin-integration-openai-images/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-instagram/archive/refs/heads/main.tar.gz;
         echo "--- installed into /plugins ---";
         ls -1 /plugins
     volumeMounts:

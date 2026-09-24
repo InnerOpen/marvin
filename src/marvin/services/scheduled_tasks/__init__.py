@@ -13,6 +13,7 @@ from .handlers import (  # noqa: F401  — imported for handler registration sid
     TaskHandlerRegistry,
     ai,
     automation,
+    integrations,
     maintenance,
     media,
     publishing,
