@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.78 (2026-09-24)
+
+### Features
+
+- **integrations**: Run_integration_action scheduled task + Instagram auto-reply seed
+  ([`49490df`](https://github.com/InnerOpen/marvin/commit/49490df8a6fd04727d3b6a90a67436c4cb12307a))
+
+
 ## v1.0.0-rc.77 (2026-09-14)
 
 ### Features
