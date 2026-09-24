@@ -8,7 +8,9 @@ from pathlib import Path
 from pytest import fixture
 
 from marvin.db.models.groups.groups import Groups
+from marvin.db.models.platform.collections import Collections
 from marvin.db.models.platform.entries import Entries
+from marvin.db.models.platform.entry_collections import EntryCollections
 from marvin.db.models.platform.entry_types import EntryTypes
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 
@@ -33,6 +35,10 @@ def workspace(db_session):
 
     yield gid, slug
 
+    db_session.query(EntryCollections).filter(
+        EntryCollections.collection_id.in_(db_session.query(Collections.id).filter(Collections.group_id == gid))
+    ).delete(synchronize_session=False)
+    db_session.query(Collections).filter(Collections.group_id == gid).delete()
     db_session.query(Entries).filter(Entries.group_id == gid).delete()
     db_session.query(EntryTypes).filter(EntryTypes.group_id == gid).delete()
     db_session.query(ScheduledTaskModel).filter(ScheduledTaskModel.group_id == gid).delete()
@@ -72,6 +78,23 @@ def test_seed_creates_types_tasks_and_draft_rules_once(db_session, workspace, mo
     db_session.refresh(rule)
     assert rule.status == "published"
     assert all(r.status == "draft" for r in rules if r.slug != "ig-rule-size")
+
+
+def test_seed_creates_smart_collections_and_materializes_membership(db_session, workspace, monkeypatch):
+    gid, slug = workspace
+    seed = _load_seed()
+    monkeypatch.setattr(sys, "argv", ["seed", "--workspace", slug])
+
+    assert seed.main() == 0
+
+    cols = {c.slug: c for c in db_session.query(Collections).filter(Collections.group_id == gid).all()}
+    assert set(cols) == {"social-auto-responses", "social-sent"}
+    rules_col = cols["social-auto-responses"]
+    assert rules_col.is_smart is True and rules_col.is_public is False
+    assert rules_col.smart_rules == {"entry_types": ["ig-auto-reply"], "match": "all"}
+    # the three seeded rules are collected regardless of status; the log collection is empty until a reply is sent
+    assert sorted(e.slug for e in rules_col.entries) == ["ig-rule-link", "ig-rule-price", "ig-rule-size"]
+    assert cols["social-sent"].entries == []
 
 
 def test_seed_fails_cleanly_for_unknown_workspace(monkeypatch):

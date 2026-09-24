@@ -27,6 +27,7 @@ from marvin.db.db_setup import session_context  # noqa: E402
 from marvin.db.models.groups import Groups  # noqa: E402
 from marvin.db.models.platform import Entries, EntryTypes  # noqa: E402
 from marvin.repos.repository_factory import AllRepositories  # noqa: E402
+from marvin.schemas.platform.collections import CollectionCreate  # noqa: E402
 from marvin.schemas.platform.scheduled_tasks import ScheduledTaskCreate  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -39,6 +40,32 @@ AUTO_REPLY_TASK = "instagram-auto-reply"
 TOKEN_REFRESH_TASK = "instagram-token-refresh"
 POLL_INTERVAL_SECONDS = 120
 TOKEN_REFRESH_INTERVAL_SECONDS = 30 * 24 * 3600  # long-lived tokens last 60 days
+
+# Smart collections give the two content types a home in the sidebar. Rules match on entry type and
+# status only (see services/collections/smart_collections.py), which is all we need: one collection per
+# type. Named "Social" rather than "Instagram" so Threads/email reply types can join the same rules later.
+COLLECTIONS = [
+    {
+        "name": "Social — Auto-Responses",
+        "slug": "social-auto-responses",
+        "description": "Canned replies keyed by keyword. Draft rules are inert; published ones fire.",
+        "icon": "message-circle",
+        "sort_order": 50,
+        "is_smart": True,
+        "is_public": False,
+        "smart_rules": {"entry_types": [RULES_TYPE], "match": "all"},
+    },
+    {
+        "name": "Social — Sent",
+        "slug": "social-sent",
+        "description": "Every automated reply actually sent, newest first. One entry per comment answered.",
+        "icon": "send",
+        "sort_order": 51,
+        "is_smart": True,
+        "is_public": False,
+        "smart_rules": {"entry_types": [LOG_TYPE], "match": "all"},
+    },
+]
 
 # Internal content: never rendered, submitted or routed — the CMS is just the editor for it.
 INTERNAL_CAPABILITIES = {"publishable": False, "submittable": False, "routable": False}
@@ -169,6 +196,41 @@ def upsert_entry_types(session, workspace: Groups) -> dict[str, EntryTypes]:
     return out
 
 
+def upsert_collections(session, workspace: Groups) -> None:
+    """Create or re-point the smart collections, then materialize their membership."""
+    from marvin.db.models.platform.collections import Collections
+    from marvin.services.collections.smart_collections import sync_collection
+
+    repos = AllRepositories(session, group_id=workspace.id)
+    for spec in COLLECTIONS:
+        row = session.query(Collections).filter(Collections.group_id == workspace.id, Collections.slug == spec["slug"]).first()
+        if row:
+            row.name, row.description, row.smart_rules, row.is_smart = spec["name"], spec["description"], spec["smart_rules"], True
+            logger.info("  ✓ Collection '%s' updated", spec["slug"])
+        else:
+            repos.collections.create(CollectionCreate(**spec))
+            row = session.query(Collections).filter(Collections.group_id == workspace.id, Collections.slug == spec["slug"]).one()
+            logger.info("  ✓ Collection '%s' created", spec["slug"])
+        session.commit()
+        changed = sync_collection(session, workspace.id, row)
+        session.commit()
+        logger.info("      membership synced (%d change%s)", changed, "" if changed == 1 else "s")
+
+
+def resync_all_smart_collections(session, workspace: Groups) -> None:
+    """Reconcile every smart collection in the workspace. Membership is normally kept live by an
+    event listener, so a status changed outside the API (a script, a direct write) can leave an
+    entry in a stale bucket — this is the catch-up."""
+    from marvin.db.models.platform.collections import Collections
+    from marvin.services.collections.smart_collections import sync_collection
+
+    changed = 0
+    for row in session.query(Collections).filter_by(group_id=workspace.id, is_smart=True).all():
+        changed += sync_collection(session, workspace.id, row)
+    session.commit()
+    logger.info("  ✓ Reconciled every smart collection (%d membership change%s)", changed, "" if changed == 1 else "s")
+
+
 def ensure_tasks(session, workspace: Groups) -> None:
     repos = AllRepositories(session, group_id=workspace.id)
     for task in TASKS:
@@ -217,6 +279,9 @@ def main() -> int:
         ensure_tasks(session, workspace)
         logger.info("3. Sample rules")
         ensure_sample_rules(session, workspace, types[RULES_TYPE])
+        logger.info("4. Collections")
+        upsert_collections(session, workspace)
+        resync_all_smart_collections(session, workspace)
 
     logger.info("")
     logger.info("✅ Done. Next: Settings → Integrations → Instagram (token + IG user id), publish a rule,")
