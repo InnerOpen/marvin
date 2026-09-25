@@ -1,5 +1,11 @@
 # Integrations as installable packages — plugin architecture plan
 
+> **Accuracy note (2026-09-25).** Where this document says the core polls providers and dispatches
+> `PolledEvent`s, it describes an intent that was never built — nothing calls `poll()`. Scheduled
+> provider work runs through the `run_integration_action` scheduled-task handler instead. A provider
+> may also declare the workspace content its actions need (`content = (ContentBlueprint(...),)`),
+> which core offers on the integration's card for the workspace to apply; see INTEGRATIONS_DESIGN.md.
+
 ## Goal
 
 Make integrations **install/uninstall packages**, decoupled from the core codebase, so:

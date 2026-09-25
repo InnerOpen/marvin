@@ -187,6 +187,35 @@ def test_inputs_come_from_entry_data_json(db_session, workspace, provider, secre
     assert summary == "ig.auto_reply: checked=4 matched=1 sent=0 skipped=1 (dry run) → 0 log entries"
 
 
+def test_rule_inputs_arrive_oldest_first_so_overlaps_resolve_the_same_way(db_session, workspace, provider, secrets):
+    """A provider that takes the first matching rule must get a stable order, or a comment matching
+    two rules gets a different reply on different runs."""
+    from datetime import UTC, datetime, timedelta
+
+    rules_type = db_session.query(EntryTypes).filter_by(group_id=workspace, slug=RULES_TYPE).one()
+    now = datetime.now(UTC).replace(tzinfo=None)
+    for name, age_days in (("younger", 1), ("older", 30)):
+        entry = Entries(
+            session=db_session,
+            group_id=workspace,
+            entry_type_id=rules_type.id,
+            title=name,
+            slug=f"rule-{name}",
+            status="published",
+            data_json={"keywords": "size", "reply": name},
+        )
+        db_session.add(entry)
+        db_session.flush()
+        entry.created_at = now - timedelta(days=age_days)
+    db_session.commit()
+
+    provider.result = {"checked": 0, "matched": 0, "sent": 0, "dry_run": True, "records": [], "skipped": []}
+    _run(workspace)
+
+    replies = [r["reply"] for r in provider.calls[0][1]["rules"]]
+    assert replies.index("older") < replies.index("younger")
+
+
 def test_records_become_entries_once(db_session, workspace, provider, secrets):
     record = {"comment_id": "c1", "media_id": "m1", "username": "fan", "keyword": "size", "reply": "S–XL", "text": "size?", "sent_at": "now"}
     provider.result = {"checked": 1, "matched": 1, "sent": 1, "dry_run": False, "records": [record], "skipped": []}

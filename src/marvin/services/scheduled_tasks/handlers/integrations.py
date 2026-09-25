@@ -115,10 +115,18 @@ class RunIntegrationActionHandler(ScheduledTaskHandler):
 
 
 def _load_input(session, gid, spec: dict) -> list:
-    """Entries → action argument. Same query vocabulary as the automation selector."""
+    """Entries → action argument. Same query vocabulary as the automation selector.
+
+    Ordered oldest-first, deliberately. A provider that treats its input as a priority list — the
+    Instagram matcher takes the first rule whose keyword hits — would otherwise get whatever order
+    the database happened to return, so a comment matching two rules could get a different reply on
+    different runs. Oldest-first makes it explicable: the rule you wrote first wins.
+    """
+    from marvin.db.models.platform.entries import Entries
     from marvin.services.automation.selector import _entries_query
 
     q = _entries_query(session, gid, {"entry_type": spec.get("entry_type"), "status": spec.get("status")})
+    q = q.order_by(Entries.created_at.asc(), Entries.id.asc())
     mode = spec.get("as") or "records"
     if mode == "field":
         field = spec.get("field") or DEFAULT_SLUG_FIELD

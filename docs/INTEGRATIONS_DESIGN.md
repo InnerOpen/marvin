@@ -148,6 +148,13 @@ class CredentialField:
     required: bool = True
 ```
 
+> **Accuracy note (2026-09-25).** This document predates the implementation and has drifted in two
+> places. The real contract is `marvin_integration_sdk` — treat that package as the source of truth.
+> Specifically: `IntegrationContext` carries `config`, `secret`, `logger` and `http` only (no
+> session, no event bus, no ids — a provider must not reach into the database), and **nothing calls
+> `poll()`**: there is no provider polling loop. A provider runs on demand (the action endpoint), on
+> an event (subscriptions), or on a schedule via the `run_integration_action` scheduled-task handler.
+
 ### The provider ABC
 
 ```python
@@ -172,6 +179,7 @@ class IntegrationProvider(ABC):
     credentials: tuple[CredentialField, ...] = ()
     emits: tuple[ProviderEvent, ...] = ()
     actions: tuple[ProviderAction, ...] = ()
+    content: tuple[ContentBlueprint, ...] = ()   # workspace content the actions depend on (see below)
     projects_tools: tuple[str, ...] = ()   # tool-registry slugs this integration lights up (optional)
 
     # --- lifecycle ---
@@ -200,6 +208,41 @@ class IntegrationProvider(ABC):
             "actions": [asdict(a) for a in self.actions],
         }
 ```
+
+### Declaring the workspace content an integration needs
+
+A provider can never create anything — no session, no repositories. If its actions read or write
+entries (the Instagram auto-reply reads keyword rules and writes a reply log), it **declares** the
+entry types, collections and scheduled tasks they depend on:
+
+```python
+content = (
+    ContentBlueprint(
+        kind="entry_type",                       # entry_type | collection | scheduled_task
+        slug="ig-reply-log",
+        name="IG Reply Log",
+        description="One entry per DM sent.",
+        payload={"name": "IG Reply Log", "schema_json": {...}},
+    ),
+    ContentBlueprint(
+        kind="collection",
+        slug="social-sent",
+        name="Social — Sent",
+        requires=("entry_type:ig-reply-log",),   # applied in dependency order
+        payload={"is_smart": True, "smart_rules": {"entry_types": ["ig-reply-log"]}},
+    ),
+)
+```
+
+Core surfaces these as blueprints (`services/blueprints/`), filed under the provider's own category,
+and the integration's card lists them as *"what this needs to work"* with an apply button. Rules:
+
+- **Never automatic.** Installing an integration creates nothing; the workspace applies it.
+- **Create missing, never overwrite.** A workspace that customised its copy keeps it across provider
+  upgrades, and re-applying is a safe no-op.
+- **A provider owns its own names** (`ig-reply-log` is Instagram's business). Anything belonging to
+  the workspace — which of *their* entry types a rule should track — is asked for via `parameters`,
+  never guessed.
 
 ### Wiring into the four primitives (no new plumbing)
 
