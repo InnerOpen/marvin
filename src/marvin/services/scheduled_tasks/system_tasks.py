@@ -53,6 +53,18 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         schedule_config={"interval_seconds": _DAILY_SECONDS},
     ),
     SystemTaskDefinition(
+        slug="prune_scheduled_task_executions",
+        name="Prune Scheduled Task Executions",
+        task_type="prune_scheduled_task_executions",
+        description=(
+            "Delete scheduled-task execution records older than the retention window. Admin-only; runs daily. "
+            "Without this the table grows without limit — a task on a two-minute interval writes ~720 rows a day."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"retention_days": 30},
+    ),
+    SystemTaskDefinition(
         slug="resync_smart_collections",
         name="Resync Smart Collections",
         task_type="resync_smart_collections",
