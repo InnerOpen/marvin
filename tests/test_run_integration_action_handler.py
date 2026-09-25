@@ -216,6 +216,28 @@ def test_rule_inputs_arrive_oldest_first_so_overlaps_resolve_the_same_way(db_ses
     assert replies.index("older") < replies.index("younger")
 
 
+def test_a_routine_nothing_happened_run_is_not_worth_logging(db_session, workspace, provider, secrets):
+    """A task polling every couple of minutes writes ~720 rows a day. Returning None keeps the idle
+    runs out of the execution log so the runs that mattered stay findable."""
+    provider.result = {"checked": 0, "matched": 0, "sent": 0, "dry_run": True, "records": [], "skipped": []}
+    assert _run(workspace) is None
+
+    # seeing comments but matching none is still nothing happening
+    provider.result = {"checked": 42, "matched": 0, "sent": 0, "dry_run": True, "records": [], "skipped": [{"comment_id": "c", "reason": "no_match"}]}
+    assert _run(workspace) is None
+
+
+def test_a_run_that_did_something_always_reports(db_session, workspace, provider, secrets):
+    for result in (
+        {"checked": 2, "matched": 1, "sent": 0, "dry_run": True, "would_send": [{"comment_id": "c"}], "skipped": []},
+        {"checked": 2, "matched": 1, "sent": 1, "dry_run": False, "records": [], "skipped": []},
+        {"checked": 1, "matched": 1, "sent": 0, "skipped": [{"comment_id": "c", "reason": "send_failed: HTTP 400"}]},
+        {"expires_in": 5183944, "secret_update": "new-tok"},
+    ):
+        provider.result = result
+        assert _run(workspace) is not None, result
+
+
 def test_records_become_entries_once(db_session, workspace, provider, secrets):
     record = {"comment_id": "c1", "media_id": "m1", "username": "fan", "keyword": "size", "reply": "S–XL", "text": "size?", "sent_at": "now"}
     provider.result = {"checked": 1, "matched": 1, "sent": 1, "dry_run": False, "records": [record], "skipped": []}

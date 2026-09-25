@@ -111,6 +111,11 @@ class RunIntegrationActionHandler(ScheduledTaskHandler):
 
         summary = _summary(slug, action, result, created)
         logger.info("Integration action: %s", summary)
+        # Quiet on a routine nothing-happened run: polling every couple of minutes, most runs find
+        # no new work, and logging each one drowns the runs that mattered. None means "not worth a
+        # row" — the listener still logs it when a person triggered the run by hand.
+        if not _worth_logging(result, created):
+            return None
         return summary
 
 
@@ -180,6 +185,18 @@ def _rotate_secret(session, row, gid, value: str) -> None:
     row.secret_ref = ref
     session.commit()
     logger.info("Integration '%s': credential rotated by provider", row.slug)
+
+
+def _worth_logging(result: dict, created: int) -> bool:
+    """Did this run actually do anything? Sends, new records, failures and rotations all count."""
+    if created or result.get("secret_update"):
+        return True
+    if result.get("sent") or result.get("matched"):
+        return True
+    if any("failed" in str(s.get("reason", "")) for s in (result.get("skipped") or [])):
+        return True
+    # A dry run that found matches is interesting; one that found nothing is not.
+    return bool(result.get("would_send"))
 
 
 def _summary(slug: str, action: str, result: dict, created: int) -> str:

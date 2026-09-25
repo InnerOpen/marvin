@@ -340,6 +340,57 @@ class PruneAIExecutionsHandler(ScheduledTaskHandler):
         return summary
 
 
+class PruneScheduledTaskExecutionsHandler(ScheduledTaskHandler):
+    """
+    Delete old rows from scheduled_task_execution_log (platform-wide, all workspaces).
+
+    Admin-only. This table had no pruning at all while event logs and AI executions did, so it grew
+    without limit — a task on a two-minute interval writes ~720 rows a day on its own.
+
+    Configuration (task_config):
+    - retention_days: int (default: 30) - Delete executions older than this. A value <= 0 disables.
+    """
+
+    name = "Prune Scheduled Task Executions"
+    description = "Delete scheduled-task execution records older than the retention window (admin only)"
+    admin_only = True
+    config_schema = {
+        "type": "object",
+        "properties": {
+            "retention_days": {
+                "type": "integer",
+                "default": 30,
+                "description": "Delete execution records older than this many days (<=0 disables).",
+            },
+        },
+    }
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        if task.group_id:
+            return "Skipped: prune_scheduled_task_executions is admin-only and cannot run in a workspace context"
+
+        from marvin.db.models.platform.scheduled_tasks import ScheduledTaskExecutionLogModel
+
+        retention_days = task.task_config.get("retention_days", 30)
+        if not retention_days or retention_days <= 0:
+            return "Skipped: execution log retention disabled (retention_days <= 0)"
+
+        cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+        with session_context() as session:
+            deleted = (
+                session.query(ScheduledTaskExecutionLogModel)
+                .filter(ScheduledTaskExecutionLogModel.executed_at < cutoff)
+                .delete(synchronize_session=False)
+            )
+            session.commit()
+
+        if not deleted:
+            return None  # nothing to say; do not add a row to the log we are pruning
+        summary = f"Pruned {deleted} execution record{'s' if deleted != 1 else ''} older than {retention_days} days"
+        logger.info("Execution log prune: %s", summary)
+        return summary
+
+
 class ResyncSmartCollectionsHandler(ScheduledTaskHandler):
     """
     Reconcile smart-collection membership across all workspaces (platform-wide).
@@ -380,4 +431,5 @@ TaskHandlerRegistry.register("prune_expired_invitations", PruneExpiredInvitation
 TaskHandlerRegistry.register("remove_orphaned_assets", RemoveOrphanedAssetsHandler)
 TaskHandlerRegistry.register("prune_event_logs", PruneEventLogsHandler)
 TaskHandlerRegistry.register("prune_ai_executions", PruneAIExecutionsHandler)
+TaskHandlerRegistry.register("prune_scheduled_task_executions", PruneScheduledTaskExecutionsHandler)
 TaskHandlerRegistry.register("resync_smart_collections", ResyncSmartCollectionsHandler)

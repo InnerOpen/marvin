@@ -38,6 +38,12 @@ class ScheduledTaskHandler(ABC):
             task: The scheduled task model with configuration
             event_bus: Event bus for emitting events
 
+        Returns:
+            A one-line summary for the execution log, or **None when nothing happened**. A routine
+            run that returns None is not logged at all — a task running every couple of minutes
+            would otherwise bury its real events under thousands of identical rows. The task's
+            last_run_at/last_status still update, and a run triggered by hand is always logged.
+
         Raises:
             Exception: Any exception will be caught by the scheduler and logged
         """

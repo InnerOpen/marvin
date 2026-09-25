@@ -676,15 +676,21 @@ class ScheduledTaskListener(EventListenerBase):
                 end_time = datetime.now(UTC)
                 duration_ms = int((end_time - start_time).total_seconds() * 1000)
 
-                # Log successful execution
-                repos.scheduled_task_executions.log_execution(
-                    task_id=task.id,
-                    group_id=task.group_id,
-                    status="success",
-                    executed_at=start_time,
-                    duration_ms=duration_ms,
-                    output=output,
-                )
+                # Log the run — unless a handler said there was nothing to report and nobody was
+                # watching. A frequent task (every 2 minutes is 720 runs a day) otherwise buries its
+                # own real events under identical "nothing happened" rows. Liveness is not lost:
+                # last_run_at/last_status below are updated either way. A run someone triggered by
+                # hand always logs, because they asked and deserve an answer.
+                by_hand = event.integration_id != "scheduled_tasks"
+                if output is not None or by_hand:
+                    repos.scheduled_task_executions.log_execution(
+                        task_id=task.id,
+                        group_id=task.group_id,
+                        status="success",
+                        executed_at=start_time,
+                        duration_ms=duration_ms,
+                        output=output if output is not None else "Nothing to do.",
+                    )
 
                 # Update task state
                 repos.scheduled_tasks.update_execution_state(
