@@ -54,8 +54,10 @@ def workspace(db_session):
 
 
 def test_core_catalog_is_well_formed_and_grouped():
-    items = list_blueprints()
-    assert len(items) >= 7
+    # Assert on the core catalog, not the whole list: what providers contribute depends on what is
+    # installed, so `list_blueprints()` counts differ between a dev checkout and CI.
+    items = list_blueprints(source="core")
+    assert len(items) >= 5
     assert all(b.source == "core" or b.source for b in items)
     assert len({(b.source, b.slug) for b in items}) == len(items)  # unique per source
     assert "Editorial" in categories()
