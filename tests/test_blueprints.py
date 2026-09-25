@@ -509,3 +509,13 @@ def test_apply_many_wires_subscriptions_after_the_content_they_may_reference(db_
 
     assert [r.kind for r in results] == ["entry_type", "event_subscription"]
     assert all(r.created for r in results)
+
+
+def test_core_blueprints_never_claim_to_be_required():
+    """`required` means "the source cannot work without it". Core ships examples, so nothing in the
+    core catalog may claim it — a suggestion presented as a requirement reads as a broken install."""
+    assert [b.slug for b in list_blueprints(source="core") if b.required] == []
+
+
+def test_required_defaults_to_false_so_claiming_it_is_deliberate():
+    assert Blueprint(kind="collection", slug="x", name="X").required is False

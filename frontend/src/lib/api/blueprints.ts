@@ -35,6 +35,8 @@ export interface Blueprint {
   slug: string;
   name: string;
   description: string;
+  /** True only when the source cannot work without it. Everything else is a suggestion. */
+  required: boolean;
   category: string;
   /** `core`, or the slug of the provider that contributed it. */
   source: string;

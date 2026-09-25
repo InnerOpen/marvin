@@ -106,37 +106,66 @@ function statusMeta(status: string): { text: string; cls: string } {
               {(() => {
                 const needs = needsByProvider.get(it.provider) ?? [];
                 if (needs.length === 0) return null;
-                const missing = needs.filter((b) => !b.applied);
+                // Two different things: content an action genuinely reads or writes, and worked
+                // examples of how you *could* use it. Only the first is a problem when absent.
+                const required = needs.filter((b) => b.required);
+                const suggested = needs.filter((b) => !b.required);
+                const missingRequired = required.filter((b) => !b.applied);
                 // A parameterised blueprint cannot be applied blind — it has to ask first.
-                const askable = missing.filter((b) => b.parameters.length === 0);
-                return (
-                  <details class="needs" open={missing.length > 0}>
-                    <summary>
-                      What this needs to work
-                      <span class={`badge ${missing.length ? "warn" : "ok"}`}>
-                        {missing.length ? `${missing.length} missing` : "all set"}
-                      </span>
-                    </summary>
-                    <ul>
-                      {needs.map((b) => (
-                        <li class={b.applied ? "is-there" : "is-missing"}>
-                          <span class="tick">{b.applied ? "✓" : "○"}</span>
-                          <span class="needs-name">{b.name}</span>
-                          <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
-                          <span class="needs-desc">{b.description}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    {askable.length > 0 && (
+                const askable = missingRequired.filter((b) => b.parameters.length === 0);
+
+                const row = (b: Blueprint) => (
+                  <li class={b.applied ? "is-there" : "is-missing"}>
+                    <span class="tick">{b.applied ? "✓" : "○"}</span>
+                    <span class="needs-name">{b.name}</span>
+                    <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
+                    <span class="needs-desc">{b.description}</span>
+                    {!b.applied && b.parameters.length === 0 && (
                       <button
                         type="button"
-                        class="button small js-apply-needs"
+                        class="link-btn js-apply-needs"
                         data-source={it.provider}
-                        data-slugs={JSON.stringify(askable.map((b) => b.slug))}
+                        data-slugs={JSON.stringify([b.slug])}
                       >
-                        Add {askable.length} missing {askable.length === 1 ? "item" : "items"}
+                        Add
                       </button>
                     )}
+                  </li>
+                );
+
+                return (
+                  <details class="needs" open={missingRequired.length > 0}>
+                    <summary>
+                      Content
+                      <span class={`badge ${missingRequired.length ? "warn" : "ok"}`}>
+                        {missingRequired.length ? `${missingRequired.length} missing` : "ready"}
+                      </span>
+                    </summary>
+
+                    {required.length > 0 && (
+                      <>
+                        <h5 class="needs-head">Needed to work</h5>
+                        <ul>{required.map(row)}</ul>
+                        {askable.length > 0 && (
+                          <button
+                            type="button"
+                            class="button small js-apply-needs"
+                            data-source={it.provider}
+                            data-slugs={JSON.stringify(askable.map((b) => b.slug))}
+                          >
+                            Add {askable.length} missing {askable.length === 1 ? "item" : "items"}
+                          </button>
+                        )}
+                      </>
+                    )}
+
+                    {suggested.length > 0 && (
+                      <>
+                        <h5 class="needs-head">Optional — set these up if you want them</h5>
+                        <ul>{suggested.map(row)}</ul>
+                      </>
+                    )}
+
                     <p class="needs-note">
                       Applying only creates what is missing — anything you have already changed is left alone.
                     </p>
@@ -888,5 +917,24 @@ function statusMeta(status: string): { text: string; cls: string } {
     margin: 0.5rem 0 0;
     font-size: 0.78rem;
     color: var(--mv-muted, #6b7280);
+  }
+
+  .needs-head {
+    margin: 0.75rem 0 0.25rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--mv-muted, #6b7280);
+  }
+  .needs li {
+    grid-template-columns: 1rem auto auto 1fr auto;
+  }
+  .link-btn {
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--mv-accent, #2563eb);
+    cursor: pointer;
+    font-size: 0.8rem;
   }
 </style>

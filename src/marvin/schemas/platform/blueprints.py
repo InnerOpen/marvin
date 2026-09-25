@@ -80,6 +80,12 @@ class Blueprint(_MarvinModel):
     description: str = ""
     """One line on what it is for — this is the discoverability, so it earns its place."""
 
+    required: bool = False
+    """True only when the source genuinely cannot work without it — an entry type an action reads or
+    writes. Everything else is a suggestion the workspace may take or leave, and the two are listed
+    separately: calling a preference a requirement tells someone their integration is broken when it
+    is not. Core catalog blueprints are always suggestions."""
+
     category: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] = "General"
     """Groups the catalog. Core uses editorial/workflow-style categories; a provider's blueprints
     are filed under that provider so the catalog stays legible as providers multiply."""
