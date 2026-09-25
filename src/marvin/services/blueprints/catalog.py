@@ -8,14 +8,17 @@ unknown, and a blank entry-type schema is a blank page. Each blueprint below is 
 "what can this do?", written to be read.
 """
 
-from marvin.schemas.platform.blueprints import Blueprint
+from marvin.schemas.platform.blueprints import Blueprint, BlueprintParameter
 
 CATEGORY_EDITORIAL = "Editorial"
 CATEGORY_HOUSEKEEPING = "Housekeeping"
 CATEGORY_MEDIA = "Media"
-CATEGORY_CONTENT_MODELS = "Content models"
 
-# --- collections -------------------------------------------------------------------------------
+# Core ships **collection examples only**, and only ones that work in any workspace on day one.
+# Naming content is the workspace owner's business, so nothing here invents an entry type or
+# hardcodes a slug — where a rule needs one, the blueprint asks for it as a parameter. Entry-type
+# and scheduled-task blueprints exist in the schema for providers, which legitimately own the names
+# of the content their integration requires.
 
 _COLLECTIONS = [
     Blueprint(
@@ -25,7 +28,6 @@ _COLLECTIONS = [
         description="Everything published in the last 30 days. The window rolls, so entries leave on their own.",
         category=CATEGORY_EDITORIAL,
         payload={
-            "name": "Recently published",
             "description": "Published in the last 30 days",
             "icon": "🗞️",
             "is_smart": True,
@@ -37,10 +39,9 @@ _COLLECTIONS = [
         kind="collection",
         slug="new-this-week",
         name="New this week",
-        description="Anything created in the last 7 days, whatever its status — a look at what is in flight.",
+        description="Anything created in the last 7 days, whatever its status — what is in flight.",
         category=CATEGORY_EDITORIAL,
         payload={
-            "name": "New this week",
             "description": "Created in the last 7 days",
             "icon": "🌱",
             "is_smart": True,
@@ -50,18 +51,52 @@ _COLLECTIONS = [
     ),
     Blueprint(
         kind="collection",
-        slug="stale-drafts",
-        name="Stale drafts",
-        description="Drafts nobody has touched lately. Pair with a status filter to find work that stalled.",
+        slug="all-{{entry_type}}",
+        name="All {{entry_type}}",
+        description="Everything of one type, whichever type you pick. Shows how an entry-type rule works.",
+        category=CATEGORY_EDITORIAL,
+        parameters=[
+            BlueprintParameter(
+                key="entry_type",
+                label="Which type?",
+                kind="entry_type",
+                help="Pick one of this workspace's entry types — the collection then tracks it automatically.",
+            )
+        ],
+        payload={
+            "description": "Every entry of this type",
+            "icon": "🗂️",
+            "is_smart": True,
+            "is_public": False,
+            "smart_rules": {"entry_types": ["{{entry_type}}"], "match": "all"},
+        },
+    ),
+    Blueprint(
+        kind="collection",
+        slug="published-{{entry_type}}",
+        name="Published {{entry_type}}",
+        description="One type, published only — two dimensions combined, which is how most useful rules are built.",
+        category=CATEGORY_EDITORIAL,
+        parameters=[BlueprintParameter(key="entry_type", label="Which type?", kind="entry_type")],
+        payload={
+            "description": "Published entries of this type",
+            "icon": "📗",
+            "is_smart": True,
+            "is_public": False,
+            "smart_rules": {"entry_types": ["{{entry_type}}"], "statuses": ["published"], "match": "all"},
+        },
+    ),
+    Blueprint(
+        kind="collection",
+        slug="drafts",
+        name="Drafts",
+        description="Everything still in draft — a standing to-do list for whoever is writing.",
         category=CATEGORY_HOUSEKEEPING,
         payload={
-            "name": "Stale drafts",
-            "description": "Drafts, excluding anything created in the last 30 days",
+            "description": "Entries still in draft",
             "icon": "🧊",
             "is_smart": True,
             "is_public": False,
-            # No "older than" dimension yet: this collects all drafts, and the name sets the
-            # expectation. A negated window is the obvious next dimension if this proves useful.
             "smart_rules": {"statuses": ["draft"], "match": "all"},
         },
     ),
@@ -72,7 +107,6 @@ _COLLECTIONS = [
         description="An asset collection, not an entry one — collections can group assets and resources too.",
         category=CATEGORY_MEDIA,
         payload={
-            "name": "All images",
             "description": "Every image asset in the workspace",
             "icon": "🖼️",
             "is_smart": True,
@@ -88,7 +122,6 @@ _COLLECTIONS = [
         description="SVG only, matched on exact MIME type — finer than the image/document buckets.",
         category=CATEGORY_MEDIA,
         payload={
-            "name": "Vector artwork",
             "description": "SVG assets",
             "icon": "✒️",
             "is_smart": True,
@@ -99,71 +132,7 @@ _COLLECTIONS = [
     ),
 ]
 
-# --- entry types -------------------------------------------------------------------------------
-# A blank schema is the hardest part of a new entry type; these are starting points, not doctrine.
-
-_ENTRY_TYPES = [
-    Blueprint(
-        kind="entry_type",
-        slug="changelog-entry",
-        name="Changelog entry",
-        description="Dated, versioned release notes: version, date, kind of change, the notes themselves.",
-        category=CATEGORY_CONTENT_MODELS,
-        payload={
-            "name": "Changelog entry",
-            "icon": "📋",
-            "description": "One released change",
-            "schema_json": {
-                "fields": [
-                    {"key": "version", "label": "Version", "type": "text", "required": True, "placeholder": "1.4.0"},
-                    {"key": "released_on", "label": "Released on", "type": "text"},
-                    {"key": "change_kind", "label": "Kind", "type": "text", "placeholder": "added / fixed / removed"},
-                    {"key": "notes", "label": "Notes", "type": "markdown", "required": True},
-                ]
-            },
-        },
-    ),
-    Blueprint(
-        kind="entry_type",
-        slug="faq",
-        name="FAQ",
-        description="A question, its answer, and a category to group by.",
-        category=CATEGORY_CONTENT_MODELS,
-        payload={
-            "name": "FAQ",
-            "icon": "❓",
-            "description": "One question and its answer",
-            "schema_json": {
-                "fields": [
-                    {"key": "question", "label": "Question", "type": "text", "required": True},
-                    {"key": "answer", "label": "Answer", "type": "markdown", "required": True},
-                    {"key": "category", "label": "Category", "type": "text"},
-                ]
-            },
-        },
-    ),
-    Blueprint(
-        kind="entry_type",
-        slug="testimonial",
-        name="Testimonial",
-        description="A quote, who said it, and what they do — the shape every site eventually needs.",
-        category=CATEGORY_CONTENT_MODELS,
-        payload={
-            "name": "Testimonial",
-            "icon": "💬",
-            "description": "Something a customer said",
-            "schema_json": {
-                "fields": [
-                    {"key": "quote", "label": "Quote", "type": "textarea", "required": True},
-                    {"key": "attribution", "label": "Said by", "type": "text", "required": True},
-                    {"key": "role", "label": "Role or company", "type": "text"},
-                ]
-            },
-        },
-    ),
-]
-
-CORE_BLUEPRINTS: tuple[Blueprint, ...] = tuple(_COLLECTIONS + _ENTRY_TYPES)
+CORE_BLUEPRINTS: tuple[Blueprint, ...] = tuple(_COLLECTIONS)
 
 
 def list_blueprints(*, kind: str | None = None, category: str | None = None, source: str | None = None) -> list[Blueprint]:

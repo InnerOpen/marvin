@@ -19,11 +19,38 @@ from marvin.schemas._marvin import _MarvinModel
 
 BlueprintKind = Literal["collection", "entry_type", "scheduled_task"]
 
-#: `requires` entries look like "entry_type:bench-note" — a blueprint that references content the
+#: What a parameter asks for. `entry_type`/`collection` render as a picker fed by the workspace's
+#: own content and are validated against it — that is how a blueprint stays general without ever
+#: naming someone's content model.
+ParameterKind = Literal["entry_type", "collection", "text", "number"]
+
+#: `requires` entries look like "entry_type:<slug>" — a blueprint that references content the
 #: workspace does not have is surfaced as unavailable rather than applied into a broken state.
 REQUIREMENT_KINDS = ("entry_type", "collection")
 
 CORE_SOURCE = "core"
+
+
+class BlueprintParameter(_MarvinModel):
+    """Something the workspace supplies when the blueprint is applied.
+
+    A blueprint that hardcoded an entry-type slug would only be useful to whoever happened to name
+    a type that way. A parameter asks instead: the catalog can demonstrate `entry_types` rules
+    without presuming what anyone calls their content.
+    """
+
+    key: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    """Referenced as `{{key}}` in the blueprint's slug, name, description and payload."""
+
+    label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    """What the UI asks."""
+
+    kind: ParameterKind = "text"
+    """`entry_type`/`collection` are pickers validated against the workspace; the rest are free input."""
+
+    required: bool = True
+    default: str | None = None
+    help: str = ""
 
 
 class Blueprint(_MarvinModel):
@@ -49,7 +76,12 @@ class Blueprint(_MarvinModel):
     """`core`, or the slug of the provider that contributed it."""
 
     requires: list[str] = Field(default_factory=list)
-    """Prerequisites as `kind:slug`, e.g. `entry_type:bench-note`. Checked before offering."""
+    """Prerequisites as `kind:slug`. Mostly for provider bundles, where one blueprint genuinely
+    depends on another the same provider brings; core blueprints ask via `parameters` instead."""
+
+    parameters: list[BlueprintParameter] = Field(default_factory=list)
+    """What the workspace fills in at apply time. `{{key}}` placeholders are substituted through
+    the slug, name, description and payload."""
 
     payload: dict = Field(default_factory=dict)
     """The body handed to the creating repository — a CollectionCreate / EntryTypes /
@@ -85,7 +117,8 @@ class BlueprintRead(Blueprint):
     """The unmet entries from `requires`, so the UI can say what is needed."""
 
     applied: bool = False
-    """True when this workspace already has something with that slug — applying again is a no-op."""
+    """True when this workspace already has something with that slug — applying again is a no-op.
+    Always False for a parameterised blueprint: its slug is not known until the parameters are."""
 
 
 class BlueprintApplyResult(_MarvinModel):
@@ -98,3 +131,6 @@ class BlueprintApplyResult(_MarvinModel):
 
     detail: str = ""
     """Why nothing was created, when nothing was."""
+
+    name: str = ""
+    """The created object's name, after parameter substitution."""

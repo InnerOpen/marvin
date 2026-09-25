@@ -55,7 +55,7 @@ def workspace(db_session):
 
 def test_core_catalog_is_well_formed_and_grouped():
     items = list_blueprints()
-    assert len(items) >= 8
+    assert len(items) >= 7
     assert all(b.source == "core" or b.source for b in items)
     assert len({(b.source, b.slug) for b in items}) == len(items)  # unique per source
     assert "Editorial" in categories()
@@ -74,6 +74,29 @@ def test_catalog_advertises_the_rules_people_would_not_find_alone():
     assert any("published_within_days" in r for r in rules)
     assert any("created_within_days" in r for r in rules)
     assert any(b.payload.get("target_type") == "asset" for b in list_blueprints(kind="collection"))
+    assert any("mime_types" in r for r in rules)
+
+
+def test_core_ships_only_collections_and_names_nobodys_content():
+    """Naming content is the workspace owner's business. Core must not invent entry types, and
+    must not hardcode a slug it cannot know — where a rule needs one, it asks via a parameter."""
+    core = list_blueprints(source="core")
+    assert {b.kind for b in core} == {"collection"}
+    assert core, "core catalog should not be empty"
+
+    for blueprint in core:
+        assert not blueprint.requires, f"{blueprint.slug} hardcodes a dependency instead of asking"
+        declared = {p.key for p in blueprint.parameters}
+        for slug in blueprint.payload.get("smart_rules", {}).get("entry_types", []):
+            assert slug.strip("{} ") in declared, f"{blueprint.slug} names an entry type the workspace never chose"
+
+
+def test_parameterised_blueprints_exist_and_ask_for_a_picker():
+    parameterised = [b for b in list_blueprints(source="core") if b.parameters]
+    assert parameterised, "an entry-type rule can only be demonstrated generically via a parameter"
+    for blueprint in parameterised:
+        assert all(p.kind in ("entry_type", "collection", "text", "number") for p in blueprint.parameters)
+        assert "{{" in blueprint.slug, f"{blueprint.slug} would collide for every type it is applied to"
 
 
 # --- applying ------------------------------------------------------------------------------------
@@ -117,19 +140,66 @@ def test_applying_twice_never_overwrites(db_session, workspace):
 
 
 def test_already_applied_reports_the_workspace_state(db_session, workspace):
-    blueprint = get_blueprint("faq")
+    blueprint = get_blueprint("drafts")
     assert already_applied(db_session, workspace, blueprint) is False
     apply_blueprint(db_session, workspace, blueprint)
     db_session.commit()
     assert already_applied(db_session, workspace, blueprint) is True
 
 
-def test_applying_an_entry_type_carries_its_schema(db_session, workspace):
-    apply_blueprint(db_session, workspace, get_blueprint("changelog-entry"))
+def test_parameters_fill_the_slug_name_and_rules(db_session, workspace):
+    db_session.add(EntryTypes(session=db_session, group_id=workspace, name="Whatever They Called It", slug="whatever"))
     db_session.commit()
 
-    et = db_session.query(EntryTypes).filter_by(group_id=workspace, slug="changelog-entry").one()
-    assert [f["key"] for f in et.schema_json["fields"]] == ["version", "released_on", "change_kind", "notes"]
+    result = apply_blueprint(db_session, workspace, get_blueprint("all-{{entry_type}}"), {"entry_type": "whatever"})
+    db_session.commit()
+
+    assert result.created is True
+    assert result.slug == "all-whatever"
+    col = db_session.query(Collections).filter_by(group_id=workspace, slug="all-whatever").one()
+    assert col.name == "All whatever"
+    assert col.smart_rules["entry_types"] == ["whatever"]
+
+
+def test_the_same_blueprint_applies_once_per_type(db_session, workspace):
+    for slug in ("alpha", "beta"):
+        db_session.add(EntryTypes(session=db_session, group_id=workspace, name=slug.title(), slug=slug))
+    db_session.commit()
+    blueprint = get_blueprint("all-{{entry_type}}")
+
+    first = apply_blueprint(db_session, workspace, blueprint, {"entry_type": "alpha"})
+    second = apply_blueprint(db_session, workspace, blueprint, {"entry_type": "beta"})
+    repeat = apply_blueprint(db_session, workspace, blueprint, {"entry_type": "alpha"})
+    db_session.commit()
+
+    assert (first.created, second.created) == (True, True)
+    assert repeat.created is False and "already exists" in repeat.detail
+
+
+def test_a_parameter_must_name_content_this_workspace_has(db_session, workspace):
+    blueprint = get_blueprint("all-{{entry_type}}")
+    result = apply_blueprint(db_session, workspace, blueprint, {"entry_type": "not-a-type-here"})
+    assert result.created is False
+    assert "no entry type 'not-a-type-here'" in result.detail
+    assert db_session.query(Collections).filter_by(group_id=workspace).count() == 0
+
+
+def test_a_missing_required_parameter_is_refused_not_guessed(db_session, workspace):
+    result = apply_blueprint(db_session, workspace, get_blueprint("all-{{entry_type}}"))
+    assert result.created is False
+    assert "required" in result.detail
+
+
+def test_applied_is_false_for_a_parameterised_blueprint_until_parameters_are_known(db_session, workspace):
+    db_session.add(EntryTypes(session=db_session, group_id=workspace, name="Thing", slug="thing"))
+    db_session.commit()
+    blueprint = get_blueprint("all-{{entry_type}}")
+
+    assert already_applied(db_session, workspace, blueprint) is False
+    apply_blueprint(db_session, workspace, blueprint, {"entry_type": "thing"})
+    db_session.commit()
+    assert already_applied(db_session, workspace, blueprint) is False  # slug unknown without params
+    assert already_applied(db_session, workspace, blueprint, {"entry_type": "thing"}) is True
 
 
 def test_unmet_requirements_block_application(db_session, workspace):
@@ -167,20 +237,29 @@ def test_requirements_are_satisfied_once_the_dependency_exists(db_session, works
 
 
 def test_apply_many_creates_entry_types_before_what_references_them(db_session, workspace):
+    """A provider bundle: its collection depends on the entry type the same provider brings."""
+    entry_type = Blueprint(
+        kind="entry_type",
+        slug="provider-thing",
+        name="Provider thing",
+        source="someprovider",
+        payload={"name": "Provider thing", "schema_json": {"fields": []}},
+    )
     collection = Blueprint(
         kind="collection",
-        slug="all-faqs",
-        name="All FAQs",
-        requires=["entry_type:faq"],
-        payload={"name": "All FAQs", "is_smart": True, "smart_rules": {"entry_types": ["faq"]}},
+        slug="all-provider-things",
+        name="All provider things",
+        source="someprovider",
+        requires=["entry_type:provider-thing"],
+        payload={"name": "All provider things", "is_smart": True, "smart_rules": {"entry_types": ["provider-thing"]}},
     )
     # deliberately the wrong order — apply_many must sort it out
-    results = apply_many(db_session, workspace, [collection, get_blueprint("faq")])
+    results = apply_many(db_session, workspace, [collection, entry_type])
     db_session.commit()
 
     assert [r.kind for r in results] == ["entry_type", "collection"]
     assert all(r.created for r in results)
-    assert db_session.query(Collections).filter_by(group_id=workspace, slug="all-faqs").one()
+    assert db_session.query(Collections).filter_by(group_id=workspace, slug="all-provider-things").one()
 
 
 def test_applying_a_scheduled_task_gets_a_next_run(db_session, workspace):
@@ -238,5 +317,6 @@ def test_categories_route_is_not_shadowed_by_the_slug_route():
 def test_blueprint_endpoints_require_authentication(client):
     assert client.get("/api/groups/blueprints").status_code in (401, 403)
     assert client.get("/api/groups/blueprints/recently-published").status_code in (401, 403)
+    assert client.get("/api/groups/blueprints/categories").status_code in (401, 403)
     assert client.post("/api/groups/blueprints/recently-published/apply").status_code in (401, 403)
     assert client.post("/api/groups/blueprints/apply", json=["recently-published"]).status_code in (401, 403)

@@ -9,9 +9,9 @@ junction rows exactly as for a manually-curated collection.
 Rule shape (every dimension optional; an absent/empty dimension is not constrained)::
 
     {
-      "entry_types": ["bench-note", "article"],   # entry_type slugs
+      "entry_types": ["<slug>", "<slug>"],         # entry_type slugs
       "statuses": ["published"],                   # entry.status values
-      "tags": ["leather", "waxed"],                # RESERVED — matches once entries carry tags
+      "tags": ["<tag>", "<tag>"],                  # RESERVED — matches once entries carry tags
       "published_within_days": 30,                 # entries published in the last N days
       "created_within_days": 30,                   # any item created in the last N days
       "match": "all" | "any"                       # combine dimensions (default "all")

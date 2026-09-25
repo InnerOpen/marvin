@@ -9,7 +9,7 @@ what is missing and never overwrites what exists, so a repeat call is a no-op ra
 surprise: the response says what happened for each blueprint.
 """
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Body, HTTPException, Query, status
 
 from marvin.core.root_logger import get_logger
 from marvin.routes._base import BaseUserController, controller
@@ -65,21 +65,28 @@ class BlueprintsController(BaseUserController):
         return self._to_read(blueprint)
 
     @router.post("/{slug}/apply", response_model=BlueprintApplyResult)
-    def apply_one(self, slug: str, source: str | None = Query(None)):
-        """Create this blueprint's object in the active workspace, if it isn't there already."""
+    def apply_one(self, slug: str, params: dict | None = Body(None), source: str | None = Query(None)):
+        """Create this blueprint's object in the active workspace, if it isn't there already.
+
+        `params` supplies any parameters the blueprint declares, e.g. `{"entry_type": "..."}`.
+        """
         blueprint = get_blueprint(slug, source=source)
         if blueprint is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
 
-        result = apply_blueprint(self.session, self.group_id, blueprint)
+        result = apply_blueprint(self.session, self.group_id, blueprint, params)
         self.session.commit()
         logger.info("Blueprint '%s' applied to %s: created=%s", slug, self.group_id, result.created)
         return result
 
     @router.post("/apply", response_model=list[BlueprintApplyResult])
-    def apply_several(self, slugs: list[str], source: str | None = Query(None)):
-        """Apply several at once — what an integration install offers. Entry types are created
-        before the collections and tasks that reference them, whatever order they arrive in."""
+    def apply_several(self, slugs: list[str] = Body(...), params: dict | None = Body(None), source: str | None = Query(None)):
+        """Apply several at once — what the "apply this integration's content" button posts.
+
+        Entry types are created before the collections and tasks that reference them, whatever
+        order they arrive in. `params` is keyed by blueprint slug. Nothing is applied automatically
+        on install: the workspace reviews the list first, and this is the confirmation.
+        """
         blueprints = []
         for slug in slugs:
             blueprint = get_blueprint(slug, source=source)
@@ -87,6 +94,6 @@ class BlueprintsController(BaseUserController):
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
             blueprints.append(blueprint)
 
-        results = apply_many(self.session, self.group_id, blueprints)
+        results = apply_many(self.session, self.group_id, blueprints, params)
         self.session.commit()
         return results
