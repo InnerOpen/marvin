@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.88 (2026-09-25)
+
+### Features
+
+- **blueprints**: Browse-and-apply page
+  ([`cbc15e6`](https://github.com/InnerOpen/marvin/commit/cbc15e69f3b0607d9f15620b48f994d19b672167))
+
+
 ## v1.0.0-rc.87 (2026-09-25)
 
 ### Features
