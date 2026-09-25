@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.85 (2026-09-25)
+
+### Features
+
+- **blueprints**: Workspace API for browsing and applying blueprints
+  ([`6167962`](https://github.com/InnerOpen/marvin/commit/6167962c504ea846ff44f6dcf319dfa0fd0039f8))
+
+
 ## v1.0.0-rc.84 (2026-09-25)
 
 ### Features
