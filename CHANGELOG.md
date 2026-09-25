@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.83 (2026-09-25)
+
+### Bug Fixes
+
+- **workspace**: Stop shipping a 'Recent' collection with every workspace
+  ([`921047a`](https://github.com/InnerOpen/marvin/commit/921047ade3791e21cc424b025bbb4b6342533573))
+
+
 ## v1.0.0-rc.82 (2026-09-25)
 
 ### Features
