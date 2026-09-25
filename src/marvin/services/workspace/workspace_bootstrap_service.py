@@ -239,23 +239,21 @@ class WorkspaceBootstrapService:
         },
     ]
 
-    # Default collections to create
+    # Default collections to create.
+    #
+    # Only `featured` — a workspace's editorial collections are its own business, and the CMS
+    # shouldn't presume them. `recent` used to ship here too and was removed (2026-09-25): it was a
+    # manual collection described as "recently published content", so nothing could keep it filled,
+    # and it was empty in every workspace on the instance. Smart rules can express it now
+    # (`published_within_days`), but as something a user opts into, not a box they inherit.
+    # The locked workflow collections (inbox/drafts/needs-review/approved) are seeded separately by
+    # services/collections/system_collections.py — those are system, these are taste.
     DEFAULT_COLLECTIONS = [
         {
             "slug": "featured",
             "name": "Featured",
             "description": "Featured content",
             "sort_order": 1,
-        },
-        {
-            # Smart, not manual: "Recent" was shipping as an empty box nobody could keep filled.
-            # The rolling window is reconciled by the nightly resync_smart_collections task.
-            "slug": "recent",
-            "name": "Recent",
-            "description": "Published in the last 30 days",
-            "sort_order": 2,
-            "is_smart": True,
-            "smart_rules": {"statuses": ["published"], "published_within_days": 30, "match": "all"},
         },
     ]
 
@@ -266,7 +264,7 @@ class WorkspaceBootstrapService:
 
         Creates:
         1. Default entry types (page, post, project)
-        2. Default collections (featured, recent)
+        2. Default collections (featured)
         3. Workspace memberships (creator as OWNER, all admins as ADMIN)
 
         Args:

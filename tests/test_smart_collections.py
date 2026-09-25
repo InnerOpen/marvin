@@ -168,14 +168,19 @@ def test_created_within_days_is_universal_across_target_types():
     assert matches_rules(stale, rules, "asset") is False
 
 
-def test_default_recent_collection_is_a_working_rolling_window():
-    """The bootstrap "Recent" default must actually collect something — it shipped for a long time
-    as a manual collection described as "recently published content", which nothing could fill."""
+def test_bootstrap_ships_no_recent_collection():
+    """`recent` was a manual collection described as "recently published content" — nothing could
+    fill it, and it was empty in every workspace. Editorial collections are the workspace's own
+    business; a rolling window is now expressible as a rule a user opts into."""
     from marvin.services.workspace.workspace_bootstrap_service import WorkspaceBootstrapService
 
-    recent = next(c for c in WorkspaceBootstrapService.DEFAULT_COLLECTIONS if c["slug"] == "recent")
-    assert recent["is_smart"] is True
-    rules = recent["smart_rules"]
+    slugs = [c["slug"] for c in WorkspaceBootstrapService.DEFAULT_COLLECTIONS]
+    assert "recent" not in slugs
+    assert slugs == ["featured"]
+
+
+def test_a_recent_style_rule_still_works_for_anyone_who_wants_one():
+    rules = {"statuses": ["published"], "published_within_days": 30, "match": "all"}
     assert entry_matches_rules(_entry(status="published", published_at=_ago(1)), rules) is True
     assert entry_matches_rules(_entry(status="published", published_at=_ago(400)), rules) is False
     assert entry_matches_rules(_entry(status="draft", published_at=None), rules) is False
