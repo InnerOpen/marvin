@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.82 (2026-09-25)
+
+### Features
+
+- **collections**: Rolling date windows in smart rules; make the Recent default work
+  ([`142eb6e`](https://github.com/InnerOpen/marvin/commit/142eb6e9c2cb615e5c901f87af1a2086c306b8ab))
+
+
 ## v1.0.0-rc.81 (2026-09-24)
 
 ### Bug Fixes
