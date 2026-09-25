@@ -6,6 +6,11 @@
  * actions depend on. Applying creates what is missing and never overwrites what exists, so a
  * repeat apply is a no-op that says so.
  *
+ * There is deliberately no blueprint gallery. The catalog is consumed where it is useful: as
+ * examples offered while you create a collection or entry type, as the content an integration
+ * brings on install, and as the worked examples that teach an agent the rule vocabulary well
+ * enough to compose rules of its own.
+ *
  * Browser calls go through the same-origin proxy (fetchApi with no token); SSR passes the cookie token.
  */
 
