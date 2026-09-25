@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.97 (2026-09-25)
+
+### Features
+
+- **scheduled-tasks**: Ship the execution-log prune as a system task
+  ([`ce6b4c5`](https://github.com/InnerOpen/marvin/commit/ce6b4c5f406696ec639799dff5b6f1318fc5764b))
+
+
 ## v1.0.0-rc.96 (2026-09-25)
 
 ### Features
