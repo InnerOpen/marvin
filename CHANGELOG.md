@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.87 (2026-09-25)
+
+### Features
+
+- **blueprints**: Ingest provider-declared content; retire the Instagram seed script
+  ([`2b71a0c`](https://github.com/InnerOpen/marvin/commit/2b71a0c81d9bf37fa2797a2e55d8fee22bfe7e74))
+
+
 ## v1.0.0-rc.86 (2026-09-25)
 
 ### Features
