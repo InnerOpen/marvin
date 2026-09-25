@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.92 (2026-09-25)
+
+### Features
+
+- **integrations**: Event-subscription blueprints, and an optional provider icon
+  ([`847631d`](https://github.com/InnerOpen/marvin/commit/847631de490f01f0b29545b0c735fae7a01af47a))
+
+
 ## v1.0.0-rc.91 (2026-09-25)
 
 ### Bug Fixes
