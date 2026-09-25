@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.84 (2026-09-25)
+
+### Features
+
+- **blueprints**: Schema, core catalog and apply semantics
+  ([`ce64fe0`](https://github.com/InnerOpen/marvin/commit/ce64fe04f55ab2f4e9312f75dafa20c920a7895a))
+
+
 ## v1.0.0-rc.83 (2026-09-25)
 
 ### Bug Fixes
