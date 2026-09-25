@@ -1,0 +1,384 @@
+---
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import type { Blueprint } from "@/lib/api/blueprints";
+import { listBlueprints } from "@/lib/api/blueprints";
+import type { EntryTypeRead } from "@/lib/api/entryTypes";
+import { listEntryTypes } from "@/lib/api/entryTypes";
+
+const authToken = getAuthToken(Astro.cookies);
+
+let blueprints: Blueprint[] = [];
+let entryTypes: EntryTypeRead[] = [];
+let error: string | null = null;
+
+try {
+  [blueprints, entryTypes] = await Promise.all([listBlueprints({}, authToken), listEntryTypes(authToken)]);
+} catch (e) {
+  console.error("[blueprints] load error:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+// Catalog order is meaningful — core's categories first, then each provider's — so group without sorting.
+const categories: string[] = [];
+for (const b of blueprints) {
+  if (!categories.includes(b.category)) categories.push(b.category);
+}
+const byCategory = new Map(categories.map((c) => [c, blueprints.filter((b) => b.category === c)]));
+
+const KIND_LABEL: Record<string, string> = {
+  collection: "Collection",
+  entry_type: "Entry type",
+  scheduled_task: "Scheduled task",
+};
+
+/** A one-line summary of what a blueprint's rules actually do, so the card teaches without a click. */
+function ruleSummary(b: Blueprint): string | null {
+  const rules = (b.payload?.smart_rules ?? null) as Record<string, unknown> | null;
+  if (!rules) return null;
+  const parts: string[] = [];
+  const target = (b.payload?.target_type as string) || "entry";
+  if (target !== "entry") parts.push(`${target}s`);
+  if (Array.isArray(rules.entry_types)) parts.push(`type ${(rules.entry_types as string[]).join(", ")}`);
+  if (Array.isArray(rules.asset_types)) parts.push(`${(rules.asset_types as string[]).join(", ")} assets`);
+  if (Array.isArray(rules.mime_types)) parts.push((rules.mime_types as string[]).join(", "));
+  if (Array.isArray(rules.statuses)) parts.push((rules.statuses as string[]).join(" or "));
+  if (rules.published_within_days) parts.push(`published in ${rules.published_within_days} days`);
+  if (rules.created_within_days) parts.push(`created in ${rules.created_within_days} days`);
+  return parts.length ? parts.join(" · ") : null;
+}
+---
+
+<AppLayout title="Blueprints" eyebrow="Workspace">
+  <div class="page-header">
+    <div>
+      <h2>Blueprints</h2>
+      <p>
+        Ready-made collections, entry types and scheduled tasks. Nothing is created until you apply it, and applying
+        never changes something you already have.
+      </p>
+    </div>
+    <a href="/workspace/collections" class="button secondary small">Collections</a>
+  </div>
+
+  {error && <div class="alert err">Could not load the catalog: {error}</div>}
+
+  {
+    !error && blueprints.length === 0 && (
+      <div class="empty">
+        <p>No blueprints available.</p>
+      </div>
+    )
+  }
+
+  {
+    categories.map((category) => (
+      <section class="cat">
+        <h3>{category}</h3>
+        <div class="grid">
+          {(byCategory.get(category) ?? []).map((b) => (
+            <article
+              class={`bp-card ${b.applied ? "is-applied" : ""} ${b.available ? "" : "is-blocked"}`}
+              data-slug={b.slug}
+              data-source={b.source}
+            >
+              <header>
+                <span class="kind">{KIND_LABEL[b.kind] ?? b.kind}</span>
+                {b.applied && <span class="badge ok">In this workspace</span>}
+                {b.parameters.length > 0 && <span class="badge">Asks a question</span>}
+              </header>
+
+              <h4>{b.name.replace(/\{\{(\w+)\}\}/g, "…")}</h4>
+              <p class="desc">{b.description}</p>
+
+              {ruleSummary(b) && <p class="rule">{ruleSummary(b)}</p>}
+
+              {!b.available && <p class="blocked">Needs {b.missingRequirements.join(", ")}</p>}
+
+              <footer>
+                <button
+                  class="button small apply"
+                  data-slug={b.slug}
+                  data-source={b.source}
+                  data-params={JSON.stringify(b.parameters)}
+                  disabled={!b.available || (b.applied && b.parameters.length === 0)}
+                >
+                  {b.applied && b.parameters.length === 0 ? "Already applied" : "Apply"}
+                </button>
+              </footer>
+            </article>
+          ))}
+        </div>
+      </section>
+    ))
+  }
+
+  <!-- Parameter prompt: only shown for blueprints that ask something. -->
+  <div id="param-overlay" class="overlay" hidden>
+    <div class="sheet">
+      <h3 id="param-title">Apply blueprint</h3>
+      <p id="param-help" class="muted"></p>
+      <form id="param-form">
+        <div id="param-fields"></div>
+        <p id="param-error" class="alert err" hidden></p>
+        <div class="actions">
+          <button type="button" class="button secondary" id="param-cancel">Cancel</button>
+          <button type="submit" class="button">Apply</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script is:inline type="application/json" id="entry-types-data" set:html={JSON.stringify(entryTypes.map((t) => ({ slug: t.slug, name: t.name })))} />
+</AppLayout>
+
+<script>
+  import { applyBlueprint } from "@/lib/api/blueprints";
+  import type { BlueprintParameter } from "@/lib/api/blueprints";
+
+  const entryTypes: { slug: string; name: string }[] = JSON.parse(
+    document.getElementById("entry-types-data")?.textContent || "[]",
+  );
+
+  const overlay = document.getElementById("param-overlay") as HTMLElement;
+  const form = document.getElementById("param-form") as HTMLFormElement;
+  const fieldsEl = document.getElementById("param-fields") as HTMLElement;
+  const titleEl = document.getElementById("param-title") as HTMLElement;
+  const helpEl = document.getElementById("param-help") as HTMLElement;
+  const errEl = document.getElementById("param-error") as HTMLElement;
+
+  let pending: { slug: string; source: string } | null = null;
+
+  function toast(message: string, ok = true) {
+    const el = document.createElement("div");
+    el.className = `mv-toast ${ok ? "ok" : "err"}`;
+    el.textContent = message;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 3600);
+  }
+
+  /** A picker is fed by this workspace's own content — the blueprint never names it. */
+  function fieldFor(p: BlueprintParameter): string {
+    const label = `<label for="p-${p.key}">${p.label}</label>`;
+    const help = p.help ? `<small>${p.help}</small>` : "";
+    if (p.kind === "entry_type") {
+      const options = entryTypes.map((t) => `<option value="${t.slug}">${t.name}</option>`).join("");
+      if (!options) {
+        return `${label}<p class="alert err">This workspace has no entry types yet.</p>`;
+      }
+      return `${label}<select id="p-${p.key}" name="${p.key}" ${p.required ? "required" : ""}>${options}</select>${help}`;
+    }
+    const type = p.kind === "number" ? "number" : "text";
+    const value = p.default ?? "";
+    return `${label}<input id="p-${p.key}" name="${p.key}" type="${type}" value="${value}" ${p.required ? "required" : ""} />${help}`;
+  }
+
+  async function apply(slug: string, source: string, params?: Record<string, string>) {
+    try {
+      const result = await applyBlueprint(slug, params, source);
+      if (result.created) {
+        toast(`Created “${result.name || result.slug}”.`);
+        setTimeout(() => window.location.reload(), 900);
+      } else {
+        // Not an error: applying never overwrites, so this is the expected no-op.
+        toast(result.detail || "Nothing to do — it already exists.", false);
+      }
+      return result.created;
+    } catch (e) {
+      toast(e instanceof Error ? e.message : String(e), false);
+      return false;
+    }
+  }
+
+  document.querySelectorAll<HTMLButtonElement>("button.apply").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const slug = button.dataset.slug!;
+      const source = button.dataset.source!;
+      const params: BlueprintParameter[] = JSON.parse(button.dataset.params || "[]");
+
+      if (params.length === 0) {
+        button.disabled = true;
+        const created = await apply(slug, source);
+        if (!created) button.disabled = false;
+        return;
+      }
+
+      pending = { slug, source };
+      titleEl.textContent = "Apply blueprint";
+      helpEl.textContent = "This one needs to know which of your content it should track.";
+      fieldsEl.innerHTML = params.map(fieldFor).join("");
+      errEl.hidden = true;
+      overlay.hidden = false;
+    });
+  });
+
+  document.getElementById("param-cancel")?.addEventListener("click", () => {
+    overlay.hidden = true;
+    pending = null;
+  });
+
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!pending) return;
+    const data = new FormData(form);
+    const params: Record<string, string> = {};
+    data.forEach((value, key) => {
+      params[key] = String(value);
+    });
+
+    const created = await apply(pending.slug, pending.source, params);
+    if (created) {
+      overlay.hidden = true;
+      pending = null;
+    }
+  });
+</script>
+
+<style>
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+  .page-header p {
+    max-width: 52ch;
+    color: var(--mv-muted, #6b7280);
+  }
+
+  .cat {
+    margin-bottom: 2.5rem;
+  }
+  .cat h3 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--mv-muted, #6b7280);
+    margin-bottom: 0.75rem;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+    gap: 1rem;
+  }
+
+  .bp-card {
+    border: 1px solid var(--mv-border, #e5e7eb);
+    border-radius: 0.6rem;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    background: var(--mv-surface, #fff);
+  }
+  .bp-card.is-applied {
+    border-color: var(--mv-ok, #059669);
+  }
+  .bp-card.is-blocked {
+    opacity: 0.65;
+  }
+
+  .bp-card header {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .kind {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--mv-muted, #6b7280);
+  }
+  .badge {
+    font-size: 0.66rem;
+    padding: 0.1rem 0.4rem;
+    border-radius: 0.3rem;
+    background: var(--mv-subtle, #f3f4f6);
+    color: var(--mv-muted, #6b7280);
+  }
+  .badge.ok {
+    background: #ecfdf5;
+    color: #059669;
+  }
+
+  .bp-card h4 {
+    margin: 0;
+    font-size: 1rem;
+  }
+  .desc {
+    margin: 0;
+    font-size: 0.88rem;
+    color: var(--mv-muted, #6b7280);
+  }
+  .rule {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.74rem;
+    color: var(--mv-muted, #6b7280);
+    background: var(--mv-subtle, #f9fafb);
+    border-radius: 0.3rem;
+    padding: 0.35rem 0.5rem;
+  }
+  .blocked {
+    margin: 0;
+    font-size: 0.78rem;
+    color: #b45309;
+  }
+
+  .bp-card footer {
+    margin-top: auto;
+    padding-top: 0.5rem;
+  }
+
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(17, 24, 39, 0.45);
+    display: grid;
+    place-items: center;
+    z-index: 50;
+  }
+  .overlay[hidden] {
+    display: none;
+  }
+  .sheet {
+    background: var(--mv-surface, #fff);
+    border-radius: 0.6rem;
+    padding: 1.5rem;
+    width: min(92vw, 26rem);
+  }
+  .sheet label {
+    display: block;
+    font-size: 0.8rem;
+    margin-bottom: 0.25rem;
+  }
+  .sheet select,
+  .sheet input {
+    width: 100%;
+    margin-bottom: 0.35rem;
+  }
+  .sheet small {
+    display: block;
+    color: var(--mv-muted, #6b7280);
+    font-size: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+  .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1rem;
+  }
+  .muted {
+    color: var(--mv-muted, #6b7280);
+    font-size: 0.85rem;
+  }
+  .empty {
+    padding: 2rem;
+    text-align: center;
+    color: var(--mv-muted, #6b7280);
+  }
+</style>
