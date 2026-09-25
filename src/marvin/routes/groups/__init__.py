@@ -4,6 +4,7 @@ from marvin.services.integrations import INTEGRATIONS_AVAILABLE
 
 from . import (
     ai_settings_controller,
+    blueprints_controller,
     email_event_subscriptions_controller,
     email_template_controller,
     invitation_controller,
@@ -18,6 +19,7 @@ from . import (
 router = APIRouter()
 
 router.include_router(invitation_controller.router, tags=["Groups: Invitations"])
+router.include_router(blueprints_controller.router, tags=["Groups: Blueprints"])
 router.include_router(webhook_controller.router, tags=["Groups: Webhooks"])
 router.include_router(secrets_controller.router, tags=["Groups: Secrets"])
 router.include_router(smtp_controller.router, tags=["Groups: SMTP Profiles"])

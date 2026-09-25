@@ -210,3 +210,33 @@ def test_applying_a_scheduled_task_gets_a_next_run(db_session, workspace):
 def test_a_blueprint_cannot_smuggle_a_workspace_id():
     with pytest.raises(ValueError):
         Blueprint(kind="collection", slug="x", name="X", payload={"name": "X", "group_id": str(uuid.uuid4())})
+
+
+# --- the API surface ------------------------------------------------------------------------------
+
+
+def test_blueprint_endpoints_are_registered():
+    # Guards the easy regression: writing a controller and forgetting to include its router.
+    from marvin.app import app
+
+    paths = {(tuple(sorted(r.methods)), r.path) for r in app.routes if "blueprint" in getattr(r, "path", "")}
+    assert (("GET",), "/api/groups/blueprints") in paths
+    assert (("GET",), "/api/groups/blueprints/categories") in paths
+    assert (("GET",), "/api/groups/blueprints/{slug}") in paths
+    assert (("POST",), "/api/groups/blueprints/{slug}/apply") in paths
+    assert (("POST",), "/api/groups/blueprints/apply") in paths
+
+
+def test_categories_route_is_not_shadowed_by_the_slug_route():
+    # /categories must be declared before /{slug} or it resolves as a blueprint named "categories".
+    from marvin.app import app
+
+    order = [r.path for r in app.routes if "blueprint" in getattr(r, "path", "")]
+    assert order.index("/api/groups/blueprints/categories") < order.index("/api/groups/blueprints/{slug}")
+
+
+def test_blueprint_endpoints_require_authentication(client):
+    assert client.get("/api/groups/blueprints").status_code in (401, 403)
+    assert client.get("/api/groups/blueprints/recently-published").status_code in (401, 403)
+    assert client.post("/api/groups/blueprints/recently-published/apply").status_code in (401, 403)
+    assert client.post("/api/groups/blueprints/apply", json=["recently-published"]).status_code in (401, 403)
