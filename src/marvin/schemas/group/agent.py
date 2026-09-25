@@ -9,7 +9,7 @@ from marvin.schemas._marvin import _MarvinModel
 from marvin.services.ai.operations.base import INVOCATION_SOURCES
 
 AgentKind = Literal["persona", "model"]
-PolicyValue = Literal["allow", "block"]
+PolicyValue = Literal["allow", "block", "ask"]  # ask = bound, but every call waits for the user (Ask threads)
 REGISTERS = ("auto", "professional", "playful")
 # Built-in agents are code, not rows; a user-defined agent may not shadow them.
 SYSTEM_AGENT_SLUGS = ("marvin", "ask", "chat")

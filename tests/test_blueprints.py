@@ -401,3 +401,111 @@ def test_core_never_duplicates_a_system_collection_slug():
 
     clashes = [b.slug for b in list_blueprints(source="core") if b.slug in SYSTEM_COLLECTION_SLUGS]
     assert clashes == [], f"core blueprints collide with system collections: {clashes}"
+
+
+# --- event subscriptions: wiring a connection, not workspace content -------------------------------
+
+
+def _sub_blueprint(source="fakeprov", action="send_message"):
+    return Blueprint(
+        kind="event_subscription",
+        slug="announce-published",
+        name="Announce published entries",
+        source=source,
+        payload={"event_type": "entry_published", "action": action, "args": {"text": "New: {{title}}"}},
+    )
+
+
+def _integration(db_session, gid, provider="fakeprov", slug="conn"):
+    from marvin.db.models.groups.integrations import IntegrationModel
+
+    row = IntegrationModel(session=db_session, group_id=gid, provider=provider, name=provider, slug=slug, enabled=True, config={})
+    db_session.add(row)
+    db_session.flush()
+    return row
+
+
+def test_applying_a_subscription_wires_it_to_the_integration_and_leaves_it_off(db_session, workspace):
+    from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+
+    integration = _integration(db_session, workspace)
+    db_session.commit()
+
+    result = apply_blueprint(db_session, workspace, _sub_blueprint(), None, integration.id)
+    db_session.commit()
+
+    assert result.created is True
+    sub = db_session.query(IntegrationEventSubscriptionModel).filter_by(group_id=workspace).one()
+    assert sub.integration_id == integration.id
+    assert (sub.event_type, sub.action) == ("entry_published", "send_message")
+    assert sub.args == {"text": "New: {{title}}"}
+    # applying gives you the wiring; switching it on is a separate, deliberate act
+    assert sub.enabled is False
+
+
+def test_a_subscription_dedupes_on_what_it_connects_not_a_slug(db_session, workspace):
+    from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+
+    integration = _integration(db_session, workspace)
+    db_session.commit()
+    blueprint = _sub_blueprint()
+
+    assert apply_blueprint(db_session, workspace, blueprint, None, integration.id).created is True
+    db_session.commit()
+    second = apply_blueprint(db_session, workspace, blueprint, None, integration.id)
+    db_session.commit()
+
+    assert second.created is False and "already connected" in second.detail
+    assert db_session.query(IntegrationEventSubscriptionModel).filter_by(group_id=workspace).count() == 1
+    # a different action on the same event is a different connection
+    assert apply_blueprint(db_session, workspace, _sub_blueprint(action="other_action"), None, integration.id).created is True
+    db_session.commit()
+    assert db_session.query(IntegrationEventSubscriptionModel).filter_by(group_id=workspace).count() == 2
+
+
+def test_a_subscription_needs_an_integration_to_connect_to(db_session, workspace):
+    result = apply_blueprint(db_session, workspace, _sub_blueprint())
+    assert result.created is False
+    assert "no 'fakeprov' integration" in result.detail
+
+
+def test_two_connections_of_one_provider_refuse_to_be_guessed_between(db_session, workspace):
+    _integration(db_session, workspace, slug="conn-a")
+    _integration(db_session, workspace, slug="conn-b")
+    db_session.commit()
+
+    result = apply_blueprint(db_session, workspace, _sub_blueprint())
+    assert result.created is False
+    assert "say which one" in result.detail
+
+    # naming one resolves it
+    from marvin.db.models.groups.integrations import IntegrationModel
+
+    chosen = db_session.query(IntegrationModel).filter_by(group_id=workspace, slug="conn-b").one()
+    assert apply_blueprint(db_session, workspace, _sub_blueprint(), None, chosen.id).created is True
+    db_session.commit()
+
+
+def test_a_single_connection_is_resolved_without_being_told(db_session, workspace):
+    integration = _integration(db_session, workspace)
+    db_session.commit()
+
+    result = apply_blueprint(db_session, workspace, _sub_blueprint())
+    db_session.commit()
+
+    assert result.created is True
+    from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+
+    assert db_session.query(IntegrationEventSubscriptionModel).filter_by(group_id=workspace).one().integration_id == integration.id
+
+
+def test_apply_many_wires_subscriptions_after_the_content_they_may_reference(db_session, workspace):
+    _integration(db_session, workspace)
+    db_session.commit()
+    entry_type = Blueprint(kind="entry_type", slug="fp-log", name="FP log", source="fakeprov", payload={"name": "FP log"})
+
+    results = apply_many(db_session, workspace, [_sub_blueprint(), entry_type])
+    db_session.commit()
+
+    assert [r.kind for r in results] == ["entry_type", "event_subscription"]
+    assert all(r.created for r in results)

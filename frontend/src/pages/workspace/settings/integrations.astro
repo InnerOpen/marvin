@@ -1,14 +1,14 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import type { Integration, IntegrationPluginInfo, IntegrationProviderInfo } from "@/lib/api/integrations";
+import type { Integration, IntegrationPluginInfo, ProviderInfo } from "@/lib/api/integrations";
 import { listIntegrations, listPlugins, listProviders } from "@/lib/api/integrations";
 import type { Blueprint } from "@/lib/api/blueprints";
 import { listBlueprints } from "@/lib/api/blueprints";
 
 const authToken = getAuthToken(Astro.cookies);
 
-let providers: IntegrationProviderInfo[] = [];
+let providers: ProviderInfo[] = [];
 let integrations: Integration[] = [];
 let plugins: IntegrationPluginInfo[] = [];
 let blueprints: Blueprint[] = [];
@@ -87,7 +87,7 @@ function statusMeta(status: string): { text: string; cls: string } {
             <article class={`conn-card ${it.enabled ? "" : "is-disabled"}`} data-id={it.id}>
               <div class="conn-top">
                 <div class="conn-id">
-                  <strong>{it.name}</strong>
+                  <strong>{prov?.icon ? `${prov.icon} ${it.name}` : it.name}</strong>
                   <span class="conn-sub">
                     {prov?.name ?? it.provider}
                     {prov && ` · ${CATEGORY_LABEL[prov.category] ?? prov.category}`}
@@ -173,7 +173,7 @@ function statusMeta(status: string): { text: string; cls: string } {
         {providers.map((p) => (
           <article class="cat-card">
             <div class="cat-head">
-              <strong>{p.name}</strong>
+              <strong>{p.icon ? `${p.icon} ${p.name}` : p.name}</strong>
               <span class="chip">{CATEGORY_LABEL[p.category] ?? p.category}</span>
             </div>
             <p class="cat-desc">{p.description}</p>

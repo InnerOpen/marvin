@@ -47,6 +47,9 @@ class AgentTool:
     input_schema: dict
     run: Callable[[dict], str]
     category: str = ""  # permission-matrix row, see tools/categories.py
+    # "Ask first": the loop does not run this tool — it pends the call for the user's decision and
+    # the run resumes (approved → run; denied → the model is told) via ResumeState.
+    requires_approval: bool = False
 
 
 @dataclass
@@ -59,13 +62,40 @@ class AgentStep:
 
 
 @dataclass
+class PendingCall:
+    """A tool call waiting for the user's decision (an "ask first" tool)."""
+
+    id: str
+    tool: str
+    arguments: dict
+
+
+@dataclass
 class AgentResult:
     answer: str
     steps: list[AgentStep] = field(default_factory=list)
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
-    stopped_reason: str = "complete"  # "complete" | "max_steps"
+    stopped_reason: str = "complete"  # "complete" | "max_steps" | "awaiting_approval"
+    # Set when stopped_reason == "awaiting_approval": what is waiting, and the transcript to resume from.
+    pending_calls: list[PendingCall] = field(default_factory=list)
+    convo: list[Message] = field(default_factory=list)
+
+
+@dataclass
+class ResumeState:
+    """Continue a paused run: its transcript, the calls that were pending, and the user's decisions."""
+
+    convo: list[Message]
+    pending: list[PendingCall]
+    decisions: dict[str, str]  # call id → "approve" | "deny" (missing = deny)
+
+
+DECISION_APPROVE = "approve"
+DECISION_DENY = "deny"
+STOPPED_AWAITING_APPROVAL = "awaiting_approval"
+DECLINED_RESULT = json.dumps({"error": "the user declined this action"})
 
 
 EventListener = Callable[[dict], None]
@@ -89,23 +119,56 @@ def run_agent_loop(
     options: CompletionOptions | None = None,
     max_steps: int = DEFAULT_MAX_STEPS,
     on_event: EventListener | None = None,
+    resume: ResumeState | None = None,
 ) -> AgentResult:
     """Drive the tool-calling loop and return the final answer plus the tool-call trace.
 
     `on_event` (optional) hears the run as it happens: `{"type": "thinking"}` before each model
     call, `{"type": "tool_call", "tool", "arguments"}` / `{"type": "tool_result", "tool", "ok"}`
     around each tool — the feed behind a live step timeline.
+
+    Tools flagged `requires_approval` are not run: within one completion the other calls run as
+    usual and the flagged ones pend; the loop returns with `stopped_reason="awaiting_approval"`,
+    `pending_calls` and the transcript (`convo`). Call again with `resume` (the transcript, the
+    pending calls and the user's decisions) and a fresh step budget: approved calls run, denied
+    ones answer the model with a decline, and the loop continues. Every provider needs one tool
+    message per call id, so the transcript is only ever handed back complete.
     """
     tool_defs = [ToolDefinition(name=t.name, description=t.description, input_schema=t.input_schema) for t in tools]
     by_name = {t.name: t for t in tools}
     result = AgentResult(answer="")
-    convo: list[Message] = list(messages)
+    convo: list[Message] = list(resume.convo) if resume is not None else list(messages)
     nudged = False
 
     def account(completion) -> None:
         result.prompt_tokens += completion.prompt_tokens or 0
         result.completion_tokens += completion.completion_tokens or 0
         result.total_tokens += completion.total_tokens or 0
+
+    def dispatch(call_id: str, name: str, arguments: dict) -> None:
+        tool = by_name.get(name)
+        _notify(on_event, {"type": "tool_call", "tool": name, "arguments": arguments})
+        ok = True
+        if tool is None:
+            ok = False
+            out = json.dumps({"error": f"unknown tool: {name}"})
+        else:
+            try:
+                out = tool.run(arguments)
+            except Exception as e:  # tool failures are surfaced to the model, not fatal
+                ok = False
+                out = json.dumps({"error": str(e)})
+        _notify(on_event, {"type": "tool_result", "tool": name, "ok": ok})
+        result.steps.append(AgentStep(tool=name, arguments=arguments, result=out))
+        convo.append(Message(role="tool", content=out, tool_call_id=call_id))
+
+    if resume is not None:
+        for call in resume.pending:
+            if resume.decisions.get(call.id) == DECISION_APPROVE:
+                dispatch(call.id, call.tool, dict(call.arguments or {}))
+            else:
+                _notify(on_event, {"type": "declined", "tool": call.tool})
+                convo.append(Message(role="tool", content=DECLINED_RESULT, tool_call_id=call.id))
 
     for _step in range(max_steps):
         _notify(on_event, {"type": "thinking"})
@@ -122,22 +185,19 @@ def run_agent_loop(
             return result
 
         convo.append(Message(role="assistant", content=completion.content or "", tool_calls=completion.tool_calls))
+        pending: list[PendingCall] = []
         for call in completion.tool_calls:
             tool = by_name.get(call.name)
-            _notify(on_event, {"type": "tool_call", "tool": call.name, "arguments": call.arguments or {}})
-            ok = True
-            if tool is None:
-                ok = False
-                out = json.dumps({"error": f"unknown tool: {call.name}"})
-            else:
-                try:
-                    out = tool.run(call.arguments or {})
-                except Exception as e:  # tool failures are surfaced to the model, not fatal
-                    ok = False
-                    out = json.dumps({"error": str(e)})
-            _notify(on_event, {"type": "tool_result", "tool": call.name, "ok": ok})
-            result.steps.append(AgentStep(tool=call.name, arguments=call.arguments or {}, result=out))
-            convo.append(Message(role="tool", content=out, tool_call_id=call.id))
+            if tool is not None and tool.requires_approval:
+                pending.append(PendingCall(id=call.id, tool=call.name, arguments=dict(call.arguments or {})))
+                continue
+            dispatch(call.id, call.name, dict(call.arguments or {}))
+        if pending:
+            _notify(on_event, {"type": "awaiting_approval", "calls": [{"id": c.id, "tool": c.tool} for c in pending]})
+            result.pending_calls = pending
+            result.convo = convo
+            result.stopped_reason = STOPPED_AWAITING_APPROVAL
+            return result
 
     # Step budget exhausted: force a final answer with tools disabled (keeps the tool history valid).
     convo.append(Message(role="user", content="You have used your tool budget. Give your best final answer now, using what you've gathered."))

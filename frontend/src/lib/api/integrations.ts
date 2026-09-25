@@ -28,7 +28,13 @@ export type {
   IntegrationUpdate,
 };
 
-export async function listProviders(authToken?: string): Promise<IntegrationProviderInfo[]> {
+/**
+ * The published SDK types lag the API. A provider may supply an optional emoji `icon`; widen here
+ * rather than block on an SDK release, and drop this once the generated types carry it.
+ */
+export type ProviderInfo = IntegrationProviderInfo & { icon?: string };
+
+export async function listProviders(authToken?: string): Promise<ProviderInfo[]> {
   return createSdkClient(authToken).integrations.listProviders();
 }
 

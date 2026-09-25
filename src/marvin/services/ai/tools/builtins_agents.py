@@ -144,6 +144,7 @@ def run_agent(ctx: ToolContext, args: dict) -> str:
             if "agent" not in s.sources or role < s.min_role or s.name in ("run_agent", "list_agents"):
                 continue
             cat = category_of(s.name, read_only=s.read_only)
+            # "ask" counts as blocked here: a run from MCP has no user to approve mid-loop.
             if resolve_policy(spec, s.name, cat, role)[0] != POLICY_ALLOW:
                 continue
             tools.append(

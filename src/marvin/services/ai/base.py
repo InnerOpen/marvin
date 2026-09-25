@@ -53,6 +53,59 @@ class Message:
     tool_call_id: str | None = None  # role="tool": the ToolCall.id this message answers
 
 
+def serialize_messages(messages: list[Message]) -> list[dict]:
+    """Messages → JSON-safe dicts, so a paused run's transcript can be parked in the database.
+
+    str content stays a str; list content becomes `[{"type": "text", "text"} | {"type": "image",
+    "data", "mime_type"}]`; tool calls and tool_call_id ride along. `deserialize_messages` inverts it.
+    """
+    out: list[dict] = []
+    for m in messages:
+        if isinstance(m.content, str):
+            content: str | list = m.content
+        else:
+            content = [
+                {"type": "image", "data": part.data, "mime_type": part.mime_type} if isinstance(part, ImagePart) else {"type": "text", "text": str(part)}
+                for part in m.content
+            ]
+        d: dict = {"role": m.role, "content": content}
+        if m.tool_calls:
+            d["tool_calls"] = [{"id": c.id, "name": c.name, "arguments": dict(c.arguments or {})} for c in m.tool_calls]
+        if m.tool_call_id:
+            d["tool_call_id"] = m.tool_call_id
+        out.append(d)
+    return out
+
+
+def deserialize_messages(data) -> list[Message]:
+    out: list[Message] = []
+    for d in data or []:
+        if not isinstance(d, dict):
+            continue
+        raw = d.get("content", "")
+        if isinstance(raw, list):
+            content: str | list = [
+                ImagePart(data=str(part.get("data") or ""), mime_type=str(part.get("mime_type") or "image/png"))
+                if isinstance(part, dict) and part.get("type") == "image"
+                else str(part.get("text", "") if isinstance(part, dict) else part)
+                for part in raw
+            ]
+        else:
+            content = "" if raw is None else str(raw)
+        calls = d.get("tool_calls") or None
+        out.append(
+            Message(
+                role=str(d.get("role") or "user"),
+                content=content,
+                tool_calls=[ToolCall(id=str(c.get("id")), name=str(c.get("name")), arguments=dict(c.get("arguments") or {})) for c in calls]
+                if calls
+                else None,
+                tool_call_id=d.get("tool_call_id") or None,
+            )
+        )
+    return out
+
+
 @dataclass
 class CompletionOptions:
     max_tokens: int | None = None

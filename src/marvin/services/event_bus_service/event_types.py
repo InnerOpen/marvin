@@ -1125,6 +1125,28 @@ class EventAIOperationData(EventDocumentDataBase):
     """The human-readable name of the workspace."""
 
 
+class EventAIApprovalData(EventDocumentDataBase):
+    """Data payload for an agent run that paused for the user's approval (approval_requested), and
+    for the decision (approval_granted / approval_rejected)."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.ai
+    operation: EventOperationBase = EventOperation.info
+    agent_slug: str
+    """The agent whose run is waiting."""
+    thread_id: UUID4
+    """The Ask thread the paused run is parked on."""
+    execution_id: UUID4 | None = None
+    """The ai_executions row of the run."""
+    calls: list[dict] = []
+    """The tool calls in question: [{id, tool, arguments}]."""
+    decisions: dict[str, str] | None = None
+    """On granted/rejected: {call id: approve | deny}."""
+    workspace_id: UUID4
+    """The workspace the run is in."""
+    workspace_name: str | None = None
+    """The human-readable name of the workspace."""
+
+
 class EventAIEmbeddingsData(EventDocumentDataBase):
     """Data payload for AI embedding reindex events."""
 

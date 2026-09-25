@@ -17,7 +17,15 @@ from pydantic import Field, StringConstraints, field_validator
 
 from marvin.schemas._marvin import _MarvinModel
 
-BlueprintKind = Literal["collection", "entry_type", "scheduled_task"]
+BlueprintKind = Literal["collection", "entry_type", "scheduled_task", "event_subscription"]
+
+#: Kinds that wire up one *connection* rather than workspace content: they reference an integration
+#: instance, so applying one needs to know which. The integration's own card supplies it.
+PER_INTEGRATION_KINDS = ("event_subscription",)
+
+#: Kinds that *do* something once switched on — send, fire, open an endpoint. They are always created
+#: disabled: applying a blueprint gives you the wiring, turning it on stays a deliberate second act.
+ACTS_WHEN_ENABLED_KINDS = ("scheduled_task", "event_subscription")
 
 #: What a parameter asks for. `entry_type`/`collection` render as a picker fed by the workspace's
 #: own content and are validated against it — that is how a blueprint stays general without ever
@@ -60,7 +68,11 @@ class Blueprint(_MarvinModel):
     """What this blueprint builds."""
 
     slug: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-    """Slug the created object gets, and the key the upsert dedupes on."""
+    """Slug the created object gets, and the key the upsert dedupes on.
+
+    An `event_subscription` has no slug of its own in the database, so there this is only the
+    catalog identity — that upsert dedupes on (integration, event type, action) instead.
+    """
 
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     """Human label, shown in the catalog."""

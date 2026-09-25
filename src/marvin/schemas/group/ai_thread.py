@@ -1,6 +1,7 @@
 """Schemas for Ask threads (see db/models/groups/ai_threads.py and services/ai/threads.py)."""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import UUID4, ConfigDict, Field
 
@@ -43,5 +44,14 @@ class AIThreadDetail(AIThreadRead):
 
 class AIThreadUpdate(_MarvinModel):
     title: str | None = Field(default=None, max_length=200)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AIThreadResumeRequest(_MarvinModel):
+    """Decide the calls a paused run is waiting on. Missing ids count as denied."""
+
+    decisions: dict[str, Literal["approve", "deny"]] = {}
+    client_run_id: str | None = None  # live steps for the resumed run, as on a run
 
     model_config = ConfigDict(from_attributes=True)

@@ -203,6 +203,9 @@ def may_talk(spec: AgentSpec, role: int, source: str) -> tuple[bool, str]:
 
 POLICY_ALLOW = "allow"
 POLICY_BLOCK = "block"
+# "Ask first": the tool is bound, but each call pauses the run for the user's approval (needs a
+# thread to park on — Ask threads; from MCP an ask-first tool is simply not bound).
+POLICY_ASK = "ask"
 
 
 def default_policy(spec: AgentSpec, category_id: str) -> str:
@@ -219,7 +222,8 @@ def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int)
 
     Order: the hard allowlist, then a tool-level entry, then a category-level entry, then the
     category default. A write is never allowed to a caller below AUTHOR — an agent cannot do more
-    than the user it works for, whatever the matrix says.
+    than the user it works for, whatever the matrix says; that holds for "ask" too, since approving
+    a write is doing it.
     """
     from marvin.services.ai.operations.base import ROLE_AUTHOR
     from marvin.services.ai.tools.categories import category_writes
@@ -236,7 +240,7 @@ def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int)
         reason = "category default" if category_writes(category_id) else "read access"
         if category_writes(category_id) and not spec.allow_writes:
             reason = "agent is read-only"
-    if decision == POLICY_ALLOW and category_writes(category_id) and role < ROLE_AUTHOR:
+    if decision in (POLICY_ALLOW, POLICY_ASK) and category_writes(category_id) and role < ROLE_AUTHOR:
         return POLICY_BLOCK, "caller role is below AUTHOR"
     return decision, reason
 

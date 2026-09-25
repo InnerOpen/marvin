@@ -10,6 +10,7 @@ surprise: the response says what happened for each blueprint.
 """
 
 from fastapi import APIRouter, Body, HTTPException, Query, status
+from pydantic import UUID4
 
 from marvin.core.root_logger import get_logger
 from marvin.routes._base import BaseUserController, controller
@@ -32,13 +33,13 @@ logger = get_logger(__name__)
 class BlueprintsController(BaseUserController):
     """Browse the blueprint catalog and apply blueprints to the active workspace."""
 
-    def _to_read(self, blueprint) -> BlueprintRead:
+    def _to_read(self, blueprint, integration_id: UUID4 | None = None) -> BlueprintRead:
         missing = missing_requirements(self.session, self.group_id, blueprint)
         return BlueprintRead(
             **blueprint.model_dump(),
             available=not missing,
             missing_requirements=missing,
-            applied=already_applied(self.session, self.group_id, blueprint),
+            applied=already_applied(self.session, self.group_id, blueprint, None, integration_id),
         )
 
     @router.get("", response_model=list[BlueprintRead])
@@ -47,9 +48,10 @@ class BlueprintsController(BaseUserController):
         kind: str | None = Query(None, description="collection | entry_type | scheduled_task"),
         category: str | None = Query(None),
         source: str | None = Query(None, description="'core', or a provider slug"),
+        integration_id: UUID4 | None = Query(None, description="Which connection to check per-integration blueprints against"),
     ):
         """The catalog, annotated with what this workspace can do about each entry."""
-        return [self._to_read(b) for b in list_blueprints(kind=kind, category=category, source=source)]
+        return [self._to_read(b, integration_id) for b in list_blueprints(kind=kind, category=category, source=source)]
 
     @router.get("/categories", response_model=list[str])
     def list_categories(self):
@@ -65,7 +67,13 @@ class BlueprintsController(BaseUserController):
         return self._to_read(blueprint)
 
     @router.post("/{slug}/apply", response_model=BlueprintApplyResult)
-    def apply_one(self, slug: str, params: dict | None = Body(None), source: str | None = Query(None)):
+    def apply_one(
+        self,
+        slug: str,
+        params: dict | None = Body(None),
+        source: str | None = Query(None),
+        integration_id: UUID4 | None = Query(None),
+    ):
         """Create this blueprint's object in the active workspace, if it isn't there already.
 
         `params` supplies any parameters the blueprint declares, e.g. `{"entry_type": "..."}`.
@@ -74,13 +82,19 @@ class BlueprintsController(BaseUserController):
         if blueprint is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
 
-        result = apply_blueprint(self.session, self.group_id, blueprint, params)
+        result = apply_blueprint(self.session, self.group_id, blueprint, params, integration_id)
         self.session.commit()
         logger.info("Blueprint '%s' applied to %s: created=%s", slug, self.group_id, result.created)
         return result
 
     @router.post("/apply", response_model=list[BlueprintApplyResult])
-    def apply_several(self, slugs: list[str] = Body(...), params: dict | None = Body(None), source: str | None = Query(None)):
+    def apply_several(
+        self,
+        slugs: list[str] = Body(...),
+        params: dict | None = Body(None),
+        source: str | None = Query(None),
+        integration_id: UUID4 | None = Query(None),
+    ):
         """Apply several at once — what the "apply this integration's content" button posts.
 
         Entry types are created before the collections and tasks that reference them, whatever
@@ -94,6 +108,6 @@ class BlueprintsController(BaseUserController):
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
             blueprints.append(blueprint)
 
-        results = apply_many(self.session, self.group_id, blueprints, params)
+        results = apply_many(self.session, self.group_id, blueprints, params, integration_id)
         self.session.commit()
         return results

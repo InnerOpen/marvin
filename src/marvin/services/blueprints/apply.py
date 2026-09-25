@@ -11,7 +11,12 @@ Nothing here commits — the caller owns the transaction, as with the smart-coll
 import re
 
 from marvin.core.root_logger import get_logger
-from marvin.schemas.platform.blueprints import Blueprint, BlueprintApplyResult
+from marvin.schemas.platform.blueprints import (
+    ACTS_WHEN_ENABLED_KINDS,
+    PER_INTEGRATION_KINDS,
+    Blueprint,
+    BlueprintApplyResult,
+)
 
 logger = get_logger(__name__)
 
@@ -20,6 +25,28 @@ _PLACEHOLDER = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
 class BlueprintParameterError(ValueError):
     """A parameter is missing, or names content this workspace does not have."""
+
+
+def resolve_integration_id(session, group_id, blueprint: Blueprint, integration_id=None):
+    """Which integration instance a per-connection blueprint wires up.
+
+    The card that offers the blueprint knows its own integration and passes it. Falling back to
+    "the one integration of this provider" is a convenience, not a guess: with two connections of
+    the same provider there is no right answer, so it refuses rather than picking one.
+    """
+    if blueprint.kind not in PER_INTEGRATION_KINDS:
+        return None
+    if integration_id:
+        return integration_id
+
+    from marvin.db.models.groups.integrations import IntegrationModel
+
+    rows = session.query(IntegrationModel).filter_by(group_id=group_id, provider=blueprint.source).all()
+    if len(rows) == 1:
+        return rows[0].id
+    if not rows:
+        raise BlueprintParameterError(f"no '{blueprint.source}' integration in this workspace to connect")
+    raise BlueprintParameterError(f"this workspace has {len(rows)} '{blueprint.source}' integrations — say which one")
 
 
 def resolve_parameters(session, group_id, blueprint: Blueprint, params: dict | None) -> dict:
@@ -85,7 +112,7 @@ def missing_requirements(session, group_id, blueprint: Blueprint) -> list[str]:
     return missing
 
 
-def already_applied(session, group_id, blueprint: Blueprint, params: dict | None = None) -> bool:
+def already_applied(session, group_id, blueprint: Blueprint, params: dict | None = None, integration_id=None) -> bool:
     """True when this workspace already has an object with the blueprint's (resolved) slug.
 
     Always False for a parameterised blueprint with no parameters supplied — its slug isn't known
@@ -94,18 +121,21 @@ def already_applied(session, group_id, blueprint: Blueprint, params: dict | None
     if blueprint.parameters and not params:
         return False
     try:
-        slug = substitute(blueprint.slug, resolve_parameters(session, group_id, blueprint, params))
+        resolved = resolve_parameters(session, group_id, blueprint, params)
+        target = resolve_integration_id(session, group_id, blueprint, integration_id)
     except BlueprintParameterError:
         return False
-    return _existing(session, group_id, blueprint.kind, slug) is not None
+    slug = substitute(blueprint.slug, resolved)
+    return _existing(session, group_id, blueprint, slug, target) is not None
 
 
-def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None = None) -> BlueprintApplyResult:
-    """Create the blueprint's object in this workspace, unless something already has that slug."""
+def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None = None, integration_id=None) -> BlueprintApplyResult:
+    """Create the blueprint's object in this workspace, unless it is already there."""
     result = BlueprintApplyResult(slug=blueprint.slug, kind=blueprint.kind, created=False)
 
     try:
         resolved = resolve_parameters(session, group_id, blueprint, params)
+        target = resolve_integration_id(session, group_id, blueprint, integration_id)
     except BlueprintParameterError as e:
         result.detail = str(e)
         return result
@@ -119,17 +149,19 @@ def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None
         result.detail = f"needs {', '.join(missing)}"
         return result
 
-    if _existing(session, group_id, blueprint.kind, slug) is not None:
-        result.detail = f"a {blueprint.kind.replace('_', ' ')} with slug '{slug}' already exists — left as it is"
+    if _existing(session, group_id, blueprint, slug, target) is not None:
+        noun = blueprint.kind.replace("_", " ")
+        where = "already connected" if blueprint.kind in PER_INTEGRATION_KINDS else f"with slug '{slug}' already exists"
+        result.detail = f"a {noun} {where} — left as it is"
         return result
 
-    _create(session, group_id, blueprint, resolved, slug, name)
+    _create(session, group_id, blueprint, resolved, slug, name, target)
     result.created = True
     logger.info("Blueprint applied: %s '%s' (%s)", blueprint.kind, slug, blueprint.source)
     return result
 
 
-def apply_many(session, group_id, blueprints, params: dict | None = None) -> list[BlueprintApplyResult]:
+def apply_many(session, group_id, blueprints, params: dict | None = None, integration_id=None) -> list[BlueprintApplyResult]:
     """Apply several, in order. Entry types first so collections/tasks that reference them fit.
 
     `params` is keyed by blueprint slug: {"<slug>": {"entry_type": "..."}}.
@@ -150,15 +182,56 @@ def _models():
     return {"entry_type": EntryTypes, "collection": Collections, "scheduled_task": ScheduledTaskModel}
 
 
-def _existing(session, group_id, kind: str, slug: str):
-    model = _models().get(kind)
+def _existing(session, group_id, blueprint: Blueprint, slug: str, integration_id=None):
+    if blueprint.kind == "event_subscription":
+        # No slug in the database: a connection is identified by what it wires to what.
+        from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+
+        payload = blueprint.payload or {}
+        return (
+            session.query(IntegrationEventSubscriptionModel)
+            .filter_by(
+                group_id=group_id,
+                integration_id=integration_id,
+                event_type=payload.get("event_type"),
+                action=payload.get("action"),
+            )
+            .first()
+        )
+
+    model = _models().get(blueprint.kind)
     if model is None:
         return None
     return session.query(model).filter_by(group_id=group_id, slug=slug).first()
 
 
-def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, name: str) -> None:
-    payload = {**substitute(blueprint.payload, params), "slug": slug}
+def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, name: str, integration_id=None) -> None:
+    payload = substitute(blueprint.payload, params)
+
+    if blueprint.kind in ACTS_WHEN_ENABLED_KINDS:
+        # Applying gives you the wiring; switching it on is a separate, deliberate act. A
+        # subscription or task that started sending the moment it was created would be a nasty
+        # surprise on an integration someone was only setting up.
+        payload["enabled"] = False
+
+    if blueprint.kind == "event_subscription":
+        from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+
+        session.add(
+            IntegrationEventSubscriptionModel(
+                session=session,
+                group_id=group_id,
+                integration_id=integration_id,
+                event_type=payload.get("event_type"),
+                action=payload.get("action"),
+                args=payload.get("args") or {},
+                enabled=False,
+            )
+        )
+        session.flush()
+        return
+
+    payload = {**payload, "slug": slug}
     payload.setdefault("name", name)
 
     if blueprint.kind == "scheduled_task":

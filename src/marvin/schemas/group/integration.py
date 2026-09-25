@@ -80,6 +80,8 @@ class IntegrationProviderInfo(_MarvinModel):
     name: str
     description: str = ""
     category: str
+    icon: str = ""
+    """Optional emoji the provider supplies; rendered as text, so a name or URL will not work."""
     config_schema: dict = Field(default_factory=dict)
     credentials: list[ProviderCredentialInfo] = Field(default_factory=list)
     emits: list[ProviderEventInfo] = Field(default_factory=list)
