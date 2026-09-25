@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.93 (2026-09-25)
+
+### Features
+
+- **integrations**: Separate what an integration needs from what it suggests
+  ([`bfad431`](https://github.com/InnerOpen/marvin/commit/bfad4311312dcb9a66556c0d4391566d167a2598))
+
+
 ## v1.0.0-rc.92 (2026-09-25)
 
 ### Features
