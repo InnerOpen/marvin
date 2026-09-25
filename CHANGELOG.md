@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.94 (2026-09-25)
+
+### Features
+
+- **integrations**: Show what each integration can actually do
+  ([`3e1603b`](https://github.com/InnerOpen/marvin/commit/3e1603b4ab43f0f1fa8ffbd39785869bf90e3aac))
+
+
 ## v1.0.0-rc.93 (2026-09-25)
 
 ### Features
