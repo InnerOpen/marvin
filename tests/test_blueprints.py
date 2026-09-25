@@ -320,3 +320,74 @@ def test_blueprint_endpoints_require_authentication(client):
     assert client.get("/api/groups/blueprints/categories").status_code in (401, 403)
     assert client.post("/api/groups/blueprints/recently-published/apply").status_code in (401, 403)
     assert client.post("/api/groups/blueprints/apply", json=["recently-published"]).status_code in (401, 403)
+
+
+# --- provider-contributed blueprints ---------------------------------------------------------------
+
+
+def test_provider_declared_content_joins_the_catalog_under_its_own_category(monkeypatch):
+    """Consumer 2: a provider may never touch the database, so it declares and the core offers."""
+    sdk = pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not installed (optional feature)")
+
+    class _P(sdk.IntegrationProvider):
+        slug = "fakeprov"
+        name = "Fake Prov"
+        content = (
+            sdk.ContentBlueprint(kind="entry_type", slug="fp-log", name="FP log", payload={"name": "FP log"}),
+            sdk.ContentBlueprint(
+                kind="collection",
+                slug="fp-all",
+                name="FP all",
+                requires=("entry_type:fp-log",),
+                payload={"name": "FP all", "is_smart": True, "smart_rules": {"entry_types": ["fp-log"]}},
+            ),
+        )
+
+    monkeypatch.setitem(sdk.INTEGRATION_REGISTRY, "fakeprov", _P())
+
+    mine = list_blueprints(source="fakeprov")
+    assert [b.slug for b in mine] == ["fp-log", "fp-all"]
+    # filed under the provider so the catalog stays legible as providers multiply
+    assert {b.category for b in mine} == {"Fake Prov"}
+    assert list_blueprints(source="core") and all(b.source == "core" for b in list_blueprints(source="core"))
+
+
+def test_a_malformed_provider_declaration_does_not_empty_the_catalog(monkeypatch):
+    sdk = pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not installed (optional feature)")
+
+    class _Bad(sdk.IntegrationProvider):
+        slug = "badprov"
+        name = "Bad Prov"
+        content = ({"kind": "collection"},)  # no slug, no name
+
+    monkeypatch.setitem(sdk.INTEGRATION_REGISTRY, "badprov", _Bad())
+
+    assert list_blueprints(source="badprov") == []
+    assert list_blueprints(source="core"), "one bad provider must not take the catalog down"
+
+
+def test_applying_a_provider_bundle_orders_and_creates_everything(db_session, workspace, monkeypatch):
+    sdk = pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not installed (optional feature)")
+
+    class _P(sdk.IntegrationProvider):
+        slug = "bundleprov"
+        name = "Bundle Prov"
+        content = (
+            sdk.ContentBlueprint(
+                kind="collection",
+                slug="bp-all",
+                name="BP all",
+                requires=("entry_type:bp-log",),
+                payload={"name": "BP all", "is_smart": True, "smart_rules": {"entry_types": ["bp-log"]}},
+            ),
+            sdk.ContentBlueprint(kind="entry_type", slug="bp-log", name="BP log", payload={"name": "BP log"}),
+        )
+
+    monkeypatch.setitem(sdk.INTEGRATION_REGISTRY, "bundleprov", _P())
+
+    results = apply_many(db_session, workspace, list_blueprints(source="bundleprov"))
+    db_session.commit()
+
+    assert all(r.created for r in results), [r.detail for r in results]
+    assert db_session.query(EntryTypes).filter_by(group_id=workspace, slug="bp-log").one()
+    assert db_session.query(Collections).filter_by(group_id=workspace, slug="bp-all").one()

@@ -46,26 +46,9 @@ uv run scripts/seed_mashandburnco.py
 
 **Documentation:** See [docs/MASH-AND-BURN-SEED.md](../docs/MASH-AND-BURN-SEED.md)
 
-### `seed_instagram_auto_reply.py`
-
-**Content side of the `marvin-integration-instagram` provider, for one workspace.**
-
-**Usage:**
-```bash
-uv run scripts/seed_instagram_auto_reply.py --workspace mash-burn-co
-```
-
-**What it does:**
-- ✅ Entry types `ig-auto-reply` (rules: post id, keywords, reply — only `published` rules apply) and `ig-reply-log` (one `published` entry per DM sent; its `comment_id` is the dedupe)
-- ✅ Scheduled task `instagram-auto-reply` (`run_integration_action` → `auto_reply`, every 2 min) — created **disabled, in dry-run**
-- ✅ Scheduled task `instagram-token-refresh` (`refresh_token`, every 30 days) — disabled
-- ✅ Three sample rules (size / link / price) as drafts
-
-**Idempotent:** entry types are brought up to date; tasks and rules are only created when missing, so CMS edits survive a re-run.
-
-**Then:** Settings → Integrations → Instagram (token + IG user id) → publish a rule →
-`POST /api/scheduled-tasks/instagram-auto-reply/execute` → `GET /api/scheduled-tasks/log?limit=5` shows
-`checked=N matched=M sent=0 (dry run)`. Flip `task_config.args.dry_run` and `enabled` with `PATCH /api/scheduled-tasks/instagram-auto-reply`.
+> The Instagram integration used to be seeded by `seed_instagram_auto_reply.py`. It now declares its
+> own content (entry types, collections, scheduled tasks) through the SDK, and the workspace applies
+> it from the blueprint catalog after review — see `services/blueprints/`.
 
 ---
 
