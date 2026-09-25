@@ -3,24 +3,42 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import type { Integration, IntegrationPluginInfo, IntegrationProviderInfo } from "@/lib/api/integrations";
 import { listIntegrations, listPlugins, listProviders } from "@/lib/api/integrations";
+import type { Blueprint } from "@/lib/api/blueprints";
+import { listBlueprints } from "@/lib/api/blueprints";
 
 const authToken = getAuthToken(Astro.cookies);
 
 let providers: IntegrationProviderInfo[] = [];
 let integrations: Integration[] = [];
 let plugins: IntegrationPluginInfo[] = [];
+let blueprints: Blueprint[] = [];
 let error: string | null = null;
 
 try {
-  [providers, integrations, plugins] = await Promise.all([
+  [providers, integrations, plugins, blueprints] = await Promise.all([
     listProviders(authToken),
     listIntegrations(authToken),
     listPlugins(authToken),
+    // A provider declares the workspace content its actions depend on; it can never create it.
+    // The workspace applies it from here, deliberately — nothing is installed behind your back.
+    listBlueprints({}, authToken),
   ]);
 } catch (e) {
   console.error("[integrations] load error:", e);
   error = e instanceof Error ? e.message : String(e);
 }
+
+const needsByProvider = new Map<string, Blueprint[]>();
+for (const b of blueprints) {
+  if (b.source === "core") continue;
+  needsByProvider.set(b.source, [...(needsByProvider.get(b.source) ?? []), b]);
+}
+
+const KIND_NOUN: Record<string, string> = {
+  entry_type: "entry type",
+  collection: "collection",
+  scheduled_task: "scheduled task",
+};
 
 const providersBySlug = new Map(providers.map((p) => [p.slug, p]));
 
@@ -84,6 +102,48 @@ function statusMeta(status: string): { text: string; cls: string } {
                 </div>
               </div>
               {it.lastError && <p class="conn-error">{it.lastError}</p>}
+
+              {(() => {
+                const needs = needsByProvider.get(it.provider) ?? [];
+                if (needs.length === 0) return null;
+                const missing = needs.filter((b) => !b.applied);
+                // A parameterised blueprint cannot be applied blind — it has to ask first.
+                const askable = missing.filter((b) => b.parameters.length === 0);
+                return (
+                  <details class="needs" open={missing.length > 0}>
+                    <summary>
+                      What this needs to work
+                      <span class={`badge ${missing.length ? "warn" : "ok"}`}>
+                        {missing.length ? `${missing.length} missing` : "all set"}
+                      </span>
+                    </summary>
+                    <ul>
+                      {needs.map((b) => (
+                        <li class={b.applied ? "is-there" : "is-missing"}>
+                          <span class="tick">{b.applied ? "✓" : "○"}</span>
+                          <span class="needs-name">{b.name}</span>
+                          <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
+                          <span class="needs-desc">{b.description}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {askable.length > 0 && (
+                      <button
+                        type="button"
+                        class="button small js-apply-needs"
+                        data-source={it.provider}
+                        data-slugs={JSON.stringify(askable.map((b) => b.slug))}
+                      >
+                        Add {askable.length} missing {askable.length === 1 ? "item" : "items"}
+                      </button>
+                    )}
+                    <p class="needs-note">
+                      Applying only creates what is missing — anything you have already changed is left alone.
+                    </p>
+                  </details>
+                );
+              })()}
+
               <div class="conn-foot">
                 <code class="conn-slug" title="Reference this integration from automations">{it.slug}</code>
                 <div class="conn-btns">
@@ -203,6 +263,7 @@ function statusMeta(status: string): { text: string; cls: string } {
     checkIntegration,
     runIntegrationAction,
   } from "@/lib/api/integrations";
+  import { applyBlueprints } from "@/lib/api/blueprints";
   import type { IntegrationProviderInfo } from "@/lib/api/integrations";
 
   const providers: IntegrationProviderInfo[] = JSON.parse(
@@ -492,6 +553,40 @@ function statusMeta(status: string): { text: string; cls: string } {
       }
     }),
   );
+
+  // "What this needs to work" — apply the provider's declared content. The SDK only ever declares;
+  // creating it is an explicit act here, and it never overwrites anything already in the workspace.
+  document.querySelectorAll<HTMLButtonElement>("button.js-apply-needs").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const source = button.dataset.source!;
+      const slugs: string[] = JSON.parse(button.dataset.slugs || "[]");
+      if (slugs.length === 0) return;
+
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = "Adding…";
+      try {
+        const results = await applyBlueprints(slugs, undefined, source);
+        const created = results.filter((r) => r.created).length;
+        const skipped = results.filter((r) => !r.created);
+        toast(
+          created === results.length
+            ? `Added ${created} ${created === 1 ? "item" : "items"}.`
+            : `Added ${created} of ${results.length}. ${skipped.map((r) => `${r.slug}: ${r.detail}`).join("; ")}`,
+          created > 0,
+        );
+        if (created > 0) setTimeout(reload, 900);
+        else {
+          button.disabled = false;
+          button.textContent = original;
+        }
+      } catch (e) {
+        toast(e instanceof Error ? e.message : String(e), false);
+        button.disabled = false;
+        button.textContent = original;
+      }
+    });
+  });
 </script>
 
 <style>
@@ -741,4 +836,57 @@ function statusMeta(status: string): { text: string; cls: string } {
     border-top: 1px solid var(--line);
   }
   .panel-actions .button { flex: 1; justify-content: center; }
+
+  .needs {
+    border-top: 1px solid var(--mv-border, #e5e7eb);
+    margin-top: 0.75rem;
+    padding-top: 0.6rem;
+    font-size: 0.85rem;
+  }
+  .needs summary {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+  }
+  .needs ul {
+    list-style: none;
+    margin: 0.6rem 0;
+    padding: 0;
+    display: grid;
+    gap: 0.3rem;
+  }
+  .needs li {
+    display: grid;
+    grid-template-columns: 1rem auto auto 1fr;
+    gap: 0.45rem;
+    align-items: baseline;
+  }
+  .needs li.is-missing .needs-name {
+    font-weight: 600;
+  }
+  .needs li.is-there {
+    opacity: 0.65;
+  }
+  .needs .tick {
+    color: var(--mv-ok, #059669);
+  }
+  .needs li.is-missing .tick {
+    color: #b45309;
+  }
+  .needs-kind {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--mv-muted, #6b7280);
+  }
+  .needs-desc {
+    color: var(--mv-muted, #6b7280);
+  }
+  .needs-note {
+    margin: 0.5rem 0 0;
+    font-size: 0.78rem;
+    color: var(--mv-muted, #6b7280);
+  }
 </style>
