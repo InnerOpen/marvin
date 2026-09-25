@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.91 (2026-09-25)
+
+### Bug Fixes
+
+- **integrations**: Deterministic rule order, and document the content declaration
+  ([`2c581d2`](https://github.com/InnerOpen/marvin/commit/2c581d2cb6694baca0e036e4b486c561e3cfcb70))
+
+
 ## v1.0.0-rc.90 (2026-09-25)
 
 ### Features
