@@ -267,8 +267,10 @@ def test_permission_matrix_rows_cover_the_catalog_and_keep_mcp():
 def test_schema_validates_policy_values_and_suggestions():
     ok = AgentCreate(slug="w2", name="w", tool_policy={"links": "block"}, icon="🧵", suggestions=["What's on the bench?"])
     assert ok.tool_policy == {"links": "block"} and ok.suggestions == ["What's on the bench?"]
+    # "ask" (ask-first) is a valid policy value since agents v2 slice C landed POLICY_ASK
+    assert AgentCreate(slug="w2", name="w", tool_policy={"links": "ask"}).tool_policy == {"links": "ask"}
     with pytest.raises(ValidationError):
-        AgentCreate(slug="w2", name="w", tool_policy={"links": "ask"})  # ask-first is v2
+        AgentCreate(slug="w2", name="w", tool_policy={"links": "maybe"})
     with pytest.raises(ValidationError):
         AgentCreate(slug="w2", name="w", suggestions=[str(i) for i in range(9)])
 
