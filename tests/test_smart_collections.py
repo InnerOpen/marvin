@@ -5,15 +5,28 @@ core of the materialized-membership machinery; the reaction listener and the syn
 delegate to it.
 """
 
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from marvin.services.collections.smart_collections import entry_matches_rules, matches_rules
 
 
-def _entry(type_slug="bench-note", status="published", tag_names=None):
+def _ago(days, aware=False):
+    """A datetime `days` days in the past — naive UTC by default, matching the NaiveDateTime columns."""
+    when = datetime.now(UTC) - timedelta(days=days)
+    return when if aware else when.replace(tzinfo=None)
+
+
+def _entry(type_slug="bench-note", status="published", tag_names=None, published_at=None, created_at=None):
     # `tag_names` = the entry's tag SLUGS. The matcher reads `entry.tag_names` (a property over the
     # real tags relationship), not `entry.tags` (which is now Tag objects).
-    return SimpleNamespace(status=status, entry_type=SimpleNamespace(slug=type_slug), tag_names=tag_names)
+    return SimpleNamespace(
+        status=status,
+        entry_type=SimpleNamespace(slug=type_slug),
+        tag_names=tag_names,
+        published_at=published_at,
+        created_at=created_at,
+    )
 
 
 def test_empty_rules_match_nothing():
@@ -114,3 +127,55 @@ def test_target_type_dimensions_are_isolated():
     # no dimensions → matches nothing).
     assert matches_rules(_asset(), {"entry_types": ["article"]}, "asset") is False
     assert matches_rules(_resource(), {"statuses": ["published"]}, "resource") is False
+
+
+def test_published_within_days_matches_only_inside_the_window():
+    rules = {"published_within_days": 30}
+    assert entry_matches_rules(_entry(published_at=_ago(2)), rules) is True
+    assert entry_matches_rules(_entry(published_at=_ago(29)), rules) is True
+    assert entry_matches_rules(_entry(published_at=_ago(31)), rules) is False
+
+
+def test_published_within_days_reads_naive_dates_as_utc():
+    # Columns are NaiveDateTime storing UTC; a naive value must not be read as local time.
+    rules = {"published_within_days": 1}
+    assert entry_matches_rules(_entry(published_at=_ago(0.25)), rules) is True
+    assert entry_matches_rules(_entry(published_at=_ago(0.25, aware=True)), rules) is True
+
+
+def test_never_published_entry_is_outside_any_window():
+    assert entry_matches_rules(_entry(status="draft", published_at=None), {"published_within_days": 30}) is False
+
+
+def test_a_broken_window_matches_nothing_rather_than_widening():
+    # A misconfigured window must fail closed — never drop the constraint and swallow the workspace.
+    for bad in (0, -5, "soon", None):
+        assert entry_matches_rules(_entry(published_at=_ago(1)), {"published_within_days": bad}) is False
+
+
+def test_window_combines_with_status_under_match_all():
+    rules = {"statuses": ["published"], "published_within_days": 30}
+    assert entry_matches_rules(_entry(status="published", published_at=_ago(3)), rules) is True
+    assert entry_matches_rules(_entry(status="draft", published_at=_ago(3)), rules) is False
+    assert entry_matches_rules(_entry(status="published", published_at=_ago(90)), rules) is False
+
+
+def test_created_within_days_is_universal_across_target_types():
+    asset = SimpleNamespace(asset_type="image", created_at=_ago(1), tag_names=None)
+    stale = SimpleNamespace(asset_type="image", created_at=_ago(40), tag_names=None)
+    rules = {"asset_types": ["image"], "created_within_days": 7}
+    assert matches_rules(asset, rules, "asset") is True
+    assert matches_rules(stale, rules, "asset") is False
+
+
+def test_default_recent_collection_is_a_working_rolling_window():
+    """The bootstrap "Recent" default must actually collect something — it shipped for a long time
+    as a manual collection described as "recently published content", which nothing could fill."""
+    from marvin.services.workspace.workspace_bootstrap_service import WorkspaceBootstrapService
+
+    recent = next(c for c in WorkspaceBootstrapService.DEFAULT_COLLECTIONS if c["slug"] == "recent")
+    assert recent["is_smart"] is True
+    rules = recent["smart_rules"]
+    assert entry_matches_rules(_entry(status="published", published_at=_ago(1)), rules) is True
+    assert entry_matches_rules(_entry(status="published", published_at=_ago(400)), rules) is False
+    assert entry_matches_rules(_entry(status="draft", published_at=None), rules) is False

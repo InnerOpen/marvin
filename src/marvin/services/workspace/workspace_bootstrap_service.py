@@ -248,10 +248,14 @@ class WorkspaceBootstrapService:
             "sort_order": 1,
         },
         {
+            # Smart, not manual: "Recent" was shipping as an empty box nobody could keep filled.
+            # The rolling window is reconciled by the nightly resync_smart_collections task.
             "slug": "recent",
             "name": "Recent",
-            "description": "Recently published content",
+            "description": "Published in the last 30 days",
             "sort_order": 2,
+            "is_smart": True,
+            "smart_rules": {"statuses": ["published"], "published_within_days": 30, "match": "all"},
         },
     ]
 

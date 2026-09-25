@@ -12,8 +12,16 @@ Rule shape (every dimension optional; an absent/empty dimension is not constrain
       "entry_types": ["bench-note", "article"],   # entry_type slugs
       "statuses": ["published"],                   # entry.status values
       "tags": ["leather", "waxed"],                # RESERVED — matches once entries carry tags
+      "published_within_days": 30,                 # entries published in the last N days
+      "created_within_days": 30,                   # any item created in the last N days
       "match": "all" | "any"                       # combine dimensions (default "all")
     }
+
+The ``*_within_days`` dimensions are *rolling*: an item silently ages out of the window. Membership
+is materialized, so nothing re-evaluates it on its own — the nightly ``resync_smart_collections``
+task is what evicts items that have aged out. A collection using them is therefore accurate to
+within one reconcile pass, which is the right trade for "recent": exact-to-the-second membership
+would mean re-evaluating every smart collection on every read.
 
 An empty rule set matches **nothing** — so a misconfigured smart collection can't silently
 swallow the whole workspace.
@@ -30,6 +38,8 @@ preserved. Mixed smart+manual collections are a later enhancement.
 The sync helpers never commit — the caller owns the transaction.
 """
 
+from datetime import UTC, datetime, timedelta
+
 from marvin.core.root_logger import get_logger
 
 logger = get_logger(__name__)
@@ -38,14 +48,35 @@ logger = get_logger(__name__)
 TARGET_TYPES = ("entry", "asset", "resource")
 
 
+def _within_days(value, days) -> bool:
+    """True when ``value`` is a datetime no older than ``days`` days.
+
+    Fails closed: a missing date, an unparseable window, or a non-positive one matches nothing
+    rather than dropping the constraint — a misconfigured window must never widen a collection to
+    the whole workspace. Date columns are naive UTC (``NaiveDateTime``), so naive values are read
+    as UTC rather than local time.
+    """
+    if value is None:
+        return False
+    try:
+        days = float(days)
+    except (TypeError, ValueError):
+        return False
+    if days <= 0:
+        return False
+    if getattr(value, "tzinfo", None) is None:
+        value = value.replace(tzinfo=UTC)
+    return value >= datetime.now(UTC) - timedelta(days=days)
+
+
 def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
     """Return True if ``item`` satisfies a smart collection's ``rules`` for ``target_type``.
 
     Dimensions are type-specific except ``tags`` (universal, matched on slugs):
-      entry    → entry_types (entry_type.slug), statuses (status)
+      entry    → entry_types (entry_type.slug), statuses (status), published_within_days (published_at)
       asset    → asset_types (asset_type), mime_types (mime_type, exact e.g. image/svg+xml)
       resource → resource_types (resource_type)
-    An empty/None rule set — or one with no recognized dimension — matches nothing.
+    ``tags`` and ``created_within_days`` are universal. An empty/None rule set — or one with no recognized dimension — matches nothing.
     """
     if not rules:
         return False
@@ -59,6 +90,9 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
         statuses = rules.get("statuses")
         if statuses:
             dimensions.append(getattr(item, "status", None) in statuses)
+        published_within = rules.get("published_within_days")
+        if published_within is not None:
+            dimensions.append(_within_days(getattr(item, "published_at", None), published_within))
     elif target_type == "asset":
         asset_types = rules.get("asset_types")
         if asset_types:
@@ -70,6 +104,10 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
         resource_types = rules.get("resource_types")
         if resource_types:
             dimensions.append(getattr(item, "resource_type", None) in resource_types)
+
+    created_within = rules.get("created_within_days")
+    if created_within is not None:
+        dimensions.append(_within_days(getattr(item, "created_at", None), created_within))
 
     tags = rules.get("tags")
     if tags:
