@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.95 (2026-09-25)
+
+### Bug Fixes
+
+- **blueprints**: Catalog test counted whatever providers were installed
+  ([`eebd164`](https://github.com/InnerOpen/marvin/commit/eebd164683e6e27dc68f31b5d82dc7d6ebccf1c2))
+
+
 ## v1.0.0-rc.94 (2026-09-25)
 
 ### Features
