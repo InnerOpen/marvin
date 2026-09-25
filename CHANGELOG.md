@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.86 (2026-09-25)
+
+### Features
+
+- **blueprints**: Parameters, and a core catalog that names nobody's content
+  ([`ed9216c`](https://github.com/InnerOpen/marvin/commit/ed9216c9e43558d12981b2a3fc9e2e6926e5d753))
+
+
 ## v1.0.0-rc.85 (2026-09-25)
 
 ### Features
