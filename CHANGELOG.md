@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.96 (2026-09-25)
+
+### Features
+
+- **scheduled-tasks**: Stop routine no-op runs from burying the execution log
+  ([`c34e516`](https://github.com/InnerOpen/marvin/commit/c34e516f8668c45deba1fe699dbfd34cd6e28389))
+
+
 ## v1.0.0-rc.95 (2026-09-25)
 
 ### Bug Fixes
