@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.90 (2026-09-25)
+
+### Features
+
+- **integrations**: Show what an integration needs to work, and apply it there
+  ([`4f8d30e`](https://github.com/InnerOpen/marvin/commit/4f8d30e3f6b965fce710fbe9ef93fde9d63438b2))
+
+### Refactoring
+
+- **blueprints**: No gallery — the catalog belongs where it is useful
+  ([`3ec7d61`](https://github.com/InnerOpen/marvin/commit/3ec7d61cc42e838ab2f76b19aba0cc0a3d64c0be))
+
+
 ## v1.0.0-rc.89 (2026-09-25)
 
 ### Bug Fixes
