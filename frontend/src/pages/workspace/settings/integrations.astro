@@ -1,7 +1,7 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import type { Integration, IntegrationPluginInfo, ProviderInfo } from "@/lib/api/integrations";
+import type { Integration, IntegrationPluginInfo, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
 import { listIntegrations, listPlugins, listProviders } from "@/lib/api/integrations";
 import type { Blueprint } from "@/lib/api/blueprints";
 import { listBlueprints } from "@/lib/api/blueprints";
@@ -123,7 +123,7 @@ function statusMeta(status: string): { text: string; cls: string } {
                     {!b.applied && b.parameters.length === 0 && (
                       <button
                         type="button"
-                        class="link-btn js-apply-needs"
+                        class="button tiny secondary js-apply-needs"
                         data-source={it.provider}
                         data-slugs={JSON.stringify([b.slug])}
                       >
@@ -168,6 +168,60 @@ function statusMeta(status: string): { text: string; cls: string } {
 
                     <p class="needs-note">
                       Applying only creates what is missing — anything you have already changed is left alone.
+                    </p>
+                  </details>
+                );
+              })()}
+
+              {(() => {
+                const actions = prov?.actions ?? [];
+                const emits = prov?.emits ?? [];
+                if (actions.length === 0 && emits.length === 0) return null;
+                const args = (a: ProviderActionInfo) => {
+                  const props = Object.keys(a.inputSchema?.properties ?? {});
+                  return props.length ? props.join(", ") : "nothing";
+                };
+                return (
+                  <details class="needs possibilities">
+                    <summary>
+                      What you can do with this
+                      <span class="badge">{actions.length} {actions.length === 1 ? "action" : "actions"}</span>
+                    </summary>
+                    <ul class="acts">
+                      {actions.map((a) => (
+                        <li>
+                          <div class="act-head">
+                            <strong>{a.label}</strong>
+                            <code>{a.key}</code>
+                            {a.capability && <span class="badge">{a.capability}</span>}
+                            {a.requiresApproval && <span class="badge warn">needs approval</span>}
+                            {a.costHint && <span class="badge">{a.costHint}</span>}
+                          </div>
+                          {a.description && <p class="act-desc">{a.description}</p>}
+                          <p class="act-args">takes: {args(a)}</p>
+                        </li>
+                      ))}
+                    </ul>
+                    {emits.length > 0 && (
+                      <>
+                        <h5 class="needs-head">Events it can raise</h5>
+                        <ul class="acts">
+                          {emits.map((e) => (
+                            <li>
+                              <div class="act-head">
+                                <strong>{e.label}</strong>
+                                <code>{e.key}</code>
+                              </div>
+                              {e.description && <p class="act-desc">{e.description}</p>}
+                            </li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    <p class="needs-note">
+                      Run any of these three ways: from an <strong>automation</strong> when something happens, on a
+                      <strong> schedule</strong> (a Run Integration Action task), or ad hoc with the buttons below. The
+                      optional content above is ready-made wiring for the common cases.
                     </p>
                   </details>
                 );
@@ -936,5 +990,43 @@ function statusMeta(status: string): { text: string; cls: string } {
     color: var(--mv-accent, #2563eb);
     cursor: pointer;
     font-size: 0.8rem;
+  }
+
+  .button.tiny {
+    padding: 0.1rem 0.45rem;
+    font-size: 0.72rem;
+    line-height: 1.5;
+  }
+  .possibilities .acts {
+    display: grid;
+    gap: 0.6rem;
+    margin: 0.6rem 0;
+    padding: 0;
+    list-style: none;
+  }
+  .possibilities .acts li {
+    display: block;
+    border-left: 2px solid var(--mv-border, #e5e7eb);
+    padding-left: 0.6rem;
+  }
+  .act-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+  .act-head code {
+    font-size: 0.72rem;
+    color: var(--mv-muted, #6b7280);
+  }
+  .act-desc {
+    margin: 0.15rem 0 0;
+    color: var(--mv-muted, #6b7280);
+  }
+  .act-args {
+    margin: 0.15rem 0 0;
+    font-size: 0.75rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: var(--mv-muted, #6b7280);
   }
 </style>

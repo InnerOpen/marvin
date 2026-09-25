@@ -29,10 +29,32 @@ export type {
 };
 
 /**
- * The published SDK types lag the API. A provider may supply an optional emoji `icon`; widen here
- * rather than block on an SDK release, and drop this once the generated types carry it.
+ * The published SDK types lag the API. Widen here rather than block on an SDK release, and drop
+ * these once the generated types carry them: providers may supply an emoji `icon`, and an action
+ * carries capability routing metadata (capability, costHint, requiresApproval) the generated
+ * `IntegrationProviderAction` does not yet know about.
  */
-export type ProviderInfo = IntegrationProviderInfo & { icon?: string };
+export interface ProviderActionInfo {
+  key: string;
+  label: string;
+  description?: string;
+  inputSchema?: { properties?: Record<string, unknown> };
+  capability?: string | null;
+  costHint?: string | null;
+  requiresApproval?: boolean;
+}
+
+export interface ProviderEventInfo {
+  key: string;
+  label: string;
+  description?: string;
+}
+
+export type ProviderInfo = Omit<IntegrationProviderInfo, "actions"> & {
+  icon?: string;
+  actions: ProviderActionInfo[];
+  emits?: ProviderEventInfo[];
+};
 
 export async function listProviders(authToken?: string): Promise<ProviderInfo[]> {
   return createSdkClient(authToken).integrations.listProviders();
