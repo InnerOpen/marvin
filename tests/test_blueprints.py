@@ -140,7 +140,7 @@ def test_applying_twice_never_overwrites(db_session, workspace):
 
 
 def test_already_applied_reports_the_workspace_state(db_session, workspace):
-    blueprint = get_blueprint("drafts")
+    blueprint = get_blueprint("recently-published")
     assert already_applied(db_session, workspace, blueprint) is False
     apply_blueprint(db_session, workspace, blueprint)
     db_session.commit()
@@ -391,3 +391,13 @@ def test_applying_a_provider_bundle_orders_and_creates_everything(db_session, wo
     assert all(r.created for r in results), [r.detail for r in results]
     assert db_session.query(EntryTypes).filter_by(group_id=workspace, slug="bp-log").one()
     assert db_session.query(Collections).filter_by(group_id=workspace, slug="bp-all").one()
+
+
+def test_core_never_duplicates_a_system_collection_slug():
+    """Every workspace already gets locked workflow collections (inbox/drafts/...). A blueprint
+    sharing one of those slugs could never be applied, and would advertise something Marvin
+    already provides."""
+    from marvin.services.collections.system_collections import SYSTEM_COLLECTION_SLUGS
+
+    clashes = [b.slug for b in list_blueprints(source="core") if b.slug in SYSTEM_COLLECTION_SLUGS]
+    assert clashes == [], f"core blueprints collide with system collections: {clashes}"

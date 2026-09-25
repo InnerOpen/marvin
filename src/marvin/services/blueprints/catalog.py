@@ -11,9 +11,12 @@ unknown, and a blank entry-type schema is a blank page. Each blueprint below is 
 from marvin.schemas.platform.blueprints import Blueprint, BlueprintParameter
 
 CATEGORY_EDITORIAL = "Editorial"
-CATEGORY_HOUSEKEEPING = "Housekeeping"
 CATEGORY_MEDIA = "Media"
 
+# Status buckets are not here on purpose: every workspace already gets locked system collections
+# for inbox/drafts/needs-review/approved/archive (services/collections/system_collections.py), and
+# a blueprint duplicating one of those slugs could never be applied.
+#
 # Core ships **collection examples only**, and only ones that work in any workspace on day one.
 # Naming content is the workspace owner's business, so nothing here invents an entry type or
 # hardcodes a slug — where a rule needs one, the blueprint asks for it as a parameter. Entry-type
@@ -84,20 +87,6 @@ _COLLECTIONS = [
             "is_smart": True,
             "is_public": False,
             "smart_rules": {"entry_types": ["{{entry_type}}"], "statuses": ["published"], "match": "all"},
-        },
-    ),
-    Blueprint(
-        kind="collection",
-        slug="drafts",
-        name="Drafts",
-        description="Everything still in draft — a standing to-do list for whoever is writing.",
-        category=CATEGORY_HOUSEKEEPING,
-        payload={
-            "description": "Entries still in draft",
-            "icon": "🧊",
-            "is_smart": True,
-            "is_public": False,
-            "smart_rules": {"statuses": ["draft"], "match": "all"},
         },
     ),
     Blueprint(
