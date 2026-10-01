@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.98 (2026-10-01)
+
+### Features
+
+- **agents**: Marvin as router — hand-offs and referrals (v2 slice D)
+  ([`2320057`](https://github.com/InnerOpen/marvin/commit/2320057f76b99f87d65be15e9e2be51471e62608))
+
+### Testing
+
+- **agents**: "ask" is a valid tool policy now that POLICY_ASK exists
+  ([`27d3f8b`](https://github.com/InnerOpen/marvin/commit/27d3f8b5cc92ebaadae5b5fe74026a0fbd85fac8))
+
+
 ## v1.0.0-rc.97 (2026-09-25)
 
 ### Features
