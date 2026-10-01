@@ -81,8 +81,8 @@ class GroupInvitationsController(BaseUserController):
             HTTPException (403 Forbidden): If the user lacks permission to create tokens
                                          or to create tokens for the specified group.
         """
-        # Check if the user has permission to invite
-        self.checks.can_invite()
+        # Workspace OWNER/ADMIN may invite, and never at a role above their own.
+        self.checks.can_manage_members(self.group_id, granting=token_data.workspace_role)
 
         # Prepare the final token data for creation, generating a secure token string
         final_token_payload = InviteTokenCreate(
@@ -138,7 +138,7 @@ class GroupInvitationsController(BaseUserController):
             EmailInitationResponse: A Pydantic model indicating whether the email was
                                     sent successfully and any error message if it failed.
         """
-        self.checks.can_invite()  # Ensure user has permission to invite
+        self.checks.can_manage_members(self.group_id)
 
         if not self.settings.SMTP_ENABLED:
             # If SMTP is not enabled, raise an error
@@ -201,7 +201,7 @@ class GroupInvitationsController(BaseUserController):
             HTTPException (404 Not Found): If the token does not exist
             HTTPException (403 Forbidden): If the user lacks permission to delete tokens
         """
-        self.checks.can_invite()  # Ensure user has permission to manage invitations
+        self.checks.can_manage_members(self.group_id)
 
         # Try to find the token by ID first, then by token string
         token = self.repos.group_invite_tokens.get_one(token_id)

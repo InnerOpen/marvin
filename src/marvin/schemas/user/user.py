@@ -371,6 +371,21 @@ class UserUpdate(UserCreate):
     # Other fields inherited from UserCreate.
 
 
+class UserAdminUpdate(_MarvinModel):
+    """
+    A platform admin's edit of an existing user's profile — a partial update.
+
+    Only the fields sent are changed. There is no password here (password changes have their own
+    endpoint, which hashes) and none of the legacy `can_*` flags (workspace roles replaced them).
+    """
+
+    username: str | None = None
+    full_name: str | None = None
+    email: Annotated[str, StringConstraints(to_lower=True, strip_whitespace=True)] | None = None
+    auth_method: AuthMethod | None = None
+    platform_role: PlatformRole | None = None
+
+
 class UserRead(UserCreate):  # UserRead inheriting UserCreate (which has password) might be unintentional for a "Read" schema.
     """
     Schema for representing a user when read from the system.

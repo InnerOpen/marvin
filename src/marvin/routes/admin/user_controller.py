@@ -13,16 +13,18 @@ from pydantic import UUID4  # For UUID type validation
 
 # Marvin core, schemas, services, and base controller/mixin
 from marvin.core import security  # For password hashing
+from marvin.db.models.users.roles import PlatformRole
 from marvin.routes._base import BaseAdminController, controller  # Base admin controller
 from marvin.routes._base.mixins import HttpRepo  # Mixin for standardized CRUD HTTP responses
 from marvin.schemas.response.pagination import PaginationQuery  # Pagination query parameters
 from marvin.schemas.response.responses import ErrorResponse  # Standardized error response
 from marvin.schemas.user import (
+    UserAdminUpdate,
     UserCreate,
     UserPagination,
     UserRead,
     UserUpdate,
-)  # User Pydantic schemas. Assuming UserUpdate for updates.
+)
 from marvin.schemas.user.auth import UnlockResults  # Schema for unlock operation result
 from marvin.schemas.user.password import ForgotPassword, PasswordResetToken  # Schemas for password reset
 from marvin.services.user.password_reset_service import PasswordResetService  # Service for password reset logic
@@ -142,34 +144,35 @@ class AdminUserManagementRoutes(BaseAdminController):
         return self.mixins.get_one(item_id)
 
     @router.put("/{item_id}", response_model=UserRead, summary="Update a User")
-    def update_one(self, item_id: UUID4, data: UserUpdate) -> UserRead:  # Changed data type to UserUpdate
+    def update_one(self, item_id: UUID4, data: UserAdminUpdate) -> UserRead:
         """
-        Updates an existing user's details.
+        Updates an existing user's details. Only the fields sent are changed.
 
-        Administrators cannot demote themselves using this endpoint.
-        Accessible only by administrators.
+        Super admins cannot demote themselves using this endpoint, so the platform can't be left
+        without one by accident. Accessible only by administrators.
 
         Args:
             item_id (UUID4): The ID of the user to update.
-            data (UserUpdate): Pydantic schema containing the update data.
-                               Fields not provided will not be changed (partial update).
+            data (UserAdminUpdate): The fields to change.
 
         Returns:
             UserRead: The Pydantic schema of the updated user.
 
         Raises:
-            HTTPException (403 Forbidden): If an admin attempts to demote themselves.
+            HTTPException (403 Forbidden): If a super admin attempts to demote themselves.
         """
-        # Prevent an administrator from demoting themselves
-        if self.user.id == item_id and hasattr(data, "admin") and self.user.admin != data.admin and data.admin is False:
+        is_self_demotion = (
+            self.user.id == item_id
+            and self.user.platform_role == PlatformRole.SUPER_ADMIN
+            and data.platform_role is not None
+            and data.platform_role != PlatformRole.SUPER_ADMIN
+        )
+        if is_self_demotion:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=ErrorResponse.respond("Administrators cannot demote themselves."),
             )
-        # Note: The original used `data: UserRead`. Changed to `UserUpdate` which is more typical for update operations.
-        # If UserRead is indeed intended, it implies all fields must be sent.
-        # HttpRepo.update_one expects an UpdateSchema (U), which is UserUpdate here.
-        return self.mixins.update_one(item_id=item_id, data=data)  # Corrected param order
+        return self.mixins.update_one(item_id=item_id, data=data)
 
     @router.delete("/{item_id}", summary="Delete a User")
     def delete_one(self, item_id: UUID4) -> dict:

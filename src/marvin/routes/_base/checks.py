@@ -9,7 +9,14 @@ an appropriate FastAPI HTTPException.
 """
 
 from fastapi import HTTPException, status  # For standard HTTP exceptions
+from pydantic import UUID4
 
+from marvin.db.models.users.roles import (
+    PlatformRole,
+    WorkspaceRole,
+    workspace_role_can_manage_members,
+    workspace_role_has_higher_or_equal_privilege,
+)
 from marvin.schemas.user import PrivateUser  # Pydantic schema for user data
 
 
@@ -50,6 +57,34 @@ class OperationChecks:
             user (PrivateUser): The authenticated user whose permissions will be checked.
         """
         self.user = user
+
+    # =========================================
+    # Workspace Role Checks
+    # =========================================
+
+    def can_manage_members(self, group_id: UUID4, granting: WorkspaceRole | None = None) -> bool:
+        """
+        Workspace OWNERs and ADMINs (and platform super admins) may invite and remove members.
+
+        Args:
+            group_id: The workspace being managed.
+            granting: The role an invitation would grant. Nobody but a super admin may grant a
+                      role above their own, so an ADMIN cannot mint OWNER invitations.
+
+        Raises:
+            HTTPException (403 Forbidden): If the user may not manage members of this workspace.
+        """
+        if self.user.platform_role == PlatformRole.SUPER_ADMIN:
+            return True
+        role = self.user.get_workspace_role(group_id)
+        if role is None or not workspace_role_can_manage_members(role):
+            raise self.ForbiddenException
+        if granting is not None and not workspace_role_has_higher_or_equal_privilege(role, granting):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"You cannot invite someone as {granting.value}; your role is {role.value}.",
+            )
+        return True
 
     # =========================================
     # User Permission Checks

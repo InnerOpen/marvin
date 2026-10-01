@@ -143,6 +143,7 @@ const roleDescriptions: Record<WorkspaceRole, string> = {
       const tokenResponse = await sdk.invites.create({
         uses_left: 1,
         group_id: workspaceId,
+        workspace_role: formData.get('workspace_role'),
       } as any) as { token: string };
 
       // Build the invitation URL
