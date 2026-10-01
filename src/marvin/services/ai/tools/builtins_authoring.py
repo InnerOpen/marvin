@@ -37,7 +37,8 @@ def _service(ctx: ToolContext):
     description=(
         "Create a NEW draft entry of a given type from a brief. Grounds on the workspace's existing "
         "tags + relevant resources/assets and REUSES them (no duplicates). Lands as an inbox draft "
-        "for review. To change an existing entry, use revise_entry instead of recreating it."
+        "for review. To change an existing entry, use revise_entry instead of recreating it. The result's "
+        "reviewLink is a finished markdown link — give it to the user verbatim; never build a URL yourself."
     ),
     input_schema={
         "type": "object",
@@ -88,7 +89,8 @@ def compose_entry(ctx: ToolContext, args: dict) -> str:
     description=(
         "Revise an EXISTING entry in place from an instruction — never recreates it. E.g. 'determine "
         "the tags and attach any relevant resources', or 'tighten the summary'. Reuses existing "
-        "tags/resources. Identify the entry by slug or id."
+        "tags/resources. Identify the entry by slug or id. The result's reviewLink is a finished markdown "
+        "link — give it to the user verbatim; never build a URL yourself."
     ),
     input_schema={
         "type": "object",

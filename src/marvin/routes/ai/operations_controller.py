@@ -24,6 +24,7 @@ from marvin.schemas.group.ai_execution import (
     AIToolInvokeRequest,
 )
 from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, AIThreadRead, AIThreadUpdate
+from marvin.services.ui_links import entry_edit_url, entry_review_link
 
 router = APIRouter(prefix="/ai", route_class=MarvinCrudRoute)
 
@@ -667,7 +668,8 @@ class AIOperationsController(BaseUserController):
             "entryId": str(entry.id),
             "status": entry.status,
             "title": title,
-            "editUrl": f"/workspace/entries/{entry.id}",
+            "editUrl": entry_edit_url(entry.id),
+            "reviewLink": entry_review_link(entry.id),
             "executionId": None,
             "totalTokens": None,
             "estimatedCostUsd": None,

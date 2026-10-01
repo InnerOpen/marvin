@@ -19,6 +19,7 @@ import time
 from datetime import UTC, datetime
 
 from marvin.core.root_logger import get_logger
+from marvin.services.ui_links import entry_edit_url, entry_review_link
 
 
 def default_authoring_model(session, group_id, provider=None) -> str | None:
@@ -289,7 +290,8 @@ class AuthoringService:
             "assets": auto_asset_slugs,
             "altText": enriched_alt,
             "warnings": recipe_warnings,
-            "editUrl": f"/workspace/entries/{entry.id}",
+            "editUrl": entry_edit_url(entry.id),
+            "reviewLink": entry_review_link(entry.id),
             "executionId": str(execution.id),
             "totalTokens": execution.total_tokens,
             "estimatedCostUsd": execution.estimated_cost_usd,
@@ -484,7 +486,8 @@ class AuthoringService:
             "resources": [r.slug for r in fresh.resources],
             # When staged the entry is untouched, so echo what the model proposed for the review UI.
             "proposed": {"tags": tag_list, "resources": resource_refs} if outcome == "staged" else None,
-            "editUrl": f"/workspace/entries/{entry.id}",
+            "editUrl": entry_edit_url(entry.id),
+            "reviewLink": entry_review_link(entry.id, "Review the entry"),
             "executionId": str(execution.id),
             "totalTokens": execution.total_tokens,
             "estimatedCostUsd": execution.estimated_cost_usd,

@@ -35,8 +35,9 @@ CONTENT_SYNONYMS = '"the RAG", "the knowledge base", "the index", "your content"
 # Tool results carry workspace paths (`editUrl`: /workspace/entries/<id>); the backend does not know the UI's
 # public host, and the chat renders on that host, so a relative link is the one that always works.
 LINKS_RULE = (
-    "Links: tool results give workspace paths such as /workspace/entries/<id> (editUrl). Link to them exactly as "
-    "given, as relative markdown links — never invent or guess a hostname."
+    "Links: tool results give ready-made links (reviewLink) and paths such as /workspace/entries/<id> (editUrl). "
+    "Use them exactly as given — a bare /workspace/... path is complete. Never prepend a hostname, real or "
+    "placeholder (no 'https://yourworkspaceurl/'), even if an earlier turn in this conversation did."
 )
 
 
