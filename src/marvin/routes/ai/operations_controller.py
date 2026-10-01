@@ -825,7 +825,7 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai.agents import model_agent_system_prompt
 
         assistant_name, persona_prompt = self._persona()
-        register = body.tone_register or spec.default_register or self._default_register()
+        register = self._effective_register(body.tone_register, spec)
         if spec.kind == "model":
             system = spec.system_prompt or model_agent_system_prompt(spec.name if not spec.is_system else assistant_name)
             system += self._register_clause(register, persona_prompt)
@@ -1339,7 +1339,7 @@ class AIOperationsController(BaseUserController):
                     meta["parent_thread_id"] = parent_id
                 child_on_event = (lambda ev: on_event({**ev, "via": spec.slug})) if on_event else None
                 assistant_name, persona_prompt = self._persona()
-                register = parent_body.tone_register or spec.default_register or self._default_register()
+                register = self._effective_register(parent_body.tone_register, spec)
                 if spec.kind == "model":
                     system = spec.system_prompt or model_agent_system_prompt(spec.name if not spec.is_system else assistant_name)
                     system += self._register_clause(register, persona_prompt)
@@ -1799,6 +1799,15 @@ class AIOperationsController(BaseUserController):
     # reliable lever is to withhold the persona entirely — asking a model to compartmentalise
     # is advisory, and small models ignore it.
     REGISTERS = ("auto", "professional", "playful")
+
+    def _effective_register(self, requested: str | None, spec) -> str:
+        """The register a named agent runs with: an explicit caller choice, else the agent's own, else the workspace's.
+
+        "auto" from the caller is not a choice — the Ask page always sends one — so it must not override an
+        agent configured as professional (a specialist would otherwise inherit the workspace persona).
+        """
+        explicit = requested if requested and requested.lower() != "auto" else None
+        return explicit or spec.default_register or self._default_register()
 
     def _default_register(self) -> str:
         """The workspace's default tone register, or 'auto' when unset."""

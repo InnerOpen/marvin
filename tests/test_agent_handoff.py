@@ -140,6 +140,13 @@ def test_register_comes_from_the_parent_call_then_the_specialist_then_the_worksp
     ctl.core.calls.clear()
     _runner(ctl)("materials", "stock?", None)
     assert ctl.core.calls[0]["system"].endswith("[playful]")
+    ctl.core.calls.clear()
+    # "auto" from the Ask page is not a choice: the specialist's own register wins
+    _runner(ctl, register="auto")("materials", "stock?", None)
+    assert ctl.core.calls[0]["system"].endswith("[playful]")
+    ctl.core.calls.clear()
+    _runner(ctl, register="auto")("talk", "hi", None)  # no agent default → the workspace's
+    assert ctl.model_core.calls[0]["args"][3].endswith("[auto]")
 
 
 def test_a_model_specialist_runs_as_a_plain_completion(ctl):

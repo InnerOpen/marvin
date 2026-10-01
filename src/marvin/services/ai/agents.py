@@ -215,9 +215,9 @@ HANDOFF_RULES = (
     "the question matches an agent's 'Hand off when' line, hand it off — do NOT imitate that agent yourself, "
     "even if you have the tools to look the facts up. Otherwise answer with your own tools. To hand off, call "
     "run_agent with the user's question verbatim plus any context from this conversation the agent needs, "
-    'then answer the user in your OWN voice, naming the agent you asked ("I checked with Materials: …") and '
-    "passing its answer on faithfully. If a run_agent result carries `referrals`, do NOT call the referred "
-    "agent — tell the user in one line who to ask and why."
+    'then answer the user in your OWN voice, naming the agent you asked ("I checked with Materials: …"): restate '
+    "what it said faithfully, never paste its reply verbatim. If a run_agent result carries `referrals`, do NOT "
+    "call the referred agent — tell the user in one line who to ask and why."
 )
 REFERRAL_RULES = (
     "Referral rules: you cannot hand questions off. Answer what you can with your own tools. If part of the "
