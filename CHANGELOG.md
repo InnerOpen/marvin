@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.103 (2026-10-01)
+
+### Features
+
+- **sidebar**: Inbox row with an unread-style count badge
+  ([`b359b7a`](https://github.com/InnerOpen/marvin/commit/b359b7a51a8ec35da01a2c39bd3aa591bffc59c4))
+
+
 ## v1.0.0-rc.102 (2026-10-01)
 
 ### Bug Fixes
