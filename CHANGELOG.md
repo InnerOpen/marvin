@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.110 (2026-10-01)
+
+### Bug Fixes
+
+- **ai**: Price the GPT-5 family; an unpriced model costs "unknown", not "Free"
+  ([`90cd72a`](https://github.com/InnerOpen/marvin/commit/90cd72a686a25cd894e87967f713f4bcda1f9dae))
+
+
 ## v1.0.0-rc.109 (2026-10-01)
 
 ### Bug Fixes
