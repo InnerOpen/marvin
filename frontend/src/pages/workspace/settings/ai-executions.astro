@@ -45,7 +45,7 @@ function formatDate(isoStr: string): string {
 function statusClass(status: string): string {
   if (status === "completed") return "success";
   if (status === "failed") return "failed";
-  if (status === "running" || status === "pending") return "running";
+  if (status === "running" || status === "pending" || status === "awaiting_approval") return "running";
   return "none";
 }
 

@@ -23,7 +23,7 @@ from marvin.schemas.group.ai_execution import (
     AIReviseEntryRequest,
     AIToolInvokeRequest,
 )
-from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, AIThreadRead, AIThreadUpdate
+from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, AIThreadRead, AIThreadResumeRequest, AIThreadUpdate
 from marvin.services.ai.executions import link_child_execution
 from marvin.services.ui_links import entry_edit_url, entry_review_link
 
@@ -35,6 +35,13 @@ NEW_THREAD = "new"
 # a hand-off nests the child's model calls inside the parent's request.
 DELEGATED_MAX_STEPS = 6
 DELEGATED_MAX_STEPS_CAP = 8
+# A new message on a thread that is parked for approval: "deny" denies the pending calls, clears the
+# park and runs the message (the agent asks again if it still needs the action); "reject" refuses the
+# message with 409 until the pending calls are decided.
+PARKED_THREAD_ON_NEW_MESSAGE = "deny"
+EXECUTION_STATUS_AWAITING = "awaiting_approval"
+ABANDONED_MESSAGE = "I stopped here — the pending actions were not approved."
+ABANDONED_ERROR = "abandoned: a new message arrived while awaiting approval"
 
 
 @controller(router)
@@ -836,8 +843,9 @@ class AIOperationsController(BaseUserController):
 
         self._require_tool_capable(provider, model)
         entity_id = self._resolve_entity_id(body.entity_type, body.entity_id)
-        # The agent's matrix decides per tool; a write still needs the caller to be AUTHOR+.
-        tools, ctx = self._bind_agent_tools(provider, agent=spec, role=role)
+        # The agent's matrix decides per tool; a write still needs the caller to be AUTHOR+. "Ask first"
+        # tools are bound only when there is a thread to park the run on (NEW_THREAD counts).
+        tools, ctx = self._bind_agent_tools(provider, agent=spec, role=role, park_allowed=bool(body.thread_id))
         max_steps = self._agent_max_steps(body)
         system = spec.system_prompt or self._default_agent_system_prompt(assistant_name if spec.is_system else spec.name)
         system += self._register_clause(register, persona_prompt)
@@ -886,6 +894,131 @@ class AIOperationsController(BaseUserController):
         thread = self._thread_or_404(thread_id)
         self.session.delete(thread)
         self.session.commit()
+
+    @router.post("/threads/{thread_id}/resume", summary="Decide the calls a paused run is waiting on and continue it")
+    def resume_thread(self, thread_id: str, data: AIThreadResumeRequest) -> dict:
+        """Continue a run parked by an "ask first" tool: approved calls run, denied ones tell the model
+        the user declined, and the loop goes on — on the same execution row, in the same thread. Only
+        the thread's owner may decide (admins see the thread but cannot approve on its behalf). A
+        missing decision is a deny. The run may park again; the response has the same shape as a run.
+        """
+        import time
+
+        from marvin.services.ai.agent import (
+            DECISION_APPROVE,
+            DECISION_DENY,
+            STOPPED_AWAITING_APPROVAL,
+            ResumeState,
+            deserialize_pending,
+            deserialize_steps,
+            run_agent_loop,
+        )
+        from marvin.services.ai.agents import may_talk
+        from marvin.services.ai.base import deserialize_messages
+        from marvin.services.ai.threads import clear_pending, pending_state
+        from marvin.services.event_bus_service.event_types import EventTypes
+
+        thread = self._thread_or_404(thread_id)
+        if str(thread.created_by) != str(self.user.id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the thread's owner can decide its pending actions.")
+        pending = pending_state(thread)
+        if pending is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This thread has nothing waiting for approval.")
+        spec = self._agent_or_404(thread.agent_slug)
+        role = self._user_role()
+        ok, reason = may_talk(spec, role, "editor")
+        if not ok:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+        self._check_budget()
+        provider = self._agent_provider()
+        run = dict(pending.get("run") or {})
+        model = run.get("model") or spec.model_override or self._default_model()
+        if not model:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No model configured. Set a default model on the provider.")
+        self._require_tool_capable(provider, model)
+        execution = self.session.get(AIExecutionModel, self._uuid_or_none(pending.get("execution_id")))
+        if execution is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The paused run's execution record is gone; send a new message instead.")
+
+        tools, ctx = self._bind_agent_tools(provider, agent=spec, role=role, park_allowed=True)
+        calls = deserialize_pending(pending.get("calls"))
+        decisions = {c.id: (DECISION_APPROVE if data.decisions.get(c.id) == DECISION_APPROVE else DECISION_DENY) for c in calls}
+        call_dicts = list(pending.get("calls") or [])
+        if any(d == DECISION_APPROVE for d in decisions.values()):
+            self._emit_approval_event(EventTypes.approval_granted, thread, execution, call_dicts, decisions)
+        if any(d == DECISION_DENY for d in decisions.values()):
+            self._emit_approval_event(EventTypes.approval_rejected, thread, execution, call_dicts, decisions)
+        # The park is cleared before the loop: a provider failure leaves an open thread and a failed
+        # execution, never a stale park.
+        clear_pending(thread)
+        execution.status = "running"
+        self.session.commit()
+
+        last_user = next((m.content for m in sorted(thread.messages, key=lambda m: m.seq, reverse=True) if m.role == "user"), "")
+        body = AIAgentRequest(
+            message=last_user,
+            source="editor",
+            thread_id=str(thread.id),
+            max_steps=run.get("max_steps"),
+            register=run.get("register"),
+            entity_type=run.get("entity_type"),
+            entity_id=run.get("entity_id"),
+            client_run_id=data.client_run_id,
+        )
+        max_steps = int(run.get("max_steps") or self._agent_max_steps(body))
+        _, log_outputs = self._logging_policy()
+        ctx.execution_id = str(execution.id)
+        start = time.monotonic()
+        run_id, on_event = self._start_progress(body)
+        if "run_agent" in {t.name for t in tools}:
+            ctx.delegate = self._delegate_runner(parent_thread=thread, parent_body=body, parent_execution=execution, on_event=on_event)
+        try:
+            result = run_agent_loop(
+                provider,
+                model,
+                [],
+                tools,
+                self._completion_opts(),
+                max_steps=max_steps,
+                on_event=on_event,
+                resume=ResumeState(convo=deserialize_messages(pending.get("convo")), pending=calls, decisions=decisions),
+            )
+        except HTTPException:
+            self._finish_progress(run_id, "failed")
+            raise
+        except Exception as e:
+            self._finish_progress(run_id, "failed")
+            self._fail_execution(execution, str(e), start)
+            self._emit_ai_event(execution, "failed", str(e))
+            self._maybe_emit_quota(execution, str(e))
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Agent failed: {e}") from e
+
+        steps = [*deserialize_steps(pending.get("steps")), *result.steps]
+        referrals = [*(pending.get("referrals") or []), *ctx.referrals]
+        common = {
+            "provider": provider,
+            "model": model,
+            "body": body,
+            "thread": thread,
+            "execution": execution,
+            "result": result,
+            "steps": steps,
+            "referrals": referrals,
+            "agent_slug": spec.slug,
+            "start": start,
+            "run_id": run_id,
+            "log_outputs": log_outputs,
+            "record_user": False,
+        }
+        if result.stopped_reason == STOPPED_AWAITING_APPROVAL:
+            return self._park_agent_run(max_steps=max_steps, entity_id=run.get("entity_id"), **common)
+        return self._finish_agent_run(**common)
+
+    @staticmethod
+    def _uuid_or_none(value):
+        from marvin.services.ai.threads import _uuid
+
+        return _uuid(value)
 
     # ── Thread helpers ─────────────────────────────────────────────────
 
@@ -937,11 +1070,13 @@ class AIOperationsController(BaseUserController):
         handoffs: list[dict] | None = None,
         referrals: list[dict] | None = None,
         parent_thread_id=None,
+        record_user: bool = True,
     ):
         """After a successful run: open the thread if this is its first turn, then store question + answer.
 
         Hand-offs and referrals land in the assistant turn's meta only when there are any, so a plain
-        turn's meta keeps its two-key shape.
+        turn's meta keeps its two-key shape. A resumed run passes `record_user=False`: its user turn
+        was stored when the run parked.
         """
         from marvin.services.ai.threads import append_turn, create_thread, touch
 
@@ -964,7 +1099,8 @@ class AIOperationsController(BaseUserController):
             meta["handoffs"] = handoffs
         if referrals:
             meta["referrals"] = referrals
-        append_turn(self.session, thread, "user", body.message)
+        if record_user:
+            append_turn(self.session, thread, "user", body.message)
         append_turn(
             self.session,
             thread,
@@ -1064,16 +1200,26 @@ class AIOperationsController(BaseUserController):
         )
 
     @staticmethod
-    def _restrict_tools(tools: list, agent, role: int) -> list:
+    def _restrict_tools(tools: list, agent, role: int, *, park_allowed: bool = False) -> list:
         """Apply an agent's allowlist, permission matrix and write policy to the bound toolset.
 
         Every bound tool carries a category (registry tools by name, AI operations `ai_ops`,
         external MCP `mcp`); `resolve_policy` decides per tool and never lets a write through to a
-        caller below AUTHOR, whatever the matrix says.
+        caller below AUTHOR, whatever the matrix says. An "ask first" tool is kept — flagged
+        `requires_approval` — only when the run can park (`park_allowed`); otherwise it is dropped,
+        as if blocked.
         """
-        from marvin.services.ai.agents import POLICY_ALLOW, resolve_policy
+        from marvin.services.ai.agents import POLICY_ALLOW, POLICY_ASK, resolve_policy
 
-        return [t for t in tools if resolve_policy(agent, t.name, t.category or "other_write", role)[0] == POLICY_ALLOW]
+        kept = []
+        for t in tools:
+            decision = resolve_policy(agent, t.name, t.category or "other_write", role)[0]
+            if decision == POLICY_ALLOW:
+                kept.append(t)
+            elif decision == POLICY_ASK and park_allowed:
+                t.requires_approval = True
+                kept.append(t)
+        return kept
 
     @staticmethod
     def _default_agent_system_prompt(assistant_name: str) -> str:
@@ -1148,17 +1294,20 @@ class AIOperationsController(BaseUserController):
         import time
         from datetime import UTC, datetime
 
-        from marvin.core.config import get_app_settings
-        from marvin.services.ai.agent import run_agent_loop
+        from marvin.services.ai.agent import STOPPED_AWAITING_APPROVAL, run_agent_loop
         from marvin.services.ai.agents import list_agents, roster_block, workspace_preamble
-        from marvin.services.ai.base import CompletionOptions, Message
-        from marvin.services.ai.pricing import estimate_cost
-        from marvin.services.ai.threads import create_thread, extract_handoffs, extract_sources
+        from marvin.services.ai.base import Message
+        from marvin.services.ai.threads import create_thread, pending_state
 
-        _app = get_app_settings()
         names = {t.name for t in tools}
         depth = getattr(ctx, "depth", 0) if ctx is not None else 0
         thread = self._thread_for_run(body, agent_slug)
+        if thread is not None and depth == 0 and pending_state(thread):
+            if PARKED_THREAD_ON_NEW_MESSAGE == "reject":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="This thread is waiting for your approval; decide the pending actions first."
+                )
+            self._abandon_pending(thread)
         # Ground the run in what the user is looking at. Prefer a pre-assembled context block
         # (title/status/fields/attachments) so the agent can answer immediately; fall back to the
         # bare id hint when we can't assemble one, so it can still fetch the entity itself.
@@ -1222,11 +1371,7 @@ class AIOperationsController(BaseUserController):
         if ctx is not None and depth == 0 and "run_agent" in names:
             ctx.delegate = self._delegate_runner(parent_thread=thread, parent_body=body, parent_execution=execution, on_event=on_event)
         try:
-            opts = CompletionOptions(
-                temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7),
-                max_tokens=self._max_output_tokens(),
-            )
-            result = run_agent_loop(provider, model, messages, tools, opts, max_steps=max_steps, on_event=on_event)
+            result = run_agent_loop(provider, model, messages, tools, self._completion_opts(), max_steps=max_steps, on_event=on_event)
         except HTTPException:
             self._finish_progress(run_id, "failed")
             self._discard_empty_thread(thread if opened_here else None)
@@ -1238,40 +1383,95 @@ class AIOperationsController(BaseUserController):
             self._emit_ai_event(execution, "failed", str(e))
             self._maybe_emit_quota(execution, str(e))
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Agent failed: {e}") from e
-        self._finish_progress(run_id, "completed")
 
+        common = {
+            "provider": provider,
+            "model": model,
+            "body": body,
+            "thread": thread,
+            "execution": execution,
+            "result": result,
+            "steps": list(result.steps),
+            "referrals": list(ctx.referrals) if ctx is not None else [],
+            "agent_slug": agent_slug,
+            "start": start,
+            "run_id": run_id,
+            "log_outputs": log_outputs,
+        }
+        if result.stopped_reason == STOPPED_AWAITING_APPROVAL:
+            return self._park_agent_run(max_steps=max_steps, entity_id=entity_id, **common)
+        return self._finish_agent_run(parent_thread_id=parent_thread_id, **common)
+
+    def _completion_opts(self):
+        from marvin.core.config import get_app_settings
+        from marvin.services.ai.base import CompletionOptions
+
+        _app = get_app_settings()
+        return CompletionOptions(temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7), max_tokens=self._max_output_tokens())
+
+    def _account_execution(self, execution, result, provider, model, start: float) -> None:
+        """Add a loop leg's tokens and wall time to the execution row (a resumed run keeps its row)."""
+        import time
+
+        from marvin.services.ai.pricing import estimate_cost
+
+        execution.prompt_tokens = int(execution.prompt_tokens or 0) + int(result.prompt_tokens or 0)
+        execution.completion_tokens = int(execution.completion_tokens or 0) + int(result.completion_tokens or 0)
+        execution.total_tokens = int(execution.total_tokens or 0) + int(result.total_tokens or 0)
+        execution.duration_ms = int(execution.duration_ms or 0) + int((time.monotonic() - start) * 1000)
+        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, execution.prompt_tokens, execution.completion_tokens)
+
+    def _finish_agent_run(
+        self,
+        *,
+        provider,
+        model,
+        body: AIAgentRequest,
+        thread,
+        execution,
+        result,
+        steps: list,
+        referrals: list[dict],
+        agent_slug: str,
+        start: float,
+        run_id,
+        log_outputs: bool,
+        parent_thread_id=None,
+        record_user: bool = True,
+    ) -> dict:
+        """The tail of a run that answered: close the execution, store the turn(s), emit, respond.
+
+        `steps` is the whole trace — on a resumed run the steps from before the park plus the new
+        ones — and drives the output, sources, hand-offs and the stored turn. Tokens and duration
+        accumulate on the execution row.
+        """
+        from datetime import UTC, datetime
+
+        from marvin.services.ai.threads import extract_handoffs, extract_sources
+
+        self._finish_progress(run_id, "completed")
         execution.status = "completed"
         execution.completed_at = datetime.now(UTC)
-        execution.duration_ms = int((time.monotonic() - start) * 1000)
-        execution.prompt_tokens = result.prompt_tokens
-        execution.completion_tokens = result.completion_tokens
-        execution.total_tokens = result.total_tokens
-        execution.estimated_cost_usd = estimate_cost(
-            provider.provider_type,
-            model,
-            result.prompt_tokens,
-            result.completion_tokens,
-        )
+        self._account_execution(execution, result, provider, model, start)
         execution.output_json = (
-            {"answer": result.answer, "steps": [{"tool": s.tool, "arguments": s.arguments} for s in result.steps]}
-            if log_outputs
-            else {"steps": len(result.steps)}
+            {"answer": result.answer, "steps": [{"tool": s.tool, "arguments": s.arguments} for s in steps]} if log_outputs else {"steps": len(steps)}
         )
-        sources = extract_sources(result.steps)
-        handoffs, child_referrals = extract_handoffs(result.steps)
-        referrals = [*(ctx.referrals if ctx is not None else []), *child_referrals]
+        sources = extract_sources(steps)
+        handoffs, child_referrals = extract_handoffs(steps)
+        referrals = [*referrals, *child_referrals]
         thread = self._record_thread_turns(
             thread,
             body,
             agent_slug,
             execution,
             result.answer,
-            result.steps,
+            steps,
             sources,
-            result.total_tokens,
+            execution.total_tokens,
             handoffs=handoffs,
             referrals=referrals,
             parent_thread_id=parent_thread_id,
+            record_user=record_user,
         )
         self.session.commit()
         self.session.refresh(execution)
@@ -1280,16 +1480,134 @@ class AIOperationsController(BaseUserController):
 
         return {
             "answer": result.answer,
-            "steps": [{"tool": s.tool, "arguments": s.arguments, "result": s.result} for s in result.steps],
+            "steps": [{"tool": s.tool, "arguments": s.arguments, "result": s.result} for s in steps],
             "sources": sources,
             "handoffs": handoffs,
             "referrals": referrals,
             "stoppedReason": result.stopped_reason,
             "executionId": str(execution.id),
             "threadId": str(thread.id) if thread is not None else None,
-            "totalTokens": result.total_tokens,
+            "totalTokens": execution.total_tokens,
             "estimatedCostUsd": execution.estimated_cost_usd,
         }
+
+    def _park_agent_run(
+        self,
+        *,
+        provider,
+        model,
+        body: AIAgentRequest,
+        thread,
+        execution,
+        result,
+        steps: list,
+        referrals: list[dict],
+        agent_slug: str,
+        start: float,
+        run_id,
+        log_outputs: bool,
+        max_steps: int,
+        entity_id,
+        record_user: bool = True,
+    ) -> dict:
+        """The tail of a run that stopped on an "ask first" tool: store the user's turn, freeze the
+        loop on the thread, leave the execution `awaiting_approval` (no completed_at), tell the
+        event bus, and answer with the pending calls instead of an answer.
+        """
+        from marvin.services.ai.threads import append_turn, create_thread, park_thread
+        from marvin.services.event_bus_service.event_types import EventTypes
+
+        if thread is None:
+            thread = create_thread(self.session, self.group_id, self.user.id, agent_slug, body.message, body.entity_type, entity_id)
+        if record_user:
+            append_turn(self.session, thread, "user", body.message)
+        execution.status = EXECUTION_STATUS_AWAITING
+        self._account_execution(execution, result, provider, model, start)
+        execution.metadata_json = {**(execution.metadata_json or {}), "thread_id": str(thread.id)}
+        park_thread(
+            self.session,
+            thread,
+            calls=result.pending_calls,
+            convo=result.convo,
+            execution_id=execution.id,
+            run={
+                "agent_slug": agent_slug,
+                "max_steps": max_steps,
+                "register": body.tone_register,
+                "entity_type": body.entity_type,
+                "entity_id": str(entity_id) if entity_id else None,
+                "model": model,
+            },
+            steps=steps,
+            referrals=referrals,
+        )
+        self.session.commit()
+        self._finish_progress(run_id, EXECUTION_STATUS_AWAITING)
+        pending = list((thread.pending_json or {}).get("calls") or [])
+        self._emit_approval_event(EventTypes.approval_requested, thread, execution, pending)
+        return {
+            "answer": "",
+            "steps": [{"tool": s.tool, "arguments": s.arguments, "result": s.result} for s in steps],
+            "sources": [],
+            "handoffs": [],
+            "referrals": referrals,
+            "stoppedReason": result.stopped_reason,
+            "pending": pending,
+            "executionId": str(execution.id),
+            "threadId": str(thread.id),
+            "totalTokens": execution.total_tokens,
+            "estimatedCostUsd": None,
+        }
+
+    def _abandon_pending(self, thread) -> None:
+        """A new message arrived on a parked thread: deny every pending call, fail the parked execution,
+        close the dangling user turn with a short assistant turn (turns stay alternating) and clear
+        the park. The new message then runs as usual; the agent asks again if it still needs the action.
+        """
+        from datetime import UTC, datetime
+
+        from marvin.services.ai.agent import DECISION_DENY
+        from marvin.services.ai.threads import append_turn, clear_pending, pending_state
+        from marvin.services.event_bus_service.event_types import EventTypes
+
+        pending = pending_state(thread) or {}
+        calls = list(pending.get("calls") or [])
+        decisions = {str(c.get("id")): DECISION_DENY for c in calls if isinstance(c, dict)}
+        execution = self.session.get(AIExecutionModel, self._uuid_or_none(pending.get("execution_id")))
+        self._emit_approval_event(EventTypes.approval_rejected, thread, execution, calls, decisions)
+        if execution is not None and execution.status == EXECUTION_STATUS_AWAITING:
+            execution.status = "failed"
+            execution.error_message = ABANDONED_ERROR
+            execution.completed_at = datetime.now(UTC)
+        append_turn(self.session, thread, "assistant", ABANDONED_MESSAGE, meta={"abandoned": True}, execution_id=execution.id if execution else None)
+        clear_pending(thread)
+        self.session.commit()
+
+    def _emit_approval_event(self, event_type, thread, execution, calls: list[dict], decisions: dict | None = None) -> None:
+        """Dispatch approval_requested / approval_granted / approval_rejected for a parked agent run."""
+        from marvin.services.event_bus_service.event_types import EventAIApprovalData
+
+        try:
+            self.event_bus.dispatch(
+                integration_id="ai_operations",
+                group_id=self.group_id,
+                event_type=event_type,
+                document_data=EventAIApprovalData(
+                    agent_slug=thread.agent_slug,
+                    thread_id=thread.id,
+                    execution_id=execution.id if execution is not None else None,
+                    calls=calls,
+                    decisions=decisions,
+                    workspace_id=self.group_id,
+                    workspace_name=self.group.name if self.group else None,
+                ),
+                message=f"Agent '{thread.agent_slug}' {getattr(event_type, 'name', str(event_type)).replace('_', ' ')}",
+                user_id=self.user.id if self.user else None,
+                entity_id=thread.id,
+                entity_type="ai_thread",
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to dispatch agent approval event: {e}", exc_info=True)
 
     def _discard_empty_thread(self, thread) -> None:
         """Drop a thread a router run opened before its loop failed, so no empty thread is left behind."""
@@ -1567,12 +1885,13 @@ class AIOperationsController(BaseUserController):
         """The bound toolset alone (see `_bind_agent_tools`)."""
         return self._bind_agent_tools(provider, agent=agent, role=role)[0]
 
-    def _bind_agent_tools(self, provider, agent=None, role: int | None = None, *, depth: int = 0) -> tuple:
+    def _bind_agent_tools(self, provider, agent=None, role: int | None = None, *, depth: int = 0, park_allowed: bool = False) -> tuple:
         """Bind the agent's in-process toolset: the core tool registry + the AI operations.
 
         Returns `(tools, ctx)` — the ToolContext is shared by every bound registry tool, so the run can
         hang its hand-off delegate on it and read the referrals back. `depth` > 0 is a delegated child
-        run: it never binds `run_agent` (one router, no chains), only `suggest_agent`.
+        run: it never binds `run_agent` (one router, no chains), only `suggest_agent`, and never parks
+        — `park_allowed` (the run has a thread to pause on) only holds at depth 0.
 
         Each registry ToolSpec reachable from the "agent" source and allowed for this user's role
         becomes an AgentTool whose run() calls the spec's handler with a ToolContext (direct DB
@@ -1673,7 +1992,7 @@ class AIOperationsController(BaseUserController):
         tools.extend(self._external_mcp_tools())
         if agent is None:
             return tools, ctx
-        return self._restrict_tools(tools, agent, role if role is not None else self._user_role()), ctx
+        return self._restrict_tools(tools, agent, role if role is not None else self._user_role(), park_allowed=park_allowed and depth == 0), ctx
 
     def _external_mcp_tools(self) -> list:
         """Load allowlisted tools from the workspace's ENABLED external MCP servers as AgentTools.

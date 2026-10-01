@@ -129,6 +129,7 @@ const agentsJson = JSON.stringify(agents);
 <script>
   import {
     type Agent,
+    type AgentRunResult,
     deleteThread,
     getPermissions,
     getRunProgress,
@@ -136,9 +137,11 @@ const agentsJson = JSON.stringify(agents);
     type Handoff,
     listThreads,
     NEW_THREAD,
+    type PendingCall,
     type Permissions,
     type Referral,
     renameThread,
+    resumeThread,
     runAgent,
     type RunEvent,
     type Source,
@@ -237,11 +240,11 @@ const agentsJson = JSON.stringify(agents);
               ? r.tools
                   .map(
                     (t) =>
-                      `<li class="${t.decision}"><code>${esc(t.name)}</code><span class="tp-why">${t.decision === "allow" ? "allowed" : "blocked · " + esc(t.reason)}</span></li>`,
+                      `<li class="${t.decision}"><code>${esc(t.name)}</code><span class="tp-why">${t.decision === "allow" ? "allowed" : t.decision === "ask" ? "ask first" : "blocked · " + esc(t.reason)}</span></li>`,
                   )
                   .join("")
               : `<li class="tp-note">discovered at run time</li>`;
-            return `<div class="tp-group"><div class="tp-head"><strong>${esc(r.label)}</strong><span class="tp-default ${r.default}">${r.default === "allow" ? "allow" : "block"}${r.writes ? " · writes" : ""}</span></div><ul>${tools}</ul></div>`;
+            return `<div class="tp-group"><div class="tp-head"><strong>${esc(r.label)}</strong><span class="tp-default ${r.default}">${r.default === "allow" ? "allow" : r.default === "ask" ? "ask first" : "block"}${r.writes ? " · writes" : ""}</span></div><ul>${tools}</ul></div>`;
           })
           .join("");
         toolsPanel.innerHTML = `<div class="tp-title">What <strong>${esc(a.name)}</strong> can do as you ${p.allowWrites ? "" : "<span class='tp-ro'>(read-only agent)</span>"}</div>${rows}`;
@@ -328,8 +331,19 @@ const agentsJson = JSON.stringify(agents);
         .join(" · ");
     }
     transcript.addEventListener("click", (e) => {
-      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-open-thread], [data-continue-agent]");
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-open-thread], [data-continue-agent], [data-approve], [data-deny]");
       if (!btn) return;
+      if (btn.hasAttribute("data-approve") || btn.hasAttribute("data-deny")) {
+        const card = btn.closest<HTMLElement>(".turn.approval");
+        if (!card || card.classList.contains("resolved")) return;
+        const denyAll = btn.hasAttribute("data-deny");
+        const decisions: Record<string, "approve" | "deny"> = {};
+        card.querySelectorAll<HTMLInputElement>("input[data-call-id]").forEach((cb) => {
+          decisions[cb.dataset.callId!] = !denyAll && cb.checked ? "approve" : "deny";
+        });
+        void resumeRun(card, decisions);
+        return;
+      }
       if (btn.dataset.openThread) {
         void openThread(btn.dataset.openThread);
         return;
@@ -410,6 +424,7 @@ const agentsJson = JSON.stringify(agents);
               ),
             );
         }
+        if (t.status === "awaiting_approval" && t.pending?.length) addApprovalCard(t.pending, t.id);
         emptyNote.hidden = t.messages.length > 0;
         threadId = t.id;
         threadsPanel.querySelectorAll(".th-row").forEach((r) => r.classList.toggle("active", (r as HTMLElement).dataset.id === t.id));
@@ -553,7 +568,7 @@ const agentsJson = JSON.stringify(agents);
     const PROGRESS_MAX_MISSES = 40;
     // A hand-off shows as "Asked <agent> …" with the specialist's own steps nested under it: child
     // events carry `via` (the specialist's slug) and close the last running row with the same `via`.
-    type StepRow = { label: string; via?: string; state: "running" | "done" | "failed" };
+    type StepRow = { label: string; via?: string; state: "running" | "done" | "failed" | "waiting" | "declined" };
     function stepsHtml(events: RunEvent[]): string {
       const rows: StepRow[] = [];
       for (const ev of events) {
@@ -567,6 +582,10 @@ const agentsJson = JSON.stringify(agents);
         } else if (ev.type === "tool_result") {
           const open = [...rows].reverse().find((r) => r.state === "running" && r.via === ev.via);
           if (open) open.state = ev.ok === false ? "failed" : "done";
+        } else if (ev.type === "awaiting_approval") {
+          for (const c of ev.calls ?? []) rows.push({ label: `Waiting for approval: <code>${esc(c.tool)}</code>`, via: ev.via, state: "waiting" });
+        } else if (ev.type === "declined") {
+          rows.push({ label: `Declined: <code>${esc(ev.tool)}</code>`, via: ev.via, state: "declined" });
         }
       }
       const items = rows.map((r) => `<li class="step ${r.state}${r.via ? " nested" : ""}">${r.label}</li>`);
@@ -604,6 +623,86 @@ const agentsJson = JSON.stringify(agents);
       };
     }
 
+    // ── Ask first: the approval card and the resumed run ──
+    // A parked run shows as a card in the transcript: one checkbox per pending call, "Approve
+    // selected" / "Deny all". Deciding resumes the run on the same thread and execution; the card
+    // greys out ("resolved") and a new placeholder shows the resumed run's live steps.
+    function approvalCardHtml(pending: PendingCall[]): string {
+      const rows = pending
+        .map(
+          (c) =>
+            `<li class="approval-row"><label><input type="checkbox" checked data-call-id="${esc(c.id)}" /> <code>${esc(c.tool)}</code><span class="step-args">${esc(argsPreview(c.arguments))}</span></label>` +
+            `<details class="approval-args"><summary>arguments</summary><pre>${esc(JSON.stringify(c.arguments ?? {}, null, 2))}</pre></details></li>`,
+        )
+        .join("");
+      return (
+        `<div class="approval-title">Before I continue, approve these actions:</div><ul class="approval-list">${rows}</ul>` +
+        `<div class="approval-actions"><button type="button" class="button small" data-approve>Approve selected</button>` +
+        `<button type="button" class="button secondary small" data-deny>Deny all</button></div>`
+      );
+    }
+    function addApprovalCard(pending: PendingCall[], forThread: string | null): HTMLElement {
+      const el = addTurn("assistant", approvalCardHtml(pending));
+      el.classList.add("approval");
+      if (forThread) el.dataset.threadId = forThread;
+      return el;
+    }
+    function setCardResolved(card: HTMLElement, resolved: boolean) {
+      card.classList.toggle("resolved", resolved);
+      card.querySelectorAll<HTMLButtonElement | HTMLInputElement>("button, input").forEach((b) => {
+        b.disabled = resolved;
+      });
+    }
+    const newRunId = () => (typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "");
+    function startPlaceholder(): { placeholder: HTMLElement; runId: string; stopWatching: () => void } {
+      // The placeholder shows live steps while the run is in flight, then becomes the answer.
+      const runId = newRunId();
+      const placeholder = addTurn("assistant", stepsHtml([]));
+      placeholder.classList.add("pending");
+      const stopWatching = runId ? watchRun(runId, placeholder) : () => {};
+      return { placeholder, runId, stopWatching };
+    }
+    function handleRunResult(res: AgentRunResult, placeholder: HTMLElement, opts: { refreshThreads?: boolean } = {}) {
+      placeholder.remove();
+      threadId = res.threadId ?? threadId;
+      if (res.stoppedReason === "awaiting_approval" && res.pending?.length) {
+        addApprovalCard(res.pending, res.threadId ?? threadId);
+        if (!threadsPanel.hidden) void loadThreads(); // the row now says "awaiting approval"
+        setStatus("Waiting for your decision.");
+        return;
+      }
+      const answer = res.answer ?? "(no answer)";
+      addTurn(
+        "assistant",
+        renderMarkdown(answer),
+        assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens, res.handoffs, res.referrals),
+      );
+      if (opts.refreshThreads && !threadsPanel.hidden) void loadThreads();
+      setStatus(attachment ? "Attachment stays with this conversation; remove it with ×." : "");
+    }
+    async function resumeRun(card: HTMLElement, decisions: Record<string, "approve" | "deny">) {
+      const tid = card.dataset.threadId || threadId;
+      if (!tid) return;
+      setCardResolved(card, true);
+      sendBtn.disabled = true;
+      setStatus(Object.values(decisions).some((d) => d === "approve") ? "Continuing…" : "Continuing without those actions…");
+      const { placeholder, runId, stopWatching } = startPlaceholder();
+      try {
+        const res = await resumeThread(tid, decisions, runId ? { clientRunId: runId } : {});
+        stopWatching();
+        handleRunResult(res, placeholder, { refreshThreads: true });
+      } catch (e) {
+        stopWatching();
+        placeholder.remove();
+        setCardResolved(card, false);
+        addTurn("assistant", `<span class="turn-error">Error: ${esc(e instanceof Error ? e.message : e)}</span>`);
+        setStatus("");
+      } finally {
+        sendBtn.disabled = false;
+        questionEl.focus();
+      }
+    }
+
     // ── Send ──
     async function send() {
       const message = questionEl.value.trim();
@@ -614,16 +713,15 @@ const agentsJson = JSON.stringify(agents);
       }
       sendBtn.disabled = true;
       setStatus("Thinking…");
+      // A new message on a parked thread denies its pending calls server-side; grey the card now.
+      transcript.querySelectorAll<HTMLElement>(".turn.approval:not(.resolved)").forEach((card) => setCardResolved(card, true));
       const firstUse = attachment && !attachment.shown;
       if (attachment) attachment.shown = true;
       addTurn("user", esc(message) + (firstUse ? `<div class="turn-attach">📎 ${esc(attachment.name)}</div>` : ""));
       questionEl.value = "";
       const register = registerSel.value as "auto" | "professional" | "playful";
-      // The placeholder shows live steps while the run is in flight, then becomes the answer.
-      const runId = typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-      const placeholder = addTurn("assistant", stepsHtml([]));
-      placeholder.classList.add("pending");
-      const stopWatching = runId ? watchRun(runId, placeholder) : () => {};
+      const wasNew = !threadId;
+      const { placeholder, runId, stopWatching } = startPlaceholder();
       try {
         // Every agent goes through the run endpoint; the thread on the server is the memory, and
         // citations come back from the run's own search_content results.
@@ -634,17 +732,7 @@ const agentsJson = JSON.stringify(agents);
           ...(attachment ? { entityType: "asset", entityId: attachment.id } : {}),
         });
         stopWatching();
-        placeholder.remove();
-        const answer = res.answer ?? "(no answer)";
-        addTurn(
-          "assistant",
-          renderMarkdown(answer),
-          assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens, res.handoffs, res.referrals),
-        );
-        const wasNew = !threadId;
-        threadId = res.threadId ?? threadId;
-        if (wasNew && !threadsPanel.hidden) void loadThreads();
-        setStatus(attachment ? "Attachment stays with this conversation; remove it with ×." : "");
+        handleRunResult(res, placeholder, { refreshThreads: wasNew });
       } catch (e) {
         stopWatching();
         placeholder.remove();
@@ -723,6 +811,8 @@ const agentsJson = JSON.stringify(agents);
   .tools-panel :global(.tp-head) { display: flex; justify-content: space-between; align-items: center; font-size: 13px; }
   .tools-panel :global(.tp-default) { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
   .tools-panel :global(.tp-default.block) { color: var(--color-error); }
+  .tools-panel :global(.tp-default.ask) { color: var(--warn); }
+  .tools-panel :global(li.ask .tp-why) { color: var(--warn); }
   .tools-panel :global(ul) { list-style: none; margin: 6px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 4px 16px; }
   .tools-panel :global(li) { font-size: 12px; display: flex; gap: 8px; align-items: baseline; }
   .tools-panel :global(li.block code) { text-decoration: line-through; color: var(--muted); }
@@ -755,6 +845,19 @@ const agentsJson = JSON.stringify(agents);
   .transcript :global(.step.nested) { margin-left: 18px; }
   .transcript :global(.step.thinking) { font-style: italic; }
   .transcript :global(.step.thinking::before) { content: "…"; }
+  .transcript :global(.step.waiting::before) { content: "?"; color: var(--warn); }
+  .transcript :global(.step.declined::before) { content: "⊘"; color: var(--muted); }
+  /* Ask first: the approval card */
+  .transcript :global(.turn.approval) { border-color: var(--warn); border-left-width: 3px; background: color-mix(in srgb, var(--warn) 6%, var(--bg)); }
+  .transcript :global(.turn.approval.resolved) { opacity: 0.55; border-color: var(--line); border-left-width: 1px; background: var(--bg); }
+  .transcript :global(.approval-title) { font-weight: 500; margin-bottom: 8px; }
+  .transcript :global(.approval-list) { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .transcript :global(.approval-row label) { display: flex; gap: 8px; align-items: baseline; cursor: pointer; }
+  .transcript :global(.approval-row code) { color: var(--ink); font-size: 12px; }
+  .transcript :global(.approval-args) { margin: 2px 0 0 24px; font-size: 12px; color: var(--muted); }
+  .transcript :global(.approval-args summary) { cursor: pointer; }
+  .transcript :global(.approval-args pre) { margin: 4px 0 0; padding: 8px 10px; background: var(--panel-2); border-radius: var(--radius); overflow-x: auto; font-size: 12px; color: var(--ink); white-space: pre-wrap; }
+  .transcript :global(.approval-actions) { display: flex; gap: 8px; margin-top: 12px; }
   .transcript :global(.step code) { color: var(--ink); font-size: 12px; }
   .transcript :global(.step-args) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Links in an answer (review-the-draft, citations) must read as links, not body text. */

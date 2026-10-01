@@ -163,7 +163,9 @@ def test_write_policy_defaults_off_for_user_agents_and_on_for_marvin():
 
 from marvin.services.ai.agents import (  # noqa: E402 — appended section
     POLICY_ALLOW,
+    POLICY_ASK,
     POLICY_BLOCK,
+    ROUTER_ASK_CATEGORIES,
     catalog_tools,
     permission_matrix,
     resolve_policy,
@@ -215,7 +217,7 @@ def test_read_only_agent_reaches_read_only_mcp_tools_but_not_writes():
     assert resolve_policy(ro, "mcp__brain__read_note", "mcp_read", ROLE_VIEWER)[0] == POLICY_ALLOW
     assert resolve_policy(ro, "mcp__brain__create_note", "mcp", ROLE_EDITOR)[0] == POLICY_BLOCK
     assert resolve_policy(ro, "mcp__brain__delete_note", "mcp_destructive", ROLE_EDITOR)[0] == POLICY_BLOCK
-    rw = AgentSpec(slug="w", name="W", allow_writes=True, tool_policy={"mcp_destructive": "block"})
+    rw = AgentSpec(slug="w", name="W", allow_writes=True, tool_policy={"mcp_destructive": "block", "mcp": "allow"})
     assert resolve_policy(rw, "mcp__brain__create_note", "mcp", ROLE_EDITOR)[0] == POLICY_ALLOW
     assert resolve_policy(rw, "mcp__brain__delete_note", "mcp_destructive", ROLE_EDITOR) == (POLICY_BLOCK, "category policy")
 
@@ -230,8 +232,49 @@ def test_resolve_policy_reads_allow_and_writes_follow_allow_writes():
     assert resolve_policy(ro, "search_content", "entries_read", ROLE_VIEWER)[0] == POLICY_ALLOW
     decision, why = resolve_policy(ro, "compose_entry", "entries_author", ROLE_EDITOR)
     assert decision == POLICY_BLOCK and "read-only" in why
+    # writes on → every write category asks first by default; the matrix turns it to allow per row/tool
     rw = AgentSpec(slug="w", name="W", allow_writes=True)
-    assert resolve_policy(rw, "compose_entry", "entries_author", ROLE_AUTHOR)[0] == POLICY_ALLOW
+    assert resolve_policy(rw, "compose_entry", "entries_author", ROLE_AUTHOR) == (POLICY_ASK, "ask first (default)")
+    opened = AgentSpec(slug="w", name="W", allow_writes=True, tool_policy={"entries_author": "allow"})
+    assert resolve_policy(opened, "compose_entry", "entries_author", ROLE_AUTHOR) == (POLICY_ALLOW, "category policy")
+
+
+def test_custom_agent_write_categories_default_to_ask_when_writes_are_on_and_block_otherwise():
+    on = AgentSpec(slug="w", name="W", allow_writes=True)
+    off = AgentSpec(slug="w", name="W")
+    for cat in ("entries_author", "links", "assets_import", "automation_run", "ai_ops", "mcp", "mcp_destructive", "other_write"):
+        assert default_policy(on, cat) == POLICY_ASK, cat
+        assert default_policy(off, cat) == POLICY_BLOCK, cat
+    for cat in ("entries_read", "library_read", "mcp_read", "other_read"):
+        assert default_policy(on, cat) == POLICY_ALLOW and default_policy(off, cat) == POLICY_ALLOW, cat
+
+
+def test_marvin_asks_only_for_outward_writes_and_allows_the_rest():
+    marvin = SYSTEM_AGENTS["marvin"]
+    for cat in ROUTER_ASK_CATEGORIES:
+        assert default_policy(marvin, cat) == POLICY_ASK, cat
+    assert ROUTER_ASK_CATEGORIES == ("automation_run", "mcp", "mcp_destructive")
+    for cat in ("entries_author", "links", "assets_import", "ai_ops", "other_write"):
+        assert default_policy(marvin, cat) == POLICY_ALLOW, cat
+    assert resolve_policy(marvin, "compose_entry", "entries_author", ROLE_AUTHOR) == (POLICY_ALLOW, "router default")
+    assert resolve_policy(marvin, "run_workflow", "automation_run", ROLE_AUTHOR) == (POLICY_ASK, "ask first (default)")
+    # a workspace agent that happens to be called marvin is not the router
+    lookalike = AgentSpec(slug="marvin", name="Marvin", allow_writes=True)
+    assert default_policy(lookalike, "entries_author") == POLICY_ASK
+
+
+def test_role_cap_turns_ask_into_block_below_author():
+    rw = AgentSpec(slug="w", name="W", allow_writes=True)
+    assert resolve_policy(rw, "compose_entry", "entries_author", ROLE_VIEWER) == (POLICY_BLOCK, "caller role is below AUTHOR")
+    assert resolve_policy(SYSTEM_AGENTS["marvin"], "run_workflow", "automation_run", ROLE_VIEWER)[0] == POLICY_BLOCK
+
+
+def test_permission_matrix_reports_ask_as_the_default_and_decision():
+    rows = permission_matrix(AgentSpec(slug="w", name="W", allow_writes=True), ROLE_AUTHOR, catalog_tools())
+    author = next(r for r in rows if r["id"] == "entries_author")
+    assert author["default"] == POLICY_ASK and author["override"] is None
+    assert {t["decision"] for t in author["tools"]} == {POLICY_ASK}
+    assert all(t["reason"] == "ask first (default)" for t in author["tools"])
 
 
 def test_resolve_policy_never_lets_a_write_through_below_author():

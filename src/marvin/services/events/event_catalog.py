@@ -1054,39 +1054,47 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("shared_with", "Who it was shared with", "jsmith", type="username"),
         ],
     ),
-    # ── Workflow / Approvals ─────────────────────────────────────────────────
+    # ── AI: ask-first approvals ──────────────────────────────────────────────
     CatalogEntry(
         event_type="approval_requested",
-        name="Approval Requested",
-        description="An entry or action was submitted for approval.",
-        category="Workflow",
+        name="Agent Approval Requested",
+        description='An agent run paused on the Ask page: a tool marked "ask first" is waiting for the user\'s decision.',
+        category="AI",
         variables=COMMON_VARS
         + [
-            EventVariable("entry_title", "What needs approval", "My Post", type="title"),
-            EventVariable("requester_name", "Who submitted it", "Jane Smith", type="name"),
+            EventVariable("agent_slug", "The agent whose run is waiting", "marvin"),
+            EventVariable("thread_id", "The Ask thread the run is parked on", "b7c1…", type="string"),
+            EventVariable("execution_id", "The AI execution row of the run", "9f2e…", type="string"),
+            EventVariable("calls", "The tool calls waiting: [{id, tool, arguments}]", "[]", type="string"),
+            EventVariable("decisions", "Empty on a request", "", type="string"),
         ],
     ),
     CatalogEntry(
         event_type="approval_granted",
-        name="Approval Granted",
-        description="An approval request was accepted.",
-        category="Workflow",
+        name="Agent Approval Granted",
+        description="The user approved at least one of the tool calls a paused agent run was waiting on; the run resumed.",
+        category="AI",
         variables=COMMON_VARS
         + [
-            EventVariable("entry_title", "What was approved", "My Post", type="title"),
-            EventVariable("approver_name", "Who approved it", "Admin", type="name"),
+            EventVariable("agent_slug", "The agent whose run resumed", "marvin"),
+            EventVariable("thread_id", "The Ask thread the run was parked on", "b7c1…", type="string"),
+            EventVariable("execution_id", "The AI execution row of the run", "9f2e…", type="string"),
+            EventVariable("calls", "The tool calls that were waiting: [{id, tool, arguments}]", "[]", type="string"),
+            EventVariable("decisions", "Per call id: approve | deny", "{}", type="string"),
         ],
     ),
     CatalogEntry(
         event_type="approval_rejected",
-        name="Approval Rejected",
-        description="An approval request was declined.",
-        category="Workflow",
+        name="Agent Approval Rejected",
+        description="The user denied at least one of the tool calls a paused agent run was waiting on (a new message denies them all).",
+        category="AI",
         variables=COMMON_VARS
         + [
-            EventVariable("entry_title", "What was rejected", "My Post", type="title"),
-            EventVariable("approver_name", "Who rejected it", "Admin", type="name"),
-            EventVariable("reason", "Reason for rejection", "Needs more detail"),
+            EventVariable("agent_slug", "The agent whose run was waiting", "marvin"),
+            EventVariable("thread_id", "The Ask thread the run was parked on", "b7c1…", type="string"),
+            EventVariable("execution_id", "The AI execution row of the run", "9f2e…", type="string"),
+            EventVariable("calls", "The tool calls that were waiting: [{id, tool, arguments}]", "[]", type="string"),
+            EventVariable("decisions", "Per call id: approve | deny", "{}", type="string"),
         ],
     ),
     # ── System: Storage ───────────────────────────────────────────────────────
@@ -1302,9 +1310,6 @@ _NO_EMITTER: frozenset[str] = frozenset(
         "api_token_created",
         "api_token_revoked",
         "api_token_rotated",
-        "approval_granted",
-        "approval_rejected",
-        "approval_requested",
         # asset_attached_to_entry / asset_detached_from_entry now have emitters (EntryService.attach_asset
         # / detach_asset) — no longer dead.
         "backup_completed",

@@ -95,7 +95,37 @@ class ResumeState:
 DECISION_APPROVE = "approve"
 DECISION_DENY = "deny"
 STOPPED_AWAITING_APPROVAL = "awaiting_approval"
-DECLINED_RESULT = json.dumps({"error": "the user declined this action"})
+DECLINED_RESULT = json.dumps({"error": "the user declined this action; do not retry it, continue without it"})
+
+
+# ── Parking a paused run: the pending calls and the steps so far as JSON ────────────────────────
+
+
+def serialize_pending(calls: list[PendingCall]) -> list[dict]:
+    return [{"id": c.id, "tool": c.tool, "arguments": dict(c.arguments or {})} for c in calls]
+
+
+def deserialize_pending(data) -> list[PendingCall]:
+    out: list[PendingCall] = []
+    for d in data or []:
+        if not isinstance(d, dict) or not d.get("id") or not d.get("tool"):
+            continue
+        out.append(PendingCall(id=str(d["id"]), tool=str(d["tool"]), arguments=dict(d.get("arguments") or {})))
+    return out
+
+
+def serialize_steps(steps: list[AgentStep]) -> list[dict]:
+    """Untruncated — these are replayed into the resumed run's own trace, not shown to the user yet."""
+    return [{"tool": s.tool, "arguments": dict(s.arguments or {}), "result": s.result} for s in steps]
+
+
+def deserialize_steps(data) -> list[AgentStep]:
+    out: list[AgentStep] = []
+    for d in data or []:
+        if not isinstance(d, dict) or not d.get("tool"):
+            continue
+        out.append(AgentStep(tool=str(d["tool"]), arguments=dict(d.get("arguments") or {}), result=str(d.get("result") or "")))
+    return out
 
 
 EventListener = Callable[[dict], None]

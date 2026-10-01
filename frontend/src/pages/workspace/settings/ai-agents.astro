@@ -144,7 +144,7 @@ const builtins = agents.filter((a) => a.isSystem);
           </label>
         </div>
         <div class="form-field">
-          <div class="section-title"><h4>Tools</h4><p>Each row inherits the group default (reads allow; writes follow the switch above). Override per group or per tool.</p></div>
+          <div class="section-title"><h4>Tools</h4><p>Each row inherits the group default (reads allow; with writes on, every write group asks first). Override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div>
           <div class="matrix" data-role="matrix"></div>
         </div>
         <div class="form-actions">
@@ -279,8 +279,10 @@ const builtins = agents.filter((a) => a.isSystem);
   .matrix :global(select.mx-sel) { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 12px; flex-shrink: 0; }
   .matrix :global(select.mx-sel.block) { color: var(--color-error); border-color: var(--color-error); }
   .matrix :global(select.mx-sel.allow) { color: var(--accent); border-color: var(--accent); }
+  .matrix :global(select.mx-sel.ask) { color: var(--warn); border-color: var(--warn); }
   .perms :global(.mx-dec) { font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; flex-shrink: 0; }
   .perms :global(.mx-dec.allow) { color: var(--accent); }
+  .perms :global(.mx-dec.ask) { color: var(--warn); }
   .perms :global(.mx-dec.block) { color: var(--color-error); }
   .perms :global(.mx-why) { color: var(--muted); font-size: 12px; margin-left: 6px; }
   .perms :global(.mx-title) { font-size: 13px; margin-bottom: 10px; color: var(--muted); }
@@ -308,6 +310,7 @@ const builtins = agents.filter((a) => a.isSystem);
   .edit :global(.matrix select.mx-sel) { padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 12px; }
   .edit :global(.matrix select.mx-sel.block) { color: var(--color-error); border-color: var(--color-error); }
   .edit :global(.matrix select.mx-sel.allow) { color: var(--accent); border-color: var(--accent); }
+  .edit :global(.matrix select.mx-sel.ask) { color: var(--warn); border-color: var(--warn); }
   @media (max-width: 900px) { .form-row, .form-row.four, .form-row.icon-name { grid-template-columns: 1fr; } }
 </style>
 
@@ -346,6 +349,7 @@ const builtins = agents.filter((a) => a.isSystem);
       return `<select class="mx-sel ${v}" data-key="${esc(key)}">
         <option value=""${v === "" ? " selected" : ""}>${esc(inheritLabel)}</option>
         <option value="allow"${v === "allow" ? " selected" : ""}>Allow</option>
+        <option value="ask"${v === "ask" ? " selected" : ""}>Ask first</option>
         <option value="block"${v === "block" ? " selected" : ""}>Block</option>
       </select>`;
     }
@@ -354,7 +358,7 @@ const builtins = agents.filter((a) => a.isSystem);
       container.innerHTML = catalog.categories
         .filter((c) => (byCat.get(c.id) ?? []).length || c.id.startsWith("mcp"))
         .map((c) => {
-          const inherit = c.writes ? (allowWrites ? "Default (allow — writes on)" : "Default (block — read-only)") : "Default (allow)";
+          const inherit = c.writes ? (allowWrites ? "Default (ask first — writes on)" : "Default (block — read-only)") : "Default (allow)";
           const tools = (byCat.get(c.id) ?? [])
             .map(
               (t) =>
@@ -377,7 +381,7 @@ const builtins = agents.filter((a) => a.isSystem);
     function collectPolicy(container: HTMLElement): Record<string, PolicyValue> | null {
       const out: Record<string, PolicyValue> = {};
       container.querySelectorAll<HTMLSelectElement>("select.mx-sel").forEach((s) => {
-        if (s.value === "allow" || s.value === "block") out[s.dataset.key!] = s.value;
+        if (s.value === "allow" || s.value === "ask" || s.value === "block") out[s.dataset.key!] = s.value;
       });
       return Object.keys(out).length ? out : null;
     }
@@ -541,7 +545,7 @@ const builtins = agents.filter((a) => a.isSystem);
             <label class="toggle-label"><input type="checkbox" name="allowWrites" class="toggle-input"${agent.allowWrites ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Allow writes</span></label>
             <label class="toggle-label"><input type="checkbox" name="enabled" class="toggle-input"${agent.enabled ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Enabled</span></label>
           </div>
-          <div class="form-field"><div class="section-title"><h4>Tools</h4><p>Inherit follows the group default; override per group or per tool.</p></div><div class="matrix" data-role="matrix"></div></div>
+          <div class="form-field"><div class="section-title"><h4>Tools</h4><p>Inherit follows the group default (with writes on, write groups ask first); override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div><div class="matrix" data-role="matrix"></div></div>
           <div class="form-actions"><button type="submit" class="button small">Save changes</button><button type="button" class="button secondary small e-cancel">Cancel</button><span class="save-status" data-role="estatus"></span></div>
         </form>`;
         const form = editBox.querySelector("form") as HTMLFormElement;

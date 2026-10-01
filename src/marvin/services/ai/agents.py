@@ -268,25 +268,38 @@ POLICY_ASK = "ask"
 
 ROUTER_SLUG = "marvin"
 HANDOFF_CATEGORY = "agents_run"
+# The router's outward-reaching writes: not undoable from the inbox, so Marvin asks before each one.
+# Its in-workspace writes (authoring, links, AI ops) are already soft-gated by drafts/staging.
+ROUTER_ASK_CATEGORIES = ("automation_run", "mcp", "mcp_destructive")
 
 
 def default_policy(spec: AgentSpec, category_id: str) -> str:
-    """What a category does when the matrix says nothing: reads allow, writes follow allow_writes.
+    """What a category does when the matrix says nothing.
 
-    Hand-offs (`agents_run`) are the exception: only the system router `marvin` delegates by default;
-    any other agent must be allowed explicitly in its matrix.
+    Reads allow. Hand-offs (`agents_run`) are the exception: only the system router `marvin`
+    delegates by default; any other agent must be allowed explicitly in its matrix. Writes:
+
+    - a custom agent with `allow_writes` *asks first* for every write category (turn it off per
+      category/tool in the matrix); without `allow_writes` writes are blocked;
+    - the router `marvin` allows its in-workspace writes and asks first for `ROUTER_ASK_CATEGORIES`.
+
+    "Ask first" needs a thread to park on. From a surface with no thread (the admin bubble, MCP
+    `run_agent`, a delegated child) ask means *not bound*.
     """
     from marvin.services.ai.tools.categories import category_writes
 
+    is_router = spec.is_system and spec.slug == ROUTER_SLUG
     if category_id == HANDOFF_CATEGORY:
-        return POLICY_ALLOW if (spec.is_system and spec.slug == ROUTER_SLUG) else POLICY_BLOCK
+        return POLICY_ALLOW if is_router else POLICY_BLOCK
     if not category_writes(category_id):
         return POLICY_ALLOW
-    return POLICY_ALLOW if spec.allow_writes else POLICY_BLOCK
+    if is_router:
+        return POLICY_ASK if category_id in ROUTER_ASK_CATEGORIES else POLICY_ALLOW
+    return POLICY_ASK if spec.allow_writes else POLICY_BLOCK
 
 
 def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int) -> tuple[str, str]:
-    """Decide allow|block for one tool and say why.
+    """Decide allow|ask|block for one tool and say why.
 
     Order: the hard allowlist, then a tool-level entry, then a category-level entry, then the
     category default. A write is never allowed to a caller below AUTHOR — an agent cannot do more
@@ -307,10 +320,14 @@ def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int)
         decision = default_policy(spec, category_id)
         if category_id == HANDOFF_CATEGORY:
             reason = "router default" if decision == POLICY_ALLOW else "hand-offs are off unless allowed"
+        elif not category_writes(category_id):
+            reason = "read access"
+        elif decision == POLICY_ASK:
+            reason = "ask first (default)"
+        elif decision == POLICY_ALLOW:
+            reason = "router default" if (spec.is_system and spec.slug == ROUTER_SLUG) else "category default"
         else:
-            reason = "category default" if category_writes(category_id) else "read access"
-            if category_writes(category_id) and not spec.allow_writes:
-                reason = "agent is read-only"
+            reason = "agent is read-only" if not spec.allow_writes else "category default"
     if decision in (POLICY_ALLOW, POLICY_ASK) and category_writes(category_id) and role < ROLE_AUTHOR:
         return POLICY_BLOCK, "caller role is below AUTHOR"
     return decision, reason

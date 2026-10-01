@@ -255,3 +255,120 @@ def test_a_tool_that_forwards_nested_events_keeps_them_in_order_with_via():
         ("tool_result", "run_agent", None),
         ("thinking", None, None),
     ]
+
+
+# ── Ask first: pend, resume, decline ─────────────────────────────────────────
+
+from marvin.services.ai.agent import (  # noqa: E402 — appended section
+    DECLINED_RESULT,
+    AgentStep,
+    PendingCall,
+    ResumeState,
+    deserialize_pending,
+    deserialize_steps,
+    serialize_pending,
+    serialize_steps,
+)
+
+
+def _ask_tools(seen: list):
+    read = AgentTool(name="read", description="r", input_schema={}, run=lambda a: seen.append(("read", a)) or json.dumps({"ok": 1}))
+    write = AgentTool(
+        name="write", description="w", input_schema={}, run=lambda a: seen.append(("write", a)) or json.dumps({"written": a}), requires_approval=True
+    )
+    return [read, write]
+
+
+def test_ask_first_tool_pends_while_siblings_run_in_the_same_turn():
+    provider = ScriptedProvider(
+        [_result(tool_calls=[ToolCall(id="c1", name="read", arguments={"q": 1}), ToolCall(id="c2", name="write", arguments={"x": 2})])]
+    )
+    seen: list = []
+    events: list = []
+    result = run_agent_loop(provider, "m", [Message(role="user", content="go")], _ask_tools(seen), on_event=events.append)
+
+    assert result.stopped_reason == "awaiting_approval" and result.answer == ""
+    assert seen == [("read", {"q": 1})]  # the write never ran
+    assert [(c.id, c.tool, c.arguments) for c in result.pending_calls] == [("c2", "write", {"x": 2})]
+    assert len(provider.calls) == 1
+    # the transcript stops after the sibling's tool message: the pending call has no tool message yet
+    assert result.convo[-1].role == "tool" and result.convo[-1].tool_call_id == "c1"
+    assert result.convo[-2].role == "assistant" and [c.id for c in result.convo[-2].tool_calls] == ["c1", "c2"]
+    assert events[-1] == {"type": "awaiting_approval", "calls": [{"id": "c2", "tool": "write"}]}
+    assert result.total_tokens == 8
+
+
+def test_resume_approve_dispatches_the_call_then_continues_and_ignores_messages():
+    convo = [
+        Message(role="user", content="go"),
+        Message(role="assistant", content="", tool_calls=[ToolCall(id="c2", name="write", arguments={"x": 2})]),
+    ]
+    provider = ScriptedProvider([_result(content="done")])
+    seen: list = []
+    events: list = []
+    result = run_agent_loop(
+        provider,
+        "m",
+        [Message(role="user", content="IGNORED")],
+        _ask_tools(seen),
+        on_event=events.append,
+        resume=ResumeState(convo=convo, pending=[PendingCall(id="c2", tool="write", arguments={"x": 2})], decisions={"c2": "approve"}),
+    )
+    assert result.answer == "done" and result.stopped_reason == "complete"
+    assert seen == [("write", {"x": 2})]
+    assert [s.tool for s in result.steps] == ["write"]
+    sent = provider.calls[0][0]
+    assert sent[0].content == "go"  # the parked transcript, not `messages`
+    assert sent[-1].role == "tool" and sent[-1].tool_call_id == "c2" and json.loads(sent[-1].content) == {"written": {"x": 2}}
+    assert events[0] == {"type": "tool_call", "tool": "write", "arguments": {"x": 2}}
+
+
+def test_resume_deny_and_missing_decision_tell_the_model_the_user_declined():
+    convo = [
+        Message(role="user", content="go"),
+        Message(
+            role="assistant", content="", tool_calls=[ToolCall(id="c2", name="write", arguments={}), ToolCall(id="c3", name="write", arguments={})]
+        ),
+    ]
+    provider = ScriptedProvider([_result(content="ok without it")])
+    seen: list = []
+    events: list = []
+    pending = [PendingCall(id="c2", tool="write", arguments={}), PendingCall(id="c3", tool="write", arguments={})]
+    result = run_agent_loop(
+        provider, "m", [], _ask_tools(seen), on_event=events.append, resume=ResumeState(convo=convo, pending=pending, decisions={"c2": "deny"})
+    )
+    assert result.answer == "ok without it" and seen == [] and result.steps == []
+    sent = provider.calls[0][0]
+    declined = [m for m in sent if m.role == "tool"]
+    assert [m.tool_call_id for m in declined] == ["c2", "c3"] and all(m.content == DECLINED_RESULT for m in declined)
+    assert json.loads(DECLINED_RESULT)["error"].startswith("the user declined")
+    assert events[:2] == [{"type": "declined", "tool": "write"}, {"type": "declined", "tool": "write"}]
+
+
+def test_a_resumed_run_can_park_again():
+    convo = [Message(role="user", content="go"), Message(role="assistant", content="", tool_calls=[ToolCall(id="c2", name="write", arguments={})])]
+    provider = ScriptedProvider([_result(tool_calls=[ToolCall(id="c4", name="write", arguments={"again": True})])])
+    seen: list = []
+    result = run_agent_loop(
+        provider,
+        "m",
+        [],
+        _ask_tools(seen),
+        resume=ResumeState(convo=convo, pending=[PendingCall(id="c2", tool="write", arguments={})], decisions={"c2": "approve"}),
+    )
+    assert result.stopped_reason == "awaiting_approval"
+    assert [c.id for c in result.pending_calls] == ["c4"]
+    assert [s.tool for s in result.steps] == ["write"]  # the approved one ran before the model asked again
+    assert [m.tool_call_id for m in result.convo if m.role == "tool"] == ["c2"]
+
+
+def test_pending_and_step_serializers_round_trip_and_skip_junk():
+    calls = [PendingCall(id="c1", tool="write", arguments={"x": {"y": 1}})]
+    data = serialize_pending(calls)
+    assert data == [{"id": "c1", "tool": "write", "arguments": {"x": {"y": 1}}}]
+    assert deserialize_pending([*data, {"tool": "no-id"}, "junk", None]) == calls
+
+    steps = [AgentStep(tool="read", arguments={"q": 1}, result="x" * 5000)]
+    sdata = serialize_steps(steps)
+    assert sdata == [{"tool": "read", "arguments": {"q": 1}, "result": "x" * 5000}]  # untruncated
+    assert deserialize_steps([*sdata, {}, 3]) == steps

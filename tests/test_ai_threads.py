@@ -216,3 +216,74 @@ def test_extract_handoffs_reads_successful_run_agent_steps_and_passes_referrals_
     assert handoffs == [{"agent": "materials", "threadId": "t1", "executionId": "e1"}]
     assert referrals == [{"agent": "ask", "question": "q"}]
     assert svc.extract_handoffs([]) == ([], [])
+
+
+# ── Ask first: park / pending / clear ────────────────────────────────────────
+
+
+def _parked(db_session, workspace):
+    from marvin.services.ai.agent import AgentStep, PendingCall
+    from marvin.services.ai.base import Message, ToolCall
+
+    t = svc.create_thread(db_session, workspace.group_id, workspace.alice, "marvin", "tag it")
+    convo = [
+        Message(role="system", content="sys"),
+        Message(role="user", content="tag it"),
+        Message(
+            role="assistant",
+            content="",
+            tool_calls=[
+                ToolCall(id="c1", name="search_content", arguments={"q": "x"}),
+                ToolCall(id="c2", name="attach_tag", arguments={"tag": "foo"}),
+            ],
+        ),
+        Message(role="tool", content='{"results": []}', tool_call_id="c1"),
+    ]
+    exec_id = uuid.uuid4()
+    svc.park_thread(
+        db_session,
+        t,
+        calls=[PendingCall(id="c2", tool="attach_tag", arguments={"tag": "foo"})],
+        convo=convo,
+        execution_id=exec_id,
+        run={"agent_slug": "marvin", "max_steps": 6, "register": None, "entity_type": None, "entity_id": None, "model": "m"},
+        steps=[AgentStep(tool="search_content", arguments={"q": "x"}, result='{"results": []}')],
+        referrals=[{"agent": "ask"}],
+    )
+    return t, exec_id
+
+
+def test_park_thread_freezes_calls_convo_and_run_and_the_convo_round_trips(db_session, workspace):
+    from marvin.services.ai.base import deserialize_messages
+
+    t, exec_id = _parked(db_session, workspace)
+    assert t.status == "awaiting_approval" and t.last_message_at is not None
+    pj = t.pending_json
+    assert pj["calls"] == [{"id": "c2", "tool": "attach_tag", "arguments": {"tag": "foo"}}]
+    assert pj["execution_id"] == str(exec_id)
+    assert pj["run"]["model"] == "m" and pj["run"]["max_steps"] == 6
+    assert pj["steps"] == [{"tool": "search_content", "arguments": {"q": "x"}, "result": '{"results": []}'}]
+    assert pj["referrals"] == [{"agent": "ask"}]
+    back = deserialize_messages(pj["convo"])
+    assert [m.role for m in back] == ["system", "user", "assistant", "tool"]
+    assert [c.id for c in back[2].tool_calls] == ["c1", "c2"] and back[2].tool_calls[1].arguments == {"tag": "foo"}
+    assert back[3].tool_call_id == "c1"
+
+
+def test_pending_state_only_when_awaiting_with_calls_and_clear_pending_reopens(db_session, workspace):
+    t, _ = _parked(db_session, workspace)
+    assert svc.pending_state(t)["calls"][0]["id"] == "c2"
+    svc.clear_pending(t)
+    assert t.status == "open" and t.pending_json is None and svc.pending_state(t) is None
+    # awaiting without calls (a stale row) is not a park either
+    t.status = "awaiting_approval"
+    t.pending_json = {"calls": []}
+    assert svc.pending_state(t) is None
+    fresh = svc.create_thread(db_session, workspace.group_id, workspace.alice, "ask", "hi")
+    assert svc.pending_state(fresh) is None
+
+
+def test_status_column_is_wide_enough_for_awaiting_approval():
+    from marvin.db.models.groups.ai_threads import THREAD_STATUS_AWAITING, AIThreadModel
+
+    assert AIThreadModel.status.type.length >= len(THREAD_STATUS_AWAITING)

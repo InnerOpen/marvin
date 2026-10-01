@@ -47,8 +47,8 @@ class AIThreadModel(SqlAlchemyBase, BaseMixins):
     parent_thread_id: Mapped[GUID | None] = mapped_column(
         GUID, ForeignKey("ai_threads.id", ondelete="SET NULL", name="fk_ai_threads_parent_thread_id"), nullable=True, index=True
     )
-    # open | awaiting_approval | archived
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default=THREAD_STATUS_OPEN)
+    # open | awaiting_approval | archived (32 wide: "awaiting_approval" alone is 17, see b2d5e8f1a3c4)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default=THREAD_STATUS_OPEN)
     # A paused run waiting for the user's approval: everything needed to resume it (Slice C).
     # none_as_null so `pending_json IS NULL` is a real emptiness check (see sa-json-none-as-null).
     pending_json: Mapped[dict | None] = mapped_column(sa.JSON(none_as_null=True), nullable=True)

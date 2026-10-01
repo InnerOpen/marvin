@@ -6,7 +6,8 @@
 import { fetchApi } from "./client";
 
 export type AgentKind = "persona" | "model";
-export type PolicyValue = "allow" | "block";
+/** `ask` = "ask first": the tool is bound but each call pauses the run for the user's approval (Ask page threads only). */
+export type PolicyValue = "allow" | "ask" | "block";
 export type Register = "auto" | "professional" | "playful";
 
 export interface Agent {
@@ -93,6 +94,12 @@ export interface Referral {
   question?: string | null;
   reason?: string | null;
 }
+/** A tool call waiting for the user's decision (an "ask first" tool). */
+export interface PendingCall {
+  id: string;
+  tool: string;
+  arguments: unknown;
+}
 export interface AgentRunResult {
   answer: string;
   steps: { tool: string; arguments: unknown; result?: unknown }[];
@@ -100,7 +107,9 @@ export interface AgentRunResult {
   sources?: Source[];
   handoffs?: Handoff[];
   referrals?: Referral[];
+  /** "complete" | "max_steps" | "awaiting_approval" — the last one carries `pending` and no answer yet. */
   stoppedReason: string;
+  pending?: PendingCall[];
   executionId: string;
   /** The server-side thread this turn was stored on (only when the run asked for one). */
   threadId?: string | null;
@@ -134,7 +143,8 @@ export interface ThreadMessage {
 }
 export interface ThreadDetail extends Thread {
   messages: ThreadMessage[];
-  pending: { id: string; tool: string; arguments: unknown }[];
+  /** Calls a parked run is waiting on (status "awaiting_approval"); empty otherwise. */
+  pending: PendingCall[];
 }
 
 /** `threadId` value that asks a run to open a fresh server-side thread. */
@@ -146,6 +156,8 @@ export interface RunEvent {
   tool?: string;
   arguments?: unknown;
   ok?: boolean;
+  /** Set on `awaiting_approval`: the calls the run is waiting on. */
+  calls?: { id: string; tool: string }[];
   /** Set on events a delegated child run emitted: the specialist's slug. */
   via?: string;
   at: number;
@@ -249,4 +261,20 @@ export function renameThread(id: string, title: string | null, authToken?: strin
 }
 export function deleteThread(id: string, authToken?: string): Promise<void> {
   return fetchApi<void>(`/api/ai/threads/${encodeURIComponent(id)}`, { method: "DELETE" }, authToken);
+}
+/**
+ * Decide the calls a parked run is waiting on and continue it. Missing ids count as denied. The
+ * result has the shape of a run (it may park again: `stoppedReason === "awaiting_approval"`).
+ */
+export function resumeThread(
+  id: string,
+  decisions: Record<string, "approve" | "deny">,
+  opts: { clientRunId?: string } = {},
+  authToken?: string,
+): Promise<AgentRunResult> {
+  return fetchApi<AgentRunResult>(
+    `/api/ai/threads/${encodeURIComponent(id)}/resume`,
+    json({ decisions, ...(opts.clientRunId ? { clientRunId: opts.clientRunId } : {}) }),
+    authToken,
+  );
 }

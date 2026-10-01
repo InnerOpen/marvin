@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from marvin.db.models.groups.ai_threads import THREAD_STATUS_OPEN, AIThreadMessageModel, AIThreadModel
+from marvin.db.models.groups.ai_threads import THREAD_STATUS_AWAITING, THREAD_STATUS_OPEN, AIThreadMessageModel, AIThreadModel
 
 # Keep a stored tool result useful for reopening a thread without letting one search hit balloon
 # the row; the model already saw the full result during the run.
@@ -174,6 +174,47 @@ def _step_json(step, log_outputs: bool) -> dict:
 def touch(thread: AIThreadModel, tokens: int | None = None) -> None:
     thread.last_message_at = _now()
     thread.total_tokens = int(thread.total_tokens or 0) + int(tokens or 0)
+
+
+# ── Ask first: parking a run that is waiting for the user's decision ─────────
+
+
+def park_thread(session: Session, thread: AIThreadModel, *, calls, convo, execution_id, run: dict, steps, referrals) -> None:
+    """Freeze a paused run on its thread: what is waiting, the transcript to resume from, and the run's
+    own parameters so `POST /threads/{id}/resume` can rebuild the loop without the original request.
+
+    `calls`/`steps` are PendingCall/AgentStep lists, `convo` the loop's Message transcript (tool
+    calls and ids included — every provider needs one tool message per call id), `run` is
+    `{agent_slug, max_steps, register, entity_type, entity_id, model}`. Never exposed whole through
+    the API: `AIThreadDetail.pending` shows the calls only.
+    """
+    from marvin.services.ai.agent import serialize_pending, serialize_steps
+    from marvin.services.ai.base import serialize_messages
+
+    thread.status = THREAD_STATUS_AWAITING
+    thread.pending_json = {
+        "calls": serialize_pending(calls),
+        "convo": serialize_messages(convo),
+        "execution_id": str(execution_id) if execution_id else None,
+        "run": dict(run),
+        "steps": serialize_steps(steps),
+        "referrals": list(referrals or []),
+    }
+    touch(thread)
+    session.flush()
+
+
+def pending_state(thread: AIThreadModel) -> dict | None:
+    """The parked record when the thread is waiting on calls, else None (open threads, stale rows)."""
+    if thread.status != THREAD_STATUS_AWAITING:
+        return None
+    data = thread.pending_json or {}
+    return data if data.get("calls") else None
+
+
+def clear_pending(thread: AIThreadModel) -> None:
+    thread.status = THREAD_STATUS_OPEN
+    thread.pending_json = None
 
 
 def _step_result(step):
