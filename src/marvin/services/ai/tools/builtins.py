@@ -683,12 +683,54 @@ def get_asset(ctx: ToolContext, args: dict) -> str:
     )
 
 
+def _workflow_ref(auto) -> dict:
+    trigger = ((auto.definition or {}).get("trigger") or {}).get("type")
+    return {"name": auto.name, "slug": auto.slug, "enabled": bool(auto.enabled), "trigger": trigger}
+
+
+def _find_workflow(session, group_id, ref: str):
+    """Match a workflow by slug, name (case-insensitive) or id; None when nothing matches."""
+    import uuid
+
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+    q = session.query(WorkspaceAutomationModel).filter_by(group_id=group_id)
+    low = ref.lower()
+    auto = q.filter(func.lower(WorkspaceAutomationModel.slug) == low).first() or q.filter(func.lower(WorkspaceAutomationModel.name) == low).first()
+    if auto is None:
+        try:
+            cand = session.get(WorkspaceAutomationModel, uuid.UUID(ref))
+            if cand and cand.group_id == group_id:
+                auto = cand
+        except (ValueError, TypeError):
+            pass
+    return auto
+
+
+@register_tool(
+    name="list_workflows",
+    description=(
+        "List this workspace's automations (workflows): name, slug, enabled, trigger type. Call this before "
+        "run_workflow when the user names a workflow loosely, to get its exact slug; use for 'what workflows "
+        "exist' or 'is workflow X on'."
+    ),
+    input_schema={"type": "object", "properties": {}},
+)
+def list_workflows(ctx: ToolContext, _args: dict) -> str:
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+    rows = ctx.session.query(WorkspaceAutomationModel).filter_by(group_id=ctx.group_id).order_by(WorkspaceAutomationModel.name).all()
+    return json.dumps({"workflows": [_workflow_ref(a) for a in rows], "count": len(rows)})
+
+
 @register_tool(
     name="run_workflow",
     description=(
         "Run one of this workspace's automations (workflows) by slug, name, or id — e.g. to rebuild "
         "the site, reindex search, or run a content pipeline. Runs it now, skipping the workflow's "
-        "trigger/condition gates (like pressing Run). Returns whether it completed."
+        "trigger/condition gates (like pressing Run). Returns whether it completed. Names match "
+        "case-insensitively; when nothing matches the error lists the workflows that exist — pick the "
+        "right one (or ask the user) rather than guessing again."
     ),
     input_schema={
         "type": "object",
@@ -700,8 +742,6 @@ def get_asset(ctx: ToolContext, args: dict) -> str:
 )
 def run_workflow(ctx: ToolContext, args: dict) -> str:
     """Let the agent (or an MCP host) trigger a Flavor B workflow from chat — the 'Chat' trigger."""
-    import uuid
-
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
     from marvin.services.automation.engine import run_automation_now
 
@@ -709,17 +749,10 @@ def run_workflow(ctx: ToolContext, args: dict) -> str:
     if not ref:
         return json.dumps({"error": "workflow (slug, name, or id) is required"})
 
-    q = ctx.session.query(WorkspaceAutomationModel).filter_by(group_id=ctx.group_id)
-    auto = q.filter_by(slug=ref).first() or q.filter_by(name=ref).first()
+    auto = _find_workflow(ctx.session, ctx.group_id, ref)
     if not auto:
-        try:
-            cand = ctx.session.get(WorkspaceAutomationModel, uuid.UUID(ref))
-            if cand and cand.group_id == ctx.group_id:
-                auto = cand
-        except (ValueError, TypeError):
-            pass
-    if not auto:
-        return json.dumps({"error": f"no workflow '{ref}' in this workspace"})
+        rows = ctx.session.query(WorkspaceAutomationModel).filter_by(group_id=ctx.group_id).order_by(WorkspaceAutomationModel.name).all()
+        return json.dumps({"error": f"no workflow '{ref}' in this workspace", "available": [_workflow_ref(a) for a in rows]})
     if not auto.enabled:
         return json.dumps({"error": f"workflow '{auto.slug}' is disabled"})
 

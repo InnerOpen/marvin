@@ -71,6 +71,7 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "import_asset": "assets_import",
     "list_events": "automation_read",
     "list_scheduled_tasks": "automation_read",
+    "list_workflows": "automation_read",
     "get_scheduled_task_history": "automation_read",
     "run_workflow": "automation_run",
     "get_ai_execution": "insights",
