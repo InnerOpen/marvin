@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.108 (2026-10-01)
+
+### Features
+
+- **agents**: Workspace inventory + forgiving workflow lookup
+  ([`326b831`](https://github.com/InnerOpen/marvin/commit/326b8319ff4d8a72350df47514e043b5cd71d867))
+
+
 ## v1.0.0-rc.107 (2026-10-01)
 
 ### Features
