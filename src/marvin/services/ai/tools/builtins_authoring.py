@@ -80,7 +80,14 @@ def compose_entry(ctx: ToolContext, args: dict) -> str:
 
     asset_ids = args.get("asset_ids") or []
     aa = svc.recipe_asset_attachments(asset_ids, et) if asset_ids else None
-    result = svc.compose(entry_type=et, brief=str(args.get("brief") or ""), asset_ids=asset_ids, asset_attachments=aa, source="agent")
+    result = svc.compose(
+        entry_type=et,
+        brief=str(args.get("brief") or ""),
+        asset_ids=asset_ids,
+        asset_attachments=aa,
+        source="agent",
+        parent_execution_id=ctx.execution_id,
+    )
     return json.dumps(result)
 
 
@@ -113,5 +120,5 @@ def revise_entry(ctx: ToolContext, args: dict) -> str:
     entry = ctx.session.get(Entries, eid) if isinstance(eid, _uuid.UUID) else None
     if not entry or entry.group_id != ctx.group_id:
         return json.dumps({"error": f"entry '{args.get('entry')}' not found in this workspace"})
-    result = svc.revise(entry=entry, instruction=str(args.get("instruction") or ""), source="agent")
+    result = svc.revise(entry=entry, instruction=str(args.get("instruction") or ""), source="agent", parent_execution_id=ctx.execution_id)
     return json.dumps(result)

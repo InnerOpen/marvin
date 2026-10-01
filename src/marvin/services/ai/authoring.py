@@ -19,6 +19,7 @@ import time
 from datetime import UTC, datetime
 
 from marvin.core.root_logger import get_logger
+from marvin.services.ai.executions import parent_meta
 from marvin.services.ui_links import entry_edit_url, entry_review_link
 
 
@@ -78,6 +79,7 @@ class AuthoringService:
         source: str = "api",
         assistant_name: str = "Marvin",
         persona_prompt: str = "",
+        parent_execution_id: str | None = None,
         register: str = "auto",
         log_inputs: bool = False,
         log_outputs: bool = True,
@@ -169,6 +171,7 @@ class AuthoringService:
             entity_type="entry_type",
             entity_id=entry_type.id,
             input_json={"entry_type": entry_type.slug, "brief": brief} if log_inputs else None,
+            metadata_json=parent_meta(parent_execution_id),
         )
         self.session.add(execution)
         self.session.commit()
@@ -306,6 +309,7 @@ class AuthoringService:
         source: str = "api",
         register: str = "auto",
         log_inputs: bool = False,
+        parent_execution_id: str | None = None,
         log_outputs: bool = True,
         max_tokens: int | None = None,
         ground: bool = True,
@@ -383,6 +387,7 @@ class AuthoringService:
             entity_type="entry",
             entity_id=entry.id,
             input_json={"entry": str(entry.id), "instruction": instruction} if log_inputs else None,
+            metadata_json=parent_meta(parent_execution_id),
         )
         self.session.add(execution)
         self.session.commit()

@@ -38,6 +38,9 @@ class ToolContext:
     # bound; `referrals` collects suggest_agent calls for the parent to surface.
     depth: int = 0
     source: str | None = None
+    # The agent execution this tool call belongs to (set by the controller once its row exists), so
+    # executions a tool spawns — compose/revise, AI operations, hand-offs — can point back at it.
+    execution_id: str | None = None
     delegate: Callable[[str, str, int | None], dict] | None = None
     referrals: list[dict] = field(default_factory=list)
 

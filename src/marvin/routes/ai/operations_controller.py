@@ -24,6 +24,7 @@ from marvin.schemas.group.ai_execution import (
     AIToolInvokeRequest,
 )
 from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, AIThreadRead, AIThreadUpdate
+from marvin.services.ai.executions import link_child_execution
 from marvin.services.ui_links import entry_edit_url, entry_review_link
 
 router = APIRouter(prefix="/ai", route_class=MarvinCrudRoute)
@@ -1212,6 +1213,8 @@ class AIOperationsController(BaseUserController):
         execution.started_at = datetime.now(UTC)
         self.session.add(execution)
         self.session.commit()
+        if ctx is not None:
+            ctx.execution_id = str(execution.id)  # tools spawning executions link them back here
 
         start = time.monotonic()
         run_id, local_on_event = self._start_progress(body)
@@ -1637,6 +1640,7 @@ class AIOperationsController(BaseUserController):
                     return json.dumps({"error": e.detail})
                 except Exception as e:  # noqa: BLE001 — surface to the model, never raise into the loop
                     return json.dumps({"error": str(e)})
+                link_child_execution(self.session, res.id, ctx.execution_id)
                 return json.dumps({"status": res.status, "output": res.output_json, "error": res.error_message})
 
             return run
