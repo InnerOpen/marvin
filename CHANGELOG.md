@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.100 (2026-10-01)
+
+### Bug Fixes
+
+- **agents**: Make the router hand off on an explicit voice/agent request; lenient find_entries type
+  slug
+  ([`fc4c1ae`](https://github.com/InnerOpen/marvin/commit/fc4c1ae479229b11600c077af12aa532b6b9b881))
+
+
 ## v1.0.0-rc.99 (2026-10-01)
 
 ### Chores
