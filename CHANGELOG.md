@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.102 (2026-10-01)
+
+### Bug Fixes
+
+- **agents**: Keep workspace links relative; ask the specialist for text before an action only
+  Marvin can do
+  ([`0bdb790`](https://github.com/InnerOpen/marvin/commit/0bdb79005359b6a1802b2980524b76c1c185cbee))
+
+
 ## v1.0.0-rc.101 (2026-10-01)
 
 ### Bug Fixes
