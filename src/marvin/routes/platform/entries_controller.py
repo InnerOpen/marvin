@@ -7,6 +7,7 @@ from marvin.db.models.platform import EntryCollections
 from marvin.routes._base import BaseUserController, controller
 from marvin.schemas.platform import CollectionRead, EntryCreate, EntryRead, EntryUpdate
 from marvin.services.entries import EntryService
+from marvin.services.entries.entry_service import count_by_status
 
 router = APIRouter(prefix="/entries")
 
@@ -34,6 +35,11 @@ class EntriesController(BaseUserController):
         data_dict = data.model_dump()
         data_dict["created_by"] = self.user.id  # inject the authenticated author
         return self._entries().create(data_dict)
+
+    @router.get("/counts", summary="Entry counts by status")
+    def entry_counts(self) -> dict[str, int]:
+        """`{inbox, draft, …, total}` for this workspace — what the sidebar badge reads. Declared before `/{item_id}`."""
+        return count_by_status(self.session, self.group_id)
 
     @router.get("/{item_id}", response_model=EntryRead, summary="Get Entry")
     def get_entry(self, item_id: UUID4) -> EntryRead:

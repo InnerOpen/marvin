@@ -51,6 +51,24 @@ def _diff(old, new) -> tuple[list[str], dict, dict]:
     return changed, before, after
 
 
+def count_by_status(session, group_id) -> dict[str, int]:
+    """`{status: n}` for every known status (zero-filled) plus `total` — the sidebar's inbox badge.
+
+    One grouped query on the (group_id, status) index; cheap enough to run on every page load.
+    """
+    from sqlalchemy import func
+
+    from marvin.db.models.platform import Entries
+    from marvin.schemas.platform.entries import ENTRY_STATUSES
+
+    rows = session.query(Entries.status, func.count(Entries.id)).filter(Entries.group_id == group_id).group_by(Entries.status).all()
+    counts = dict.fromkeys(sorted(ENTRY_STATUSES), 0)
+    for status_value, n in rows:
+        counts[status_value] = int(n)
+    counts["total"] = sum(n for k, n in counts.items() if k != "total")
+    return counts
+
+
 class EntryService:
     """Own entry mutations and the events they emit. Construct per request/run with the actor + bus.
 
