@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.101 (2026-10-01)
+
+### Bug Fixes
+
+- **agents**: "auto" from the caller no longer overrides a named agent's own register
+  ([`2155bb6`](https://github.com/InnerOpen/marvin/commit/2155bb6e6056c3d53dab1fb833f81b77c571e018))
+
+### Chores
+
+- **tasks**: Slice D verified live
+  ([`ddf4e32`](https://github.com/InnerOpen/marvin/commit/ddf4e32e97d972d9e899070c4b4d76058a515aab))
+
+
 ## v1.0.0-rc.100 (2026-10-01)
 
 ### Bug Fixes
