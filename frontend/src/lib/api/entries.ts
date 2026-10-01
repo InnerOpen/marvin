@@ -29,7 +29,7 @@ export async function listEntries(authToken: string): Promise<EntryRead[]> {
 /** Entry counts by status for the current workspace (`{inbox, draft, …, total}`) — the sidebar badge. */
 export async function getEntryCounts(authToken?: string): Promise<Record<string, number>> {
   const { fetchApi } = await import("./client");
-  return fetchApi<Record<string, number>>("/api/entries/counts", {}, authToken);
+  return fetchApi<Record<string, number>>("/api/platform/entries/counts", {}, authToken);
 }
 
 /**

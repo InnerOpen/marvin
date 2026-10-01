@@ -160,7 +160,7 @@ select {
   color: var(--ink) !important;
 }
 
-/* Inbox count: a small red pill at the end of the row, hidden when zero (not rendered). */
+/* Entries row: inbox count as a small red pill at the end, hidden when zero (not rendered). */
 .nav-badge {
   margin-left: auto;
   min-width: 20px;

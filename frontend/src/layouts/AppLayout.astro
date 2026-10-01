@@ -52,9 +52,8 @@ try {
   // Not logged in or error
 }
 
-// Inbox badge: how many entries wait in `inbox` (agents and forms drop drafts there). Best-effort —
+// Entries badge: how many entries wait in `inbox` (agents and forms drop drafts there). Best-effort —
 // a failed count just hides the badge.
-const INBOX_PATH = "/workspace/entries?status=inbox";
 let inboxCount = 0;
 if (authToken) {
   try {
@@ -80,8 +79,7 @@ const navGroups = [
   {
     label: "Content",
     items: [
-      { href: "/workspace/entries", label: "Entries", icon: "📝" },
-      { href: INBOX_PATH, label: "Inbox", icon: "📥", badge: inboxCount },
+      { href: "/workspace/entries", label: "Entries", icon: "📝", badge: inboxCount },
       { href: "/workspace/collections", label: "Collections", icon: "📚" },
       { href: "/workspace/assets", label: "Assets", icon: "🖼" },
       { href: "/workspace/resources", label: "Resources", icon: "🔗" },
@@ -114,17 +112,9 @@ if (isSuperAdmin) {
 }
 
 // Helper to check if path is active (exact or starts with for nested routes)
-const currentStatus = Astro.url.searchParams.get("status");
 function isActive(itemPath: string, currentPath: string): boolean {
   if (itemPath === "/") {
     return currentPath === "/";
-  }
-  // Inbox is the entries list filtered to `inbox`; only one of the two rows lights up.
-  if (itemPath === INBOX_PATH) {
-    return currentPath === "/workspace/entries" && currentStatus === "inbox";
-  }
-  if (itemPath === "/workspace/entries" && currentStatus === "inbox") {
-    return false;
   }
   // The Workspace "Settings" item lands on /workspace (dashboard) and owns the settings
   // sections, but NOT sibling content routes like /workspace/entries or /workspace/assets.
