@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.104 (2026-10-01)
+
+### Bug Fixes
+
+- **authoring**: Deterministic review links — absolute when FRONTEND_URL is configured, plus a
+  copy-ready reviewLink
+  ([`a837ba2`](https://github.com/InnerOpen/marvin/commit/a837ba2b600e56b94983ee164e5dc9ac2dc98b53))
+
+
 ## v1.0.0-rc.103 (2026-10-01)
 
 ### Features
