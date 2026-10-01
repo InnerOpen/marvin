@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.99 (2026-10-01)
+
+### Chores
+
+- **tasks**: Slice D rolled out; live verification left for Jared
+  ([`1db427c`](https://github.com/InnerOpen/marvin/commit/1db427c317526554e41b5b1c45fa87e229e0a05f))
+
+### Features
+
+- **agents**: Let the system Ask agent refer with suggest_agent
+  ([`b178b8c`](https://github.com/InnerOpen/marvin/commit/b178b8c42fbf4b11fe6e1d679e50c0001429b87d))
+
+
 ## v1.0.0-rc.98 (2026-10-01)
 
 ### Features
