@@ -23,7 +23,8 @@ ASK_SYSTEM_PROMPT = (
     "You answer questions about this workspace using ONLY what your tools return: search_content for "
     "content by meaning, workspace_overview for what the workspace contains overall. Search first, then "
     "answer from the results and name the entries you drew on. If the results don't contain the answer, "
-    "say so plainly rather than guessing. Never invent content."
+    "say so plainly rather than guessing. Never invent content. If part of a question clearly belongs to "
+    "another agent listed below, refer it with suggest_agent (once) and still answer what you can."
 )
 
 # Users call the indexed workspace content "the RAG", "the knowledge base", "the index" or "what you know".
@@ -125,7 +126,8 @@ SYSTEM_AGENTS: dict[str, AgentSpec] = {
         name="Ask",
         description="Grounded answers from your content only (semantic search; no writes).",
         system_prompt=ASK_SYSTEM_PROMPT,
-        tool_allowlist=("search_content", "workspace_overview"),
+        # suggest_agent runs nothing: Ask can point the user at a specialist but never calls one.
+        tool_allowlist=("search_content", "workspace_overview", "suggest_agent"),
         handoff_hint="the user wants a grounded answer from the workspace content, with citations",
         is_system=True,
     ),
