@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.106 (2026-10-01)
+
+### Code Style
+
+- **ask**: Links inside answers look like links
+  ([`28fe069`](https://github.com/InnerOpen/marvin/commit/28fe0691882a2497473b30104e3fd0bd73950446))
+
+### Features
+
+- **ai**: Executions spawned inside an agent run carry parent_execution_id
+  ([`08b244f`](https://github.com/InnerOpen/marvin/commit/08b244f148d94f0f138c85f05df8658bcd21aa53))
+
+
 ## v1.0.0-rc.105 (2026-10-01)
 
 ### Bug Fixes
