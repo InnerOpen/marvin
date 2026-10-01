@@ -757,6 +757,9 @@ const agentsJson = JSON.stringify(agents);
   .transcript :global(.step.thinking::before) { content: "…"; }
   .transcript :global(.step code) { color: var(--ink); font-size: 12px; }
   .transcript :global(.step-args) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Links in an answer (review-the-draft, citations) must read as links, not body text. */
+  .transcript :global(.turn-body a), .transcript :global(.turn-meta a) { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  .transcript :global(.turn-body a:hover), .transcript :global(.turn-meta a:hover) { text-decoration-thickness: 2px; }
   .transcript :global(.turn-body p) { margin: 0 0 8px; }
   .transcript :global(.turn-body p:last-child) { margin-bottom: 0; }
 
