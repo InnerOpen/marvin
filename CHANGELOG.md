@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.105 (2026-10-01)
+
+### Bug Fixes
+
+- **sidebar**: Inbox badge on the Entries row, correct counts path
+  ([`6e43f26`](https://github.com/InnerOpen/marvin/commit/6e43f26eeada6cef6c49ef24077fb1585e4ccc54))
+
+
 ## v1.0.0-rc.104 (2026-10-01)
 
 ### Bug Fixes
