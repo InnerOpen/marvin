@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.109 (2026-10-01)
+
+### Bug Fixes
+
+- **ai**: OpenAI reasoning models — no null max_tokens, max_completion_tokens, default temperature
+  ([`041c4de`](https://github.com/InnerOpen/marvin/commit/041c4de5239722007cdc8f07fd53f0fd21d65e4a))
+
+- **members**: Invited roles stick, inviting follows the workspace role, user edits save
+  ([`a76aab9`](https://github.com/InnerOpen/marvin/commit/a76aab97c4630146335d2a9f2d34dc04c1d48d5e))
+
+
 ## v1.0.0-rc.108 (2026-10-01)
 
 ### Features
