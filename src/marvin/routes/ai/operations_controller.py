@@ -29,6 +29,10 @@ router = APIRouter(prefix="/ai", route_class=MarvinCrudRoute)
 
 # `thread_id` value that asks a run to open a fresh thread (see AIAgentRequest.thread_id).
 NEW_THREAD = "new"
+# A delegated (hand-off) run's tool budget: the router asked for `max_steps` or this default, capped —
+# a hand-off nests the child's model calls inside the parent's request.
+DELEGATED_MAX_STEPS = 6
+DELEGATED_MAX_STEPS_CAP = 8
 
 
 @controller(router)
@@ -697,7 +701,7 @@ class AIOperationsController(BaseUserController):
         self._require_tool_capable(provider, model)
 
         entity_id = self._resolve_entity_id(body.entity_type, body.entity_id)
-        tools = self._build_agent_tools(provider)
+        tools, ctx = self._bind_agent_tools(provider)
         max_steps = self._agent_max_steps(body)
 
         assistant_name, persona_prompt = self._persona()
@@ -714,6 +718,7 @@ class AIOperationsController(BaseUserController):
             max_steps=max_steps,
             operation_slug="agent",
             agent_slug="marvin",
+            ctx=ctx,
         )
 
     # ── Agents (definable: system + workspace rows) ─────────────────────
@@ -829,7 +834,7 @@ class AIOperationsController(BaseUserController):
         self._require_tool_capable(provider, model)
         entity_id = self._resolve_entity_id(body.entity_type, body.entity_id)
         # The agent's matrix decides per tool; a write still needs the caller to be AUTHOR+.
-        tools = self._build_agent_tools(provider, agent=spec, role=role)
+        tools, ctx = self._bind_agent_tools(provider, agent=spec, role=role)
         max_steps = self._agent_max_steps(body)
         system = spec.system_prompt or self._default_agent_system_prompt(assistant_name if spec.is_system else spec.name)
         system += self._register_clause(register, persona_prompt)
@@ -843,16 +848,20 @@ class AIOperationsController(BaseUserController):
             max_steps=max_steps,
             operation_slug=f"agent:{spec.slug}",
             agent_slug=spec.slug,
+            ctx=ctx,
         )
 
     # ── Threads (server-side Ask conversations) ─────────────────────────
     # Any future literal `/threads/<word>` route must be declared before `/threads/{thread_id}`.
 
     @router.get("/threads", response_model=list[AIThreadRead], summary="List my Ask threads (admins: every thread)")
-    def list_threads(self, agent: str | None = None, limit: int = 50) -> list[AIThreadRead]:
+    def list_threads(self, agent: str | None = None, limit: int = 50, children: bool = False) -> list[AIThreadRead]:
+        """Top-level threads; `children=true` includes the specialist threads opened by hand-offs."""
         from marvin.services.ai.threads import list_threads
 
-        rows = list_threads(self.session, self.group_id, self.user.id, see_all=self._sees_all_threads(), agent_slug=agent, limit=limit)
+        rows = list_threads(
+            self.session, self.group_id, self.user.id, see_all=self._sees_all_threads(), agent_slug=agent, limit=limit, include_children=children
+        )
         return [AIThreadRead.model_validate(r) for r in rows]
 
     @router.get("/threads/{thread_id}", response_model=AIThreadDetail, summary="Get a thread with its messages")
@@ -911,15 +920,47 @@ class AIOperationsController(BaseUserController):
 
         return self._bounded_history(history_rows(thread) if thread is not None else body.history)
 
-    def _record_thread_turns(self, thread, body: AIAgentRequest, agent_slug: str, execution, answer: str, steps, sources: list[dict], tokens: int):
-        """After a successful run: open the thread if this is its first turn, then store question + answer."""
+    def _record_thread_turns(
+        self,
+        thread,
+        body: AIAgentRequest,
+        agent_slug: str,
+        execution,
+        answer: str,
+        steps,
+        sources: list[dict],
+        tokens: int,
+        *,
+        handoffs: list[dict] | None = None,
+        referrals: list[dict] | None = None,
+        parent_thread_id=None,
+    ):
+        """After a successful run: open the thread if this is its first turn, then store question + answer.
+
+        Hand-offs and referrals land in the assistant turn's meta only when there are any, so a plain
+        turn's meta keeps its two-key shape.
+        """
         from marvin.services.ai.threads import append_turn, create_thread, touch
 
         if thread is None:
             if body.thread_id != NEW_THREAD:
                 return None
-            thread = create_thread(self.session, self.group_id, self.user.id, agent_slug, body.message, body.entity_type, execution.entity_id)
+            thread = create_thread(
+                self.session,
+                self.group_id,
+                self.user.id,
+                agent_slug,
+                body.message,
+                body.entity_type,
+                execution.entity_id,
+                parent_thread_id=parent_thread_id,
+            )
         _, log_outputs = self._logging_policy()
+        meta: dict = {"sources": sources, "totalTokens": tokens}
+        if handoffs:
+            meta["handoffs"] = handoffs
+        if referrals:
+            meta["referrals"] = referrals
         append_turn(self.session, thread, "user", body.message)
         append_turn(
             self.session,
@@ -927,7 +968,7 @@ class AIOperationsController(BaseUserController):
             "assistant",
             answer or "",
             steps=steps,
-            meta={"sources": sources, "totalTokens": tokens},
+            meta=meta,
             execution_id=execution.id,
             log_outputs=log_outputs,
         )
@@ -1015,6 +1056,7 @@ class AIOperationsController(BaseUserController):
             tool_policy=dict(spec.tool_policy) if spec.tool_policy else None,
             icon=spec.icon,
             suggestions=list(spec.suggestions) if spec.suggestions else None,
+            handoff_hint=spec.handoff_hint,
             is_system=spec.is_system,
         )
 
@@ -1089,19 +1131,30 @@ class AIOperationsController(BaseUserController):
         max_steps: int,
         operation_slug: str,
         agent_slug: str,
+        ctx=None,
+        on_event=None,
+        parent_thread_id=None,
+        execution_meta: dict | None = None,
     ) -> dict:
-        """The shared tail of every persona run: context block, history, execution row, loop, bookkeeping."""
+        """The shared tail of every persona run: context block, history, execution row, loop, bookkeeping.
+
+        `ctx` is the ToolContext the tools were bound with (hand-offs hang the delegate on it and read
+        its referrals). A delegated child run passes `on_event` (the parent's listener, tagged `via`),
+        `parent_thread_id` (so its thread hangs off the router's) and `execution_meta`.
+        """
         import time
         from datetime import UTC, datetime
 
         from marvin.core.config import get_app_settings
         from marvin.services.ai.agent import run_agent_loop
-        from marvin.services.ai.agents import workspace_preamble
+        from marvin.services.ai.agents import list_agents, roster_block, workspace_preamble
         from marvin.services.ai.base import CompletionOptions, Message
         from marvin.services.ai.pricing import estimate_cost
-        from marvin.services.ai.threads import extract_sources
+        from marvin.services.ai.threads import create_thread, extract_handoffs, extract_sources
 
         _app = get_app_settings()
+        names = {t.name for t in tools}
+        depth = getattr(ctx, "depth", 0) if ctx is not None else 0
         thread = self._thread_for_run(body, agent_slug)
         # Ground the run in what the user is looking at. Prefer a pre-assembled context block
         # (title/status/fields/attachments) so the agent can answer immediately; fall back to the
@@ -1109,7 +1162,12 @@ class AIOperationsController(BaseUserController):
         context_block = self._agent_context_block(body.entity_type, entity_id)
         # Environment facts come first, the agent's own persona after: what "the RAG" means here and which
         # of the bound tools answers which kind of question.
-        system = workspace_preamble(self._workspace_name(), [t.name for t in tools]) + "\n\n" + system
+        system = workspace_preamble(self._workspace_name(), names) + "\n\n" + system
+        if "run_agent" in names or "suggest_agent" in names:
+            specs = list_agents(self.session, self.group_id)
+            roster = roster_block(specs, agent_slug, self._user_role(), "agent", can_handoff="run_agent" in names)
+            if roster:
+                system += "\n\n" + roster
         user_msg = body.message
         if context_block:
             system += (
@@ -1127,6 +1185,13 @@ class AIOperationsController(BaseUserController):
             Message(role="user", content=user_msg),
         ]
 
+        # A router opens its thread before the loop: a hand-off's child thread needs the parent row to
+        # exist. Any other run opens its thread after a successful turn, as before.
+        opened_here = False
+        if thread is None and body.thread_id == NEW_THREAD and depth == 0 and "run_agent" in names:
+            thread = create_thread(self.session, self.group_id, self.user.id, agent_slug, body.message, body.entity_type, entity_id)
+            opened_here = True
+
         log_inputs, log_outputs = self._logging_policy()
         execution = AIExecutionModel(
             session=self.session,
@@ -1140,13 +1205,17 @@ class AIOperationsController(BaseUserController):
             entity_type=body.entity_type,
             entity_id=entity_id,
             input_json={"message": body.message} if log_inputs else None,
+            metadata_json=execution_meta,
         )
         execution.started_at = datetime.now(UTC)
         self.session.add(execution)
         self.session.commit()
 
         start = time.monotonic()
-        run_id, on_event = self._start_progress(body)
+        run_id, local_on_event = self._start_progress(body)
+        on_event = local_on_event or on_event
+        if ctx is not None and depth == 0 and "run_agent" in names:
+            ctx.delegate = self._delegate_runner(parent_thread=thread, parent_body=body, parent_execution=execution, on_event=on_event)
         try:
             opts = CompletionOptions(
                 temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7),
@@ -1155,10 +1224,12 @@ class AIOperationsController(BaseUserController):
             result = run_agent_loop(provider, model, messages, tools, opts, max_steps=max_steps, on_event=on_event)
         except HTTPException:
             self._finish_progress(run_id, "failed")
+            self._discard_empty_thread(thread if opened_here else None)
             raise
         except Exception as e:
             self._finish_progress(run_id, "failed")
             self._fail_execution(execution, str(e), start)
+            self._discard_empty_thread(thread if opened_here else None)
             self._emit_ai_event(execution, "failed", str(e))
             self._maybe_emit_quota(execution, str(e))
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Agent failed: {e}") from e
@@ -1182,7 +1253,21 @@ class AIOperationsController(BaseUserController):
             else {"steps": len(result.steps)}
         )
         sources = extract_sources(result.steps)
-        thread = self._record_thread_turns(thread, body, agent_slug, execution, result.answer, result.steps, sources, result.total_tokens)
+        handoffs, child_referrals = extract_handoffs(result.steps)
+        referrals = [*(ctx.referrals if ctx is not None else []), *child_referrals]
+        thread = self._record_thread_turns(
+            thread,
+            body,
+            agent_slug,
+            execution,
+            result.answer,
+            result.steps,
+            sources,
+            result.total_tokens,
+            handoffs=handoffs,
+            referrals=referrals,
+            parent_thread_id=parent_thread_id,
+        )
         self.session.commit()
         self.session.refresh(execution)
         self._emit_ai_event(execution, "completed", None)
@@ -1192,6 +1277,8 @@ class AIOperationsController(BaseUserController):
             "answer": result.answer,
             "steps": [{"tool": s.tool, "arguments": s.arguments, "result": s.result} for s in result.steps],
             "sources": sources,
+            "handoffs": handoffs,
+            "referrals": referrals,
             "stoppedReason": result.stopped_reason,
             "executionId": str(execution.id),
             "threadId": str(thread.id) if thread is not None else None,
@@ -1199,7 +1286,102 @@ class AIOperationsController(BaseUserController):
             "estimatedCostUsd": execution.estimated_cost_usd,
         }
 
-    def _run_model_agent(self, spec, provider, model: str, system: str, body: AIAgentRequest) -> dict:
+    def _discard_empty_thread(self, thread) -> None:
+        """Drop a thread a router run opened before its loop failed, so no empty thread is left behind."""
+        if thread is None or thread.messages:
+            return
+        self.session.delete(thread)
+        self.session.commit()
+
+    def _delegate_runner(self, *, parent_thread, parent_body: AIAgentRequest, parent_execution, on_event):
+        """The child runner a router run hangs on its ToolContext: `run(slug, message, max_steps) -> dict`.
+
+        Runs the specialist for real through `_run_agent_core` (its own matrix at depth 1, so it cannot
+        hand off further) on a child thread per (parent thread, specialist, user) — reused on later
+        hand-offs, and what "Continue with X" opens. Never raises: the model sees an error dict and
+        answers around it.
+        """
+        import json
+
+        from marvin.services.ai.agents import may_talk, model_agent_system_prompt, resolve_agent
+        from marvin.services.ai.threads import child_thread_for
+
+        role = self._user_role()
+        parent_id = str(parent_thread.id) if parent_thread is not None else None
+
+        def run(slug: str, message: str, max_steps: int | None = None) -> dict:
+            spec = resolve_agent(self.session, self.group_id, slug)
+            if spec is None:
+                return {"error": f"unknown agent '{slug}' — call list_agents", "agent": slug}
+            ok, reason = may_talk(spec, role, "agent")
+            if not ok:
+                return {"error": reason, "agent": spec.slug}
+            if not message:
+                return {"error": "message is required", "agent": spec.slug}
+            try:
+                self._check_budget()
+                provider = self._agent_provider()
+                model = spec.model_override or self._default_model()
+                if not model:
+                    return {"error": "no model configured", "agent": spec.slug}
+                child = child_thread_for(self.session, parent_thread, spec.slug, self.user.id) if parent_thread is not None else None
+                child_body = AIAgentRequest(
+                    message=message,
+                    source="agent",
+                    thread_id=str(child.id) if child is not None else (NEW_THREAD if parent_thread is not None else None),
+                    max_steps=min(int(max_steps or DELEGATED_MAX_STEPS), DELEGATED_MAX_STEPS_CAP),
+                    register=parent_body.tone_register,
+                    entity_type=parent_body.entity_type,
+                    entity_id=parent_body.entity_id,
+                )
+                meta = {"parent_execution_id": str(parent_execution.id)}
+                if parent_id:
+                    meta["parent_thread_id"] = parent_id
+                child_on_event = (lambda ev: on_event({**ev, "via": spec.slug})) if on_event else None
+                assistant_name, persona_prompt = self._persona()
+                register = parent_body.tone_register or spec.default_register or self._default_register()
+                if spec.kind == "model":
+                    system = spec.system_prompt or model_agent_system_prompt(spec.name if not spec.is_system else assistant_name)
+                    system += self._register_clause(register, persona_prompt)
+                    res = self._run_model_agent(spec, provider, model, system, child_body, parent_thread_id=parent_id, execution_meta=meta)
+                else:
+                    self._require_tool_capable(provider, model)
+                    entity_id = self._resolve_entity_id(child_body.entity_type, child_body.entity_id)
+                    tools, child_ctx = self._bind_agent_tools(provider, agent=spec, role=role, depth=1)
+                    system = spec.system_prompt or self._default_agent_system_prompt(assistant_name if spec.is_system else spec.name)
+                    system += self._register_clause(register, persona_prompt)
+                    res = self._run_agent_core(
+                        provider=provider,
+                        model=model,
+                        system=system,
+                        body=child_body,
+                        entity_id=entity_id,
+                        tools=tools,
+                        max_steps=child_body.max_steps,
+                        operation_slug=f"agent:{spec.slug}",
+                        agent_slug=spec.slug,
+                        ctx=child_ctx,
+                        on_event=child_on_event,
+                        parent_thread_id=parent_id,
+                        execution_meta=meta,
+                    )
+            except HTTPException as e:
+                return {"error": e.detail if isinstance(e.detail, str) else json.dumps(e.detail), "agent": spec.slug}
+            return {
+                "agent": spec.slug,
+                "answer": res.get("answer"),
+                "steps": [{"tool": s.get("tool"), "arguments": s.get("arguments")} for s in res.get("steps") or []],
+                "referrals": res.get("referrals") or [],
+                "threadId": res.get("threadId"),
+                "executionId": res.get("executionId"),
+                "totalTokens": res.get("totalTokens"),
+            }
+
+        return run
+
+    def _run_model_agent(
+        self, spec, provider, model: str, system: str, body: AIAgentRequest, parent_thread_id=None, execution_meta: dict | None = None
+    ) -> dict:
         """A `model` agent: plain completion with the agent's prompt and the caller's history; no tools."""
         import time
         from datetime import UTC, datetime
@@ -1226,6 +1408,7 @@ class AIOperationsController(BaseUserController):
             triggered_by=self.user.id,
             trigger_type=body.source,
             input_json={"message": body.message} if log_inputs else None,
+            metadata_json=execution_meta,
         )
         execution.started_at = datetime.now(UTC)
         self.session.add(execution)
@@ -1245,7 +1428,9 @@ class AIOperationsController(BaseUserController):
         execution.total_tokens = result.total_tokens
         execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, result.prompt_tokens, result.completion_tokens)
         execution.output_json = {"answer": result.content} if log_outputs else None
-        thread = self._record_thread_turns(thread, body, spec.slug, execution, result.content, [], [], result.total_tokens)
+        thread = self._record_thread_turns(
+            thread, body, spec.slug, execution, result.content, [], [], result.total_tokens, parent_thread_id=parent_thread_id
+        )
         self.session.commit()
         self.session.refresh(execution)
         self._emit_ai_event(execution, "completed", None)
@@ -1374,7 +1559,15 @@ class AIOperationsController(BaseUserController):
             )
 
     def _build_agent_tools(self, provider, agent=None, role: int | None = None) -> list:
+        """The bound toolset alone (see `_bind_agent_tools`)."""
+        return self._bind_agent_tools(provider, agent=agent, role=role)[0]
+
+    def _bind_agent_tools(self, provider, agent=None, role: int | None = None, *, depth: int = 0) -> tuple:
         """Bind the agent's in-process toolset: the core tool registry + the AI operations.
+
+        Returns `(tools, ctx)` — the ToolContext is shared by every bound registry tool, so the run can
+        hang its hand-off delegate on it and read the referrals back. `depth` > 0 is a delegated child
+        run: it never binds `run_agent` (one router, no chains), only `suggest_agent`.
 
         Each registry ToolSpec reachable from the "agent" source and allowed for this user's role
         becomes an AgentTool whose run() calls the spec's handler with a ToolContext (direct DB
@@ -1396,6 +1589,8 @@ class AIOperationsController(BaseUserController):
             user=self.user,
             provider=provider,
             logger=self.logger,
+            depth=depth,
+            source="agent",
         )
         role = self._user_role()
 
@@ -1411,7 +1606,7 @@ class AIOperationsController(BaseUserController):
                 category=category_of(spec.name, read_only=spec.read_only),
             )
             for spec in list_tools()
-            if "agent" in spec.sources and role >= spec.min_role
+            if "agent" in spec.sources and role >= spec.min_role and not (depth > 0 and spec.name == "run_agent")
         ]
 
         # compose_entry / revise_entry now come from the registry (builtins_authoring, shared
@@ -1471,8 +1666,8 @@ class AIOperationsController(BaseUserController):
         # Growth plane: allowlisted tools from the workspace's enabled external MCP servers.
         tools.extend(self._external_mcp_tools())
         if agent is None:
-            return tools
-        return self._restrict_tools(tools, agent, role if role is not None else self._user_role())
+            return tools, ctx
+        return self._restrict_tools(tools, agent, role if role is not None else self._user_role()), ctx
 
     def _external_mcp_tools(self) -> list:
         """Load allowlisted tools from the workspace's ENABLED external MCP servers as AgentTools.

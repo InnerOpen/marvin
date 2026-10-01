@@ -41,6 +41,12 @@ class AIThreadModel(SqlAlchemyBase, BaseMixins):
     entity_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     entity_id: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
     created_by: Mapped[GUID] = mapped_column(GUID, nullable=False, index=True)
+    # A hand-off child: the specialist's thread opened from a router (marvin) thread. Hidden from the
+    # default thread list; orphaned (SET NULL), not deleted, when the parent goes. No relationship —
+    # the service looks children up by (parent, agent, user).
+    parent_thread_id: Mapped[GUID | None] = mapped_column(
+        GUID, ForeignKey("ai_threads.id", ondelete="SET NULL", name="fk_ai_threads_parent_thread_id"), nullable=True, index=True
+    )
     # open | awaiting_approval | archived
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=THREAD_STATUS_OPEN)
     # A paused run waiting for the user's approval: everything needed to resume it (Slice C).
@@ -74,7 +80,8 @@ class AIThreadMessageModel(SqlAlchemyBase, BaseMixins):
     # Tool trace of the assistant turn: [{tool, arguments, result}] (results truncated; names only
     # when the workspace does not log outputs).
     steps_json: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
-    # {sources: [{entityType, entityId, title}], totalTokens}
+    # {sources: [{entityType, entityId, title}], totalTokens, handoffs?: [{agent, threadId, executionId}],
+    #  referrals?: [{agent, name, question, reason}]}
     meta_json: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     execution_id: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
 

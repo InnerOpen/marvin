@@ -55,6 +55,8 @@ class AgentBase(_MarvinModel):
     tool_policy: dict[str, PolicyValue] | None = None
     icon: str | None = Field(default=None, max_length=16)
     suggestions: list[str] | None = Field(default=None, max_length=8)
+    # When the router (marvin) should hand a question to this agent; shown on its roster line.
+    handoff_hint: str | None = Field(default=None, max_length=300)
 
     @field_validator("default_register")
     @classmethod
@@ -101,6 +103,7 @@ class AgentUpdate(_MarvinModel):
     tool_policy: dict[str, PolicyValue] | None = None
     icon: str | None = Field(default=None, max_length=16)
     suggestions: list[str] | None = Field(default=None, max_length=8)
+    handoff_hint: str | None = Field(default=None, max_length=300)
 
     @field_validator("default_register")
     @classmethod

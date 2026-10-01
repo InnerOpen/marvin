@@ -133,9 +133,11 @@ const agentsJson = JSON.stringify(agents);
     getPermissions,
     getRunProgress,
     getThread,
+    type Handoff,
     listThreads,
     NEW_THREAD,
     type Permissions,
+    type Referral,
     renameThread,
     runAgent,
     type RunEvent,
@@ -285,9 +287,61 @@ const agentsJson = JSON.stringify(agents);
       const used = [...new Set(tools)];
       return used.length ? `<span>Used:</span> ${used.map((t) => `<code>${esc(t)}</code>`).join(" ")}` : "";
     }
-    function assistantMeta(sources: Source[] | undefined | null, tools: string[], tokens: number | undefined | null): string {
-      return [sourcesHtml(sources), usedHtml(tools), tokens ? `${Number(tokens).toLocaleString()} tokens` : ""].filter(Boolean).join(" · ");
+    const agentName = (slug: string) => agents.find((a) => a.slug === slug)?.name ?? slug;
+    // "Handed off: Materials ↗" opens the specialist's child thread; the next send continues it (= /use).
+    function handoffsHtml(handoffs: Handoff[] | undefined | null): string {
+      const items = (handoffs ?? []).map((h) =>
+        h.threadId
+          ? `<button type="button" class="meta-link" data-open-thread="${esc(h.threadId)}">${esc(agentName(h.agent))} ↗</button>`
+          : esc(agentName(h.agent)),
+      );
+      return items.length ? `<span>Handed off:</span> ${items.join(" · ")}` : "";
     }
+    // A referral runs nothing: "Continue →" pre-fills the question for that agent, never sends it.
+    function referralsHtml(referrals: Referral[] | undefined | null): string {
+      return (referrals ?? [])
+        .map((r) => {
+          const name = esc(r.name || agentName(r.agent));
+          const reason = r.reason ? ` — ${esc(r.reason)}` : "";
+          const cont = agents.some((a) => a.slug === r.agent)
+            ? ` · <button type="button" class="meta-link" data-continue-agent="${esc(r.agent)}" data-question="${esc(r.question ?? "")}">Continue →</button>`
+            : "";
+          return `<span>Suggests asking ${name}</span>${reason}${cont}`;
+        })
+        .join(" · ");
+    }
+    function assistantMeta(
+      sources: Source[] | undefined | null,
+      tools: string[],
+      tokens: number | undefined | null,
+      handoffs?: Handoff[] | null,
+      referrals?: Referral[] | null,
+    ): string {
+      return [
+        sourcesHtml(sources),
+        usedHtml(tools),
+        handoffsHtml(handoffs),
+        referralsHtml(referrals),
+        tokens ? `${Number(tokens).toLocaleString()} tokens` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    transcript.addEventListener("click", (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>("[data-open-thread], [data-continue-agent]");
+      if (!btn) return;
+      if (btn.dataset.openThread) {
+        void openThread(btn.dataset.openThread);
+        return;
+      }
+      const slug = btn.dataset.continueAgent!;
+      if (!agents.some((a) => a.slug === slug)) return;
+      agentSel.value = slug;
+      resetConversation();
+      syncAgent();
+      questionEl.value = btn.dataset.question ?? "";
+      questionEl.focus();
+    });
     function resetConversation() {
       threadId = null;
       transcript.querySelectorAll(".turn").forEach((t) => t.remove());
@@ -343,7 +397,18 @@ const agentsJson = JSON.stringify(agents);
         clearAttachment();
         for (const m of t.messages) {
           if (m.role === "user") addTurn("user", esc(m.content));
-          else addTurn("assistant", renderMarkdown(m.content), assistantMeta(m.metaJson?.sources, (m.stepsJson ?? []).map((s) => s.tool), m.metaJson?.totalTokens));
+          else
+            addTurn(
+              "assistant",
+              renderMarkdown(m.content),
+              assistantMeta(
+                m.metaJson?.sources,
+                (m.stepsJson ?? []).map((s) => s.tool),
+                m.metaJson?.totalTokens,
+                m.metaJson?.handoffs,
+                m.metaJson?.referrals,
+              ),
+            );
         }
         emptyNote.hidden = t.messages.length > 0;
         threadId = t.id;
@@ -486,19 +551,28 @@ const agentsJson = JSON.stringify(agents);
     // ── Live steps: a placeholder bubble that fills in while the run is in flight ──
     const PROGRESS_POLL_MS = 700;
     const PROGRESS_MAX_MISSES = 40;
+    // A hand-off shows as "Asked <agent> …" with the specialist's own steps nested under it: child
+    // events carry `via` (the specialist's slug) and close the last running row with the same `via`.
+    type StepRow = { label: string; via?: string; state: "running" | "done" | "failed" };
     function stepsHtml(events: RunEvent[]): string {
-      const rows: string[] = [];
+      const rows: StepRow[] = [];
       for (const ev of events) {
         if (ev.type === "tool_call") {
-          rows.push(`<li class="step running"><code>${esc(ev.tool)}</code><span class="step-args">${esc(argsPreview(ev.arguments))}</span></li>`);
+          const args = ev.arguments as Record<string, unknown> | undefined;
+          const label =
+            ev.tool === "run_agent" && args
+              ? `Asked <code>${esc(args.agent)}</code><span class="step-args">${esc(String(args.message ?? ""))}</span>`
+              : `<code>${esc(ev.tool)}</code><span class="step-args">${esc(argsPreview(ev.arguments))}</span>`;
+          rows.push({ label, via: ev.via, state: "running" });
         } else if (ev.type === "tool_result") {
-          const last = rows.length - 1;
-          if (last >= 0) rows[last] = rows[last].replace('class="step running"', `class="step ${ev.ok === false ? "failed" : "done"}"`);
+          const open = [...rows].reverse().find((r) => r.state === "running" && r.via === ev.via);
+          if (open) open.state = ev.ok === false ? "failed" : "done";
         }
       }
+      const items = rows.map((r) => `<li class="step ${r.state}${r.via ? " nested" : ""}">${r.label}</li>`);
       const thinking = events.length === 0 || events[events.length - 1]?.type === "thinking";
-      const tail = thinking ? `<li class="step thinking">${rows.length ? "thinking…" : "starting…"}</li>` : "";
-      return `<ul class="steps">${rows.join("")}${tail}</ul>`;
+      const tail = thinking ? `<li class="step thinking">${items.length ? "thinking…" : "starting…"}</li>` : "";
+      return `<ul class="steps">${items.join("")}${tail}</ul>`;
     }
     function argsPreview(args: unknown): string {
       if (!args || typeof args !== "object") return "";
@@ -562,7 +636,11 @@ const agentsJson = JSON.stringify(agents);
         stopWatching();
         placeholder.remove();
         const answer = res.answer ?? "(no answer)";
-        addTurn("assistant", renderMarkdown(answer), assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens));
+        addTurn(
+          "assistant",
+          renderMarkdown(answer),
+          assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens, res.handoffs, res.referrals),
+        );
         const wasNew = !threadId;
         threadId = res.threadId ?? threadId;
         if (wasNew && !threadsPanel.hidden) void loadThreads();
@@ -664,6 +742,8 @@ const agentsJson = JSON.stringify(agents);
   .transcript :global(.turn-meta) { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
   .transcript :global(.turn-meta span) { font-weight: 500; }
   .transcript :global(.turn-meta code) { font-size: 12px; }
+  .transcript :global(.meta-link) { border: 0; background: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; }
+  .transcript :global(.meta-link:hover) { text-decoration: underline; }
   .transcript :global(.turn-error) { color: var(--color-error); }
   .transcript :global(.turn.pending) { border-style: dashed; }
   .transcript :global(.steps) { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
@@ -672,6 +752,7 @@ const agentsJson = JSON.stringify(agents);
   .transcript :global(.step.running::before) { content: "◐"; color: var(--accent); }
   .transcript :global(.step.done::before) { content: "●"; color: var(--accent); }
   .transcript :global(.step.failed::before) { content: "●"; color: var(--color-error); }
+  .transcript :global(.step.nested) { margin-left: 18px; }
   .transcript :global(.step.thinking) { font-style: italic; }
   .transcript :global(.step.thinking::before) { content: "…"; }
   .transcript :global(.step code) { color: var(--ink); font-size: 12px; }

@@ -177,10 +177,13 @@ def test_every_agent_facing_registry_tool_has_a_category():
         t.name for t in list_tools() if ("agent" in t.sources or t.name in ("list_agents", "run_agent")) and t.name not in CATEGORY_BY_TOOL
     ]
     assert uncategorised == [], f"add these to CATEGORY_BY_TOOL: {uncategorised}"
-    # and the mapping only names known categories, with read/write agreeing with the registry flag
+    # and the mapping only names known categories, with read/write agreeing with the registry flag.
+    # run_agent is the one documented exception: for the matrix a hand-off is not a write (the child's
+    # tools are already capped by the caller's role), while the MCP projection still flags it as
+    # non-read-only because the child run may author.
     for t in list_tools():
         cat = CATEGORY_BY_TOOL.get(t.name)
-        if cat:
+        if cat and t.name != "run_agent":
             assert cat in CATEGORY_BY_ID
             assert CATEGORY_BY_ID[cat].writes == (not t.read_only), (
                 f"{t.name}: category writes={CATEGORY_BY_ID[cat].writes} vs read_only={t.read_only}"
@@ -376,3 +379,118 @@ def test_workspace_preamble_lists_connected_mcp_servers_and_tells_the_agent_to_a
     assert "Act, don't announce" in text
     assert "Connected external sources" not in workspace_preamble("W", ["search_content"])
     assert "Act, don't announce" not in workspace_preamble("W", [])
+
+
+# ── Slice D: hand-offs + referrals ───────────────────────────────────────────
+
+from marvin.services.ai.agents import HANDOFF_RULES, REFERRAL_RULES, default_policy, roster_block  # noqa: E402
+from marvin.services.ai.tools import ToolContext  # noqa: E402
+from marvin.services.ai.tools.builtins_agents import list_agents as list_agents_tool  # noqa: E402
+from marvin.services.ai.tools.builtins_agents import run_agent as run_agent_tool  # noqa: E402
+from marvin.services.ai.tools.builtins_agents import suggest_agent  # noqa: E402
+
+
+def test_agents_run_defaults_allow_for_marvin_and_block_for_everyone_else():
+    assert default_policy(SYSTEM_AGENTS["marvin"], "agents_run") == POLICY_ALLOW
+    assert default_policy(SYSTEM_AGENTS["ask"], "agents_run") == POLICY_BLOCK
+    custom = spec_from_row(_row(tool_allowlist=None, allow_writes=True))
+    assert default_policy(custom, "agents_run") == POLICY_BLOCK  # allow_writes does not open hand-offs
+    assert resolve_policy(SYSTEM_AGENTS["marvin"], "run_agent", "agents_run", ROLE_VIEWER) == (POLICY_ALLOW, "router default")
+    decision, reason = resolve_policy(custom, "run_agent", "agents_run", ROLE_AUTHOR)
+    assert decision == POLICY_BLOCK and reason == "hand-offs are off unless allowed"
+    # a VIEWER talking to marvin can still be routed: a hand-off is not a write
+    assert resolve_policy(SYSTEM_AGENTS["marvin"], "run_agent", "agents_run", ROLE_VIEWER)[0] == POLICY_ALLOW
+
+
+def test_agents_run_can_be_opened_explicitly_by_category_or_tool():
+    by_cat = spec_from_row(_row(tool_allowlist=None, tool_policy={"agents_run": "allow"}))
+    assert resolve_policy(by_cat, "run_agent", "agents_run", ROLE_VIEWER) == (POLICY_ALLOW, "category policy")
+    by_tool = spec_from_row(_row(tool_allowlist=None, tool_policy={"run_agent": "allow"}))
+    assert resolve_policy(by_tool, "run_agent", "agents_run", ROLE_VIEWER) == (POLICY_ALLOW, "tool policy")
+
+
+def test_handoff_hint_rides_on_rows_schemas_and_the_system_ask_agent():
+    assert spec_from_row(_row(handoff_hint="materials and stock")).handoff_hint == "materials and stock"
+    assert spec_from_row(_row()).handoff_hint is None
+    assert SYSTEM_AGENTS["ask"].handoff_hint and "citations" in SYSTEM_AGENTS["ask"].handoff_hint
+    assert AgentCreate(slug="m1", name="M", handoff_hint="x" * 300).handoff_hint == "x" * 300
+    with pytest.raises(ValidationError):
+        AgentCreate(slug="m1", name="M", handoff_hint="x" * 301)
+    with pytest.raises(ValidationError):
+        AgentUpdate(handoff_hint="x" * 301)
+
+
+def _specs():
+    materials = spec_from_row(_row(slug="materials", name="Materials", description="Stock and suppliers.", handoff_hint="it is about stock"))
+    private = spec_from_row(_row(slug="private", name="Private", min_role=ROLE_EDITOR))
+    mcp_only = spec_from_row(_row(slug="mcp-only", name="MCP only", sources=["mcp"]))
+    return [*SYSTEM_AGENTS.values(), materials, private, mcp_only]
+
+
+def test_roster_block_lists_only_who_the_caller_may_talk_to_and_skips_router_chat_and_self():
+    block = roster_block(_specs(), "marvin", ROLE_VIEWER)
+    assert "- materials — Materials: Stock and suppliers. Hand off when: it is about stock." in block
+    assert "- ask — Ask:" in block
+    for absent in ("- marvin", "- chat", "- private", "- mcp-only"):
+        assert absent not in block
+    assert HANDOFF_RULES in block and REFERRAL_RULES not in block
+    # the running specialist is excluded and gets the referral rules instead
+    block = roster_block(_specs(), "materials", ROLE_EDITOR, can_handoff=False)
+    assert "- materials" not in block and "- private — Private" in block
+    assert REFERRAL_RULES in block and HANDOFF_RULES not in block
+
+
+def test_roster_block_is_empty_when_there_is_nobody_to_list():
+    assert roster_block([SYSTEM_AGENTS["marvin"], SYSTEM_AGENTS["chat"]], "marvin", ROLE_VIEWER) == ""
+    assert roster_block([SYSTEM_AGENTS["marvin"], SYSTEM_AGENTS["chat"]], "ask", ROLE_VIEWER, can_handoff=False) == ""
+
+
+def _ctx(rows, **over):
+    base = {"session": _session_with(rows), "group_id": "g1", "user": None, "source": "agent"}
+    base.update(over)
+    return ToolContext(**base)
+
+
+def test_suggest_agent_records_a_referral_and_tells_the_model_to_finish():
+    ctx = _ctx([_row(slug="materials", name="Materials")])
+    out = json.loads(suggest_agent(ctx, {"agent": "materials", "question": "q" * 600, "reason": "r" * 400}))
+    assert out["recorded"] is True and out["agent"] == "materials" and "Do NOT call" in out["next"]
+    assert ctx.referrals == [{"agent": "materials", "name": "Materials", "question": "q" * 500, "reason": "r" * 300}]
+
+
+def test_suggest_agent_rejects_unknown_and_disabled_agents():
+    ctx = _ctx([])
+    assert "unknown agent" in json.loads(suggest_agent(ctx, {"agent": "ghost", "question": "q"}))["error"]
+    ctx = _ctx([_row(slug="off", name="Off", enabled=False)])
+    assert "disabled" in json.loads(suggest_agent(ctx, {"agent": "off", "question": "q"}))["error"]
+    assert ctx.referrals == []
+
+
+def test_run_agent_prefers_the_controllers_delegate_when_set():
+    seen = []
+
+    def delegate(slug, message, max_steps):
+        seen.append((slug, message, max_steps))
+        return {"agent": slug, "answer": "42"}
+
+    ctx = _ctx([], delegate=delegate)
+    out = json.loads(run_agent_tool(ctx, {"agent": "materials", "message": "  stock?  ", "max_steps": 3}))
+    assert out == {"agent": "materials", "answer": "42"}
+    assert seen == [("materials", "stock?", 3)]
+
+
+def test_list_agents_tool_gates_can_run_on_the_context_source():
+    rows = [_row(slug="mcp-only", name="MCP only", sources=["mcp"])]
+    from_agent = json.loads(list_agents_tool(_ctx(rows, source="agent"), {}))
+    from_mcp = json.loads(list_agents_tool(_ctx(rows, source=None), {}))  # None → the pre-slice-D "mcp" fallback
+    by_slug = lambda res: {a["slug"]: a["canRun"] for a in res["agents"]}  # noqa: E731
+    assert by_slug(from_agent)["mcp-only"] is False and by_slug(from_mcp)["mcp-only"] is True
+
+
+def test_run_agent_and_suggest_agent_are_bound_for_the_agent_source_but_not_chained():
+    from marvin.services.ai.tools import get_tool
+
+    assert "agent" in get_tool("run_agent").sources and "agent" in get_tool("suggest_agent").sources
+    assert get_tool("suggest_agent").read_only is True
+    assert category_of("suggest_agent") == "agents_read" and category_of("run_agent") == "agents_run"
+    assert CATEGORY_BY_ID["agents_run"].writes is False

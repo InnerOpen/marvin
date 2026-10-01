@@ -30,7 +30,8 @@ CATEGORIES: tuple[ToolCategory, ...] = (
     ToolCategory("automation_run", "Automation: run", True, "Trigger workflows"),
     ToolCategory("insights", "AI insights", False, "AI executions and settings"),
     ToolCategory("agents_read", "Agents: read", False, "List the workspace's agents"),
-    ToolCategory("agents_run", "Agents: delegate", True, "Run another agent on the caller's behalf"),
+    # A hand-off is not a write: the child's tools are already capped by the caller's role.
+    ToolCategory("agents_run", "Agents: delegate", False, "Run another agent on the caller's behalf"),
     ToolCategory("ai_ops", "AI operations", True, "LLM generations with write-back: summaries, tags, alt text, rewrites"),
     ToolCategory("mcp_read", "External MCP: read", False, "Connected-server tools the server marks read-only (readOnlyHint)"),
     ToolCategory("mcp", "External MCP: write", True, "Connected-server tools that write, or send no hints (assumed to write)"),
@@ -76,6 +77,7 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "list_ai_executions": "insights",
     "get_ai_settings": "insights",
     "list_agents": "agents_read",
+    "suggest_agent": "agents_read",  # a referral runs nothing
     "run_agent": "agents_run",
 }
 

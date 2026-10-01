@@ -49,6 +49,8 @@ class WorkspaceAgentModel(SqlAlchemyBase, BaseMixins):
     tool_policy: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     icon: Mapped[str | None] = mapped_column(String(16), nullable=True)  # an emoji, for pickers
     suggestions: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)  # starter prompts shown in chat
+    # One line for the router's roster ("Hand off when: …"); falls back to the description.
+    handoff_hint: Mapped[str | None] = mapped_column(String(300), nullable=True)
     created_by: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
 
     @auto_init()

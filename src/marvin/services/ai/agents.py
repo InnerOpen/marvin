@@ -106,6 +106,8 @@ class AgentSpec:
     tool_policy: dict | None = None  # {category_id | tool_name: allow|block} overrides
     icon: str | None = None
     suggestions: tuple[str, ...] | None = None
+    # One line for the router's roster: when Marvin should hand a question to this agent.
+    handoff_hint: str | None = None
     is_system: bool = False
     id: str | None = None
 
@@ -124,6 +126,7 @@ SYSTEM_AGENTS: dict[str, AgentSpec] = {
         description="Grounded answers from your content only (semantic search; no writes).",
         system_prompt=ASK_SYSTEM_PROMPT,
         tool_allowlist=("search_content", "workspace_overview"),
+        handoff_hint="the user wants a grounded answer from the workspace content, with citations",
         is_system=True,
     ),
     "chat": AgentSpec(
@@ -157,6 +160,7 @@ def spec_from_row(row) -> AgentSpec:
         tool_policy=dict(getattr(row, "tool_policy", None) or {}) or None,
         icon=getattr(row, "icon", None),
         suggestions=tuple(getattr(row, "suggestions", None) or ()) or None,
+        handoff_hint=getattr(row, "handoff_hint", None) or None,
         is_system=False,
         id=str(row.id),
     )
@@ -199,6 +203,46 @@ def may_talk(spec: AgentSpec, role: int, source: str) -> tuple[bool, str]:
     return True, ""
 
 
+# ── Router roster (hand-offs + referrals) ────────────────────────────────────
+
+# Agents never listed on a roster: the router itself and the tool-less base model.
+ROSTER_EXCLUDED = ("marvin", "chat")
+
+HANDOFF_RULES = (
+    "Hand-off rules: hand a question off ONLY when it clearly belongs to one of these agents; otherwise "
+    "answer it yourself with your own tools. To hand off, call run_agent with the user's question verbatim "
+    "plus any context from this conversation the agent needs. Then answer the user in your OWN voice, "
+    'naming the agent you asked ("I checked with Materials: …"). If a run_agent result carries '
+    "`referrals`, do NOT call the referred agent — tell the user in one line who to ask and why."
+)
+REFERRAL_RULES = (
+    "Referral rules: you cannot hand questions off. Answer what you can with your own tools. If part of the "
+    "question clearly belongs to one of these agents, call suggest_agent ONCE with that part and finish your "
+    "own answer — never claim you asked them."
+)
+
+
+def roster_block(specs: Iterable[AgentSpec], running_slug: str, role: int, source: str = "agent", *, can_handoff: bool = True) -> str:
+    """The roster a persona run sees: the agents the caller may talk to, and the hand-off or referral rules.
+
+    Lists every agent the caller `may_talk` to from `source`, excluding the running agent, the router and
+    the base model. Empty when there is nobody to list — rules about agents that are not there are noise.
+    """
+    lines = []
+    for spec in specs:
+        if spec.slug == running_slug or spec.slug in ROSTER_EXCLUDED:
+            continue
+        if not may_talk(spec, role, source)[0]:
+            continue
+        what = (spec.description or spec.name).rstrip(". ")
+        when = (spec.handoff_hint or what).rstrip(". ")
+        lines.append(f"- {spec.slug} — {spec.name}: {what}. Hand off when: {when}.")
+    if not lines:
+        return ""
+    rules = HANDOFF_RULES if can_handoff else REFERRAL_RULES
+    return "\n".join(["## Other agents in this workspace", *lines, "", rules])
+
+
 # ── Permission matrix ────────────────────────────────────────────────────────
 
 POLICY_ALLOW = "allow"
@@ -208,10 +252,20 @@ POLICY_BLOCK = "block"
 POLICY_ASK = "ask"
 
 
+ROUTER_SLUG = "marvin"
+HANDOFF_CATEGORY = "agents_run"
+
+
 def default_policy(spec: AgentSpec, category_id: str) -> str:
-    """What a category does when the matrix says nothing: reads allow, writes follow allow_writes."""
+    """What a category does when the matrix says nothing: reads allow, writes follow allow_writes.
+
+    Hand-offs (`agents_run`) are the exception: only the system router `marvin` delegates by default;
+    any other agent must be allowed explicitly in its matrix.
+    """
     from marvin.services.ai.tools.categories import category_writes
 
+    if category_id == HANDOFF_CATEGORY:
+        return POLICY_ALLOW if (spec.is_system and spec.slug == ROUTER_SLUG) else POLICY_BLOCK
     if not category_writes(category_id):
         return POLICY_ALLOW
     return POLICY_ALLOW if spec.allow_writes else POLICY_BLOCK
@@ -237,9 +291,12 @@ def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int)
         decision, reason = policy[category_id], "category policy"
     else:
         decision = default_policy(spec, category_id)
-        reason = "category default" if category_writes(category_id) else "read access"
-        if category_writes(category_id) and not spec.allow_writes:
-            reason = "agent is read-only"
+        if category_id == HANDOFF_CATEGORY:
+            reason = "router default" if decision == POLICY_ALLOW else "hand-offs are off unless allowed"
+        else:
+            reason = "category default" if category_writes(category_id) else "read access"
+            if category_writes(category_id) and not spec.allow_writes:
+                reason = "agent is read-only"
     if decision in (POLICY_ALLOW, POLICY_ASK) and category_writes(category_id) and role < ROLE_AUTHOR:
         return POLICY_BLOCK, "caller role is below AUTHOR"
     return decision, reason

@@ -222,3 +222,36 @@ def test_loop_without_a_listener_is_unchanged():
     provider = ScriptedProvider([_result(content="plain")])
     result = run_agent_loop(provider, "m", [Message(role="user", content="hi")], [])
     assert result.answer == "plain"
+
+
+def test_a_tool_that_forwards_nested_events_keeps_them_in_order_with_via():
+    """A hand-off tool relays the child's events (tagged `via`) between its own call and result."""
+    events = []
+
+    def delegate(args):
+        for ev in (
+            {"type": "thinking"},
+            {"type": "tool_call", "tool": "search_content", "arguments": {"q": 1}},
+            {"type": "tool_result", "tool": "search_content", "ok": True},
+        ):
+            events.append({**ev, "via": "materials"})
+        return json.dumps({"agent": "materials", "answer": "ok"})
+
+    tool = AgentTool(name="run_agent", description="", input_schema={}, run=delegate)
+    provider = ScriptedProvider(
+        [
+            _result(tool_calls=[ToolCall(id="1", name="run_agent", arguments={"agent": "materials", "message": "stock?"})]),
+            _result(content="done"),
+        ]
+    )
+    result = run_agent_loop(provider, "m", [Message(role="user", content="hi")], [tool], on_event=events.append)
+    assert result.answer == "done"
+    assert [(e["type"], e.get("tool"), e.get("via")) for e in events] == [
+        ("thinking", None, None),
+        ("tool_call", "run_agent", None),
+        ("thinking", None, "materials"),
+        ("tool_call", "search_content", "materials"),
+        ("tool_result", "search_content", "materials"),
+        ("tool_result", "run_agent", None),
+        ("thinking", None, None),
+    ]

@@ -61,7 +61,9 @@ def resolve_thread(session: Session, group_id, thread_id, user_id, *, see_all: b
     return row
 
 
-def create_thread(session: Session, group_id, user_id, agent_slug: str, first_message: str, entity_type=None, entity_id=None) -> AIThreadModel:
+def create_thread(
+    session: Session, group_id, user_id, agent_slug: str, first_message: str, entity_type=None, entity_id=None, parent_thread_id=None
+) -> AIThreadModel:
     thread = AIThreadModel(
         session=session,
         group_id=group_id,
@@ -71,10 +73,25 @@ def create_thread(session: Session, group_id, user_id, agent_slug: str, first_me
         entity_id=_uuid(entity_id),
         created_by=user_id,
         status=THREAD_STATUS_OPEN,
+        parent_thread_id=_uuid(parent_thread_id),
     )
     session.add(thread)
     session.flush()
     return thread
+
+
+def child_thread_for(session: Session, parent: AIThreadModel, agent_slug: str, user_id) -> AIThreadModel | None:
+    """The specialist's thread hanging off `parent` for this user, or None before the first hand-off.
+
+    One child per (parent, specialist, user): a second hand-off continues the conversation the
+    specialist already had, and so does `/use <slug>` from the parent.
+    """
+    return (
+        session.query(AIThreadModel)
+        .filter_by(parent_thread_id=parent.id, agent_slug=agent_slug, created_by=user_id, group_id=parent.group_id)
+        .order_by(AIThreadModel.created_at.desc())
+        .first()
+    )
 
 
 def title_from(message: str) -> str | None:
@@ -85,11 +102,21 @@ def title_from(message: str) -> str | None:
 
 
 def list_threads(
-    session: Session, group_id, user_id, *, see_all: bool = False, agent_slug: str | None = None, limit: int = 50
+    session: Session,
+    group_id,
+    user_id,
+    *,
+    see_all: bool = False,
+    agent_slug: str | None = None,
+    limit: int = 50,
+    include_children: bool = False,
 ) -> list[AIThreadModel]:
+    """Top-level threads by default; hand-off children (rows with a parent) only when asked for."""
     q = _visible(session.query(AIThreadModel).filter_by(group_id=group_id), user_id, see_all)
     if agent_slug:
         q = q.filter(AIThreadModel.agent_slug == agent_slug)
+    if not include_children:
+        q = q.filter(AIThreadModel.parent_thread_id.is_(None))
     q = q.order_by(AIThreadModel.last_message_at.desc().nullslast(), AIThreadModel.created_at.desc())
     return q.limit(max(1, min(limit, 200))).all()
 
@@ -149,6 +176,36 @@ def touch(thread: AIThreadModel, tokens: int | None = None) -> None:
     thread.total_tokens = int(thread.total_tokens or 0) + int(tokens or 0)
 
 
+def _step_result(step):
+    raw = getattr(step, "result", None) if not isinstance(step, dict) else step.get("result")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return None
+    return raw if isinstance(raw, dict) else None
+
+
+def extract_handoffs(steps) -> tuple[list[dict], list[dict]]:
+    """(hand-offs, referrals) from a run's successful `run_agent` results.
+
+    A hand-off is `{agent, threadId, executionId}` (the child thread is what "Continue with X" opens);
+    the child's referrals are passed through so the parent can surface them. Error results are skipped.
+    """
+    handoffs: list[dict] = []
+    referrals: list[dict] = []
+    for step in steps or []:
+        tool = getattr(step, "tool", None) or (step.get("tool") if isinstance(step, dict) else None)
+        if tool != "run_agent":
+            continue
+        raw = _step_result(step)
+        if raw is None or raw.get("error") or not raw.get("agent"):
+            continue
+        handoffs.append({"agent": raw["agent"], "threadId": raw.get("threadId"), "executionId": raw.get("executionId")})
+        referrals.extend(r for r in (raw.get("referrals") or []) if isinstance(r, dict) and r.get("agent"))
+    return handoffs, referrals
+
+
 def extract_sources(steps) -> list[dict]:
     """Citations from the run's `search_content` results: one {entityType, entityId, title} per entity."""
     seen: set[str] = set()
@@ -157,13 +214,8 @@ def extract_sources(steps) -> list[dict]:
         tool = getattr(step, "tool", None) or (step.get("tool") if isinstance(step, dict) else None)
         if tool != "search_content":
             continue
-        raw = getattr(step, "result", None) if not isinstance(step, dict) else step.get("result")
-        if isinstance(raw, str):
-            try:
-                raw = json.loads(raw)
-            except ValueError:
-                continue
-        if not isinstance(raw, dict):
+        raw = _step_result(step)
+        if raw is None:
             continue
         for hit in raw.get("results") or []:
             if not isinstance(hit, dict):

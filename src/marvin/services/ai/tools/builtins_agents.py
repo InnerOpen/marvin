@@ -1,10 +1,13 @@
 """
-Agent tools: let an external client (MarvinMCP → Claude / n8n / ChatGPT) discover and converse with
-the workspace's agents. `run_agent` is the v1 interop surface: any agent, one message, its answer.
+Agent tools: discover and converse with the workspace's agents.
 
-Deliberately not exposed to the "agent" source itself (no agent-calls-agent recursion in v1).
-`run_agent` binds registry tools only — AI operations and external MCP tools reach an agent through
-the HTTP endpoint / the admin bubble, not through this tool (documented v1 limit).
+- From MCP / API (MarvinMCP → Claude / n8n / ChatGPT) `run_agent` is the v1 interop surface: any
+  agent, one message, its answer — the standalone runner below, registry tools only (AI operations
+  and external MCP tools reach an agent through the HTTP endpoint, a documented v1 limit).
+- From the "agent" source (slice D, "Marvin as router") agent-calls-agent is allowed at depth 0 only:
+  the controller sets `ctx.delegate`, and `run_agent` hands the call to it so the child runs through
+  the real `_run_agent_core` (its own matrix, a child thread, live steps). A delegated run (depth 1)
+  never gets `run_agent` bound; it *refers* with `suggest_agent`, which runs nothing.
 """
 
 from __future__ import annotations
@@ -17,7 +20,11 @@ from marvin.services.ai.operations.base import ROLE_VIEWER
 
 from .base import ToolContext, register_tool
 
-_EXTERNAL_SOURCES = ("mcp", "api", "editor")
+_EXTERNAL_SOURCES = ("mcp", "api", "editor", "agent")
+_RUN_SOURCES = ("mcp", "api", "agent")
+# How much of a referral is kept: enough to pre-fill the next question, never a transcript.
+REFERRAL_QUESTION_MAX = 500
+REFERRAL_REASON_MAX = 300
 
 
 def _caller_role(ctx: ToolContext) -> int:
@@ -52,7 +59,7 @@ def list_agents(ctx: ToolContext, _args: dict) -> str:
     role = _caller_role(ctx)
     out = []
     for spec in _list(ctx.session, ctx.group_id):
-        ok, reason = may_talk(spec, role, "mcp")
+        ok, reason = may_talk(spec, role, ctx.source or "mcp")
         out.append(
             {
                 "slug": spec.slug,
@@ -93,10 +100,19 @@ def list_agents(ctx: ToolContext, _args: dict) -> str:
         },
         "required": ["agent", "message"],
     },
-    sources=("mcp", "api"),
+    sources=_RUN_SOURCES,
     read_only=False,
 )
 def run_agent(ctx: ToolContext, args: dict) -> str:
+    if ctx.delegate is not None:
+        # A router run: the controller's delegate runs the specialist for real (matrix, child thread,
+        # live steps) and returns the result dict; it never raises.
+        return json.dumps(ctx.delegate(str(args.get("agent") or ""), str(args.get("message") or "").strip(), args.get("max_steps")))
+    return _run_standalone(ctx, args)
+
+
+def _run_standalone(ctx: ToolContext, args: dict) -> str:
+    """The stateless MCP/API runner: registry tools only, client-supplied history, no thread."""
     from marvin.core.config import get_app_settings
     from marvin.db.models.groups.ai_executions import AIExecutionModel
     from marvin.services.ai.agent import AgentTool, run_agent_loop
@@ -142,7 +158,7 @@ def run_agent(ctx: ToolContext, args: dict) -> str:
 
         for s in list_tools():
             if "agent" not in s.sources or role < s.min_role or s.name in ("run_agent", "list_agents"):
-                continue
+                continue  # no recursion from a stateless run; suggest_agent stays so the child can refer
             cat = category_of(s.name, read_only=s.read_only)
             # "ask" counts as blocked here: a run from MCP has no user to approve mid-loop.
             if resolve_policy(spec, s.name, cat, role)[0] != POLICY_ALLOW:
@@ -170,6 +186,7 @@ def run_agent(ctx: ToolContext, args: dict) -> str:
     ctx.session.add(execution)
     ctx.session.commit()
     start = time.monotonic()
+    referrals_mark = len(ctx.referrals)
     try:
         if spec.kind == "model" or not tools:
             res = provider.complete(messages, model, opts)
@@ -194,7 +211,64 @@ def run_agent(ctx: ToolContext, args: dict) -> str:
     execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, p_tok, c_tok)
     execution.output_json = {"answer": answer, "steps": steps}
     ctx.session.commit()
-    return json.dumps({"agent": spec.slug, "answer": answer, "steps": steps, "executionId": str(execution.id), "totalTokens": t_tok})
+    return json.dumps(
+        {
+            "agent": spec.slug,
+            "answer": answer,
+            "steps": steps,
+            "referrals": ctx.referrals[referrals_mark:],
+            "executionId": str(execution.id),
+            "totalTokens": t_tok,
+        }
+    )
+
+
+@register_tool(
+    name="suggest_agent",
+    description=(
+        "Refer the user to another workspace agent (see list_agents) WITHOUT running it. Use when part of the "
+        "question clearly belongs to a different agent. Records the referral for the caller to surface; you still "
+        "answer what you can yourself. Call it at most once per answer."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "agent": {"type": "string", "description": "slug of the agent to refer to"},
+            "question": {"type": "string", "description": "the question to ask that agent, as the user would phrase it"},
+            "reason": {"type": "string", "description": "one short line: why that agent, not you"},
+        },
+        "required": ["agent", "question"],
+    },
+    sources=("agent", "mcp", "api"),
+)
+def suggest_agent(ctx: ToolContext, args: dict) -> str:
+    from marvin.services.ai.agents import resolve_agent
+
+    slug = str(args.get("agent") or "").strip().lower()
+    spec = resolve_agent(ctx.session, ctx.group_id, slug)
+    if spec is None:
+        return json.dumps({"error": f"unknown agent '{slug}' — call list_agents"})
+    if not spec.enabled:
+        return json.dumps({"error": f"agent '{spec.slug}' is disabled"})
+    referral = {
+        "agent": spec.slug,
+        "name": spec.name,
+        "question": str(args.get("question") or "").strip()[:REFERRAL_QUESTION_MAX],
+        "reason": str(args.get("reason") or "").strip()[:REFERRAL_REASON_MAX],
+    }
+    ctx.referrals.append(referral)
+    return json.dumps(
+        {
+            "recorded": True,
+            "agent": spec.slug,
+            "name": spec.name,
+            "next": (
+                f"The referral to {spec.name} is recorded and will be shown to the user. Do NOT call that agent. "
+                "Finish your own answer now and mention in one line that this part is for "
+                f"{spec.name}."
+            ),
+        }
+    )
 
 
 def _default_model(ctx: ToolContext) -> str | None:

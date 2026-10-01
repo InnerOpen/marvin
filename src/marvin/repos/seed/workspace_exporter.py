@@ -731,6 +731,7 @@ class WorkspaceExporter:
                 "toolPolicy": r.tool_policy,
                 "icon": r.icon,
                 "suggestions": r.suggestions,
+                "handoffHint": r.handoff_hint,
             }
             for r in self._group_rows(WorkspaceAgentModel)
         ]

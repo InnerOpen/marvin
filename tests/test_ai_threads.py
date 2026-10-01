@@ -160,3 +160,59 @@ def test_extract_sources_dedupes_search_hits_and_ignores_other_tools():
     ]
     assert svc.extract_sources([]) == []
     assert svc.extract_sources(None) == []
+
+
+# ── Slice D: hand-off children ───────────────────────────────────────────────
+
+
+def test_child_thread_for_finds_the_specialists_thread_per_parent_and_user(db_session, workspace):
+    parent = svc.create_thread(db_session, workspace.group_id, workspace.alice, "marvin", "route me")
+    assert svc.child_thread_for(db_session, parent, "materials", workspace.alice) is None
+    child = svc.create_thread(db_session, workspace.group_id, workspace.alice, "materials", "stock?", parent_thread_id=parent.id)
+    assert child.parent_thread_id == parent.id
+    assert svc.child_thread_for(db_session, parent, "materials", workspace.alice).id == child.id
+    assert svc.child_thread_for(db_session, parent, "ask", workspace.alice) is None  # another specialist
+    assert svc.child_thread_for(db_session, parent, "materials", workspace.bob) is None  # another user
+    other_parent = svc.create_thread(db_session, workspace.group_id, workspace.alice, "marvin", "again")
+    assert svc.child_thread_for(db_session, other_parent, "materials", workspace.alice) is None
+
+
+def test_list_threads_hides_children_unless_asked(db_session, workspace):
+    parent = svc.create_thread(db_session, workspace.group_id, workspace.alice, "marvin", "route me")
+    child = svc.create_thread(db_session, workspace.group_id, workspace.alice, "materials", "stock?", parent_thread_id=parent.id)
+    top = svc.list_threads(db_session, workspace.group_id, workspace.alice)
+    assert [t.id for t in top] == [parent.id]
+    assert svc.list_threads(db_session, workspace.group_id, workspace.alice, agent_slug="materials") == []
+    with_children = svc.list_threads(db_session, workspace.group_id, workspace.alice, include_children=True)
+    assert {t.id for t in with_children} == {parent.id, child.id}
+    by_agent = svc.list_threads(db_session, workspace.group_id, workspace.alice, agent_slug="materials", include_children=True)
+    assert [t.id for t in by_agent] == [child.id]
+
+
+def test_deleting_the_parent_orphans_the_child(db_session, workspace):
+    from marvin.db.models.groups.ai_threads import AIThreadModel
+
+    parent = svc.create_thread(db_session, workspace.group_id, workspace.alice, "marvin", "route me")
+    child = svc.create_thread(db_session, workspace.group_id, workspace.alice, "materials", "stock?", parent_thread_id=parent.id)
+    db_session.commit()
+    db_session.delete(parent)
+    db_session.commit()
+    db_session.expire_all()
+    row = db_session.get(AIThreadModel, child.id)
+    assert row is not None and row.parent_thread_id is None
+    # the orphan is now a top-level thread of its own
+    assert child.id in {t.id for t in svc.list_threads(db_session, workspace.group_id, workspace.alice)}
+
+
+def test_extract_handoffs_reads_successful_run_agent_steps_and_passes_referrals_through():
+    ok = _step(
+        "run_agent",
+        {"agent": "materials", "threadId": "t1", "executionId": "e1", "referrals": [{"agent": "ask", "question": "q"}, "junk", {"name": "no slug"}]},
+    )
+    err = _step("run_agent", {"error": "unknown agent 'ghost'", "agent": "ghost"})
+    other = _step("search_content", {"results": []})
+    broken = _step("run_agent", "not json")
+    handoffs, referrals = svc.extract_handoffs([ok, err, other, broken])
+    assert handoffs == [{"agent": "materials", "threadId": "t1", "executionId": "e1"}]
+    assert referrals == [{"agent": "ask", "question": "q"}]
+    assert svc.extract_handoffs([]) == ([], [])

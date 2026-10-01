@@ -28,6 +28,7 @@ class AIThreadRead(_MarvinModel):
     entity_type: str | None = None
     entity_id: UUID4 | None = None
     created_by: UUID4
+    parent_thread_id: UUID4 | None = None  # set on a hand-off child (see ?children=true)
     status: str
     total_tokens: int = 0
     last_message_at: datetime | None = None

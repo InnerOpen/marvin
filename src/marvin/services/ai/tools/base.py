@@ -31,6 +31,15 @@ class ToolContext:
     user: Any = None
     provider: Any = None  # optional — only tools that embed/generate need one
     logger: Any = None
+    # Agent hand-offs (agents v2 slice D). `depth` 0 = a run the user started; a delegated child run
+    # is 1 and may not delegate further. `source` is the invocation surface the handlers gate on
+    # (e.g. may_talk) — None keeps the pre-slice-D "mcp" fallback. `delegate(slug, message,
+    # max_steps) -> dict` is the controller's child runner, set only at depth 0 when run_agent is
+    # bound; `referrals` collects suggest_agent calls for the parent to surface.
+    depth: int = 0
+    source: str | None = None
+    delegate: Callable[[str, str, int | None], dict] | None = None
+    referrals: list[dict] = field(default_factory=list)
 
 
 # handler(ctx, args) -> str : returns a JSON string fed back to the model / returned to callers.

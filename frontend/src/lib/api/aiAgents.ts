@@ -26,6 +26,8 @@ export interface Agent {
   toolPolicy?: Record<string, PolicyValue> | null;
   icon?: string | null;
   suggestions?: string[] | null;
+  /** One line for the router's roster: when Marvin should hand a question to this agent. */
+  handoffHint?: string | null;
   isSystem: boolean;
 }
 
@@ -78,11 +80,26 @@ export interface Source {
   entityId: string;
   title?: string | null;
 }
+/** A specialist the router ran for this turn; `threadId` is the child thread "Continue with X" opens. */
+export interface Handoff {
+  agent: string;
+  threadId?: string | null;
+  executionId?: string | null;
+}
+/** A `suggest_agent` call: the agent that should be asked, and what to ask it. Nothing was run. */
+export interface Referral {
+  agent: string;
+  name?: string | null;
+  question?: string | null;
+  reason?: string | null;
+}
 export interface AgentRunResult {
   answer: string;
   steps: { tool: string; arguments: unknown; result?: unknown }[];
   /** Citations gathered from the run's `search_content` results. */
   sources?: Source[];
+  handoffs?: Handoff[];
+  referrals?: Referral[];
   stoppedReason: string;
   executionId: string;
   /** The server-side thread this turn was stored on (only when the run asked for one). */
@@ -98,6 +115,8 @@ export interface Thread {
   entityType?: string | null;
   entityId?: string | null;
   createdBy: string;
+  /** Set on a hand-off child (the specialist's thread under a router thread). */
+  parentThreadId?: string | null;
   status: "open" | "awaiting_approval" | "archived";
   totalTokens: number;
   lastMessageAt?: string | null;
@@ -109,7 +128,7 @@ export interface ThreadMessage {
   role: "user" | "assistant";
   content: string;
   stepsJson?: { tool: string; arguments?: unknown; result?: string }[] | null;
-  metaJson?: { sources?: Source[]; totalTokens?: number } | null;
+  metaJson?: { sources?: Source[]; totalTokens?: number; handoffs?: Handoff[]; referrals?: Referral[] } | null;
   executionId?: string | null;
   createdAt?: string | null;
 }
@@ -123,10 +142,12 @@ export const NEW_THREAD = "new";
 
 /** One live event of an in-flight run (see services/ai/run_progress.py). */
 export interface RunEvent {
-  type: "thinking" | "tool_call" | "tool_result";
+  type: "thinking" | "tool_call" | "tool_result" | "declined" | "awaiting_approval";
   tool?: string;
   arguments?: unknown;
   ok?: boolean;
+  /** Set on events a delegated child run emitted: the specialist's slug. */
+  via?: string;
   at: number;
 }
 export interface RunProgress {
@@ -204,10 +225,15 @@ export function getRunProgress(runId: string, authToken?: string): Promise<RunPr
 
 // ── Threads (server-side Ask conversations; own-only, admins see all) ──
 
-export function listThreads(opts: { agent?: string; limit?: number } = {}, authToken?: string): Promise<Thread[]> {
+/** Top-level threads by default; `children: true` includes the specialist threads hand-offs opened. */
+export function listThreads(
+  opts: { agent?: string; limit?: number; children?: boolean } = {},
+  authToken?: string,
+): Promise<Thread[]> {
   const q = new URLSearchParams();
   if (opts.agent) q.set("agent", opts.agent);
   if (opts.limit) q.set("limit", String(opts.limit));
+  if (opts.children) q.set("children", "true");
   const qs = q.toString();
   return fetchApi<Thread[]>(`/api/ai/threads${qs ? `?${qs}` : ""}`, {}, authToken);
 }
