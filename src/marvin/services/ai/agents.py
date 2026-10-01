@@ -32,6 +32,12 @@ ASK_SYSTEM_PROMPT = (
 # the RAG" with Red/Amber/Green) and knows which tool answers which kind of question. Only tools actually
 # bound for the run are mentioned.
 CONTENT_SYNONYMS = '"the RAG", "the knowledge base", "the index", "your content" or "what you know"'
+# Tool results carry workspace paths (`editUrl`: /workspace/entries/<id>); the backend does not know the UI's
+# public host, and the chat renders on that host, so a relative link is the one that always works.
+LINKS_RULE = (
+    "Links: tool results give workspace paths such as /workspace/entries/<id> (editUrl). Link to them exactly as "
+    "given, as relative markdown links — never invent or guess a hostname."
+)
 
 
 def external_servers(tool_names: Iterable[str]) -> dict[str, int]:
@@ -75,6 +81,7 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
             "Act, don't announce: when a question needs a tool, call it in this same turn. Never reply with "
             "'let me check' or 'give me a moment' — there is no later turn."
         )
+        lines.append(LINKS_RULE)
     return "\n".join(lines)
 
 
@@ -216,7 +223,9 @@ HANDOFF_RULES = (
     "even if you have the tools to look the facts up. Otherwise answer with your own tools. To hand off, call "
     "run_agent with the user's question verbatim plus any context from this conversation the agent needs, "
     'then answer the user in your OWN voice, naming the agent you asked ("I checked with Materials: …"): restate '
-    "what it said faithfully, never paste its reply verbatim. If a run_agent result carries `referrals`, do NOT "
+    "what it said faithfully, never paste its reply verbatim. If a request needs a specialist's voice AND an "
+    "action only you can do (authoring a draft, attaching, running a workflow), ask the specialist for the text "
+    "first, then do the action yourself with what it gave you. If a run_agent result carries `referrals`, do NOT "
     "call the referred agent — tell the user in one line who to ask and why."
 )
 REFERRAL_RULES = (

@@ -355,6 +355,14 @@ def test_workspace_preamble_names_the_rag_and_mentions_only_bound_tools():
     assert full.index("workspace_overview") < full.index("search_content") < full.index("find_entries")
 
 
+def test_preamble_tells_agents_to_keep_workspace_paths_relative():
+    from marvin.services.ai.agents import LINKS_RULE, workspace_preamble
+
+    assert LINKS_RULE in workspace_preamble("W", ["compose_entry"])
+    assert "/workspace/entries/<id>" in LINKS_RULE and "never invent" in LINKS_RULE
+    assert LINKS_RULE not in workspace_preamble("W", [])  # nothing bound → no tool results to link
+
+
 def test_ask_agent_may_use_the_overview_tool():
     ask = SYSTEM_AGENTS["ask"]
     assert set(ask.tool_allowlist) == {"search_content", "workspace_overview", "suggest_agent"}
