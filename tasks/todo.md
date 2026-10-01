@@ -117,7 +117,9 @@ no token streaming (providers are sync). Each slice committed + rolled out on it
       continuation) and "Suggests asking X — reason · Continue →" (pre-fills, never sends); nested live steps "Asked <agent> …";
       Agents form "Hand off when…".
 - [x] Tests: test_agents (+11), test_ai_threads (+4), test_agent_loop (+1), new test_agent_handoff (13). Full suite green.
-- [ ] Rollout + verify against the pod (step 3/4 of the plan); brain write-back.
+- [x] Rolled out 2026-10-01 ~01:56 UTC (`2320057f`; Test Suite + Docker Build green first); migration applied on the pod; in-pod
+      checks: head `a1c9d4e7f2b3`, columns + FK present, marvin `agents_run` allow / workshop block, roster rendered. Brain updated.
+- [ ] Live verification (Jared): a real hand-off from Marvin → workshop on the Ask page; referral "Continue →"; `?children=true`.
 
 ## Slice C — ask first
 - [ ] `PolicyValue` gains `ask`; `resolve_policy` + role cap; `AgentTool.requires_approval`; loop pends ask calls, `ResumeState`; serialize/deserialize messages.
