@@ -221,7 +221,10 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
     q = ctx.session.query(Entries).filter(Entries.group_id == ctx.group_id)
     etype = args.get("entry_type")
     if etype:
-        q = q.join(EntryTypes, Entries.entry_type_id == EntryTypes.id).filter(EntryTypes.slug == etype)
+        # Models write `bench_note` for the slug `bench-note` (and vice versa): accept either spelling.
+        etype = str(etype).strip().lower()
+        spellings = {etype, etype.replace("_", "-"), etype.replace("-", "_")}
+        q = q.join(EntryTypes, Entries.entry_type_id == EntryTypes.id).filter(EntryTypes.slug.in_(spellings))
     st = args.get("status")
     if st:
         q = q.filter(Entries.status == st)

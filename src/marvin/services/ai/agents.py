@@ -211,11 +211,13 @@ def may_talk(spec: AgentSpec, role: int, source: str) -> tuple[bool, str]:
 ROSTER_EXCLUDED = ("marvin", "chat")
 
 HANDOFF_RULES = (
-    "Hand-off rules: hand a question off ONLY when it clearly belongs to one of these agents; otherwise "
-    "answer it yourself with your own tools. To hand off, call run_agent with the user's question verbatim "
-    "plus any context from this conversation the agent needs. Then answer the user in your OWN voice, "
-    'naming the agent you asked ("I checked with Materials: …"). If a run_agent result carries '
-    "`referrals`, do NOT call the referred agent — tell the user in one line who to ask and why."
+    "Hand-off rules: when the user names one of these agents, asks for its voice or its kind of answer, or "
+    "the question matches an agent's 'Hand off when' line, hand it off — do NOT imitate that agent yourself, "
+    "even if you have the tools to look the facts up. Otherwise answer with your own tools. To hand off, call "
+    "run_agent with the user's question verbatim plus any context from this conversation the agent needs, "
+    'then answer the user in your OWN voice, naming the agent you asked ("I checked with Materials: …") and '
+    "passing its answer on faithfully. If a run_agent result carries `referrals`, do NOT call the referred "
+    "agent — tell the user in one line who to ask and why."
 )
 REFERRAL_RULES = (
     "Referral rules: you cannot hand questions off. Answer what you can with your own tools. If part of the "

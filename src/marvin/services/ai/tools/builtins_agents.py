@@ -78,9 +78,10 @@ def list_agents(ctx: ToolContext, _args: dict) -> str:
 @register_tool(
     name="run_agent",
     description=(
-        "Run a named workspace agent (see list_agents) with a message and return its answer. "
-        "This is how an external client converses with a Marvin agent. Optional history (prior turns, "
-        "oldest first) gives it memory of the conversation."
+        "Hand a question to another workspace agent (see list_agents / the roster in your instructions) and get "
+        "its answer back. Use it when the question belongs to that agent or the user asks for that agent's "
+        "voice. From an external client it is how you converse with a Marvin agent; optional history (prior "
+        "turns, oldest first) gives it memory of the conversation."
     ),
     input_schema={
         "type": "object",
