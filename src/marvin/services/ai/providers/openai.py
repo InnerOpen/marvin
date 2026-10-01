@@ -10,6 +10,23 @@ from ..base import (
     ToolDefinition,
 )
 
+# Reasoning models reject `max_tokens` outright — even null — in favour of `max_completion_tokens`,
+# and accept only the default temperature.
+_REASONING_MODEL_PREFIXES = ("o1", "o3", "o4", "gpt-5")
+
+
+def _sampling_kwargs(model: str, opts: CompletionOptions, *, include_top_p: bool = False) -> dict:
+    """The length and sampling parameters this model accepts; unset limits are left out."""
+    is_reasoning = model.startswith(_REASONING_MODEL_PREFIXES)
+    kwargs: dict = {}
+    if opts.max_tokens is not None:
+        kwargs["max_completion_tokens" if is_reasoning else "max_tokens"] = opts.max_tokens
+    if not is_reasoning:
+        kwargs["temperature"] = opts.temperature
+        if include_top_p:
+            kwargs["top_p"] = opts.top_p
+    return kwargs
+
 
 class OpenAIProvider(AIProvider):
     provider_type = "openai"
@@ -80,9 +97,7 @@ class OpenAIProvider(AIProvider):
         resp = client.chat.completions.create(
             model=model,
             messages=self._to_api_messages(messages),
-            max_tokens=opts.max_tokens,
-            temperature=opts.temperature,
-            top_p=opts.top_p,
+            **_sampling_kwargs(model, opts, include_top_p=True),
         )
         choice = resp.choices[0]
         return CompletionResult(
@@ -113,8 +128,7 @@ class OpenAIProvider(AIProvider):
             messages=self._to_api_tool_messages(messages),
             tools=api_tools,
             tool_choice=choice_map.get(tool_choice, "auto"),
-            max_tokens=opts.max_tokens,
-            temperature=opts.temperature,
+            **_sampling_kwargs(model, opts),
         )
         choice = resp.choices[0]
         tool_calls: list[ToolCall] = []
@@ -144,8 +158,7 @@ class OpenAIProvider(AIProvider):
             model=model,
             messages=self._to_api_messages(messages),
             response_format={"type": "json_schema", "json_schema": {"name": "output", "schema": output_schema, "strict": False}},
-            max_tokens=opts.max_tokens,
-            temperature=opts.temperature,
+            **_sampling_kwargs(model, opts),
         )
         return json.loads(resp.choices[0].message.content or "{}")
 
@@ -163,8 +176,7 @@ class OpenAIProvider(AIProvider):
             model=model,
             messages=self._to_api_messages(messages),
             response_format={"type": "json_schema", "json_schema": {"name": "output", "schema": output_schema, "strict": False}},
-            max_tokens=opts.max_tokens,
-            temperature=opts.temperature,
+            **_sampling_kwargs(model, opts),
         )
         parsed = json.loads(resp.choices[0].message.content or "{}")
         result = CompletionResult(
