@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.107 (2026-10-01)
+
+### Features
+
+- **agents**: Ask-first approval — park a run on its thread, resume with the user's decisions (slice
+  C)
+  ([`7d63527`](https://github.com/InnerOpen/marvin/commit/7d63527ba480f893ff18dd846d82cdf13ca8da33))
+
+
 ## v1.0.0-rc.106 (2026-10-01)
 
 ### Code Style
