@@ -6,6 +6,7 @@ from pydantic import UUID4
 from marvin.db.models.groups.ai_providers import AIModelModel, AIProviderModel
 from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
+from marvin.routes._base.checks import require_workspace_admin
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.ai_provider import (
     AIModelCreate,
@@ -20,13 +21,7 @@ from marvin.schemas.group.ai_provider import (
 router = APIRouter(prefix="/ai/providers", route_class=MarvinCrudRoute)
 
 
-def _require_admin(user, group_id: UUID4) -> None:
-    if user.admin:
-        return
-    for m in user.workspace_memberships:
-        if m.group_id == group_id and m.workspace_role.value >= 4:
-            return
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ADMIN or OWNER role required.")
+_require_admin = require_workspace_admin
 
 
 def _get_provider_or_404(session, provider_id: UUID4, group_id: UUID4) -> AIProviderModel:

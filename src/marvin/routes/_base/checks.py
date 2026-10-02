@@ -153,3 +153,18 @@ class OperationChecks:
             # User does not have the 'can_organize' permission, or attribute is missing.
             raise self.ForbiddenException
         return True
+
+
+def require_workspace_admin(user: PrivateUser, group_id: UUID4) -> None:
+    """Raise 403 unless the user is a workspace OWNER/ADMIN, a platform super admin, or a legacy
+    `admin`. The shared gate for workspace-management routes (workflows, webhooks, AI providers…).
+
+    Five controllers used to carry their own copy that compared the role's *string* value with a
+    number (`"ADMIN" >= 4`), which raised TypeError — a 500 for every workspace admin who wasn't
+    also a platform admin.
+    """
+    if getattr(user, "admin", False) or user.platform_role == PlatformRole.SUPER_ADMIN:
+        return
+    role = user.get_workspace_role(group_id)
+    if role is None or not workspace_role_can_manage_settings(role):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ADMIN or OWNER role required.")

@@ -14,6 +14,7 @@ from pydantic import UUID4
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
 from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
+from marvin.routes._base.checks import require_workspace_admin
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.automation import (
     AutomationActionOption,
@@ -37,13 +38,7 @@ from marvin.schemas.group.automation import (
 router = APIRouter(prefix="/automations", route_class=MarvinCrudRoute)
 
 
-def _require_admin(user, group_id: UUID4) -> None:
-    if user.admin:
-        return
-    for m in user.workspace_memberships:
-        if m.group_id == group_id and m.workspace_role.value >= 4:  # ADMIN=4, OWNER=5
-            return
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ADMIN or OWNER role required.")
+_require_admin = require_workspace_admin
 
 
 def _slugify(name: str) -> str:

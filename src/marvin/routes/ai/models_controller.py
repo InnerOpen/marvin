@@ -13,10 +13,10 @@ the client polls `GET /ai/models/pull/{job_id}` for progress. ADMIN/OWNER only.
 """
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import UUID4
 
 from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
+from marvin.routes._base.checks import require_workspace_admin
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.ai_provider import (
     InstalledModels,
@@ -29,13 +29,7 @@ router = APIRouter(prefix="/ai", route_class=MarvinCrudRoute)
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 
 
-def _require_admin(user, group_id: UUID4) -> None:
-    if user.admin:
-        return
-    for m in user.workspace_memberships:
-        if m.group_id == group_id and m.workspace_role.value >= 4:  # ADMIN=4, OWNER=5
-            return
-    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ADMIN or OWNER role required.")
+_require_admin = require_workspace_admin
 
 
 @controller(router)
