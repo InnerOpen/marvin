@@ -116,9 +116,7 @@ def test_invitation_role_is_applied_on_registration(db_session, workspace):
 
     repos = get_repositories(db_session, group_id=None)
     token = f"tok-{workspace.marker}"
-    repos.group_invite_tokens.create(
-        InviteTokenSave(uses_left=1, workspace_role=WorkspaceRole.ADMIN, group_id=workspace.id, token=token)
-    )
+    repos.group_invite_tokens.create(InviteTokenSave(uses_left=1, workspace_role=WorkspaceRole.ADMIN, group_id=workspace.id, token=token))
 
     user = RegistrationService(logging.getLogger("test"), repos).register_user(
         UserRegistrationCreate(

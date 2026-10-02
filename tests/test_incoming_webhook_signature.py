@@ -51,7 +51,14 @@ class TestReceiverSignatureGate:
         from marvin.routes.hooks.hooks_controller import _check_signature
 
         monkeypatch.setattr(resolver, "resolve_secret", lambda ref, gid: KEY if ref == "BUTTONDOWN_SIGNING_KEY" else None)
-        wh = SimpleNamespace(slug="hook", signing_secret_ref="{{BUTTONDOWN_SIGNING_KEY}}", signature_header="X-Buttondown-Signature", group_id="G", signature_scheme=None, signature_url=None)
+        wh = SimpleNamespace(
+            slug="hook",
+            signing_secret_ref="{{BUTTONDOWN_SIGNING_KEY}}",
+            signature_header="X-Buttondown-Signature",
+            group_id="G",
+            signature_scheme=None,
+            signature_url=None,
+        )
         _check_signature(wh, BODY, self._request({"X-Buttondown-Signature": f"sha256={SIG}"}))
 
     def test_missing_or_bad_signature_is_401(self, monkeypatch):
@@ -59,7 +66,14 @@ class TestReceiverSignatureGate:
         from marvin.routes.hooks.hooks_controller import _check_signature
 
         monkeypatch.setattr(resolver, "resolve_secret", lambda ref, gid: KEY)
-        wh = SimpleNamespace(slug="hook", signing_secret_ref="BUTTONDOWN_SIGNING_KEY", signature_header="X-Buttondown-Signature", group_id="G", signature_scheme=None, signature_url=None)
+        wh = SimpleNamespace(
+            slug="hook",
+            signing_secret_ref="BUTTONDOWN_SIGNING_KEY",
+            signature_header="X-Buttondown-Signature",
+            group_id="G",
+            signature_scheme=None,
+            signature_url=None,
+        )
         with pytest.raises(HTTPException) as e:
             _check_signature(wh, BODY, self._request({}))
         assert e.value.status_code == 401
@@ -71,7 +85,9 @@ class TestReceiverSignatureGate:
         from marvin.routes.hooks.hooks_controller import _check_signature
 
         monkeypatch.setattr(resolver, "resolve_secret", lambda ref, gid: None)
-        wh = SimpleNamespace(slug="hook", signing_secret_ref="MISSING", signature_header=None, group_id="G", signature_scheme=None, signature_url=None)
+        wh = SimpleNamespace(
+            slug="hook", signing_secret_ref="MISSING", signature_header=None, group_id="G", signature_scheme=None, signature_url=None
+        )
         with pytest.raises(HTTPException):
             _check_signature(wh, BODY, self._request({"X-Signature-256": f"sha256={SIG}"}))
 
@@ -108,8 +124,12 @@ class TestSquareScheme:
 class TestReceiverSquareGate:
     def _webhook(self, url=SQUARE_URL):
         return SimpleNamespace(
-            slug="square", signing_secret_ref="SQUARE_SIGNATURE_KEY", signature_header=None,
-            group_id="G", signature_scheme="square", signature_url=url,
+            slug="square",
+            signing_secret_ref="SQUARE_SIGNATURE_KEY",
+            signature_header=None,
+            group_id="G",
+            signature_scheme="square",
+            signature_url=url,
         )
 
     def test_square_scheme_reads_square_header_by_default(self, monkeypatch):

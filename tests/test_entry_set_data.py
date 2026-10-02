@@ -83,8 +83,13 @@ def artwork(db_session):
     db_session.add(et)
     db_session.flush()
     entry = Entries(
-        session=db_session, group_id=gid, entry_type_id=et.id, title="Weightless Hour", slug=f"wh-{marker}",
-        data_json={"status": "available"}, status="published",
+        session=db_session,
+        group_id=gid,
+        entry_type_id=et.id,
+        title="Weightless Hour",
+        slug=f"wh-{marker}",
+        data_json={"status": "available"},
+        status="published",
     )
     db_session.add(entry)
     db_session.commit()
