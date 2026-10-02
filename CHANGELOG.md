@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.120 (2026-10-02)
+
+### Bug Fixes
+
+- **marvin-bubble**: Open on the latest turn of a restored conversation
+  ([`21a6114`](https://github.com/InnerOpen/marvin/commit/21a6114f84f6669f5841156095e1175f464b0249))
+
+
 ## v1.0.0-rc.119 (2026-10-02)
 
 ### Features
