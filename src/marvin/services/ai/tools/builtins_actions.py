@@ -88,7 +88,18 @@ _TAG_SCHEMA = {
             "description": "select targets in bulk instead of naming them (dimensions mirror smart-collection rules)",
             "properties": {
                 "entry_types": {"type": "array", "items": {"type": "string"}, "description": "entry type slugs — entries only"},
-                "statuses": {"type": "array", "items": {"type": "string"}, "description": "entry statuses (e.g. ['published']) — entries only"},
+                "statuses": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "entry PUBLISH statuses (inbox, draft, needs_review, approved, published, archived) — entries only",
+                },
+                "collection": {"type": "string", "description": "entries in this collection (slug or name) — entries only"},
+                "fields": {"type": "object", "description": "exact match on the entry type's own fields {field_key: value} — entries only"},
+                "where": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "field comparisons [{field, op, value}], op eq|neq|in|contains|exists|missing|gt|gte|lt|lte — entries only",
+                },
                 "asset_types": {"type": "array", "items": {"type": "string"}, "description": "coarse bucket e.g. ['image','svg'] — assets only"},
                 "mime_types": {
                     "type": "array",
@@ -137,20 +148,12 @@ def _resolve_targets(ctx: ToolContext, entity_type: str, args: dict) -> tuple[li
     s, gid = ctx.session, ctx.group_id
     filt = args.get("filter") or {}
     if entity_type == "entry":
-        from marvin.db.models.platform.entries import Entries
-        from marvin.db.models.platform.entry_tags import EntryTags
-        from marvin.db.models.platform.entry_types import EntryTypes
+        # The shared entry query (services/entries/query.py) — the same filters find_entries and
+        # workflows understand: types, publish statuses, title, tags, collection, fields, where, dates.
+        from marvin.services.entries.query import run as run_entry_query
 
-        q = s.query(Entries.id).filter(Entries.group_id == gid)
-        if filt.get("entry_types"):
-            q = q.join(EntryTypes, Entries.entry_type_id == EntryTypes.id).filter(EntryTypes.slug.in_(list(filt["entry_types"])))
-        if filt.get("statuses"):
-            q = q.filter(Entries.status.in_(list(filt["statuses"])))
-        if filt.get("query"):
-            t = f"%{filt['query']}%"
-            q = q.filter(Entries.title.ilike(t) | Entries.slug.ilike(t))
-        q, ok = _narrow_by_tags(s, gid, q, Entries, EntryTags, "entry_id", filt)
-        return ([r[0] for r in q.limit(_BULK_CAP).all()] if ok else []), None
+        result = run_entry_query(s, gid, filt, limit=_BULK_CAP)
+        return [e.id for e in result.rows], result.note
     if entity_type == "asset":
         from marvin.db.models.platform.asset_tags import AssetTags
         from marvin.db.models.platform.assets import Assets

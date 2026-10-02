@@ -34,11 +34,11 @@ def resolve_target_entities(session, group_id, target: dict, context: dict, *, c
     if entity != "entry":
         return [], 0
 
+    from marvin.services.entries.query import run as run_entry_query
+
     query = interpolate((target or {}).get("query", {}) or {}, context)
-    q = _entries_query(session, group_id, query)
-    total = q.count()
-    entities = q.order_by(_created_desc()).limit(max(1, min(cap, MAX_TARGET_ENTITIES))).all()
-    return entities, total
+    result = run_entry_query(session, group_id, query, limit=max(1, min(cap, MAX_TARGET_ENTITIES)))
+    return result.rows, result.total
 
 
 def entity_ref(entity) -> dict:
@@ -51,12 +51,6 @@ def entity_ref(entity) -> dict:
         "title": entity.title,
         "slug": entity.slug,
     }
-
-
-def _created_desc():
-    from marvin.db.models.platform.entries import Entries
-
-    return Entries.created_at.desc()
 
 
 def json_field_equals(column, key: str, value, dialect: str = "sqlite"):
@@ -108,63 +102,9 @@ def json_field_equals(column, key: str, value, dialect: str = "sqlite"):
 
 
 def _entries_query(session, group_id, query: dict):
-    """Build an Entries query from a query dict. Same vocabulary as the find_entries tool:
-    entry_type (slug), status, text (title contains), has_assets/has_images/has_resources,
-    collection (slug or name), metadata ({key: value} equality on metadata_json), data ({key: value}
-    equality on the entry type's fields, data_json). Empty/None filters are simply not applied —
-    except metadata/data, where an empty value matches nothing."""
-    import sqlalchemy as sa
+    """The SQL part of an entry query (services/entries/query.py) — for callers that page or count
+    themselves (an entry step's entity_query, the integration-action scheduled handler)."""
+    from marvin.services.entries.query import build
 
-    from marvin.db.models.platform.assets import Assets
-    from marvin.db.models.platform.collections import Collections
-    from marvin.db.models.platform.entries import Entries
-    from marvin.db.models.platform.entry_assets import EntryAssets
-    from marvin.db.models.platform.entry_collections import EntryCollections
-    from marvin.db.models.platform.entry_resources import EntryResources
-    from marvin.db.models.platform.entry_types import EntryTypes
-
-    query = query or {}
-    q = session.query(Entries).filter(Entries.group_id == group_id)
-
-    etype = query.get("entry_type")
-    if etype:
-        q = q.join(EntryTypes, Entries.entry_type_id == EntryTypes.id).filter(EntryTypes.slug == etype)
-
-    status = query.get("status")
-    if status:
-        q = q.filter(Entries.status == status)
-
-    text = query.get("text") or query.get("query")
-    if text:
-        q = q.filter(Entries.title.ilike(f"%{text}%"))
-
-    # metadata / data: {key: value} — equality on metadata_json / data_json keys (JSON path, works on
-    # SQLite + Postgres).
-    # An empty/None value matches NOTHING rather than dropping the filter: a template that resolved
-    # to nothing must never widen the query to the whole workspace.
-    for key_name, column in (("metadata", Entries.metadata_json), ("data", Entries.data_json)):
-        pairs = query.get(key_name)
-        if isinstance(pairs, dict) and pairs:
-            for key, value in pairs.items():
-                if value is None or value == "":
-                    return q.filter(sa.false())
-                q = q.filter(json_field_equals(column, key, value, session.get_bind().dialect.name))
-    collection = query.get("collection")
-    if collection:
-        q = (
-            q.join(EntryCollections, EntryCollections.entry_id == Entries.id)
-            .join(Collections, Collections.id == EntryCollections.collection_id)
-            .filter((Collections.slug == collection) | (Collections.name == collection))
-        )
-
-    if query.get("has_images") or query.get("has_assets"):
-        q = q.join(EntryAssets, EntryAssets.entry_id == Entries.id)
-        if query.get("has_images"):
-            q = q.join(Assets, Assets.id == EntryAssets.asset_id).filter(Assets.asset_type == "image")
-
-    if query.get("has_resources"):
-        q = q.join(EntryResources, EntryResources.entry_id == Entries.id)
-
-    # De-duplicate the joins by id rather than `SELECT DISTINCT entries.*`: Postgres has no equality
-    # operator for `json` columns, so DISTINCT over the whole row fails there (SQLite allows it).
-    return session.query(Entries).filter(Entries.id.in_(q.with_entities(Entries.id)))
+    q, _note = build(session, group_id, query or {})
+    return q

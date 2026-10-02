@@ -1255,18 +1255,11 @@ class TestGeneralizedTriggers:
         eid = uuid4()
         seen = {}
 
-        class _Q:
-            def __init__(self, rows):
-                self._rows = rows
-
-            def limit(self, n):
-                return self
-
-            def all(self):
-                return self._rows
+        from marvin.services.entries.query import EntryQueryResult
 
         monkeypatch.setattr(
-            "marvin.services.automation.selector._entries_query", lambda session, gid, q: seen.update(q=q) or _Q([SimpleNamespace(id=eid)])
+            "marvin.services.entries.query.run",
+            lambda session, gid, q, **kw: seen.update(q=q) or EntryQueryResult(rows=[SimpleNamespace(id=eid)], total=1),
         )
         monkeypatch.setattr(
             entries_mod, "EntryService", lambda *a, **k: SimpleNamespace(set_status=lambda i, st, reaction_depth=0: SimpleNamespace(id=i))
@@ -1287,19 +1280,12 @@ class TestGeneralizedTriggers:
         from marvin.services.automation.actions import entry as entry_mod
         from marvin.services.automation.actions.base import AutomationActionError
         from marvin.services.automation.authz import ROLE_ADMIN
-
-        class _Q:
-            def __init__(self, rows):
-                self._rows = rows
-
-            def limit(self, n):
-                return self
-
-            def all(self):
-                return self._rows
+        from marvin.services.entries.query import EntryQueryResult
 
         for rows in ([], [SimpleNamespace(id=uuid4()), SimpleNamespace(id=uuid4())]):
-            monkeypatch.setattr("marvin.services.automation.selector._entries_query", lambda session, gid, q, rows=rows: _Q(rows))
+            monkeypatch.setattr(
+                "marvin.services.entries.query.run", lambda session, gid, q, rows=rows, **kw: EntryQueryResult(rows=rows, total=len(rows))
+            )
             with pytest.raises(AutomationActionError):
                 entry_mod.run_entry_action(
                     None,

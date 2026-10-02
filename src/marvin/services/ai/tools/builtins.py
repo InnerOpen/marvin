@@ -199,90 +199,81 @@ def search_content(ctx: ToolContext, args: dict) -> str:
 FIND_ENTRIES_MAX_ROWS = 200
 FIND_ENTRIES_MAX_FIELDS = 8
 
+from marvin.services.entries.query import WHERE_OPS  # noqa: E402 — the tool schema lists the shared ops
+
 
 @register_tool(
     name="find_entries",
-    description="Find entries with filters: entry_type (slug), status (the PUBLISH status: inbox, draft, needs_review, approved, published, archived — never a field's value), fields (exact match on the entry type's own fields, {field_key: value}; take the keys from get_entry_type — they differ per type and per workspace), a title substring (query), tags, has_images, has_assets or has_resources. Returns `count` (the true total match) plus up to `limit` rows (default 10, max 200). Rows are LIGHTWEIGHT previews with image-ready asset refs; pass include_fields (a list of field keys) to get those values on each row — use that to compare or sort many entries instead of calling get_entry on each. Use `count` to answer 'how many'.",  # noqa: E501
+    description=(
+        "Find entries matching a description and return a lean list. Filters (all optional): entry_type; status = the "
+        "PUBLISH status (inbox, draft, needs_review, approved, published, archived — never a field's value); fields = exact "
+        "match on the entry type's own fields {field_key: value}; where = comparisons on fields [{field, op, value}] with op "
+        "eq|neq|in|contains|exists|missing|gt|gte|lt|lte (number-like text such as '$1,170' compares as 1170); query = "
+        "title/slug contains; tags; collection; has_images / has_assets / has_resources; created_/updated_/published_ "
+        "after|before (ISO dates). Field keys differ per type and per workspace — take them from get_entry_type. "
+        "sort = {by: title|created_at|updated_at|published_at|<field_key>, direction: asc|desc} (fields sort numerically when "
+        "number-like). group_by = a field key (or publish_status / entry_type) → counts per value over the whole match. "
+        "include_fields / include_metadata = keys whose values to put on each row, so you can compare many entries in one "
+        "call instead of get_entry on each. Returns `count` (true total), `returned`, rows (default 10, max 200; use offset "
+        "to page) and `groups` when grouped. Use `count` to answer 'how many'."
+    ),
     input_schema={
         "type": "object",
         "properties": {
             "entry_type": {"type": "string"},
             "status": {"type": "string", "description": "publish status: inbox | draft | needs_review | approved | published | archived"},
-            "fields": {
-                "type": "object",
-                "description": "exact match on the entry type's own fields (data), {field_key: value}; keys from get_entry_type",
-            },
-            "include_fields": {
+            "fields": {"type": "object", "description": "exact match on the entry type's own fields, {field_key: value}"},
+            "where": {
                 "type": "array",
-                "items": {"type": "string"},
-                "description": "field keys (from get_entry_type) whose values to include on each row",
+                "description": "field comparisons; field = a field key or metadata.<key>",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "field": {"type": "string"},
+                        "op": {"type": "string", "enum": list(WHERE_OPS)},
+                        "value": {},
+                    },
+                    "required": ["field"],
+                },
             },
-            "query": {"type": "string"},
+            "query": {"type": "string", "description": "title or slug contains"},
             "tags": {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "only entries carrying ANY of these tags (slug or name) — exhaustive, not ranked",
             },
+            "collection": {"type": "string", "description": "only entries in this collection (slug or name)"},
             "has_images": {"type": "boolean", "description": "only entries that have an image asset"},
             "has_assets": {"type": "boolean", "description": "only entries that have any attached asset"},
             "has_resources": {"type": "boolean", "description": "only entries that have a linked resource"},
+            "created_after": {"type": "string"},
+            "created_before": {"type": "string"},
+            "updated_after": {"type": "string"},
+            "updated_before": {"type": "string"},
+            "published_after": {"type": "string"},
+            "published_before": {"type": "string"},
+            "sort": {
+                "type": "object",
+                "properties": {"by": {"type": "string"}, "direction": {"type": "string", "enum": ["asc", "desc"]}},
+            },
+            "group_by": {"type": "string"},
+            "include_fields": {"type": "array", "items": {"type": "string"}, "description": "field keys whose values to include on each row"},
+            "include_metadata": {"type": "array", "items": {"type": "string"}, "description": "metadata keys whose values to include on each row"},
             "limit": {"type": "integer"},
+            "offset": {"type": "integer"},
         },
     },
 )
 def find_entries(ctx: ToolContext, args: dict) -> str:
-    from .builtins_actions import _narrow_by_tags
+    from marvin.services.entries.query import run as run_entry_query
 
-    q = ctx.session.query(Entries).filter(Entries.group_id == ctx.group_id)
-    etype = args.get("entry_type")
-    if etype:
-        # Models write `bench_note` for the slug `bench-note` (and vice versa): accept either spelling.
-        etype = str(etype).strip().lower()
-        spellings = {etype, etype.replace("_", "-"), etype.replace("-", "_")}
-        q = q.join(EntryTypes, Entries.entry_type_id == EntryTypes.id).filter(EntryTypes.slug.in_(spellings))
-    st = args.get("status")
-    if st:
-        from marvin.schemas.platform.entries import ENTRY_STATUSES
-
-        if st not in ENTRY_STATUSES:
-            # The usual mistake: a value of the type's own status-like field passed as the publish status.
-            return json.dumps(
-                {
-                    "count": 0,
-                    "entries": [],
-                    "note": f"'{st}' is not a publish status ({', '.join(sorted(ENTRY_STATUSES))}). "
-                    f'If it\'s a value of the entry type\'s own field, use fields, e.g. {{"status": "{st}"}}.',
-                }
-            )
-        q = q.filter(Entries.status == st)
-    fields = args.get("fields")
-    if isinstance(fields, dict) and fields:
-        from marvin.services.automation.selector import json_field_equals
-
-        for key, value in fields.items():
-            if value is None or value == "":
-                return json.dumps({"count": 0, "entries": [], "note": f"fields.{key} has no value"})
-            q = q.filter(json_field_equals(Entries.data_json, str(key), value, ctx.session.get_bind().dialect.name))
-    text = args.get("query")
-    if text:
-        q = q.filter(Entries.title.ilike(f"%{text}%"))
-    if args.get("tags"):
-        q, ok = _narrow_by_tags(ctx.session, ctx.group_id, q, Entries, EntryTags, "entry_id", args)
-        if not ok:
-            return json.dumps({"count": 0, "entries": [], "note": "no such tag(s) in this workspace"})
-    # Asset filters: entries that have any attached asset, or specifically an image.
-    if args.get("has_images") or args.get("has_assets"):
-        q = q.join(EntryAssets, EntryAssets.entry_id == Entries.id)
-        if args.get("has_images"):
-            q = q.join(Assets, Assets.id == EntryAssets.asset_id).filter(Assets.asset_type == "image")
-        q = q.distinct()
-    # Resource filter: entries that have an attached reusable resource.
-    if args.get("has_resources"):
-        q = q.join(EntryResources, EntryResources.entry_id == Entries.id).distinct()
-    total = q.count()  # true total, independent of the row cap below
-    limit = min(int(args.get("limit") or 10), FIND_ENTRIES_MAX_ROWS)
+    limit = max(1, min(int(args.get("limit") or 10), FIND_ENTRIES_MAX_ROWS))
+    result = run_entry_query(ctx.session, ctx.group_id, args, limit=limit, offset=int(args.get("offset") or 0))
+    if result.note:
+        return json.dumps({"count": 0, "entries": [], "note": result.note})
+    rows, total = result.rows, result.total
     include = [str(k) for k in (args.get("include_fields") or []) if str(k).strip()][:FIND_ENTRIES_MAX_FIELDS]
-    rows = q.limit(limit).all()
+    include_meta = [str(k) for k in (args.get("include_metadata") or []) if str(k).strip()][:FIND_ENTRIES_MAX_FIELDS]
     # This is a LIST, not a detail view: keep rows LEAN to avoid bloating the agent's context.
     # Enough for the caller/UI to show thumbnails and link out — image-ready asset refs (with a
     # real `url` for the thumbnail strip) and lightweight resource refs (name/type/url). For the
@@ -323,11 +314,19 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
             "resources": resources_by_entry.get(e.id, []),
             "tags": tags_by_entry.get(e.id, []),
             **({"fields": {k: (e.data_json or {}).get(k) for k in include}} if include else {}),
+            **({"metadata": {k: (e.metadata_json or {}).get(k) for k in include_meta}} if include_meta else {}),
         }
         for e in rows
     ]
-    # `count` is the full match count; `entries` is a sample capped at `limit`.
-    return json.dumps({"entries": out, "count": total, "returned": len(out)})
+    # `count` is the full match count; `entries` is a page capped at `limit`.
+    payload: dict = {"entries": out, "count": total, "returned": len(out)}
+    if result.groups is not None:
+        payload["groups"] = result.groups
+    if result.scan_capped:
+        payload["note"] = "matched more entries than can be compared in one pass; narrow the filters for exact counts"
+    if result.unknown_ops:
+        payload["ignored_ops"] = result.unknown_ops
+    return json.dumps(payload)
 
 
 @register_tool(

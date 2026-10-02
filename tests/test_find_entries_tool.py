@@ -94,7 +94,7 @@ def test_include_fields_returns_values_to_compare(db_session, shop):
 def test_a_field_value_passed_as_publish_status_says_how_to_ask(db_session, shop):
     out = _find(db_session, shop, entry_type="artwork", status="available")
 
-    assert out["count"] == 0 and 'fields, e.g. {"status": "available"}' in out["note"]
+    assert out["count"] == 0 and 'filter with fields, e.g. {"<field_key>": "available"}' in out["note"]
 
 
 def test_typed_text_matches_checkbox_and_number_fields(db_session, shop):

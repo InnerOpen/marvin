@@ -85,10 +85,10 @@ def _resolve_target(session, group_id, action: dict, context: dict):
     # action time so it can use an earlier step's output (`metadata: {ext_id: $steps.lookup.output.body.id}`)
     # — which a top-level `target` cannot, since targets resolve before any step runs.
     if action.get("entity_query"):
-        from ..selector import _entries_query
+        from marvin.services.entries.query import run as run_entry_query
 
         query = interpolate(action["entity_query"], context)
-        rows = _entries_query(session, group_id, query if isinstance(query, dict) else {}).limit(2).all()
+        rows = run_entry_query(session, group_id, query if isinstance(query, dict) else {}, limit=2).rows
         if len(rows) != 1:
             raise AutomationActionError(f"entry action entity_query matched {len(rows)} entries (need exactly 1): {query}")
         return rows[0].id
