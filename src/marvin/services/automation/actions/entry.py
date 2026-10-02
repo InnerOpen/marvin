@@ -5,6 +5,8 @@ Two families, both through EntryService so the right events fire and chains stay
     entry_archived / entry_restored), and
   * **collection membership** — add_to_collection / remove_from_collection (emits
     entry_added_to_collection / entry_removed_from_collection), idempotent.
+  * **field writes** — set_metadata (merge into metadata_json) and set_data (merge into the schema
+    fields in data_json, validated against the entry type — e.g. an artwork's `status: sold`).
 
 It targets the triggering entry (`$event.entry_id`) by default, an entry by slug (`entity_slug`), or
 an explicit id — so it pairs with the target selector to act on a whole query: "add all drafts
@@ -39,7 +41,12 @@ COLLECTION_OPS: dict[str, str] = {
 # (`buttondown_subscriber_id: $steps.subscribe.output.body.id`) so later events can find the entry.
 METADATA_OPS = ("set_metadata",)
 
-ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS)
+# Merge a (templated) dict into the entry's schema fields (data_json). Fields read data_json before
+# metadata_json, so a schema field like an artwork's `status` can only be changed here, not by
+# set_metadata. The entry type's schema validates the result (an unknown select option fails).
+DATA_OPS = ("set_data",)
+
+ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS)
 
 
 def _resolve_target(session, group_id, action: dict, context: dict):
@@ -131,6 +138,33 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
         merged = {**(orm.metadata_json or {}), **patch}
         svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
         if svc.update(entity_id, {"metadata_json": merged}, reaction_depth=depth) is None:
+            raise AutomationActionError(f"entry {entity_id} not found in this workspace")
+        return {"entry_id": str(entity_id), "op": op, "merged": patch}
+
+    # ── Schema-field merge ─────────────────────────────────────────────────────
+    if op in DATA_OPS:
+        patch = interpolate(action.get("data") or {}, context)
+        if not isinstance(patch, dict) or not patch:
+            raise AutomationActionError("entry set_data needs a non-empty `data` object")
+        patch = {k: v for k, v in patch.items() if v is not None and v != ""}
+        if not patch:
+            raise AutomationActionError("entry set_data: every data value resolved to empty")
+        if dry_run:
+            return {"dry_run": True, "kind": "entry", "op": op, "entity_id": str(entity_id), "would_merge": patch}
+        from fastapi import HTTPException
+
+        from marvin.db.models.platform.entries import Entries
+
+        orm = session.get(Entries, entity_id)
+        if orm is None or orm.group_id != group_id:
+            raise AutomationActionError(f"entry {entity_id} not found in this workspace")
+        merged = {**(orm.data_json or {}), **patch}
+        svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
+        try:
+            updated = svc.update(entity_id, {"data_json": merged}, reaction_depth=depth)
+        except HTTPException as e:  # schema validation rejected the merged fields
+            raise AutomationActionError(f"entry set_data rejected: {e.detail}") from e
+        if updated is None:
             raise AutomationActionError(f"entry {entity_id} not found in this workspace")
         return {"entry_id": str(entity_id), "op": op, "merged": patch}
 

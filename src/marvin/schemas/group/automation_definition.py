@@ -105,13 +105,14 @@ class OperationAction(_DefnBase):
 
 class EntryAction(_DefnBase):
     kind: Literal["entry"]
-    op: Literal["publish", "unpublish", "archive", "restore", "add_to_collection", "remove_from_collection", "set_metadata"]
+    op: Literal["publish", "unpublish", "archive", "restore", "add_to_collection", "remove_from_collection", "set_metadata", "set_data"]
     entity_id: str | None = None
     entity_slug: str | None = None
     entity_query: dict[str, Any] | None = None  # find exactly one entry (target-selector vocabulary; values may be templates)
     collection_id: str | None = None  # for add_to_collection / remove_from_collection…
     collection_slug: str | None = None  # …preferred: a collection slug/name (may be a $event.* template)
     metadata: dict[str, Any] | None = None  # for set_metadata: keys merged into metadata_json (values may be templates)
+    data: dict[str, Any] | None = None  # for set_data: schema fields merged into data_json (validated; values may be templates)
     id: str | None = None
 
 
