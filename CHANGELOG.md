@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.121 (2026-10-02)
+
+### Features
+
+- **publishing**: Coalesce site rebuild requests per workspace
+  ([`322d0bf`](https://github.com/InnerOpen/marvin/commit/322d0bfbad52a8d8edfc39ae152f230e9bea21ed))
+
+
 ## v1.0.0-rc.120 (2026-10-02)
 
 ### Bug Fixes
