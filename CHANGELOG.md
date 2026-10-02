@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.125 (2026-10-02)
+
+### Bug Fixes
+
+- **admin**: Style the activity toasts
+  ([`de47dfc`](https://github.com/InnerOpen/marvin/commit/de47dfcd2e0069c764ba182fd9036fcc09e73616))
+
+
 ## v1.0.0-rc.124 (2026-10-02)
 
 ### Chores
