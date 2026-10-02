@@ -7,15 +7,14 @@ authenticates purely by the token value.
 """
 
 from datetime import datetime
-from typing import Literal
 
 from pydantic import UUID4, ConfigDict
 
 from marvin.schemas._marvin import _MarvinModel
 
-# How the sender signs: the original hex HMAC-SHA256 of the raw body, or Square's base64 HMAC-SHA256 of
-# notification URL + body (which needs `signature_url`).
-SignatureScheme = Literal["hmac_sha256_hex", "square"]
+# How the sender signs — a core preset, an installed integration's preset, or `custom` with
+# `signature_config`. Names are validated by the controller (integration presets are dynamic).
+SignatureScheme = str
 
 
 class IncomingWebhookCreate(_MarvinModel):
@@ -29,6 +28,7 @@ class IncomingWebhookCreate(_MarvinModel):
     signature_header: str | None = None
     signature_scheme: SignatureScheme | None = None
     signature_url: str | None = None
+    signature_config: dict | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -41,6 +41,7 @@ class IncomingWebhookUpdate(_MarvinModel):
     signature_header: str | None = None
     signature_scheme: SignatureScheme | None = None
     signature_url: str | None = None
+    signature_config: dict | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -57,6 +58,7 @@ class IncomingWebhookRead(_MarvinModel):
     signature_header: str | None = None
     signature_scheme: SignatureScheme | None = None
     signature_url: str | None = None
+    signature_config: dict | None = None
     received_count: int = 0
     last_received_at: datetime | None = None
 

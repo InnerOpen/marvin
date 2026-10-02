@@ -22,11 +22,34 @@ from marvin.schemas.group.incoming_webhook import (
     IncomingWebhookRead,
     IncomingWebhookUpdate,
 )
+from marvin.services.webhooks.incoming_signature import (
+    CUSTOM_SCHEME,
+    SPEC_FIELDS,
+    SignatureSpec,
+    available_schemes,
+    spec_for,
+    spec_problems,
+)
 
 router = APIRouter(prefix="/incoming-webhooks", route_class=MarvinCrudRoute)
 
 
 _require_admin = require_workspace_admin
+
+
+def _require_usable_scheme(scheme: str | None, config: dict | None) -> None:
+    """Refuse a scheme nothing can verify with — saving it would make every delivery fail."""
+    if not scheme or spec_for(scheme, config) is not None:
+        return
+    if scheme == CUSTOM_SCHEME:
+        try:
+            problems = spec_problems(SignatureSpec(**{k: v for k, v in (config or {}).items() if k in SPEC_FIELDS}))
+        except TypeError as e:
+            problems = [str(e)]
+        detail = f"custom signature config is invalid: {'; '.join(problems)}"
+    else:
+        detail = f"unknown signature scheme '{scheme}' (not a core preset, and no installed integration provides it)"
+    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
 
 
 def _slugify(name: str) -> str:
@@ -54,9 +77,16 @@ class IncomingWebhooksController(BaseUserController):
         rows = self.session.query(WorkspaceIncomingWebhookModel).filter_by(group_id=self.group_id).order_by(WorkspaceIncomingWebhookModel.name).all()
         return [IncomingWebhookRead.model_validate(r) for r in rows]
 
+    @router.get("/signature-schemes", summary="Signature schemes a webhook can verify with")
+    def signature_schemes(self) -> list[dict]:
+        """Core presets, presets contributed by installed integrations, then `custom`."""
+        _require_admin(self.user, self.group_id)
+        return available_schemes()
+
     @router.post("", response_model=IncomingWebhookRead, status_code=status.HTTP_201_CREATED, summary="Create Incoming Webhook")
     def create_webhook(self, data: IncomingWebhookCreate) -> IncomingWebhookRead:
         _require_admin(self.user, self.group_id)
+        _require_usable_scheme(data.signature_scheme, data.signature_config)
         slug = data.slug or _slugify(data.name)
         if self.session.query(WorkspaceIncomingWebhookModel).filter_by(group_id=self.group_id, slug=slug).first():
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Incoming webhook slug '{slug}' already exists.")
@@ -78,7 +108,10 @@ class IncomingWebhooksController(BaseUserController):
     def update_webhook(self, webhook_id: UUID4, data: IncomingWebhookUpdate) -> IncomingWebhookRead:
         _require_admin(self.user, self.group_id)
         row = self._get_or_404(webhook_id)
-        for field, value in data.model_dump(exclude_unset=True).items():
+        changes = data.model_dump(exclude_unset=True)
+        if "signature_scheme" in changes or "signature_config" in changes:
+            _require_usable_scheme(changes.get("signature_scheme", row.signature_scheme), changes.get("signature_config", row.signature_config))
+        for field, value in changes.items():
             setattr(row, field, value)
         self.session.commit()
         self.session.refresh(row)

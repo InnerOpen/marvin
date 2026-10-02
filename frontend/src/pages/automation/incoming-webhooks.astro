@@ -1,6 +1,6 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getBrowserApiBaseUrl } from "@/lib/api/config";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
@@ -10,17 +10,21 @@ const sdk = createSdkClient(authToken);
 
 let workspace: any = null;
 let webhooks: any[] = [];
+let schemes: any[] = [];
 let error: string | null = null;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
   if (workspace) webhooks = await sdk.incomingWebhooks.list();
+  // Core presets, presets from installed integrations, then "custom".
+  if (workspace) schemes = await fetchApi<any[]>("/api/incoming-webhooks/signature-schemes", {}, authToken);
 } catch (e) {
   console.error("[incoming-webhooks] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
 }
 
 const listJson = JSON.stringify(webhooks).replace(/</g, "\\u003c");
+const schemesJson = JSON.stringify(schemes).replace(/</g, "\\u003c");
 // Shown to the user to configure an external system that POSTs here, so it must be the publicly
 // reachable address rather than an internal cluster one.
 const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
@@ -29,6 +33,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
 <AppLayout title="Incoming Webhooks" eyebrow="Automation">
  <div class="iw-page" data-hook-base={hookBase}>
   <script type="application/json" id="iw-list-data" is:inline set:html={listJson}></script>
+  <script type="application/json" id="iw-schemes-data" is:inline set:html={schemesJson}></script>
   <div class="toolbar">
     <div>
       <h2>Incoming Webhooks</h2>
@@ -90,6 +95,11 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
 
   const hookBase = (document.querySelector(".iw-page") as HTMLElement).dataset.hookBase || "";
   let webhooks: any[] = JSON.parse($("iw-list-data").textContent || "[]");
+  const schemes: any[] = JSON.parse($("iw-schemes-data").textContent || "[]");
+  const schemeLabel = (name) => {
+    const s = schemes.find((x) => x.name === name);
+    return s ? `${name}${s.source !== "core" ? ` (from ${s.source})` : ""}` : name;
+  };
 
   function hookUrl(token) { return `${hookBase}/${token}`; }
   function fmtWhen(iso) {
@@ -140,7 +150,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
       ${tokenBlock}
       <div class="signing-row">
         <span class="hint">Signing: ${w.signingSecretRef
-          ? `${w.signatureScheme === "square" ? "Square (HMAC of URL + body)" : "HMAC-SHA256"} with secret <code>${esc(w.signingSecretRef)}</code> in header <code>${esc(w.signatureHeader || (w.signatureScheme === "square" ? "x-square-hmacsha256-signature" : "X-Signature-256"))}</code>`
+          ? `${esc(schemeLabel(w.signatureScheme || "hmac_sha256_hex"))} with secret <code>${esc(w.signingSecretRef)}</code>${w.signatureHeader ? ` in header <code>${esc(w.signatureHeader)}</code>` : ""}`
           : "off — the URL token is the only credential"}</span>
         <button class="button ghost sm" data-act="edit-signing">${w.signingSecretRef ? "Change" : "Set up signing"}</button>
       </div>
@@ -148,10 +158,10 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         <input class="input" data-signing-ref placeholder="Secret slug, e.g. WEBHOOK_SIGNING_KEY" value="${esc(w.signingSecretRef || "")}" />
         <input class="input" data-signing-header placeholder="Header (default X-Signature-256)" value="${esc(w.signatureHeader || "")}" />
         <select class="input" data-signing-scheme title="How the sender signs">
-          <option value="" ${w.signatureScheme === "square" ? "" : "selected"}>sha256=hex HMAC of the body</option>
-          <option value="square" ${w.signatureScheme === "square" ? "selected" : ""}>Square (base64 HMAC of URL + body)</option>
+          ${schemes.map((s) => `<option value="${esc(s.name)}" title="${esc(s.notes || "")}" ${(w.signatureScheme || "hmac_sha256_hex") === s.name ? "selected" : ""}>${esc(schemeLabel(s.name))}${s.notes ? ` — ${esc(s.notes)}` : ""}</option>`).join("")}
         </select>
-        <input class="input url" data-signing-url placeholder="Square: the exact notification URL registered in Square" value="${esc(w.signatureUrl || (w.token ? hookUrl(w.token) : ""))}" />
+        <input class="input url" data-signing-url placeholder="Signed URL — only for schemes that sign the URL (the exact URL you gave the sender)" value="${esc(w.signatureUrl || (w.token ? hookUrl(w.token) : ""))}" />
+        <textarea class="input mono" data-signing-config rows="5" spellcheck="false" ${w.signatureScheme === "custom" ? "" : "hidden"} placeholder='{"algorithm": "sha256", "encoding": "base64", "message": "{url}{body}", "header": "X-Signature"}'>${esc(w.signatureConfig ? JSON.stringify(w.signatureConfig, null, 2) : "")}</textarea>
         <button class="button sm" data-act="save-signing">Save</button>
         <button class="button ghost sm" data-act="gen-signing" title="Create a random key, store it as that secret, and show it once so you can paste it into the sender">Generate key</button>
         <button class="button ghost sm" data-act="cancel-signing">Cancel</button>
@@ -205,6 +215,13 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
       $("iw-create").setAttribute("hidden", "");
       status.textContent = "";
     } catch (e) { status.textContent = `Error: ${e?.message ?? e}`; }
+  });
+
+  // Custom is the only scheme with settings of its own — show its JSON box only when it's picked.
+  $("iw-list").addEventListener("change", (ev: Event) => {
+    const sel = ev.target as HTMLElement;
+    if (!sel.matches?.("[data-signing-scheme]")) return;
+    sel.closest(".signing-edit")?.querySelector("[data-signing-config]")?.toggleAttribute("hidden", (sel as HTMLSelectElement).value !== "custom");
   });
 
   // ── Per-card actions (event delegation) ─────────────────────────────────────
@@ -263,11 +280,17 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         const box = btn.closest(".signing-edit");
         const signingSecretRef = (box.querySelector("[data-signing-ref]") as HTMLInputElement).value.trim() || null;
         const signatureHeader = (box.querySelector("[data-signing-header]") as HTMLInputElement).value.trim() || null;
-        const signatureScheme = (box.querySelector("[data-signing-scheme]") as HTMLSelectElement).value || null;
-        // Square signs the URL it was given, so it is stored; other schemes don't use it.
-        const signatureUrl = signatureScheme === "square" ? (box.querySelector("[data-signing-url]") as HTMLInputElement).value.trim() || null : null;
+        const scheme = (box.querySelector("[data-signing-scheme]") as HTMLSelectElement).value;
+        const signatureScheme = scheme === "hmac_sha256_hex" ? null : scheme;
+        // Stored for every scheme; only those whose message includes {url} use it.
+        const signatureUrl = (box.querySelector("[data-signing-url]") as HTMLInputElement).value.trim() || null;
+        let signatureConfig = null;
+        if (scheme === "custom") {
+          try { signatureConfig = JSON.parse((box.querySelector("[data-signing-config]") as HTMLTextAreaElement).value || "{}"); }
+          catch { setStatus("Custom config must be valid JSON.", true); return; }
+        }
         setStatus("Saving…");
-        upsert(await sdk().incomingWebhooks.update(id, { signingSecretRef, signatureHeader, signatureScheme, signatureUrl } as any));
+        upsert(await sdk().incomingWebhooks.update(id, { signingSecretRef, signatureHeader, signatureScheme, signatureUrl, signatureConfig } as any));
         setStatus("");
       } else if (act === "copy") {
         await navigator.clipboard.writeText(hookUrl(w.token));

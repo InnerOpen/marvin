@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from marvin.services.webhooks.incoming_signature import verify_for_scheme, verify_signature
+from marvin.services.webhooks.incoming_signature import spec_for, verify_request, verify_signature
 
 BODY = b'{"event_type":"subscriber.unsubscribed","data":{"email_address":"a@b.c"}}'
 KEY = "wh-signing-key"
@@ -43,7 +43,15 @@ class TestReceiverSignatureGate:
     def test_no_signing_ref_skips_verification(self):
         from marvin.routes.hooks.hooks_controller import _check_signature
 
-        wh = SimpleNamespace(slug="hook", signing_secret_ref=None, signature_header=None, group_id="G", signature_scheme=None, signature_url=None)
+        wh = SimpleNamespace(
+            slug="hook",
+            signing_secret_ref=None,
+            signature_header=None,
+            group_id="G",
+            signature_scheme=None,
+            signature_url=None,
+            signature_config=None,
+        )
         _check_signature(wh, BODY, self._request({}))  # no raise
 
     def test_valid_signature_passes(self, monkeypatch):
@@ -58,6 +66,7 @@ class TestReceiverSignatureGate:
             group_id="G",
             signature_scheme=None,
             signature_url=None,
+            signature_config=None,
         )
         _check_signature(wh, BODY, self._request({"X-Buttondown-Signature": f"sha256={SIG}"}))
 
@@ -73,6 +82,7 @@ class TestReceiverSignatureGate:
             group_id="G",
             signature_scheme=None,
             signature_url=None,
+            signature_config=None,
         )
         with pytest.raises(HTTPException) as e:
             _check_signature(wh, BODY, self._request({}))
@@ -86,66 +96,76 @@ class TestReceiverSignatureGate:
 
         monkeypatch.setattr(resolver, "resolve_secret", lambda ref, gid: None)
         wh = SimpleNamespace(
-            slug="hook", signing_secret_ref="MISSING", signature_header=None, group_id="G", signature_scheme=None, signature_url=None
+            slug="hook",
+            signing_secret_ref="MISSING",
+            signature_header=None,
+            group_id="G",
+            signature_scheme=None,
+            signature_url=None,
+            signature_config=None,
         )
         with pytest.raises(HTTPException):
             _check_signature(wh, BODY, self._request({"X-Signature-256": f"sha256={SIG}"}))
 
 
-SQUARE_URL = "https://api.iwobble.com/api/hooks/tok123"
-SQUARE_BODY = b'{"type":"payment.updated","data":{"object":{"payment":{"status":"COMPLETED","order_id":"o1"}}}}'
-SQUARE_SIG = base64.b64encode(hmac.new(KEY.encode(), SQUARE_URL.encode() + SQUARE_BODY, hashlib.sha256).digest()).decode()
+URL = "https://api.iwobble.com/api/hooks/tok123"
+URL_BODY = b'{"type":"inventory.count.updated"}'
+URL_SIG = base64.b64encode(hmac.new(KEY.encode(), URL.encode() + URL_BODY, hashlib.sha256).digest()).decode()
+# The URL + body construction (Square's, contributed by its integration) described as a custom scheme.
+URL_AND_BODY = {"encoding": "base64", "message": "{url}{body}", "header": "x-url-signature"}
 
 
-class TestSquareScheme:
-    def test_square_signature_over_url_and_body_verifies(self):
-        assert verify_for_scheme("square", SQUARE_BODY, SQUARE_SIG, KEY, SQUARE_URL)
+class TestUrlAndBodyConstruction:
+    def _verify(self, body=URL_BODY, sig=URL_SIG, url=URL):
+        spec = spec_for("custom", URL_AND_BODY)
+        return verify_request(spec, body, {"x-url-signature": sig}, KEY, url=url)
 
-    def test_square_signature_for_another_url_does_not_verify(self):
-        assert not verify_for_scheme("square", SQUARE_BODY, SQUARE_SIG, KEY, SQUARE_URL + "x")
+    def test_signature_over_url_and_body_verifies(self):
+        assert self._verify()
 
-    def test_square_signature_tampered_body_does_not_verify(self):
-        assert not verify_for_scheme("square", SQUARE_BODY + b" ", SQUARE_SIG, KEY, SQUARE_URL)
+    def test_signature_for_another_url_does_not_verify(self):
+        assert not self._verify(url=URL + "x")
 
-    def test_square_without_configured_url_never_verifies(self):
-        assert not verify_for_scheme("square", SQUARE_BODY, SQUARE_SIG, KEY, None)
+    def test_tampered_body_does_not_verify(self):
+        assert not self._verify(body=URL_BODY + b" ")
 
-    def test_hex_body_signature_is_not_accepted_as_square(self):
-        hex_sig = hmac.new(KEY.encode(), SQUARE_BODY, hashlib.sha256).hexdigest()
-        assert not verify_for_scheme("square", SQUARE_BODY, hex_sig, KEY, SQUARE_URL)
+    def test_without_the_signed_url_never_verifies(self):
+        assert not self._verify(url=None)
 
-    def test_unknown_scheme_fails_closed(self):
-        assert not verify_for_scheme("made-up", BODY, f"sha256={SIG}", KEY)
+    def test_hex_body_signature_is_not_accepted(self):
+        assert not self._verify(sig=hmac.new(KEY.encode(), URL_BODY, hashlib.sha256).hexdigest())
+
+    def test_unknown_scheme_has_no_spec(self):
+        assert spec_for("made-up") is None
 
     def test_no_scheme_is_the_original_hex_check(self):
-        assert verify_for_scheme(None, BODY, f"sha256={SIG}", KEY)
+        assert verify_request(spec_for(None), BODY, {"X-Signature-256": f"sha256={SIG}"}, KEY)
 
 
-class TestReceiverSquareGate:
-    def _webhook(self, url=SQUARE_URL):
+class TestReceiverCustomGate:
+    def _webhook(self, url=URL):
         return SimpleNamespace(
-            slug="square",
-            signing_secret_ref="SQUARE_SIGNATURE_KEY",
+            slug="shop",
+            signing_secret_ref="SHOP_KEY",
             signature_header=None,
             group_id="G",
-            signature_scheme="square",
+            signature_scheme="custom",
             signature_url=url,
+            signature_config=URL_AND_BODY,
         )
 
-    def test_square_scheme_reads_square_header_by_default(self, monkeypatch):
+    def test_custom_scheme_reads_its_configured_header(self, monkeypatch):
         import marvin.services.secrets.resolver as resolver
         from marvin.routes.hooks.hooks_controller import _check_signature
 
         monkeypatch.setattr(resolver, "resolve_secret", lambda ref, gid: KEY)
-        request = SimpleNamespace(headers={"x-square-hmacsha256-signature": SQUARE_SIG})
-        _check_signature(self._webhook(), SQUARE_BODY, request)  # no raise
+        _check_signature(self._webhook(), URL_BODY, SimpleNamespace(headers={"x-url-signature": URL_SIG}))  # no raise
 
-    def test_square_scheme_without_url_is_401(self, monkeypatch):
+    def test_custom_scheme_without_url_is_401(self, monkeypatch):
         import marvin.services.secrets.resolver as resolver
         from marvin.routes.hooks.hooks_controller import _check_signature
 
         monkeypatch.setattr(resolver, "resolve_secret", lambda ref, gid: KEY)
-        request = SimpleNamespace(headers={"x-square-hmacsha256-signature": SQUARE_SIG})
         with pytest.raises(HTTPException) as e:
-            _check_signature(self._webhook(url=None), SQUARE_BODY, request)
+            _check_signature(self._webhook(url=None), URL_BODY, SimpleNamespace(headers={"x-url-signature": URL_SIG}))
         assert e.value.status_code == 401

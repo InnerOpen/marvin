@@ -23,7 +23,7 @@ from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookMo
 from marvin.services.event_bus_service.event_bus_service import EventBusService
 from marvin.services.event_bus_service.event_types import EventIncomingWebhookData, EventTypes
 from marvin.services.security.client_info import get_client_ip
-from marvin.services.webhooks.incoming_signature import DEFAULT_HEADERS, DEFAULT_SIGNATURE_HEADER, verify_for_scheme
+from marvin.services.webhooks.incoming_signature import spec_for, verify_request
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -44,16 +44,17 @@ def _check_signature(webhook: WorkspaceIncomingWebhookModel, raw: bytes, request
 
     key = resolve_secret(ref, webhook.group_id)
     scheme = webhook.signature_scheme
-    header = webhook.signature_header or DEFAULT_HEADERS.get(scheme or "", DEFAULT_SIGNATURE_HEADER)
+    spec = spec_for(scheme, webhook.signature_config)
+    header = webhook.signature_header or (spec.header if spec else "?")
     presented = request.headers.get(header)
-    if not verify_for_scheme(scheme, raw, presented, key, webhook.signature_url):
+    if not verify_request(spec, raw, request.headers, key, url=webhook.signature_url, header_override=webhook.signature_header):
         # Say what arrived without leaking it: the header's shape is enough to tell a wrong key from a
         # wrong header name or an unexpected encoding (base64 vs hex, missing prefix).
         shape = "absent" if presented is None else f"len={len(presented)} prefix={presented[:7]!r}"
         logger.warning(
             "incoming webhook %s: signature rejected (scheme %s; header %s %s; key %s; url %s; body %d bytes; signature headers seen: %s)",
             webhook.slug,
-            scheme or "hmac_sha256_hex",
+            (scheme or "hmac_sha256_hex") if spec else f"{scheme} (unknown or invalid — integration uninstalled?)",
             header,
             shape,
             "resolved" if key else "UNRESOLVED",

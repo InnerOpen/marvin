@@ -52,11 +52,13 @@ class WorkspaceIncomingWebhookModel(SqlAlchemyBase, BaseMixins):
     # (the Buttondown / GitHub / Stripe-style scheme). The URL token alone stays the credential otherwise.
     signing_secret_ref: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     signature_header: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    # Which construction the sender signs with (see services/webhooks/incoming_signature.py). Null =
-    # `hmac_sha256_hex`. `square` signs the notification URL + body, so it needs `signature_url`: the
-    # public URL the sender was given (behind the tunnel the backend sees a different one).
+    # Which construction the sender signs with (services/webhooks/incoming_signature.py): a core preset,
+    # an installed integration's preset, or `custom` (built from `signature_config`). Null =
+    # `hmac_sha256_hex`. Schemes whose message includes `{url}` need `signature_url`: the public URL the
+    # sender was given (behind the tunnel the backend sees a different one).
     signature_scheme: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     signature_url: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    signature_config: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
 
     # Observability — surfaced in the management UI so an admin can confirm deliveries land.
     received_count: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
