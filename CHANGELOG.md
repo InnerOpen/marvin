@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.124 (2026-10-02)
+
+### Chores
+
+- **deploy**: Iwobble allows 16 MiB integration downloads (Square item pictures)
+  ([`151325f`](https://github.com/InnerOpen/marvin/commit/151325fca2879dcb1ed891ae7a4eb995bef9b33b))
+
+### Features
+
+- **admin**: Live activity toasts
+  ([`378a10d`](https://github.com/InnerOpen/marvin/commit/378a10d6642e4c47fe5633c0ca2b6c2928f3c487))
+
+
 ## v1.0.0-rc.123 (2026-10-02)
 
 ### Features
