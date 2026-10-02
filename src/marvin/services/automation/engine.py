@@ -31,8 +31,8 @@ def _ms_since(started: datetime) -> int:
 
 
 def _entry_context(session, group_id, entry_id) -> dict | None:
-    """Load the entry facts conditions and actions reference: type slug, status, title, slug, summary
-    and the schema fields (`data`)."""
+    """Load the entry facts conditions and actions reference: type slug, status, title, slug, summary,
+    the schema fields (`data`) and `metadata` (ids an earlier workflow stored, e.g. a Square link)."""
     from marvin.db.models.platform.entries import Entries
 
     entry = session.get(Entries, entry_id)
@@ -48,6 +48,7 @@ def _entry_context(session, group_id, entry_id) -> dict | None:
         "summary": getattr(entry, "summary", None),
         # Schema fields, so an action can forward content (`${entry.data.body}` → a newsletter API).
         "data": data if isinstance(data := getattr(entry, "data_json", None), dict) else {},
+        "metadata": meta if isinstance(meta := getattr(entry, "metadata_json", None), dict) else {},
     }
 
 

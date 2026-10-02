@@ -23,11 +23,17 @@ _BRACED = re.compile(r"\$\{([^}]+)\}")
 
 
 def resolve_path(path: str, context: dict) -> Any:
-    """Resolve a dotted path (``"event.entry_type"``) against the context; None if any hop misses."""
+    """Resolve a dotted path (``"event.entry_type"``) against the context; None if any hop misses.
+
+    A numeric hop indexes a list (``"event.payload.data.object.inventory_counts.0.quantity"``) — senders
+    such as Square put the interesting record inside an array.
+    """
     cur: Any = context
     for part in str(path).split("."):
         if isinstance(cur, dict) and part in cur:
             cur = cur[part]
+        elif isinstance(cur, list) and part.isdigit() and int(part) < len(cur):
+            cur = cur[int(part)]
         else:
             return None
     return cur
