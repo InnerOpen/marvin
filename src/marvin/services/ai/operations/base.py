@@ -19,16 +19,23 @@ ROLE_OWNER = 5
 INVOCATION_SOURCES = ("editor", "forms", "actions", "mcp", "scheduled", "agent", "automation", "api")
 
 # User-facing catalog for the invocation_sources policy editor: which surface each source is, in
-# terms people recognize (not how it's wired). Order = INVOCATION_SOURCES. A source is allowed unless
-# the workspace policy explicitly sets it false, so the editor shows every source as on by default.
+# terms people recognize (not how it's wired). A source is allowed unless the workspace policy
+# explicitly sets it false, so the editor shows every source as on by default.
+#
+# Only surfaces that actually identify themselves are listed. `forms`, `actions` and `scheduled` stay
+# valid keys (an operation may declare them; old policies may store them) but nothing sends them — AI
+# on form submissions and scheduled runs goes through workflows (`automation`) — so a toggle for them
+# would switch nothing off.
+#
+# `source` is reported by the caller, so this is feature gating (turn a surface off), not a security
+# boundary: per-user authorization is the role check.
+UNSENT_SOURCES = ("forms", "actions", "scheduled")
+
 INVOCATION_SOURCE_CATALOG: tuple[dict[str, str], ...] = (
     {"key": "editor", "label": "Entry editor", "description": "Inline AI actions inside the entry editor (summarize, tags, rewrite…)."},
-    {"key": "forms", "label": "Forms", "description": "AI on form submissions — classify and route what comes in."},
-    {"key": "actions", "label": "Manual actions", "description": "AI actions a person triggers by hand from the UI."},
+    {"key": "agent", "label": "Ask Marvin", "description": "The Ask Marvin bubble, the Ask page and named agents (incl. resuming a paused chat)."},
+    {"key": "automation", "label": "Workflows", "description": "Workflows running an AI-operation step (incl. form- or schedule-triggered ones)."},
     {"key": "mcp", "label": "External MCP hosts", "description": "External assistants (Claude Desktop, etc.) calling in over MCP."},
-    {"key": "scheduled", "label": "Scheduled tasks", "description": "AI run by scheduled/recurring tasks."},
-    {"key": "agent", "label": "Ask Marvin", "description": "The Ask-Marvin assistant / agent loop."},
-    {"key": "automation", "label": "Automations", "description": "Flavor B workflows running an AI-operation step."},
     {"key": "api", "label": "API", "description": "Direct calls to the AI operation endpoints."},
 )
 

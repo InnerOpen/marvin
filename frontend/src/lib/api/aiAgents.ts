@@ -219,7 +219,7 @@ export function runAgent(
     `/api/ai/agents/${encodeURIComponent(slug)}/run`,
     json({
       message,
-      source: "editor",
+      source: "agent",
       ...(opts.register ? { register: opts.register } : {}),
       ...(opts.entityType && opts.entityId ? { entityType: opts.entityType, entityId: opts.entityId } : {}),
       ...(opts.threadId ? { threadId: opts.threadId } : {}),

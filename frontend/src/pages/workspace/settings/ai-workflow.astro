@@ -180,7 +180,7 @@ const modCfg = s.moderationConfig ?? {};
     <div class="section-card ai-dependent" id="approval-section">
       <div class="section-title">
         <h3>Approval Mode</h3>
-        <p>How much autonomy AI has to apply changes without human review.</p>
+        <p>How much autonomy AI has to apply the content it generates without human review — inline AI actions, revise, workflow write-backs and alt text. Held-back changes wait as suggestions to accept. What Ask Marvin may <em>do</em> on its own (tag, attach, publish…) is set per agent under <a href="/workspace/settings/ai-agents">AI agents</a>.</p>
       </div>
       <div class="radio-group">
         <label class:list={["radio-card", { selected: s.approvalMode === "suggest-only" }]}>
@@ -194,7 +194,7 @@ const modCfg = s.moderationConfig ?? {};
           <input type="radio" name="approval_mode" value="allow-draft-update" checked={s.approvalMode === "allow-draft-update"} />
           <div class="radio-content">
             <strong>Allow draft update</strong>
-            <span>AI can update draft entries automatically. Published entries still require review.</span>
+            <span>AI can update entries still in Inbox or Draft automatically. Entries in review, approved or published still require review.</span>
           </div>
         </label>
         <label class:list={["radio-card", { selected: s.approvalMode === "allow-automatic-update" }]}>

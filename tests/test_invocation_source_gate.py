@@ -68,11 +68,21 @@ def test_intersection_requires_both():
     assert exc.value.status_code == 403
 
 
-def test_source_catalog_matches_invocation_sources():
-    # Drift guard: the policy-editor catalog must cover exactly the real sources, so a new source
-    # can't ship without a UI toggle (and the UI can't show a source the gate never checks).
-    from marvin.services.ai.operations.base import INVOCATION_SOURCE_CATALOG, INVOCATION_SOURCES
+def test_source_catalog_lists_every_source_something_sends():
+    # Drift guard: every source a caller actually sends has a UI toggle (a new source can't ship
+    # without one), and the UI never offers a toggle that switches nothing off.
+    from marvin.services.ai.operations.base import INVOCATION_SOURCE_CATALOG, INVOCATION_SOURCES, UNSENT_SOURCES
 
-    catalog_keys = [s["key"] for s in INVOCATION_SOURCE_CATALOG]
-    assert catalog_keys == list(INVOCATION_SOURCES)  # same set AND order
+    catalog_keys = {s["key"] for s in INVOCATION_SOURCE_CATALOG}
+    assert catalog_keys == set(INVOCATION_SOURCES) - set(UNSENT_SOURCES)
     assert all(s.get("label") and s.get("description") for s in INVOCATION_SOURCE_CATALOG)
+
+
+def test_the_bubble_and_ask_page_identify_as_the_agent_surface():
+    # The "Ask Marvin" toggle (agent) must govern them; they used to send "editor".
+    from pathlib import Path
+
+    api = Path(__file__).resolve().parents[1] / "frontend" / "src" / "lib" / "api"
+    for name in ("aiBubble.ts", "aiAgents.ts"):
+        text = (api / name).read_text()
+        assert 'source: "editor"' not in text and 'source: "agent"' in text, name

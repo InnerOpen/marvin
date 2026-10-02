@@ -926,9 +926,11 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This thread has nothing waiting for approval.")
         spec = self._agent_or_404(thread.agent_slug)
         role = self._user_role()
-        ok, reason = may_talk(spec, role, "editor")
+        # Resuming a paused Ask-Marvin conversation is the agent surface, gated like the original run.
+        ok, reason = may_talk(spec, role, "agent")
         if not ok:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
+        self._check_invocation_source("agent", ("agent",))
         self._check_budget()
         provider = self._agent_provider()
         run = dict(pending.get("run") or {})
@@ -957,7 +959,7 @@ class AIOperationsController(BaseUserController):
         last_user = next((m.content for m in sorted(thread.messages, key=lambda m: m.seq, reverse=True) if m.role == "user"), "")
         body = AIAgentRequest(
             message=last_user,
-            source="editor",
+            source="agent",
             thread_id=str(thread.id),
             max_steps=run.get("max_steps"),
             register=run.get("register"),
@@ -2105,8 +2107,9 @@ class AIOperationsController(BaseUserController):
 
     def _approval_mode(self) -> str:
         """Workspace approval_mode: suggest-only | allow-draft-update | allow-automatic-update."""
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        return settings.approval_mode if settings and settings.approval_mode else "suggest-only"
+        from marvin.services.ai.approval import workspace_approval_mode
+
+        return workspace_approval_mode(self.session, self.group_id)
 
     def _persona(self) -> tuple[str, str]:
         """(assistant_name, persona_prompt) from the workspace AI settings.
@@ -2341,10 +2344,9 @@ class AIOperationsController(BaseUserController):
         if not obj or obj.group_id != self.group_id:
             return None
 
-        mode = self._approval_mode()
-        # Assets/resources have no published lifecycle to protect, so treat them as always-draft.
-        is_draft = entity_type != "entry" or obj.status not in ("published", "archived")
-        should_apply = mode == "allow-automatic-update" or (mode == "allow-draft-update" and is_draft)
+        from marvin.services.ai.approval import may_apply
+
+        should_apply = may_apply(self._approval_mode(), entity_type, getattr(obj, "status", None))
 
         try:
             if should_apply:

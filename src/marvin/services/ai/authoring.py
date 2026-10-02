@@ -415,9 +415,9 @@ class AuthoringService:
             # Honor the workspace approval policy, exactly like the operations controller's write-back:
             # suggest-only always stages; allow-draft-update applies to drafts and stages published;
             # allow-automatic-update always applies. Revise must not bypass the review wall.
-            mode = self._approval_mode()
-            is_draft = entry.status not in ("published", "archived")
-            should_apply = mode == "allow-automatic-update" or (mode == "allow-draft-update" and is_draft)
+            from marvin.services.ai.approval import may_apply
+
+            should_apply = may_apply(self._approval_mode(), "entry", entry.status)
 
             if should_apply:
                 # Associations first (they can't fail content validation) so a malformed field
@@ -592,9 +592,14 @@ class AuthoringService:
                 parsed, _ = self.provider.execute_operation(messages, self.model, op.output_schema, opts)
                 alt = (parsed or {}).get("alt_text")
                 if alt:
-                    asset.alt_text = alt
+                    from marvin.services.ai.approval import may_apply
+
+                    if may_apply(self._approval_mode(), "asset", None):
+                        asset.alt_text = alt
+                        enriched.append(asset.slug)
+                    else:  # suggest-only: offer it for review, like any other AI write-back
+                        self.repos.assets.stage_suggestion(asset.id, {"alt_text": alt, "_meta": {"operation": "compose-alt-text"}})
                     self.session.commit()
-                    enriched.append(asset.slug)
             except Exception as e:  # enrichment is best-effort — never sink the compose
                 self.session.rollback()
                 self.logger.warning(f"AuthoringService: alt-text enrichment skipped for asset {aid}: {e}")
@@ -841,15 +846,10 @@ class AuthoringService:
         return getattr(get_app_settings(), "AI_DEFAULT_TEMPERATURE", 0.7)
 
     def _approval_mode(self) -> str:
-        """Workspace approval policy: suggest-only | allow-draft-update | allow-automatic-update.
+        """Workspace approval policy — the same rule every AI write-back uses (services/ai/approval)."""
+        from marvin.services.ai.approval import workspace_approval_mode
 
-        The same gate the operations controller applies to AI write-back. Defaults to the safest
-        (suggest-only) when unset, so AI edits are staged for review rather than auto-applied.
-        """
-        from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
-
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        return settings.approval_mode if settings and settings.approval_mode else "suggest-only"
+        return workspace_approval_mode(self.session, self.group_id)
 
     def _complete_execution(self, execution, completion, start, *, entity_id, output: dict) -> None:
         from marvin.services.ai.pricing import estimate_cost

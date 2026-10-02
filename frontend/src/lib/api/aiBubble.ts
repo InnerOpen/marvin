@@ -1,5 +1,7 @@
 /**
  * Ask Marvin bubble — SDK-backed calls (browser: omit token, uses the HttpOnly cookie).
+ * Every call identifies as the `agent` surface, so the workspace's "Ask Marvin" invocation-source
+ * toggle governs the bubble (the entry editor's inline actions are `editor`).
  * Chat = plain completion; ask = grounded RAG answer via the answer-workspace-question operation.
  */
 
@@ -7,13 +9,14 @@ import { createSdkClient } from "../sdk";
 
 /** Plain, ungrounded chat completion (no tools, no RAG). */
 export async function sendChat(message: string) {
-  return createSdkClient().ai.chat({ message, source: "editor" });
+  return createSdkClient().ai.chat({ message, source: "agent" });
 }
 
 /** Grounded answer from the workspace's indexed content (RAG). */
 export async function askWorkspace(question: string) {
   return createSdkClient().ai.operations.execute("answer-workspace-question", {
     input: { question },
+    source: "agent",
   });
 }
 
@@ -30,7 +33,7 @@ export async function runAgent(
 ) {
   return createSdkClient().ai.agent({
     message,
-    source: "editor",
+    source: "agent",
     ...(register ? { register } : {}),
     ...(context?.entityType && context.entityId ? { entityType: context.entityType, entityId: context.entityId } : {}),
     ...(history?.length ? { history } : {}),
@@ -86,7 +89,7 @@ export function runAgentAs(
     method: "POST",
     body: JSON.stringify({
       message,
-      source: "editor",
+      source: "agent",
       ...(register ? { register } : {}),
       ...(context?.entityType && context.entityId
         ? { entityType: context.entityType, entityId: context.entityId }

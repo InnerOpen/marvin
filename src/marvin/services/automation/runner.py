@@ -182,15 +182,33 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
         session.commit()
         raise AutomationActionError(f"operation '{slug}' failed: {e}") from e
 
-    # Optional write-back: apply the operation's own writeback map to the entry (v1: apply directly).
+    # Optional write-back of the operation's own writeback map — gated by the workspace approval mode
+    # like every other AI write-back: applied when the mode allows it for this entry, else staged as a
+    # suggestion for a person to accept. The step output says which (`_write_back`).
     if action.get("write_back") and entity_type == "entry" and entity_id and isinstance(parsed, dict):
         writeback = getattr(operation, "writeback", None) or {}
         proposed = {target: parsed[out] for out, target in writeback.items() if out in parsed}
         if proposed:
-            depth = int(context.get("depth", 0))
-            _apply_writeback(session, group_id, entity_id, proposed, user_id, depth)
+            outcome = _write_back(session, group_id, entity_id, proposed, user_id, int(context.get("depth", 0)), slug, execution.id)
+            return {**parsed, "_write_back": outcome}
 
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _write_back(session, group_id, entity_id, proposed: dict, user_id, depth: int, slug: str, execution_id) -> str:
+    """Apply or stage per the workspace approval mode. Returns "applied" | "staged"."""
+    from marvin.db.models.platform.entries import Entries
+    from marvin.repos.repository_factory import AllRepositories
+    from marvin.services.ai.approval import may_apply, workspace_approval_mode
+
+    entry = session.get(Entries, entity_id)
+    if may_apply(workspace_approval_mode(session, group_id), "entry", getattr(entry, "status", None)):
+        _apply_writeback(session, group_id, entity_id, proposed, user_id, depth)
+        return "applied"
+    AllRepositories(session, group_id=group_id).entries.stage_suggestion(
+        entity_id, {**proposed, "_meta": {"operation": slug, "executionId": str(execution_id), "source": "automation"}}
+    )
+    return "staged"
 
 
 def _resolve_entry_id_by_slug(session, group_id, slug: str):

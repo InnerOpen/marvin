@@ -71,6 +71,15 @@ class AISettingsController(BaseUserController):
             if not exists:
                 warnings.append(f"Secret slug '{data.secret_ref}' not found in this workspace.")
 
+        if "approval_mode" in data.model_fields_set:
+            from marvin.services.ai.approval import APPROVAL_MODES
+
+            if data.approval_mode not in APPROVAL_MODES:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"approval_mode must be one of: {', '.join(APPROVAL_MODES)}.",
+                )
+
         row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
         if not row:
             row = WorkspaceAISettingsModel(session=self.session, group_id=self.group_id)
