@@ -15,6 +15,7 @@ from marvin.db.models.users.roles import (
     PlatformRole,
     WorkspaceRole,
     workspace_role_can_manage_members,
+    workspace_role_can_manage_settings,
     workspace_role_has_higher_or_equal_privilege,
 )
 from marvin.schemas.user import PrivateUser  # Pydantic schema for user data
@@ -84,6 +85,20 @@ class OperationChecks:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"You cannot invite someone as {granting.value}; your role is {role.value}.",
             )
+        return True
+
+    def can_manage_settings(self, group_id: UUID4) -> bool:
+        """Workspace OWNERs and ADMINs (and platform super admins) may change workspace structure —
+        entry types, collections, tasks, webhooks, workflows.
+
+        Raises:
+            HTTPException (403 Forbidden): If the user may not manage this workspace's settings.
+        """
+        if self.user.platform_role == PlatformRole.SUPER_ADMIN:
+            return True
+        role = self.user.get_workspace_role(group_id)
+        if role is None or not workspace_role_can_manage_settings(role):
+            raise self.ForbiddenException
         return True
 
     # =========================================

@@ -126,11 +126,16 @@ def already_applied(session, group_id, blueprint: Blueprint, params: dict | None
     except BlueprintParameterError:
         return False
     slug = substitute(blueprint.slug, resolved)
-    return _existing(session, group_id, blueprint, slug, target) is not None
+    return _existing(session, group_id, blueprint, slug, target, resolved) is not None
 
 
-def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None = None, integration_id=None) -> BlueprintApplyResult:
-    """Create the blueprint's object in this workspace, unless it is already there."""
+def apply_blueprint(
+    session, group_id, blueprint: Blueprint, params: dict | None = None, integration_id=None, actor_id=None
+) -> BlueprintApplyResult:
+    """Create the blueprint's object in this workspace, unless it is already there.
+
+    `actor_id` is who applied it — recorded as a workflow's author, since a workflow runs with its
+    author's privileges."""
     result = BlueprintApplyResult(slug=blueprint.slug, kind=blueprint.kind, created=False)
 
     try:
@@ -149,40 +154,69 @@ def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None
         result.detail = f"needs {', '.join(missing)}"
         return result
 
-    if _existing(session, group_id, blueprint, slug, target) is not None:
+    if _existing(session, group_id, blueprint, slug, target, resolved) is not None:
         noun = blueprint.kind.replace("_", " ")
-        where = "already connected" if blueprint.kind in PER_INTEGRATION_KINDS else f"with slug '{slug}' already exists"
+        if blueprint.kind in PER_INTEGRATION_KINDS:
+            where = "already connected"
+        elif blueprint.kind == "entry_fields":
+            where = "already has every field"
+        else:
+            where = f"with slug '{slug}' already exists"
         result.detail = f"a {noun} {where} — left as it is"
         return result
 
-    _create(session, group_id, blueprint, resolved, slug, name, target)
+    try:
+        result.detail = _create(session, group_id, blueprint, resolved, slug, name, target, actor_id) or ""
+    except BlueprintParameterError as e:
+        result.detail = str(e)
+        return result
     result.created = True
     logger.info("Blueprint applied: %s '%s' (%s)", blueprint.kind, slug, blueprint.source)
     return result
 
 
-def apply_many(session, group_id, blueprints, params: dict | None = None, integration_id=None) -> list[BlueprintApplyResult]:
-    """Apply several, in order. Entry types first so collections/tasks that reference them fit.
+def apply_many(session, group_id, blueprints, params: dict | None = None, integration_id=None, actor_id=None) -> list[BlueprintApplyResult]:
+    """Apply several, in order. Entry types (and their added fields) first so the collections, tasks
+    and workflows that reference them fit; webhooks before the workflows they trigger.
 
     `params` is keyed by blueprint slug: {"<slug>": {"entry_type": "..."}}.
     """
-    order = {"entry_type": 0, "collection": 1, "scheduled_task": 2}
+    order = {"entry_type": 0, "entry_fields": 1, "collection": 2, "scheduled_task": 3, "incoming_webhook": 4, "workflow": 5}
     by_slug = params or {}
-    return [apply_blueprint(session, group_id, b, by_slug.get(b.slug)) for b in sorted(blueprints, key=lambda b: order.get(b.kind, 99))]
+    return [
+        apply_blueprint(session, group_id, b, by_slug.get(b.slug), actor_id=actor_id)
+        for b in sorted(blueprints, key=lambda b: order.get(b.kind, 99))
+    ]
 
 
 # --- per-kind plumbing ---------------------------------------------------------------------------
 
 
 def _models():
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
     from marvin.db.models.platform.collections import Collections
     from marvin.db.models.platform.entry_types import EntryTypes
     from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 
-    return {"entry_type": EntryTypes, "collection": Collections, "scheduled_task": ScheduledTaskModel}
+    return {
+        "entry_type": EntryTypes,
+        "collection": Collections,
+        "scheduled_task": ScheduledTaskModel,
+        "incoming_webhook": WorkspaceIncomingWebhookModel,
+        "workflow": WorkspaceAutomationModel,
+    }
 
 
-def _existing(session, group_id, blueprint: Blueprint, slug: str, integration_id=None):
+def _existing(session, group_id, blueprint: Blueprint, slug: str, integration_id=None, params: dict | None = None):
+    if blueprint.kind == "entry_fields":
+        # "Applied" means every declared field is already on the type; a type with only some of
+        # them still has work to do.
+        entry_type = _fields_target(session, group_id, blueprint, params or {})
+        if entry_type is None:
+            return None
+        return entry_type if not _missing_fields(entry_type, blueprint, params or {}) else None
+
     if blueprint.kind == "event_subscription":
         # No slug in the database: a connection is identified by what it wires to what.
         from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
@@ -205,8 +239,12 @@ def _existing(session, group_id, blueprint: Blueprint, slug: str, integration_id
     return session.query(model).filter_by(group_id=group_id, slug=slug).first()
 
 
-def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, name: str, integration_id=None) -> None:
+def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, name: str, integration_id=None, actor_id=None) -> str | None:
+    """Create the object. Returns an optional note for the result (what fields were added)."""
     payload = substitute(blueprint.payload, params)
+
+    if blueprint.kind == "entry_fields":
+        return _add_fields(session, group_id, blueprint, params)
 
     if blueprint.kind in ACTS_WHEN_ENABLED_KINDS:
         # Applying gives you the wiring; switching it on is a separate, deliberate act. A
@@ -243,6 +281,41 @@ def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, na
         AllRepositories(session, group_id=group_id).scheduled_tasks.create(ScheduledTaskCreate(**payload))
         return
 
+    if blueprint.kind == "incoming_webhook":
+        from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
+
+        # No token: minting one is what opens the endpoint, and that stays an admin's deliberate act.
+        allowed = ("name", "description", "signature_scheme", "signature_header", "signing_secret_ref", "signature_url")
+        session.add(
+            WorkspaceIncomingWebhookModel(
+                session=session, group_id=group_id, enabled=False, token=None, slug=slug, **{k: payload[k] for k in allowed if k in payload}
+            )
+        )
+        session.flush()
+        return None
+
+    if blueprint.kind == "workflow":
+        from marvin.db.models.groups.automations import WorkspaceAutomationModel
+        from marvin.services.automation.validation import structural_issues
+
+        definition = payload.get("definition") or {}
+        issues = structural_issues(definition)
+        if issues:
+            raise BlueprintParameterError(f"workflow definition is invalid: {issues}")
+        session.add(
+            WorkspaceAutomationModel(
+                session=session,
+                group_id=group_id,
+                name=payload["name"],
+                slug=slug,
+                enabled=False,
+                definition=definition,
+                created_by=actor_id,
+            )
+        )
+        session.flush()
+        return None
+
     if blueprint.kind == "collection":
         from marvin.db.models.platform.collections import Collections
         from marvin.services.collections.smart_collections import sync_collection
@@ -253,7 +326,7 @@ def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, na
         # Materialize membership now: a smart collection that sits empty until the next entry
         # event would look broken to whoever just created it.
         sync_collection(session, group_id, collection)
-        return
+        return None
 
     from marvin.db.models.platform.entry_types import EntryTypes
 
@@ -261,3 +334,44 @@ def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, na
     # Flush so the next blueprint in an apply_many run can see it: a collection that `requires`
     # this entry type checks the database, and an unflushed row would read as missing.
     session.flush()
+    return None
+
+
+def _fields_target(session, group_id, blueprint: Blueprint, params: dict):
+    """The existing entry type an entry_fields blueprint extends, or None."""
+    from marvin.db.models.platform.entry_types import EntryTypes
+
+    slug = substitute((blueprint.payload or {}).get("entry_type"), params)
+    if not slug:
+        return None
+    return session.query(EntryTypes).filter_by(group_id=group_id, slug=str(slug)).first()
+
+
+def _missing_fields(entry_type, blueprint: Blueprint, params: dict) -> list[dict]:
+    present = {f.get("key") for f in ((entry_type.schema_json or {}).get("fields") or [])}
+    declared = substitute((blueprint.payload or {}).get("fields") or [], params)
+    return [f for f in declared if f.get("key") not in present]
+
+
+def _add_fields(session, group_id, blueprint: Blueprint, params: dict) -> str:
+    """Append the declared fields the type lacks. Existing fields — even ones with a declared key —
+    are left exactly as they are: the workspace may have customised them."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
+
+    entry_type = _fields_target(session, group_id, blueprint, params)
+    if entry_type is None:
+        target = substitute((blueprint.payload or {}).get("entry_type"), params)
+        raise BlueprintParameterError(f"no entry type '{target}' in this workspace to add fields to")
+    missing = _missing_fields(entry_type, blueprint, params)
+    schema = dict(entry_type.schema_json or {})
+    schema["fields"] = [*(schema.get("fields") or []), *missing]
+    try:
+        EntryTypeSchemaDefinition.model_validate(schema)
+    except Exception as e:  # noqa: BLE001 — surface the schema rule that failed, don't half-apply
+        raise BlueprintParameterError(f"the fields don't fit entry type '{entry_type.slug}': {e}") from e
+    entry_type.schema_json = schema
+    flag_modified(entry_type, "schema_json")
+    session.flush()
+    return f"added {', '.join(f['key'] for f in missing)} to '{entry_type.slug}'"

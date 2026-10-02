@@ -36,8 +36,12 @@ for (const b of blueprints) {
 
 const KIND_NOUN: Record<string, string> = {
   entry_type: "entry type",
+  entry_fields: "fields on a type",
   collection: "collection",
   scheduled_task: "scheduled task",
+  event_subscription: "event connection",
+  incoming_webhook: "incoming webhook",
+  workflow: "workflow",
 };
 
 const providersBySlug = new Map(providers.map((p) => [p.slug, p]));

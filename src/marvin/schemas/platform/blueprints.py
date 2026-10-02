@@ -1,6 +1,7 @@
 """Blueprint schemas — declarative descriptions of workspace structure.
 
-A *blueprint* says "here is a collection / entry type / scheduled task a workspace could have",
+A *blueprint* says "here is a collection / entry type / scheduled task / workflow a workspace could
+have" (or "these fields on an entry type", or "an incoming webhook"),
 without creating anything. Core ships a catalog of them; integration providers contribute their own
 (a provider may only ever *declare* — the SDK forbids it touching the database). One schema, three
 consumers: the catalog a user browses, what an integration brings on install, and what the agent
@@ -13,11 +14,19 @@ template the workspace is held to.
 
 from typing import Annotated, Literal
 
-from pydantic import Field, StringConstraints, field_validator
+from pydantic import Field, StringConstraints, field_validator, model_validator
 
 from marvin.schemas._marvin import _MarvinModel
 
-BlueprintKind = Literal["collection", "entry_type", "scheduled_task", "event_subscription"]
+BlueprintKind = Literal[
+    "collection",
+    "entry_type",
+    "entry_fields",
+    "scheduled_task",
+    "event_subscription",
+    "incoming_webhook",
+    "workflow",
+]
 
 #: Kinds that wire up one *connection* rather than workspace content: they reference an integration
 #: instance, so applying one needs to know which. The integration's own card supplies it.
@@ -25,7 +34,11 @@ PER_INTEGRATION_KINDS = ("event_subscription",)
 
 #: Kinds that *do* something once switched on — send, fire, open an endpoint. They are always created
 #: disabled: applying a blueprint gives you the wiring, turning it on stays a deliberate second act.
-ACTS_WHEN_ENABLED_KINDS = ("scheduled_task", "event_subscription")
+ACTS_WHEN_ENABLED_KINDS = ("scheduled_task", "event_subscription", "incoming_webhook", "workflow")
+
+#: Payload keys a blueprint may never carry, by kind: an incoming webhook's token is its credential,
+#: so it is only ever minted by an admin, never shipped in a declaration.
+FORBIDDEN_PAYLOAD_KEYS = {"incoming_webhook": ("token",)}
 
 #: What a parameter asks for. `entry_type`/`collection` render as a picker fed by the workspace's
 #: own content and are validated against it — that is how a blueprint stays general without ever
@@ -103,7 +116,14 @@ class Blueprint(_MarvinModel):
 
     payload: dict = Field(default_factory=dict)
     """The body handed to the creating repository — a CollectionCreate / EntryTypes /
-    ScheduledTaskCreate shape, minus the workspace scoping the core adds."""
+    ScheduledTaskCreate shape, minus the workspace scoping the core adds. By kind:
+
+    - `entry_fields`: `{"entry_type": "<slug or {{param}}>", "fields": [<schema field>, …]}` — fields
+      appended to that existing type when their key is missing; existing fields are never changed.
+    - `incoming_webhook`: `{name?, description?, signature_scheme?, signature_header?,
+      signing_secret_ref?}` — created disabled and without a token.
+    - `workflow`: `{name?, definition: {trigger, conditions, actions, …}}` — created
+      disabled, authored by whoever applies it."""
 
     @field_validator("requires")
     @classmethod
@@ -123,6 +143,19 @@ class Blueprint(_MarvinModel):
             if forbidden in value:
                 raise ValueError(f"payload must not set {forbidden!r} — the workspace is supplied when the blueprint is applied")
         return value
+
+    @model_validator(mode="after")
+    def _payload_fits_kind(self):
+        for forbidden in FORBIDDEN_PAYLOAD_KEYS.get(self.kind, ()):
+            if forbidden in self.payload:
+                raise ValueError(f"a {self.kind} blueprint must not set {forbidden!r}")
+        if self.kind == "entry_fields":
+            fields = self.payload.get("fields")
+            if not self.payload.get("entry_type") or not isinstance(fields, list) or not fields:
+                raise ValueError("an entry_fields blueprint needs payload.entry_type and a non-empty payload.fields list")
+        if self.kind == "workflow" and not isinstance(self.payload.get("definition"), dict):
+            raise ValueError("a workflow blueprint needs payload.definition")
+        return self
 
 
 class BlueprintRead(Blueprint):

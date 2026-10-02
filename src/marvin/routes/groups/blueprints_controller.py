@@ -82,7 +82,9 @@ class BlueprintsController(BaseUserController):
         if blueprint is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
 
-        result = apply_blueprint(self.session, self.group_id, blueprint, params, integration_id)
+        # Applying changes workspace structure (types, webhooks, workflows): owner/admin only.
+        self.checks.can_manage_settings(self.group_id)
+        result = apply_blueprint(self.session, self.group_id, blueprint, params, integration_id, actor_id=self.user.id)
         self.session.commit()
         logger.info("Blueprint '%s' applied to %s: created=%s", slug, self.group_id, result.created)
         return result
@@ -108,6 +110,7 @@ class BlueprintsController(BaseUserController):
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
             blueprints.append(blueprint)
 
-        results = apply_many(self.session, self.group_id, blueprints, params, integration_id)
+        self.checks.can_manage_settings(self.group_id)
+        results = apply_many(self.session, self.group_id, blueprints, params, integration_id, actor_id=self.user.id)
         self.session.commit()
         return results
