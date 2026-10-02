@@ -6,6 +6,42 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.111 (2026-10-02)
+
+### Chores
+
+- **deploy**: Install the Square integration on iwobble; plans for Trash, dev+Postgres and Square
+  ([`f8ee69e`](https://github.com/InnerOpen/marvin/commit/f8ee69ebb93b96c96db266e8c6c79125c7c72485))
+
+### Code Style
+
+- **blueprints**: Ruff format apply.py
+  ([`f687421`](https://github.com/InnerOpen/marvin/commit/f687421b4764cb2ae2c1d4ef6c9f86a63e47ccc5))
+
+- **tests**: Ruff format the member-role, set_data and signature tests
+  ([`c724d9c`](https://github.com/InnerOpen/marvin/commit/c724d9c46c9e9ad6e3f2023521ee7c3b37df13ed))
+
+### Features
+
+- **automation**: Integration workflow step — run a provider action, keep its result
+  ([`06dc3a9`](https://github.com/InnerOpen/marvin/commit/06dc3a91d41668f270eab7c4164c139df0cb784d))
+
+- **automation**: List indexes in template paths; entry metadata in the workflow context
+  ([`46d688b`](https://github.com/InnerOpen/marvin/commit/46d688be5d6f8f04369260b2715f0efa34ed3137))
+
+- **automation**: Set_data entry step — write an entry's schema fields from a workflow
+  ([`78744ba`](https://github.com/InnerOpen/marvin/commit/78744bac9060027579925c606c4ff976689f7b3b))
+
+- **blueprints**: Entry_fields, incoming_webhook and workflow kinds; applying needs admin
+  ([`1cce300`](https://github.com/InnerOpen/marvin/commit/1cce3001817d8ad6b4eab90509c9715456781446))
+
+- **hooks**: Signature schemes for incoming webhooks — Square
+  ([`024410d`](https://github.com/InnerOpen/marvin/commit/024410dd6db4d62085d9f41ab726f7a0082ac83a))
+
+- **integrations**: Put and delete on the provider HTTP helper
+  ([`aa878a6`](https://github.com/InnerOpen/marvin/commit/aa878a6e15bd54566cb2bd94d4adf16cd55f590e))
+
+
 ## v1.0.0-rc.110 (2026-10-01)
 
 ### Bug Fixes
