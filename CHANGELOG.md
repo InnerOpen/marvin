@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.128 (2026-10-02)
+
+### Features
+
+- **admin**: Activity toasts hang off the bell like a speech bubble
+  ([`8177f37`](https://github.com/InnerOpen/marvin/commit/8177f3751eb5358e4df0c055d0beee3d0ed65422))
+
+
 ## v1.0.0-rc.127 (2026-10-02)
 
 ### Features
