@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.131 (2026-10-02)
+
+### Bug Fixes
+
+- **automation**: Typed-in values meet checkbox and number fields
+  ([`c3ac416`](https://github.com/InnerOpen/marvin/commit/c3ac41665c3735c4e47ef51d7d08e01eea1c3fcf))
+
+
 ## v1.0.0-rc.130 (2026-10-02)
 
 ### Bug Fixes
