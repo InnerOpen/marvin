@@ -111,3 +111,41 @@ def test_a_field_filter_that_resolved_to_nothing_matches_nothing(db_session, art
     _, total = resolve_target_entities(db_session, artworks, {"query": {"entry_type": "artwork", "data": {"status": ""}}}, {})
 
     assert total == 0
+
+
+# --- typed-in text meets typed fields ------------------------------------------------------------
+
+ARTWORK_SCHEMA = {
+    "fields": [
+        {"key": "sellOnline", "label": "Sell online", "type": "boolean"},
+        {"key": "shippingFee", "label": "Shipping fee", "type": "number"},
+        {"key": "status", "label": "Status", "type": "text"},
+    ]
+}
+
+
+def test_set_fields_converts_text_to_the_fields_type():
+    from marvin.services.automation.actions.entry import _typed_like_schema
+
+    patch = {"sellOnline": "true", "shippingFee": "45", "status": "available", "note": "1"}
+
+    out = _typed_like_schema(patch, SimpleNamespace(schema_json=ARTWORK_SCHEMA))
+
+    assert out == {"sellOnline": True, "shippingFee": 45, "status": "available", "note": "1"}
+
+
+def test_set_fields_leaves_unconvertible_text_for_validation_to_reject():
+    from marvin.services.automation.actions.entry import _typed_like_schema
+
+    assert _typed_like_schema({"sellOnline": "maybe"}, SimpleNamespace(schema_json=ARTWORK_SCHEMA)) == {"sellOnline": "maybe"}
+
+
+def test_conditions_compare_typed_text_with_a_checkbox_or_number():
+    from marvin.services.automation.matcher import matches
+
+    ctx = {"entry": {"data": {"sellOnline": True, "price": 45, "status": "available"}}}
+
+    assert matches([{"field": "entry.data.sellOnline", "op": "eq", "value": "true"}], ctx)
+    assert not matches([{"field": "entry.data.sellOnline", "op": "neq", "value": "true"}], ctx)
+    assert matches([{"field": "entry.data.price", "op": "eq", "value": "45"}], ctx)
+    assert not matches([{"field": "entry.data.status", "op": "eq", "value": "true"}], ctx)

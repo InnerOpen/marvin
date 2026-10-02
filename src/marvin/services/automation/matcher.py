@@ -21,6 +21,40 @@ _OPS = ("eq", "neq", "contains", "in", "starts_with", "exists", "changed", "chan
 
 _BRACED = re.compile(r"\$\{([^}]+)\}")
 
+_TRUE_WORDS = frozenset({"true", "yes", "on", "1"})
+_FALSE_WORDS = frozenset({"false", "no", "off", "0"})
+
+
+def as_bool(text: str) -> bool | None:
+    """`true`/`yes`/`on`/`1` → True, `false`/`no`/`off`/`0` → False (any case); else None."""
+    word = text.strip().lower()
+    return True if word in _TRUE_WORDS else False if word in _FALSE_WORDS else None
+
+
+def as_number(text: str) -> int | float | None:
+    """`45` → 45, `12.5` → 12.5; anything else → None."""
+    try:
+        return int(text)
+    except ValueError:
+        try:
+            return float(text)
+        except ValueError:
+            return None
+
+
+def _like(actual: Any, expected: Any) -> Any:
+    """Read a condition's typed-in text as the kind of value it is compared with: the editor sends
+    every value as text, so `sellOnline != "true"` would otherwise never see the checkbox's True."""
+    if not isinstance(expected, str) or isinstance(actual, str) or actual is None:
+        return expected
+    if isinstance(actual, bool):
+        converted = as_bool(expected)
+    elif isinstance(actual, int | float):
+        converted = as_number(expected)
+    else:
+        converted = None
+    return expected if converted is None else converted
+
 
 def resolve_path(path: str, context: dict) -> Any:
     """Resolve a dotted path (``"event.entry_type"``) against the context; None if any hop misses.
@@ -91,9 +125,9 @@ def _match_one(cond: dict, context: dict) -> bool:
         want = expected if isinstance(expected, bool) else True
         return (actual is not None) == want
     if op == "eq":
-        return actual == expected
+        return actual == _like(actual, expected)
     if op == "neq":
-        return actual != expected
+        return actual != _like(actual, expected)
     if op == "contains":
         if actual is None:
             return False

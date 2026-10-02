@@ -49,6 +49,34 @@ DATA_OPS = ("set_data",)
 ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS)
 
 
+def _typed_like_schema(patch: dict, entry_type) -> dict:
+    """Convert typed-in text to the field's type — the workflow editor sends every value as text, so
+    a checkbox set to `true` arrives as "true" and a number as "45". Only text bound for a boolean or
+    number field is touched; anything that won't convert is left for schema validation to reject."""
+    from marvin.schemas.platform.entry_type_schema import BooleanFieldSchema, NumberFieldSchema
+    from marvin.services.entries.completeness import parse_schema
+
+    from ..matcher import as_bool, as_number
+
+    schema = parse_schema(getattr(entry_type, "schema_json", None))
+    if schema is None:
+        return patch
+    out = dict(patch)
+    for key, value in patch.items():
+        if not isinstance(value, str):
+            continue
+        field = schema.get_field(key)
+        if isinstance(field, BooleanFieldSchema):
+            converted = as_bool(value)
+        elif isinstance(field, NumberFieldSchema):
+            converted = as_number(value)
+        else:
+            continue
+        if converted is not None:
+            out[key] = converted
+    return out
+
+
 def _resolve_target(session, group_id, action: dict, context: dict):
     """Resolve which entry to act on: by query, by slug, or an id (default: the triggering entry)."""
     from ..runner import _resolve_entry_id_by_slug
@@ -158,7 +186,7 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
         orm = session.get(Entries, entity_id)
         if orm is None or orm.group_id != group_id:
             raise AutomationActionError(f"entry {entity_id} not found in this workspace")
-        merged = {**(orm.data_json or {}), **patch}
+        merged = {**(orm.data_json or {}), **_typed_like_schema(patch, orm.entry_type)}
         svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
         try:
             updated = svc.update(entity_id, {"data_json": merged}, reaction_depth=depth)
