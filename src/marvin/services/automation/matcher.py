@@ -44,7 +44,7 @@ def as_number(text: str) -> int | float | None:
 
 def _like(actual: Any, expected: Any) -> Any:
     """Read a condition's typed-in text as the kind of value it is compared with: the editor sends
-    every value as text, so `sellOnline != "true"` would otherwise never see the checkbox's True."""
+    every value as text, so `<checkbox> != "true"` would otherwise never see the checkbox's True."""
     if not isinstance(expected, str) or isinstance(actual, str) or actual is None:
         return expected
     if isinstance(actual, bool):

@@ -6,7 +6,7 @@ Two families, both through EntryService so the right events fire and chains stay
   * **collection membership** — add_to_collection / remove_from_collection (emits
     entry_added_to_collection / entry_removed_from_collection), idempotent.
   * **field writes** — set_metadata (merge into metadata_json) and set_data (merge into the schema
-    fields in data_json, validated against the entry type — e.g. an artwork's `status: sold`).
+    fields in data_json, validated against the entry type — e.g. a select field's new option).
 
 It targets the triggering entry (`$event.entry_id`) by default, an entry by slug (`entity_slug`), or
 an explicit id — so it pairs with the target selector to act on a whole query: "add all drafts
@@ -42,7 +42,7 @@ COLLECTION_OPS: dict[str, str] = {
 METADATA_OPS = ("set_metadata",)
 
 # Merge a (templated) dict into the entry's schema fields (data_json). Fields read data_json before
-# metadata_json, so a schema field like an artwork's `status` can only be changed here, not by
+# metadata_json, so a schema field (one the type declares) can only be changed here, not by
 # set_metadata. The entry type's schema validates the result (an unknown select option fails).
 DATA_OPS = ("set_data",)
 

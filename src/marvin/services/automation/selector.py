@@ -65,7 +65,7 @@ def json_field_equals(column, key: str, value, dialect: str = "sqlite"):
     Workflow editors and agents pass values as text, but a checkbox is stored as true/false and a
     number as a number, so "true" or "45" must also match those.
 
-    Postgres compares the field's JSON text against every form the value can take (`"available"`,
+    Postgres compares the field's JSON text against every form the value can take (`"text"`,
     `true`, `45`) — no casts, because casting a text field to boolean/float raises there. SQLite has
     no such errors, so it compares typed extractions directly.
     """

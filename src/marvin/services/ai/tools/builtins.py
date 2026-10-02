@@ -194,15 +194,15 @@ def search_content(ctx: ToolContext, args: dict) -> str:
     return json.dumps({"results": results, "count": len(results)})
 
 
-# Rows stay lean, so a larger page is affordable — enough to compare every available artwork's price
-# in one call instead of opening each entry.
+# Rows stay lean, so a larger page is affordable — enough to compare a field across a whole type in
+# one call instead of opening each entry.
 FIND_ENTRIES_MAX_ROWS = 200
 FIND_ENTRIES_MAX_FIELDS = 8
 
 
 @register_tool(
     name="find_entries",
-    description='Find entries with filters: entry_type (slug), status (the PUBLISH status: inbox, draft, needs_review, approved, published, archived — not a field), fields (exact match on the entry type\'s own fields, e.g. an artwork\'s {"status": "available"} or {"sellOnline": true}), a title substring (query), tags, has_images, has_assets or has_resources. Returns `count` (the true total match) plus up to `limit` rows (default 10, max 200). Rows are LIGHTWEIGHT previews with image-ready asset refs; pass include_fields (e.g. ["price", "size"]) to get those field values on each row — use that to compare or sort many entries instead of calling get_entry on each. Use `count` to answer \'how many\'.',  # noqa: E501
+    description="Find entries with filters: entry_type (slug), status (the PUBLISH status: inbox, draft, needs_review, approved, published, archived — never a field's value), fields (exact match on the entry type's own fields, {field_key: value}; take the keys from get_entry_type — they differ per type and per workspace), a title substring (query), tags, has_images, has_assets or has_resources. Returns `count` (the true total match) plus up to `limit` rows (default 10, max 200). Rows are LIGHTWEIGHT previews with image-ready asset refs; pass include_fields (a list of field keys) to get those values on each row — use that to compare or sort many entries instead of calling get_entry on each. Use `count` to answer 'how many'.",  # noqa: E501
     input_schema={
         "type": "object",
         "properties": {
@@ -210,12 +210,12 @@ FIND_ENTRIES_MAX_FIELDS = 8
             "status": {"type": "string", "description": "publish status: inbox | draft | needs_review | approved | published | archived"},
             "fields": {
                 "type": "object",
-                "description": 'exact match on the entry type\'s own fields (data), e.g. {"status": "available", "sellOnline": true}',
+                "description": "exact match on the entry type's own fields (data), {field_key: value}; keys from get_entry_type",
             },
             "include_fields": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": 'field keys whose values to include on each row, e.g. ["price", "size", "medium"]',
+                "description": "field keys (from get_entry_type) whose values to include on each row",
             },
             "query": {"type": "string"},
             "tags": {
@@ -245,7 +245,7 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
         from marvin.schemas.platform.entries import ENTRY_STATUSES
 
         if st not in ENTRY_STATUSES:
-            # The usual mistake: a field value (an artwork's "available"/"sold") passed as the publish status.
+            # The usual mistake: a value of the type's own status-like field passed as the publish status.
             return json.dumps(
                 {
                     "count": 0,
