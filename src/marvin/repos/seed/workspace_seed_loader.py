@@ -844,6 +844,7 @@ class WorkspaceSeedLoader:
             "mediaPresets": "media_presets",
             "externalMcpEnabled": "external_mcp_enabled",
             "assistantName": "assistant_name",
+            "assistantIcon": "assistant_icon",
             "personaPrompt": "persona_prompt",
             "defaultRegister": "default_register",
         }
@@ -957,9 +958,7 @@ class WorkspaceSeedLoader:
         """Find a group-scoped row by (group_id, key_field==key_value); create it, or update it when
         overwrite is on. Returns (row, skipped) where skipped is True only for an existing row left
         untouched. Commits."""
-        existing = (
-            self.repos.session.query(model).filter(model.group_id == self.repos.group_id, getattr(model, key_field) == key_value).first()
-        )
+        existing = self.repos.session.query(model).filter(model.group_id == self.repos.group_id, getattr(model, key_field) == key_value).first()
         if existing:
             if not self._overwrite:
                 return existing, True
@@ -1043,9 +1042,7 @@ class WorkspaceSeedLoader:
                     if not mid:
                         continue
                     existing_m = (
-                        self.repos.session.query(AIModelModel)
-                        .filter(AIModelModel.provider_id == provider.id, AIModelModel.model_id == mid)
-                        .first()
+                        self.repos.session.query(AIModelModel).filter(AIModelModel.provider_id == provider.id, AIModelModel.model_id == mid).first()
                     )
                     mvals = {
                         "name": m.get("name", mid),

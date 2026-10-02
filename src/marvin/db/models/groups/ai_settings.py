@@ -51,6 +51,8 @@ class WorkspaceAISettingsModel(SqlAlchemyBase, BaseMixins):
 
     # Per-workspace AI persona. Display name for the assistant (defaults to "Marvin" in code when unset).
     assistant_name: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    # The bubble's icon: an emoji, or an image URL (e.g. an asset's public URL). Unset → 🤖.
+    assistant_icon: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     # Free-text voice/tone instruction appended to the system prompt.
     persona_prompt: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     # Default tone register for agent runs — a SEPARATE axis from persona (axis B). Persona is how

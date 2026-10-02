@@ -71,6 +71,13 @@ class AISettingsController(BaseUserController):
             if not exists:
                 warnings.append(f"Secret slug '{data.secret_ref}' not found in this workspace.")
 
+        if data.assistant_icon:
+            from marvin.services.ai.persona import icon_problem
+
+            problem = icon_problem(data.assistant_icon)
+            if problem:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=problem)
+
         if "approval_mode" in data.model_fields_set:
             from marvin.services.ai.approval import APPROVAL_MODES
 

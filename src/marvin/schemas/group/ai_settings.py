@@ -23,8 +23,9 @@ class WorkspaceAISettingsCreate(_MarvinModel):
     media_presets: dict | None = None
     # Master switch: may the agent draw tools from registered external MCP servers?
     external_mcp_enabled: bool = False
-    # Per-workspace AI persona: display name and a free-text voice/tone instruction.
+    # Per-workspace AI persona: display name, bubble icon (emoji or image URL) and a voice/tone instruction.
     assistant_name: str | None = None
+    assistant_icon: str | None = None
     persona_prompt: str | None = None
     # Default tone register for agent runs (axis B, separate from persona). A per-call register wins.
     default_register: str = "auto"  # "auto" | "professional" | "playful"
@@ -48,6 +49,7 @@ class WorkspaceAISettingsUpdate(_MarvinModel):
     media_presets: dict | None = None
     external_mcp_enabled: bool | None = None
     assistant_name: str | None = None
+    assistant_icon: str | None = None
     persona_prompt: str | None = None
     default_register: str | None = None
 

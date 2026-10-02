@@ -97,6 +97,30 @@ export const EMOTES: string[] = [
   "*shudders despairingly*",
 ];
 
+/** The bubble's canned lines, as one set. */
+export type Voice = { greetings: string[]; taglines: string[]; thinking: string[]; errors: string[]; emotes: string[] };
+
+export const MARVIN_VOICE: Voice = { greetings: GREETINGS, taglines: TAGLINES, thinking: THINKING, errors: ERRORS, emotes: EMOTES };
+
+/** Plain lines for an assistant that isn't (default) Marvin — a renamed assistant or a custom persona. */
+export function neutralVoice(name: string): Voice {
+  return {
+    greetings: [`Hi — I'm ${name}. What can I help with?`, `${name} here. What are we working on?`, "Hello! Ask me anything about this workspace."],
+    taglines: ["here to help", "ask me about your content", "try /help to see what I can do"],
+    thinking: ["Thinking…", "Working on it…", "One moment…"],
+    errors: ["Sorry — that didn't work.", "Something went wrong."],
+    emotes: ["💭"],
+  };
+}
+
+/**
+ * Marvin's gloomy lines only while the assistant is plainly Marvin: the default name and no custom
+ * persona. Otherwise a renamed or re-voiced assistant would greet you as the Paranoid Android.
+ */
+export function voiceFor(name: string, hasCustomPersona: boolean): Voice {
+  return name === "Marvin" && !hasCustomPersona ? MARVIN_VOICE : neutralVoice(name);
+}
+
 /** Pick a random line. */
 export function pick(lines: string[]): string {
   return lines[Math.floor(Math.random() * lines.length)] ?? lines[0];

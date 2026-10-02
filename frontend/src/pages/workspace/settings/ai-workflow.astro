@@ -1,4 +1,5 @@
 ---
+import EmojiPicker from "@/components/EmojiPicker.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
@@ -36,11 +37,13 @@ const s = {
   moderationConfig: settings?.moderationConfig ?? null,
   allowWorkspaceCredentials: settings?.allowWorkspaceCredentials ?? true,
   assistantName: settings?.assistantName ?? null,
+  assistantIcon: (settings as any)?.assistantIcon ?? null,
   personaPrompt: settings?.personaPrompt ?? null,
   defaultRegister: settings?.defaultRegister ?? "auto",
 };
 
 const invSrc = s.invocationSources ?? {};
+const isIconUrl = /^(https?:\/\/|\/)/.test(s.assistantIcon ?? "");
 // Catalog-driven so every real source (incl. `automation`) renders and can't drift from the backend.
 // Fallback to the canonical key list if the catalog fetch failed.
 const sourceCatalog = sources.length
@@ -242,8 +245,17 @@ const modCfg = s.moderationConfig ?? {};
         <label class="form-field">
           <span class="label">Assistant name</span>
           <input type="text" name="assistant_name" class="input" value={s.assistantName ?? ""} placeholder="Marvin" />
-          <small class="hint">Shown in place of the default name. Leave blank to use "Marvin".</small>
+          <small class="hint">Shown in place of the default name — in the bubble and in its answers. Leave blank to use "Marvin".</small>
         </label>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <span class="label">Bubble icon</span>
+          <EmojiPicker inputId="assistant_icon_emoji" value={isIconUrl ? "" : (s.assistantIcon ?? "")} />
+          <input type="url" id="assistant_icon_url" class="input" value={isIconUrl ? s.assistantIcon : ""}
+            placeholder="…or an image URL, e.g. an asset's link" />
+          <small class="hint">An emoji, or an image (paste its URL — an image URL wins over the emoji). Leave both blank for 🤖.</small>
+        </div>
       </div>
       <label class="form-field">
         <span class="label">Voice / tone</span>
@@ -516,6 +528,8 @@ const modCfg = s.moderationConfig ?? {};
       loggingConfig: logCfg,
       moderationConfig: modCfg,
       assistantName: (fd.get('assistant_name')?.toString().trim() || null),
+      assistantIcon: ((document.getElementById('assistant_icon_url') as HTMLInputElement).value.trim()
+        || (document.getElementById('assistant_icon_emoji') as HTMLInputElement).value.trim() || null),
       personaPrompt: (fd.get('persona_prompt')?.toString().trim() || null),
       defaultRegister: (fd.get('default_register')?.toString() || 'auto'),
     };

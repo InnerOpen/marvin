@@ -5,7 +5,7 @@
 ---
 
 <div id="marvin-root" class="marvin" hidden>
-  <button id="marvin-toggle" class="marvin-toggle" aria-label="Ask Marvin" title="Ask Marvin">🤖</button>
+  <button id="marvin-toggle" class="marvin-toggle" aria-label="Ask Marvin" title="Ask Marvin"><span id="marvin-icon">🤖</span></button>
 
   <div id="marvin-panel" class="marvin-panel" role="dialog" aria-label="Ask Marvin">
     <div class="marvin-head">
@@ -34,7 +34,7 @@
 <script>
   import { fetchApi } from '@/lib/api/client';
   import { resolveCapability, helpHtml, esc, setPendingRegister } from '@/lib/marvin/capabilities';
-  import { GREETINGS, TAGLINES, THINKING, EMOTES, ERRORS, pick } from '@/lib/marvin/persona';
+  import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
   import { setHistory, clearHistory } from '@/lib/marvin/history';
 
@@ -45,6 +45,7 @@
       try {
         const settings = await fetchApi<any>('/api/groups/ai-settings');
         if (settings?.enabled === false) { root.remove(); return; }
+        applyIdentity(settings);
         root.removeAttribute('hidden');
       } catch {
         root.remove(); // no auth / no AI / error → no bubble
@@ -62,6 +63,30 @@
     let greeted = false;
     let busy = false;
     let taglineTimer: number | undefined;
+    let voice = MARVIN_VOICE;
+
+    // The workspace's name and icon for its assistant (AI settings → Persona). An icon is an emoji,
+    // or an image URL. The canned lines follow the identity: Marvin's only while it's plainly Marvin.
+    function applyIdentity(settings: any) {
+      const name = (settings?.assistantName || '').trim() || 'Marvin';
+      const icon = (settings?.assistantIcon || '').trim();
+      voice = voiceFor(name, !!(settings?.personaPrompt || '').trim());
+      document.querySelector('#marvin-root .marvin-name')!.textContent = name;
+      for (const el of [toggle, panel]) el.setAttribute('aria-label', `Ask ${name}`);
+      toggle.title = `Ask ${name}`;
+      input.placeholder = `Ask ${name}…  (try /help)`;
+      sub.textContent = pick(voice.taglines);
+      const slot = document.getElementById('marvin-icon')!;
+      if (/^(https?:\/\/|\/)/.test(icon)) {
+        const img = document.createElement('img');
+        img.src = icon;
+        img.alt = '';
+        img.className = 'marvin-icon-img';
+        slot.replaceChildren(img);
+      } else if (icon) {
+        slot.textContent = icon;
+      }
+    }
 
     // ── Session memory: keep the transcript across page navigations (per-tab) ──
     // sessionStorage, so the conversation follows you as you move around the workspace but doesn't
@@ -125,7 +150,7 @@
       log.innerHTML = '';
       clear.setAttribute('hidden', '');
       greeted = false;
-      if (panel.classList.contains('open')) { greeted = true; addMsg('marvin', esc(pick(GREETINGS)), false); }
+      if (panel.classList.contains('open')) { greeted = true; addMsg('marvin', esc(pick(voice.greetings)), false); }
     }
 
     // Rehydrate a stored conversation on page load (before any greeting).
@@ -157,7 +182,7 @@
 
     renderContext();
 
-    function rotateTagline() { sub.textContent = pick(TAGLINES); }
+    function rotateTagline() { sub.textContent = pick(voice.taglines); }
 
     // Open the panel on the side of the button with the most room (he may be dragged anywhere).
     function placePanel() {
@@ -177,7 +202,7 @@
       taglineTimer = window.setInterval(rotateTagline, 7000); // cycle like a login fortune
       if (!greeted) {
         greeted = true;
-        addMsg('marvin', esc(pick(GREETINGS)), false); // flavor line, not part of the saved transcript
+        addMsg('marvin', esc(pick(voice.greetings)), false); // flavor line, not part of the saved transcript
       }
       // A restored conversation was appended while the panel was display:none, where scrolling is
       // a no-op — so land on the latest turn now that it has a height.
@@ -274,12 +299,12 @@
       if (!arg && !cap.noArg) { addMsg('marvin', "You'll have to give me something to work with."); return; }
 
       busy = true;
-      const thinking = addMsg('marvin', `<span class="mv-thinking">${esc(pick(EMOTES) + ' ' + pick(THINKING))}</span>`, false);
+      const thinking = addMsg('marvin', `<span class="mv-thinking">${esc(pick(voice.emotes) + ' ' + pick(voice.thinking))}</span>`, false);
       try {
         const res = await cap.run(arg);
         commitReply(thinking, res.html, res.text);
       } catch (err: any) {
-        commitReply(thinking, `<span class="mv-error">${esc(pick(ERRORS))} (${esc(err?.message || 'error')})</span>`);
+        commitReply(thinking, `<span class="mv-error">${esc(pick(voice.errors))} (${esc(err?.message || 'error')})</span>`);
       } finally {
         busy = false;
         log.scrollTop = log.scrollHeight;
@@ -301,6 +326,8 @@
     touch-action: none; user-select: none;
   }
   .marvin-toggle:active { cursor: grabbing; }
+  .marvin-toggle :global(.marvin-icon-img) { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block; pointer-events: none; }
+  .marvin-toggle:has(.marvin-icon-img) { padding: 0; overflow: hidden; }
   .marvin-toggle:hover { box-shadow: 0 10px 26px rgb(0 0 0 / 0.24); }
 
   .marvin-panel {

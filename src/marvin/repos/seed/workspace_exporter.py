@@ -548,6 +548,7 @@ class WorkspaceExporter:
             "mediaPresets": row.media_presets,
             "externalMcpEnabled": row.external_mcp_enabled,
             "assistantName": row.assistant_name,
+            "assistantIcon": row.assistant_icon,
             "personaPrompt": row.persona_prompt,
             "defaultRegister": row.default_register,
         }
@@ -563,12 +564,7 @@ class WorkspaceExporter:
         from marvin.services.backup.keys import encrypt_secret_value, get_or_create_backup_key
         from marvin.services.secrets import get_secret_backend
 
-        rows = (
-            self.repos.session.query(WorkspaceSecret)
-            .filter(WorkspaceSecret.group_id == self.repos.group_id)
-            .order_by(WorkspaceSecret.slug)
-            .all()
-        )
+        rows = self.repos.session.query(WorkspaceSecret).filter(WorkspaceSecret.group_id == self.repos.group_id).order_by(WorkspaceSecret.slug).all()
         if not rows:
             return []
 
@@ -621,12 +617,7 @@ class WorkspaceExporter:
 
         out = []
         for r in self._group_rows(AIProviderModel):
-            models = (
-                self.repos.session.query(AIModelModel)
-                .filter(AIModelModel.provider_id == r.id)
-                .order_by(AIModelModel.model_id)
-                .all()
-            )
+            models = self.repos.session.query(AIModelModel).filter(AIModelModel.provider_id == r.id).order_by(AIModelModel.model_id).all()
             out.append(
                 {
                     "name": r.name,
@@ -756,8 +747,7 @@ class WorkspaceExporter:
         from marvin.db.models.groups.automations import WorkspaceAutomationModel
 
         return [
-            {"name": r.name, "slug": r.slug, "enabled": r.enabled, "definition": r.definition}
-            for r in self._group_rows(WorkspaceAutomationModel)
+            {"name": r.name, "slug": r.slug, "enabled": r.enabled, "definition": r.definition} for r in self._group_rows(WorkspaceAutomationModel)
         ]
 
     def _export_scheduled_tasks(self) -> list[dict[str, Any]]:
