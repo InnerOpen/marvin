@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.138 (2026-10-02)
+
+### Features
+
+- **entries**: One entry query for agents, workflows and bulk actions
+  ([`1c5dcbe`](https://github.com/InnerOpen/marvin/commit/1c5dcbeb504a10a27b9807d057c4772ce99bbc17))
+
+
 ## v1.0.0-rc.137 (2026-10-02)
 
 ### Bug Fixes
