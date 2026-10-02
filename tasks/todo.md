@@ -275,3 +275,66 @@ Between Lives was listed before item pictures existed — it gets one on its nex
 - [ ] **Go-live order**: switch the integration to production → run Reset listings → watch the toaster → spot-check a
       link with a real card refund, or a $1 test item → clear the sandbox catalog.
 - [ ] Optional: strip HTML from activity-toast failure details (a 404 page showed raw HTML) — Jared: not now.
+
+# Builder — Marvin knows how Marvin works, and configures it with you (2026-10-02, Jared)
+
+Jared: "Marvin, or the default agent, is the main one, and should know — or pass off to an agent — how to build
+things like workflows… like you suggested doing all the link updates with a workflow and then explained it. That
+would be nice to have built in, whether it reads documentation or something." Then: "Maybe a Marvin documentation
+MCP? It should always be updated anyway." Continues the 2026-09-24 idea *"an agent that helps a user configure their
+site"* (configure Marvin's behaviour — types, collections, tasks, workflows, integration content — never the site's code).
+
+Today the agent can read structure and run workflows (`list_workflows`, `run_workflow`, `list_entry_types`, …) but
+cannot create a workflow / entry type / collection / scheduled task, and has no access to how Marvin works — asked
+"how do I bulk-turn-on Sell online?", it would guess.
+
+## Design
+- **Docs are the single source of what Marvin knows about itself** (`docs/manual`, versioned with the code), served
+  from the files **bundled with the running version** — so the answer always matches what's deployed (a separate docs
+  service reading the published site drifts a deploy ahead/behind).
+- Two consumers of the same files: built-in agent tools, and **MarvinMCP** (so Claude Code/Desktop get "the Marvin
+  docs MCP" with no new service to host).
+- **Docs explain *how*; a live catalog says *what's here*** (this workspace's entry types + fields, connected
+  integrations, the triggers/steps/ops/condition fields the editor offers right now). Builder uses both, so it can't
+  invent a step that doesn't exist or a field the type doesn't have.
+- **Safety:** Builder drafts, never runs. Created workflows are **disabled**; every create is **ask-first** in chat and
+  shows the JSON it will write; it runs Preview and reports the count ("would touch 127 artworks") with a link to the
+  editor. A person reviews, enables and runs. Writes go through the agent permission matrix; AI content still obeys
+  Approval mode.
+- **Teach while doing:** Builder explains what it built and why (Run on vs Only if, the 250 cap…), the way this session did.
+
+## Plan
+1. [ ] **Unblock the manual** (prereq; Brain task "docs site — unblock and publish"). The staged docs never committed:
+       gitleaks flagged a placeholder token at `docs/manual/whats-new/publishing-api.md:25`. **Jared decides the fix**
+       (recommended: rewrite to `$MARVIN_SITE_TOKEN`), then commit, push develop, verify the docs site.
+2. [ ] **Bundle the docs with the backend**: package `docs/manual/**/*.md` into the image (or a generated index at
+       build time); a small docs service: list pages, read a page, search (title/heading/keyword ranking first;
+       embeddings later if needed). Tests: every page loads; search finds the workflows page for "bulk update".
+3. [ ] **Agent tools** `search_docs(query)` → ranked page/section snippets with paths; `read_doc(path, section?)` →
+       markdown. Category `docs_read` (read, allowed by default). Marvin's preamble: "for how-to questions about
+       Marvin itself, search the docs before answering; cite the page".
+4. [ ] **MarvinMCP**: expose the same two tools (`marvin_search_docs`, `marvin_read_doc`) — no workspace token needed
+       beyond the existing auth; docs are not workspace data.
+5. [ ] **Live catalog tool** `describe_workflow_options` — the same payload the workflow editor uses (triggers, step
+       kinds, entry ops, AI operations + their inputs, condition fields/ops) plus the workspace's entry types + fields
+       and connected integrations + their actions.
+6. [ ] **Doc-coverage CI check**: fail when a workflow trigger, step kind, entry op or AI operation has no mention in
+       the manual — so a feature can't ship undocumented and Builder never meets something it can't explain.
+7. [ ] **`draft_workflow` tool** (category `automation_author`, write, **ask** by default): validates the definition
+       (same validator as the editor), creates it **disabled**, runs the target Preview, returns id + editor link +
+       match count + any validation warnings. Never enables or runs.
+8. [ ] **Builder agent** (system agent, persona kind): instructions = configure-not-code line, drafts-only, explain
+       every piece, always Preview before suggesting Run, warn about long runs (synchronous; don't Run twice; no
+       restarts mid-run). Tools: docs_read, catalog, entries/library read, automation_read, `draft_workflow` (ask).
+       Marvin's roster gets a hand-off line: "how do I… / set up / automate / build a workflow / bulk-update…".
+9. [ ] **Docs pages for this session's patterns** (they double as Builder's recipes): bulk update via Run on a query;
+       Fields equal vs Only if; typed values (true/45); the 250 cap; long manual runs; rebuild debounce +
+       `SITE_REBUILD_*`; activity toasts; Square listing + reset-listings; approval mode scope.
+10. [ ] **Verify end to end**: ask Marvin in Grace's workspace "turn on Sell online for every available artwork with a
+       price" → hand-off to Builder → it cites the docs, drafts the workflow disabled, Preview says N, explains it; I
+       enable + Run. Same question from Claude Code via MarvinMCP returns the docs page.
+
+## Later
+- Phase 2: the same draft-and-ask tools for **entry types, collections (incl. smart rules), scheduled tasks** and
+  integration blueprints (closes the 2026-09-24 Brain task).
+- Phase 3: embeddings for docs search if keyword ranking falls short; per-workspace "house recipes".
