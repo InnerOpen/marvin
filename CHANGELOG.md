@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.130 (2026-10-02)
+
+### Bug Fixes
+
+- **automation**: Entry queries de-duplicate by id, so they work on Postgres
+  ([`01c4226`](https://github.com/InnerOpen/marvin/commit/01c4226e311fb507429f90665462644814d33d26))
+
+
 ## v1.0.0-rc.129 (2026-10-02)
 
 ### Bug Fixes
