@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.114 (2026-10-02)
+
+### Bug Fixes
+
+- **integrations**: Apply parameterised content from the card, show action results, {{SECRET}}
+  credentials
+  ([`4a8cba5`](https://github.com/InnerOpen/marvin/commit/4a8cba51c476c85e2e74eea5589e14c84e653df7))
+
+
 ## v1.0.0-rc.113 (2026-10-02)
 
 ### Features
