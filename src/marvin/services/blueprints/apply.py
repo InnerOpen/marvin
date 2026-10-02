@@ -65,6 +65,10 @@ def resolve_parameters(session, group_id, blueprint: Blueprint, params: dict | N
 
     for parameter in blueprint.parameters:
         value = supplied.get(parameter.key, parameter.default)
+        if parameter.kind == "integration" and parameter.key not in supplied:
+            # A provider can only guess its connection's slug ("square"); the workspace named it
+            # ("square_integration"). With exactly one connection of that provider, that's the one.
+            value = _connection_slug(session, group_id, blueprint.source, value)
         if value in (None, ""):
             if parameter.required:
                 raise BlueprintParameterError(f"'{parameter.key}' is required ({parameter.label})")
@@ -76,6 +80,17 @@ def resolve_parameters(session, group_id, blueprint: Blueprint, params: dict | N
         resolved[parameter.key] = value
 
     return resolved
+
+
+def _connection_slug(session, group_id, provider: str, default):
+    """`default` when the workspace has a connection by that slug; otherwise the slug of its only
+    connection of `provider`; otherwise `default` (which validation then refuses with a reason)."""
+    from marvin.db.models.groups.integrations import IntegrationModel
+
+    if default and session.query(IntegrationModel.id).filter_by(group_id=group_id, slug=str(default)).first():
+        return default
+    rows = session.query(IntegrationModel.slug).filter_by(group_id=group_id, provider=provider).limit(2).all()
+    return rows[0][0] if len(rows) == 1 else default
 
 
 def substitute(value, params: dict):
@@ -117,13 +132,14 @@ def already_applied(session, group_id, blueprint: Blueprint, params: dict | None
     """True when this workspace already has an object with the blueprint's (resolved) slug.
 
     A parameterised blueprint checked without parameters is judged by its defaults — the values an
-    integration's card applies when nobody changes them. One with a parameter that has no default
-    can't be judged blind, so it reads as not applied.
+    integration's card applies when nobody changes them (an `integration` parameter resolves to the
+    workspace's own connection). One with a parameter that has no default can't be judged blind, so it
+    reads as not applied.
     """
     if blueprint.parameters and not params:
-        if any(p.default in (None, "") for p in blueprint.parameters if p.required):
+        if any(p.default in (None, "") for p in blueprint.parameters if p.required and p.kind != "integration"):
             return False
-        params = {p.key: p.default for p in blueprint.parameters if p.default not in (None, "")}
+        params = None  # resolve_parameters fills the defaults
     try:
         resolved = resolve_parameters(session, group_id, blueprint, params)
         target = resolve_integration_id(session, group_id, blueprint, integration_id)

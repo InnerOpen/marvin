@@ -237,3 +237,32 @@ def test_integration_parameter_must_name_a_connection_in_this_workspace(db_sessi
 
     assert not refused.created and "no integration 'nope'" in refused.detail
     assert created.created and created.slug == "shop-uses-shop"
+
+
+def test_integration_parameter_falls_back_to_the_only_connection(db_session, workspace):
+    """The provider guesses "shop"; the workspace named its one connection "shop_main"."""
+    from marvin.db.models.groups.integrations import IntegrationModel
+
+    db_session.add(IntegrationModel(session=db_session, group_id=workspace.id, provider="shop", name="Shop", slug="shop_main", enabled=True))
+    db_session.commit()
+    workflow = Blueprint(
+        **{
+            **WORKFLOW.model_dump(),
+            "slug": "shop-calls",
+            "parameters": [{"key": "integration", "label": "Which connection", "kind": "integration", "default": "shop"}],
+            "payload": {
+                "definition": {
+                    "trigger": {"type": "event", "event": "entry_published"},
+                    "conditions": [],
+                    "actions": [{"kind": "integration", "integration": "{{integration}}", "action": "ping"}],
+                }
+            },
+        }
+    )
+
+    assert not already_applied(db_session, workspace.id, workflow)
+    result = apply_blueprint(db_session, workspace.id, workflow, actor_id=workspace.user_id)
+
+    row = db_session.query(WorkspaceAutomationModel).filter_by(group_id=workspace.id, slug="shop-calls").one()
+    assert result.created and row.definition["actions"][0]["integration"] == "shop_main"
+    assert already_applied(db_session, workspace.id, workflow)  # the card now ticks it
