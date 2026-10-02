@@ -1,0 +1,235 @@
+---
+// Live activity toasts: what Marvin just did in this workspace — workflows that ran or failed,
+// webhooks received, site rebuilds sent, content changed by someone else.
+//
+// Polls GET /api/platform/events/feed (the audit log, oldest first) every few seconds while the tab
+// is visible. Everything shown is already in the event log; this only surfaces it as it happens.
+// The bell cycles All → Failures only → Off, remembered per browser. Muting changes nothing in Marvin.
+interface Props {
+  /** The signed-in user — their own content edits aren't echoed back to them. */
+  userId?: string | null;
+}
+const { userId = null } = Astro.props;
+---
+
+<button type="button" class="button secondary activity-bell" id="activity-bell" data-user-id={userId ?? ""} aria-live="polite">
+  <span aria-hidden="true" data-icon>🔔</span><span class="sr-only" data-label>Activity: all</span>
+</button>
+<div class="activity-stack" id="activity-stack" role="log" aria-live="polite" aria-label="Recent activity"></div>
+
+<script>
+  import { fetchApi } from "@/lib/api/client";
+
+  type FeedEvent = {
+    eventId: string;
+    eventType: string;
+    occurredAt: string;
+    userId?: string | null;
+    entityId?: string | null;
+    entityType?: string | null;
+    messageTitle: string;
+    messageBody?: string | null;
+    detail?: string | null;
+  };
+  type Feed = { now: string; events: FeedEvent[] };
+  type Mode = "all" | "failures" | "off";
+  type Kind = { tone: "ok" | "info" | "err"; label: string; href?: (e: FeedEvent) => string; othersOnly?: boolean };
+
+  const POLL_MS = 5000;
+  const TOAST_MS = 6000;
+  const MAX_TOASTS = 5;
+  const SEEN_CAP = 500; // the feed overlaps polls on purpose; remember enough ids to dedupe
+  const MODE_KEY = "marvin.activity";
+  const MODES: Mode[] = ["all", "failures", "off"];
+  const MODE_LABEL: Record<Mode, string> = { all: "Activity: all", failures: "Activity: failures only", off: "Activity: off" };
+  const MODE_ICON: Record<Mode, string> = { all: "🔔", failures: "⚠️", off: "🔕" };
+
+  const entryHref = (e: FeedEvent) => (e.entityType === "entry" && e.entityId ? `/workspace/entries/${e.entityId}` : "/workspace/events");
+
+  // What's worth a toast. Anything not listed stays in the event log only.
+  const KINDS: Record<string, Kind> = {
+    automation_ran: { tone: "ok", label: "Workflow", href: () => "/automation/workflows" },
+    automation_failed: { tone: "err", label: "Workflow failed", href: () => "/automation/workflows" },
+    incoming_webhook: { tone: "info", label: "Webhook received", href: () => "/automation/incoming-webhooks" },
+    webhook_triggered: { tone: "info", label: "Site rebuild" },
+    webhook_delivery_failed: { tone: "err", label: "Webhook delivery failed", href: () => "/automation/webhooks" },
+    site_build_failed: { tone: "err", label: "Site build failed" },
+    site_deployment_failed: { tone: "err", label: "Site deploy failed" },
+    scheduled_task_failed: { tone: "err", label: "Scheduled task failed", href: () => "/workspace/scheduled-tasks" },
+    ai_operation_failed: { tone: "err", label: "AI operation failed" },
+    form_submission_received: { tone: "info", label: "Form submission", href: entryHref },
+    entry_published: { tone: "info", label: "Published", href: entryHref, othersOnly: true },
+    entry_unpublished: { tone: "info", label: "Unpublished", href: entryHref, othersOnly: true },
+    entry_created: { tone: "info", label: "Created", href: entryHref, othersOnly: true },
+    entry_updated: { tone: "info", label: "Updated", href: entryHref, othersOnly: true },
+    entry_deleted: { tone: "info", label: "Deleted", othersOnly: true },
+  };
+
+  const bell = document.getElementById("activity-bell") as HTMLButtonElement;
+  const stack = document.getElementById("activity-stack") as HTMLElement;
+  const me = bell.dataset.userId || null;
+
+  function readMode(): Mode {
+    try {
+      const v = localStorage.getItem(MODE_KEY) as Mode | null;
+      return v && MODES.includes(v) ? v : "all";
+    } catch {
+      return "all";
+    }
+  }
+  let mode = readMode();
+
+  function renderBell() {
+    bell.querySelector("[data-icon]")!.textContent = MODE_ICON[mode];
+    bell.querySelector("[data-label]")!.textContent = MODE_LABEL[mode];
+    bell.title = `${MODE_LABEL[mode]} — click to change`;
+  }
+
+  bell.addEventListener("click", () => {
+    mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+    try {
+      localStorage.setItem(MODE_KEY, mode);
+    } catch {
+      /* private window — the choice lasts for this page only */
+    }
+    renderBell();
+  });
+  renderBell();
+
+  function shouldShow(e: FeedEvent, kind: Kind | undefined): kind is Kind {
+    if (!kind || mode === "off") return false;
+    if (mode === "failures" && kind.tone !== "err") return false;
+    if (kind.othersOnly && me && e.userId === me) return false;
+    return true;
+  }
+
+  function dismiss(el: HTMLElement) {
+    el.classList.add("leaving");
+    setTimeout(() => el.remove(), 200);
+  }
+
+  function show(e: FeedEvent, kind: Kind) {
+    const el = document.createElement(kind.href ? "a" : "div");
+    el.className = `activity-toast ${kind.tone}`;
+    if (kind.href) (el as HTMLAnchorElement).href = kind.href(e);
+
+    const head = document.createElement("div");
+    head.className = "activity-head";
+    const label = document.createElement("strong");
+    label.textContent = kind.label;
+    const time = document.createElement("time");
+    time.dateTime = e.occurredAt;
+    time.textContent = new Date(e.occurredAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    head.append(label, time);
+
+    const body = document.createElement("div");
+    body.className = "activity-body";
+    body.textContent = e.messageBody || e.messageTitle;
+    el.append(head, body);
+
+    if (e.detail) {
+      const detail = document.createElement("div");
+      detail.className = "activity-detail";
+      detail.textContent = e.detail;
+      el.append(detail);
+    }
+
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "activity-close";
+    close.setAttribute("aria-label", "Dismiss");
+    close.textContent = "×";
+    close.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      dismiss(el);
+    });
+    el.append(close);
+
+    stack.prepend(el);
+    while (stack.children.length > MAX_TOASTS) stack.lastElementChild?.remove();
+    // Failures stay until dismissed — they're the ones you'd act on.
+    if (kind.tone !== "err") setTimeout(() => dismiss(el), TOAST_MS);
+  }
+
+  const seen = new Set<string>();
+  let since: string | null = null;
+  let timer: number | undefined;
+  let stopped = false;
+
+  async function poll() {
+    if (stopped || document.hidden) return;
+    try {
+      const q = since ? `?since=${encodeURIComponent(since)}` : "";
+      const feed = await fetchApi<Feed>(`/api/platform/events/feed${q}`);
+      since = feed.now;
+      for (const e of feed.events) {
+        if (seen.has(e.eventId)) continue;
+        seen.add(e.eventId);
+        const kind = KINDS[e.eventType];
+        if (shouldShow(e, kind)) show(e, kind);
+      }
+      if (seen.size > SEEN_CAP) {
+        for (const id of [...seen].slice(0, seen.size - SEEN_CAP)) seen.delete(id);
+      }
+    } catch (err) {
+      // Signed out — stop asking. Anything else (a deploy, a blip) is retried on the next tick.
+      if ((err as { status?: number })?.status === 401) stopped = true;
+    }
+  }
+
+  function start() {
+    if (timer === undefined) timer = window.setInterval(poll, POLL_MS);
+  }
+  function stop() {
+    if (timer !== undefined) window.clearInterval(timer);
+    timer = undefined;
+  }
+
+  // A hidden tab doesn't poll; on return it asks from where it left off, so nothing is lost.
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stop();
+    else {
+      poll();
+      start();
+    }
+  });
+  poll();
+  start();
+</script>
+
+<style>
+  .activity-bell { padding: 6px 10px; line-height: 1; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  .activity-stack {
+    position: fixed; left: 16px; bottom: 16px; z-index: 1100;
+    display: flex; flex-direction: column-reverse; gap: 8px;
+    width: min(360px, calc(100vw - 32px)); pointer-events: none;
+  }
+  .activity-toast {
+    position: relative; display: block; pointer-events: auto;
+    padding: 10px 32px 10px 12px; border-radius: 10px;
+    background: var(--panel, var(--bg)); color: inherit; text-decoration: none;
+    border: 1px solid var(--line); border-left: 4px solid var(--accent-2);
+    box-shadow: 0 6px 20px rgb(0 0 0 / 0.12);
+    font-size: 13px; animation: activity-in 0.18s ease-out;
+    transition: opacity 0.2s, transform 0.2s;
+  }
+  .activity-toast.ok { border-left-color: #16a34a; }
+  .activity-toast.err { border-left-color: #dc2626; }
+  .activity-toast.leaving { opacity: 0; transform: translateY(6px); }
+  a.activity-toast:hover { border-color: var(--muted); }
+  .activity-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+  .activity-head time { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .activity-body { overflow-wrap: anywhere; }
+  .activity-detail { margin-top: 4px; color: #dc2626; font-size: 12px; overflow-wrap: anywhere; }
+  .activity-close {
+    position: absolute; top: 4px; right: 6px; border: 0; background: none; color: var(--muted);
+    font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 4px;
+  }
+  @keyframes activity-in { from { opacity: 0; transform: translateY(8px); } }
+  @media (prefers-reduced-motion: reduce) {
+    .activity-toast { animation: none; transition: none; }
+  }
+</style>

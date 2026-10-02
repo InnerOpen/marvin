@@ -46,3 +46,17 @@ class EventLogSummary(_MarvinModel):
     message_body: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class EventFeedItem(EventLogSummary):
+    """An event as the admin's live activity toaster shows it."""
+
+    detail: str | None = None
+    """Why it failed, when the event carries a reason (e.g. a failed workflow's error)."""
+
+
+class EventFeed(_MarvinModel):
+    """Events since a cursor, oldest first, plus the server's clock to poll from next."""
+
+    now: datetime
+    events: list[EventFeedItem]

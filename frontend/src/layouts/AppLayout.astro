@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import ActivityToaster from "@/components/ActivityToaster.astro";
 import Marvin from "@/components/Marvin.astro";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
@@ -34,8 +35,10 @@ const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
 let isAdmin = false;
 let isSuperAdmin = false;
+let currentUserId: string | null = null;
 try {
   const currentUser = (await sdk.user.getProfile()) as any;
+  currentUserId = currentUser?.id ?? null;
   isAdmin = currentUser?.admin === true;
   isSuperAdmin = currentUser?.platformRole === "SUPER_ADMIN";
 
@@ -172,6 +175,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
             </div>
           </div>
           <div class="topbar-actions">
+            {authToken && <ActivityToaster userId={currentUserId} />}
             <a class="button secondary" href="/workspace/entries?status=needs_review,approved">Review Queue</a>
             <form method="POST" action="/api/auth/logout" style="display:inline;">
               <button type="submit" class="button secondary">Logout</button>

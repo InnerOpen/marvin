@@ -5,16 +5,41 @@ Provides read-only access to the event audit trail for workspace members.
 Events can be filtered by type, entity, user, and date range.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 
 from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.controller import controller
-from marvin.schemas.platform.event_log import EventLogRead, EventLogSummary
+from marvin.schemas.platform.event_log import EventFeed, EventFeedItem, EventLogRead, EventLogSummary
 
 router = APIRouter(prefix="/events", tags=["Events (Platform)"])
+
+FEED_LIMIT = 50
+# The feed answers "since" with a little overlap: an event is stamped when dispatched but written a
+# moment later, so one stamped just before the previous poll could land after it. Clients dedupe by
+# event_id.
+FEED_OVERLAP = timedelta(seconds=10)
+# A fresh page asks with no cursor; it gets only the last few seconds, not the backlog.
+FEED_FIRST_LOOK = timedelta(seconds=5)
+
+
+def _detail(event_data: dict) -> str | None:
+    doc = event_data.get("documentData") or event_data.get("document_data") or {}
+    reason = doc.get("error") if isinstance(doc, dict) else None
+    return str(reason)[:500] if reason else None
+
+
+def build_feed(event_log_repo, workspace_id, since: datetime | None, now: datetime | None = None) -> EventFeed:
+    now = now or datetime.now(UTC)
+    if since is None:
+        start = now - FEED_FIRST_LOOK
+    else:
+        start = (since.astimezone(UTC) if since.tzinfo else since.replace(tzinfo=UTC)) - FEED_OVERLAP
+    events = event_log_repo.get_by_workspace(workspace_id=workspace_id, start_date=start, limit=FEED_LIMIT)
+    items = [EventFeedItem(**EventLogSummary.model_validate(e).model_dump(), detail=_detail(e.event_data or {})) for e in reversed(events)]
+    return EventFeed(now=now, events=items)
 
 
 @controller(router)
@@ -75,6 +100,15 @@ class EventsController(BaseUserController):
 
         # Convert to summary schema (lighter payload)
         return [EventLogSummary.model_validate(e) for e in events]
+
+    @router.get("/feed", response_model=EventFeed)
+    def event_feed(self, since: datetime | None = None) -> EventFeed:
+        """
+        What happened in the current workspace since `since` (UTC), oldest first — the admin's
+        activity toaster polls this. Pass the previous response's `now` as the next `since`.
+        Returns at most the newest FEED_LIMIT events.
+        """
+        return build_feed(self.repos.event_log, self.group_id, since)
 
     @router.get("/{event_id}", response_model=EventLogRead)
     def get_event(
