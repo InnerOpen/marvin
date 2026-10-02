@@ -135,3 +135,124 @@ no token streaming (providers are sync). Each slice committed + rolled out on it
 ### Follow-ups
 - **C2** — carry a specialist's ask up to Marvin: a hand-off child that hits an ask-first tool returns "awaiting" from `run_agent`; the parent parks with a nested record; resume finishes the child first, feeds its answer back as the tool result, then continues Marvin. Design only.
 - **Marvin-first picker** (separate commit): Ask page picker — Marvin first and default; then the workspace's agents; Ask and Chat under "Built-in" at the bottom (Chat hidden when the default model supports tools). No backend change.
+
+# Trash — reversible delete (2026-10-01, Jared: "add that feature to todos")
+
+Asked to delete inbox entries, an agent had no delete tool and staged no-op `revise_entry`
+suggestions ("Deleted test inbox entry.") on 7 newsletter signups instead. Trash gives "delete" a
+real, reversible home; only an admin empties it. Tool name is open (doesn't have to be `trash_entry`).
+
+## Plan
+- [ ] Entry status `trashed` + a system collection **Trash** 🗑️ in `WORKFLOW_COLLECTIONS` (smart on status, locked,
+      internal; after Archive). Record the previous status + who/when in `metadata_json` so Restore returns it.
+- [ ] Trashed entries hidden everywhere: publish API, search/embeddings, agent read tools, non-system collections.
+      Tests per read path (a leak here is the real risk).
+- [ ] Agent tool to move entries to Trash (non-destructive → no ask-first). `revise_entry` description: not for
+      deleting, use the trash tool. Test: an agent asked to delete calls the trash tool, not `revise_entry`.
+- [ ] Trash page/collection view: list with who/when, untick to keep, **Restore** and **Empty trash** (hard delete,
+      workspace OWNER/ADMIN only). Events for trashed / restored / purged.
+- [ ] Optional: system scheduled task to empty items trashed > 30 days (like `prune_scheduled_task_executions`).
+- [ ] Build on the dev instance (dev.admin.iwobble.com) first — touches every content read path.
+
+# Dev instance + Postgres (2026-10-01, Jared: "add that plan to the todos")
+
+Someone else (Grace) now uses the live instance, so changes need somewhere to land before production. And
+production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend pinned to one replica).
+
+## Plan
+- [ ] **Image tags first:** production tracks the moving `:develop` tag, so a dev instance on `:develop` would run the
+      same code as prod. Dev follows `:develop`; production pins a release tag (CI already cuts `1.0.0-rc.N`).
+      Promotion = bump prod's tag.
+- [ ] **Postgres on the cluster:** install the CloudNativePG operator (OperatorHub); one small single-instance
+      `Cluster` per environment. (No Postgres on ocp4 today — only Beaker's MariaDB.)
+- [ ] **Chart:** wire `dbEngine: postgres` to the app's `POSTGRES_SERVER/PORT/USER/PASSWORD/DB` (Secret from the CNPG
+      cluster). Keep the `marvin-data` PVC — it also holds uploaded assets; only the DB moves. Allow
+      `replicaCount > 1` only then (and only once assets are on shared/object storage).
+- [ ] **`marvin-dev` namespace:** Helm release on Postgres, `values-dev.yaml`, `:develop` tag, `pullPolicy: Always`.
+- [ ] **Hostnames:** `dev.admin.iwobble.com` + `dev.api.iwobble.com` as Public Hostnames on the existing cloudflared
+      tunnel → `marvin-dev` services (cross-namespace service DNS). Dev `noindex`/not for real users.
+- [ ] **Full SQLite → Postgres data copy:** every table, not just workspace content (users, API clients, tokens,
+      secrets, preferences, event/execution logs too). Create the schema with Alembic on Postgres, then copy
+      table by table (pgloader, or a SQLAlchemy copy script in `scripts/`); per-table row counts must match.
+      Rehearse on dev from a copy of the production file, never the live one.
+- [ ] **Backups:** CNPG scheduled backups (base backup + WAL) to storage off the cluster's NFS, a tested restore,
+      and keep Marvin's own backup export as a second, engine-independent copy. Check what backs up the
+      production SQLite file *today* before touching it.
+- [ ] **First feature through dev:** Trash (above).
+- [ ] **Production cutover (planned downtime):** stop the backend → copy SQLite → prod Postgres → switch `dbEngine` →
+      verify → pin release tag.
+- [ ] **SQLite retired** (Jared: "not using sqlite"): no environment runs on SQLite after the cutover — dev and prod both
+      Postgres, `values-iwobble.yaml` drops `dbEngine: sqlite`; the `.db` file leaves `marvin-data` (assets stay). The old `.db` is kept only
+      as a cold, read-only copy for a set period, then deleted. (Local dev/tests may keep SQLite.)
+
+# Square integration — sell artwork from the site (2026-10-02, Jared: "create a Square integration")
+
+Goal: chosen `artwork` entries get a Buy button → Square hosted checkout → back to the site → the artwork flips to
+sold. Square Catalog item with inventory 1, so an in-person card-reader sale at a show marks it sold too.
+Research (2026-10-01): Square over Stripe — Grace already has an active Square seller account (readers); one
+inventory for online + shows. PayPal (reusable links, RSA-signed webhooks) and Shopify (5% Starter fee) ruled out.
+
+Shape: the provider is a thin Square API wrapper; Marvin **workflows** do the wiring (publish → create listing →
+store ids; Square webhook → find entry by stored id → mark sold → close link → rebuild site). Same pattern as the
+Buttondown loop, so every core piece below is reusable beyond Square.
+
+## Core gaps (Marvin + SDK) — each reusable, each with tests
+Done 2026-10-02 (local, not pushed): SDK `b9b33c8`; Marvin `cb4c520f` (http put/delete), `e906102a` (square signature scheme +
+migration `c4e8a2f6b9d1`), `e0c5f0b4` (set_data), `ad70f341` (integration step). Full suite green. Builder learned both
+new steps — it used to drop unknown step kinds on save and default unknown entry ops to "Publish".
+- [x] **Incoming-webhook signature schemes:** `signature_scheme` on incoming webhooks (`hmac_sha256_hex_body` = today,
+      `square` = base64 HMAC-SHA256 over notification URL + raw body, header `x-square-hmacsha256-signature`;
+      leave room for `stripe`). Migration + schema + admin field. The notification URL must be the public one
+      Square signs (configured on the webhook, not `request.url` behind the tunnel).
+- [x] **`integration` workflow action kind:** run a workspace integration's action with templated args; result →
+      `$steps.<id>.output` (so later steps can store returned ids). Respect `requires_approval`.
+- [x] **`set_data` entry op:** validated merge into `data_json` (the artwork's `status` is a schema field; `set_metadata`
+      can't override it because fields read data_json first).
+- [x] **HTTP helper `delete` (+ `put`)** in the SDK protocol and core `MarvinHttpHelper` (Square deletes payment links
+      with DELETE). SDK version bump.
+
+## Provider — new repo `InnerOpen/marvin-integration-square` (from MarvinIntegrationTemplate)
+Built locally at `~/code/MarvinIntegrationSquare` (`2d16ab7`, 68 tests, Square-Version 2026-09-16); no GitHub repo yet.
+- [x] Config: `environment` (sandbox|production), `location_id`, `currency` (USD), `redirect_base_url`; secret = access token.
+      `check()` = list locations.
+- [x] Action `create_listing(slug, name, price, image_url?, shipping?)`: upsert Catalog item + variation (stock tracking
+      on, NC tax from her dashboard), set inventory 1, create Payment Link (order line → `catalog_object_id`, qty 1,
+      `ask_for_shipping_address`, `redirect_url`, `payment_note`=slug). Idempotency keys from the slug. Returns
+      `variation_id, payment_link_id, checkout_url, order_id`.
+- [x] Action `close_listing(payment_link_id)` (DELETE link). Optional `list_locations` for setup.
+- [ ] Declared content: `artwork` gains `sellOnline` (opt-in) — or document it if the type is site-owned.
+- [ ] Tests with a stubbed HTTP client; CI like the Instagram repo; add tarball to `values-iwobble.yaml` init container.
+
+## Workflows (grace-martin-franklin workspace)
+- [ ] `square-list-on-publish`: `entry_published`, `artwork`, `sellOnline` + price set → integration `create_listing` →
+      `set_metadata {square_variation_id, square_payment_link_id, square_order_id, square_checkout_url}`.
+- [ ] `square-sold-online`: incoming webhook `square` (`payment.updated`, `COMPLETED`) → entry by
+      `metadata.square_order_id` → `set_data {status: sold}` → rebuild.
+- [ ] `square-sold-in-person`: `inventory.count.updated` with quantity 0 → entry by `metadata.square_variation_id` →
+      `set_data {status: sold}` → `close_listing` → rebuild.
+- [ ] Rebuild = Cloudflare Pages deploy hook on Grace's CF project, as a workflow-type webhook.
+- [ ] Dedupe on Square `event_id` (webhooks retry).
+
+## Site (gracemartinfranklinart.com repo)
+- [ ] Artwork page: **Buy** button when `status = available` and `square_checkout_url` is set; Sold badge otherwise.
+- [ ] `/thanks` page (Square's `redirect_url`): "Thank you — Grace will be in touch about delivery."
+
+## Verify
+- [x] Square **sandbox** end to end on a local Marvin (Jared's developer account), 2026-10-02, via a temporary Cloudflare
+      quick tunnel: Apply created the fields (+price) / webhook / 3 workflows; publish → `create_listing` (item, stock 1,
+      link with redirect + $15 shipping, order on the catalog variation) → ids on the entry. A reader-style sale (inventory
+      adjustment IN_STOCK→SOLD) → Square delivered `inventory.count.updated` → **real Square signature verified** →
+      mark-sold → close-when-sold → link 404. 6 s end to end. Square sent 2 events for one sale; only one matched.
+      Not tested: paying through the hosted checkout page (needs a card entered on Square's page — do by hand).
+- [ ] Confirm by hand: a checkout through the link (sandbox test card) also lands at IN_STOCK 0 → sold; a sold-out link
+      refuses checkout; which fee applies to API links.
+- [ ] Provider nit: a second `close_listing` returns `already: false` (Square answered the repeat DELETE with 200).
+- Square retired `location_id` on inventory *adjustments* at 2026-07-15 (→ `from_location_id`/`to_location_id`); the
+  provider's PHYSICAL_COUNT still works at Square-Version 2026-09-16.
+- [ ] Production: Grace's token + location, webhook subscription in her Square developer app, deploy hook. Via the dev
+      instance first if it exists by then.
+
+## Decisions (Jared, 2026-10-02)
+- Opt-in per artwork: `sellOnline` boolean on `artwork`.
+- Shipping: flat fee per artwork — `shippingFee` field, added to the Square order as a shipping charge.
+- Build now on `develop`, tested locally + in Square's sandbox; roll out to the live server only when Jared says.
