@@ -129,9 +129,7 @@ def already_applied(session, group_id, blueprint: Blueprint, params: dict | None
     return _existing(session, group_id, blueprint, slug, target, resolved) is not None
 
 
-def apply_blueprint(
-    session, group_id, blueprint: Blueprint, params: dict | None = None, integration_id=None, actor_id=None
-) -> BlueprintApplyResult:
+def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None = None, integration_id=None, actor_id=None) -> BlueprintApplyResult:
     """Create the blueprint's object in this workspace, unless it is already there.
 
     `actor_id` is who applied it — recorded as a workflow's author, since a workflow runs with its
@@ -184,8 +182,7 @@ def apply_many(session, group_id, blueprints, params: dict | None = None, integr
     order = {"entry_type": 0, "entry_fields": 1, "collection": 2, "scheduled_task": 3, "incoming_webhook": 4, "workflow": 5}
     by_slug = params or {}
     return [
-        apply_blueprint(session, group_id, b, by_slug.get(b.slug), actor_id=actor_id)
-        for b in sorted(blueprints, key=lambda b: order.get(b.kind, 99))
+        apply_blueprint(session, group_id, b, by_slug.get(b.slug), actor_id=actor_id) for b in sorted(blueprints, key=lambda b: order.get(b.kind, 99))
     ]
 
 
