@@ -74,6 +74,17 @@ class MarvinHttpHelper:
         req = urllib.request.Request(url, method="GET", headers=headers or {})
         return self._send(req, timeout)
 
+    def _with_body(self, method: str, url: str, json, data: bytes | None, headers: dict[str, str] | None, timeout: float) -> Response:
+        hdrs = dict(headers or {})
+        body = data
+        if json is not None:
+            import json as _json
+
+            body = _json.dumps(json).encode()
+            hdrs.setdefault("Content-Type", "application/json")
+        req = urllib.request.Request(url, data=body or b"", method=method, headers=hdrs)
+        return self._send(req, timeout)
+
     def post(
         self,
         url: str,
@@ -83,14 +94,21 @@ class MarvinHttpHelper:
         headers: dict[str, str] | None = None,
         timeout: float = 15,
     ) -> Response:
-        hdrs = dict(headers or {})
-        body = data
-        if json is not None:
-            import json as _json
+        return self._with_body("POST", url, json, data, headers, timeout)
 
-            body = _json.dumps(json).encode()
-            hdrs.setdefault("Content-Type", "application/json")
-        req = urllib.request.Request(url, data=body or b"", method="POST", headers=hdrs)
+    def put(
+        self,
+        url: str,
+        *,
+        json=None,
+        data: bytes | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float = 15,
+    ) -> Response:
+        return self._with_body("PUT", url, json, data, headers, timeout)
+
+    def delete(self, url: str, *, headers: dict[str, str] | None = None, timeout: float = 15) -> Response:
+        req = urllib.request.Request(url, method="DELETE", headers=headers or {})
         return self._send(req, timeout)
 
 
