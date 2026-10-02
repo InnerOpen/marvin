@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.136 (2026-10-02)
+
+### Bug Fixes
+
+- **ai**: Find_entries can filter and read an entry type's own fields
+  ([`2ef0b34`](https://github.com/InnerOpen/marvin/commit/2ef0b348d46cc7ccbfe4f5b1896bea7a1dc0691f))
+
+
 ## v1.0.0-rc.135 (2026-10-02)
 
 ### Features
