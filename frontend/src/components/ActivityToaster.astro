@@ -1,5 +1,5 @@
 ---
-// Live activity toasts: what Marvin just did in this workspace — workflows that ran or failed,
+// Live activity toasts (centred under the top bar; newest on top): what Marvin just did in this workspace — workflows that ran or failed,
 // webhooks received, site rebuilds sent, content changed by someone else.
 //
 // Polls GET /api/platform/events/feed (the audit log, oldest first) every few seconds while the tab
@@ -70,6 +70,18 @@ const { userId = null } = Astro.props;
   // Rendered next to the bell, inside the top bar — whose backdrop-filter makes it the containing
   // block for position: fixed, pinning the stack to the bar instead of the window. Lift it out.
   document.body.appendChild(stack);
+
+  // Centred just under the (sticky) top bar, over the content column rather than the whole window
+  // (the sidebar would pull it off-centre). The bar's height varies with the page title.
+  function placeStack() {
+    const bar = document.querySelector(".topbar")?.getBoundingClientRect();
+    if (!bar) return;
+    stack.style.top = `${Math.round(bar.bottom) + 12}px`;
+    stack.style.left = `${Math.round(bar.left)}px`;
+    stack.style.right = `${Math.round(window.innerWidth - bar.right)}px`;
+  }
+  placeStack();
+  window.addEventListener("resize", placeStack);
   const me = bell.dataset.userId || null;
 
   function readMode(): Mode {
@@ -208,12 +220,12 @@ const { userId = null } = Astro.props;
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
   .activity-stack {
-    position: fixed; left: 16px; bottom: 16px; z-index: 1100;
-    display: flex; flex-direction: column-reverse; gap: 8px;
-    width: min(360px, calc(100vw - 32px)); pointer-events: none;
+    position: fixed; top: 88px; left: 16px; right: 16px; z-index: 1100;
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+    padding: 0 16px; pointer-events: none;
   }
   .activity-stack :global(.activity-toast) {
-    position: relative; display: block; pointer-events: auto;
+    position: relative; display: block; pointer-events: auto; width: min(420px, 100%);
     padding: 10px 32px 10px 12px; border-radius: 10px;
     background: var(--panel, var(--bg)); color: inherit; text-decoration: none;
     border: 1px solid var(--line); border-left: 4px solid var(--accent-2);
@@ -223,7 +235,7 @@ const { userId = null } = Astro.props;
   }
   .activity-stack :global(.activity-toast.ok) { border-left-color: #16a34a; }
   .activity-stack :global(.activity-toast.err) { border-left-color: #dc2626; }
-  .activity-stack :global(.activity-toast.leaving) { opacity: 0; transform: translateY(6px); }
+  .activity-stack :global(.activity-toast.leaving) { opacity: 0; transform: translateY(-6px); }
   .activity-stack :global(a.activity-toast:hover) { border-color: var(--muted); }
   .activity-stack :global(.activity-head) { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
   .activity-stack :global(.activity-head time) { color: var(--muted); font-size: 11px; white-space: nowrap; }
@@ -233,7 +245,7 @@ const { userId = null } = Astro.props;
     position: absolute; top: 4px; right: 6px; border: 0; background: none; color: var(--muted);
     font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 4px;
   }
-  @keyframes activity-in { from { opacity: 0; transform: translateY(8px); } }
+  @keyframes activity-in { from { opacity: 0; transform: translateY(-8px); } }
   @media (prefers-reduced-motion: reduce) {
     .activity-stack :global(.activity-toast) { animation: none; transition: none; }
   }
