@@ -199,6 +199,8 @@ const { userId = null } = Astro.props;
 </script>
 
 <style>
+  /* Toasts are built by the script at runtime, so they don't carry this component's scope
+     attribute — styles reach them through :global() under the (scoped) stack. */
   .activity-bell { padding: 6px 10px; line-height: 1; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
@@ -207,7 +209,7 @@ const { userId = null } = Astro.props;
     display: flex; flex-direction: column-reverse; gap: 8px;
     width: min(360px, calc(100vw - 32px)); pointer-events: none;
   }
-  .activity-toast {
+  .activity-stack :global(.activity-toast) {
     position: relative; display: block; pointer-events: auto;
     padding: 10px 32px 10px 12px; border-radius: 10px;
     background: var(--panel, var(--bg)); color: inherit; text-decoration: none;
@@ -216,20 +218,20 @@ const { userId = null } = Astro.props;
     font-size: 13px; animation: activity-in 0.18s ease-out;
     transition: opacity 0.2s, transform 0.2s;
   }
-  .activity-toast.ok { border-left-color: #16a34a; }
-  .activity-toast.err { border-left-color: #dc2626; }
-  .activity-toast.leaving { opacity: 0; transform: translateY(6px); }
-  a.activity-toast:hover { border-color: var(--muted); }
-  .activity-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
-  .activity-head time { color: var(--muted); font-size: 11px; white-space: nowrap; }
-  .activity-body { overflow-wrap: anywhere; }
-  .activity-detail { margin-top: 4px; color: #dc2626; font-size: 12px; overflow-wrap: anywhere; }
-  .activity-close {
+  .activity-stack :global(.activity-toast.ok) { border-left-color: #16a34a; }
+  .activity-stack :global(.activity-toast.err) { border-left-color: #dc2626; }
+  .activity-stack :global(.activity-toast.leaving) { opacity: 0; transform: translateY(6px); }
+  .activity-stack :global(a.activity-toast:hover) { border-color: var(--muted); }
+  .activity-stack :global(.activity-head) { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+  .activity-stack :global(.activity-head time) { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .activity-stack :global(.activity-body) { overflow-wrap: anywhere; }
+  .activity-stack :global(.activity-detail) { margin-top: 4px; color: #dc2626; font-size: 12px; overflow-wrap: anywhere; }
+  .activity-stack :global(.activity-close) {
     position: absolute; top: 4px; right: 6px; border: 0; background: none; color: var(--muted);
     font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 4px;
   }
   @keyframes activity-in { from { opacity: 0; transform: translateY(8px); } }
   @media (prefers-reduced-motion: reduce) {
-    .activity-toast { animation: none; transition: none; }
+    .activity-stack :global(.activity-toast) { animation: none; transition: none; }
   }
 </style>
