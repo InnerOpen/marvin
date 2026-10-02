@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.133 (2026-10-02)
+
+### Bug Fixes
+
+- **ai**: A blank persona means Marvin's default voice, as the settings page says
+  ([`5b2b45d`](https://github.com/InnerOpen/marvin/commit/5b2b45d7264541efa0d9a9bd717cc98c0626a1cd))
+
+
 ## v1.0.0-rc.132 (2026-10-02)
 
 ### Bug Fixes
