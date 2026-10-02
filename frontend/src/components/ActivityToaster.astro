@@ -67,6 +67,9 @@ const { userId = null } = Astro.props;
 
   const bell = document.getElementById("activity-bell") as HTMLButtonElement;
   const stack = document.getElementById("activity-stack") as HTMLElement;
+  // Rendered next to the bell, inside the top bar — whose backdrop-filter makes it the containing
+  // block for position: fixed, pinning the stack to the bar instead of the window. Lift it out.
+  document.body.appendChild(stack);
   const me = bell.dataset.userId || null;
 
   function readMode(): Mode {
