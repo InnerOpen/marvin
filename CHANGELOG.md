@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.137 (2026-10-02)
+
+### Bug Fixes
+
+- **ai**: Keep core tool text workspace-agnostic
+  ([`85a03a7`](https://github.com/InnerOpen/marvin/commit/85a03a7267b51134f60d58c6d045a9c49a71ad0b))
+
+
 ## v1.0.0-rc.136 (2026-10-02)
 
 ### Bug Fixes
