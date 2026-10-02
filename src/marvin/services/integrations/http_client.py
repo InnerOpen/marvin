@@ -13,6 +13,10 @@ from urllib.parse import urlparse
 from marvin_integration_sdk.http import Response
 
 _DEFAULT_MAX_BYTES = 5_000_000
+# urllib's default "Python-urllib/x.y" is refused outright by Cloudflare's bot rules (error 1010), so
+# a provider fetching anything behind Cloudflare — including this install's own public asset URLs —
+# would get a 403. A named agent also tells the far side who is calling.
+USER_AGENT = "marvin-cms/integrations"
 
 
 class SsrfError(ValueError):
@@ -59,6 +63,8 @@ class MarvinHttpHelper:
 
     def _send(self, req: urllib.request.Request, timeout: float) -> Response:
         _guard(req.full_url)
+        if not req.has_header("User-agent"):  # urllib stores header names capitalize()d
+            req.add_header("User-Agent", USER_AGENT)
         try:
             with self._opener.open(req, timeout=timeout) as resp:
                 content = resp.read(self._max_bytes + 1)

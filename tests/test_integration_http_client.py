@@ -67,3 +67,14 @@ def test_post_still_sends_post(helper):
 def test_new_verbs_refuse_private_hosts(verb):
     with pytest.raises(SsrfError):
         getattr(MarvinHttpHelper(), verb)("http://127.0.0.1:8080/internal")
+
+
+def test_requests_carry_a_named_user_agent(helper):
+    # Cloudflare refuses urllib's default agent (error 1010) — including this install's own assets.
+    helper.get("https://api.example.com/asset.jpg")
+    assert _sent(helper).get_header("User-agent") == "marvin-cms/integrations"
+
+
+def test_a_providers_own_user_agent_is_kept(helper):
+    helper.post("https://api.example.com/x", data=b"", headers={"User-Agent": "provider/1"})
+    assert _sent(helper).get_header("User-agent") == "provider/1"

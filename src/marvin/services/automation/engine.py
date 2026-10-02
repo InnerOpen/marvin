@@ -32,7 +32,8 @@ def _ms_since(started: datetime) -> int:
 
 def _entry_context(session, group_id, entry_id) -> dict | None:
     """Load the entry facts conditions and actions reference: type slug, status, title, slug, summary,
-    the schema fields (`data`) and `metadata` (ids an earlier workflow stored, e.g. a Square link)."""
+    the schema fields (`data`), `metadata` (ids an earlier workflow stored, e.g. a Square link) and
+    `image` (the featured image's public URL)."""
     from marvin.db.models.platform.entries import Entries
 
     entry = session.get(Entries, entry_id)
@@ -49,7 +50,33 @@ def _entry_context(session, group_id, entry_id) -> dict | None:
         # Schema fields, so an action can forward content (`${entry.data.body}` → a newsletter API).
         "data": data if isinstance(data := getattr(entry, "data_json", None), dict) else {},
         "metadata": meta if isinstance(meta := getattr(entry, "metadata_json", None), dict) else {},
+        # The featured image's public URL, so an action can hand it on (Square shows it at checkout).
+        "image": _featured_image_url(entry),
     }
+
+
+def _featured_image_url(entry) -> str | None:
+    """Same pick as the publishing API's featured asset — a hero/featured image first, else the first
+    image by position — skipping pending AI suggestions, which never reach published output."""
+    links = sorted(
+        (
+            ea
+            for ea in (getattr(entry, "entry_assets", None) or [])
+            if getattr(ea, "asset", None) is not None
+            and str(getattr(ea.asset, "mime_type", "") or "").startswith("image/")
+            and not (ea.metadata_json or {}).get("suggested")
+        ),
+        key=lambda ea: ea.position or 0,
+    )
+    chosen = next((ea for ea in links if ea.role in ("hero", "featured")), links[0] if links else None)
+    if chosen is None:
+        return None
+    from marvin.services.storage.provider_factory import get_storage_provider
+
+    try:
+        return get_storage_provider().get_public_url(chosen.asset.storage_key)
+    except Exception:  # noqa: BLE001 — a missing image must never break the workflow context
+        return None
 
 
 def run_automations_for_event(
