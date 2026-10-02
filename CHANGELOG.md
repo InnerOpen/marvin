@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.134 (2026-10-02)
+
+### Bug Fixes
+
+- **ai**: Approval mode covers every AI write-back; Ask Marvin is the agent source
+  ([`6a8dd36`](https://github.com/InnerOpen/marvin/commit/6a8dd360aae03dbba4a414a07193c60e66272b63))
+
+
 ## v1.0.0-rc.133 (2026-10-02)
 
 ### Bug Fixes
