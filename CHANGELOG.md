@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.122 (2026-10-02)
+
+### Features
+
+- **publishing**: Site rebuild debounce windows are env settings
+  ([`e636672`](https://github.com/InnerOpen/marvin/commit/e636672b8a1497a2c684fee6d2f4478d7834a42e))
+
+
 ## v1.0.0-rc.121 (2026-10-02)
 
 ### Features
