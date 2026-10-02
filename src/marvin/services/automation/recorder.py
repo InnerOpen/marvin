@@ -50,6 +50,8 @@ def _action_label(action: dict) -> str | None:
         return action.get("webhook_id") or action.get("url")
     if kind == "entry":
         return action.get("op")
+    if kind == "integration":
+        return f"{action.get('integration')}.{action.get('action')}"
     return None
 
 

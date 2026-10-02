@@ -141,16 +141,25 @@ class WebhookAction(_DefnBase):
     id: str | None = None
 
 
+class IntegrationAction(_DefnBase):
+    kind: Literal["integration"]
+    integration: str  # the workspace integration's slug
+    action: str  # the provider action key
+    args: dict[str, Any] = Field(default_factory=dict)  # values may be templates; result → $steps.<id>.output
+    id: str | None = None
+
+
 ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "operation": OperationAction,
     "entry": EntryAction,
     "emit_event": EmitEventAction,
     "handler": HandlerAction,
     "webhook": WebhookAction,
+    "integration": IntegrationAction,
 }
 
 Action = Annotated[
-    OperationAction | EntryAction | EmitEventAction | HandlerAction | WebhookAction,
+    OperationAction | EntryAction | EmitEventAction | HandlerAction | WebhookAction | IntegrationAction,
     Field(discriminator="kind"),
 ]
 

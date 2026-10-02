@@ -336,7 +336,7 @@ class TestActionRegistry:
     def test_all_kinds_registered(self):
         from marvin.services.automation.actions import available_kinds
 
-        assert set(available_kinds()) == {"operation", "emit_event", "handler", "webhook", "entry"}
+        assert set(available_kinds()) == {"operation", "emit_event", "handler", "webhook", "entry", "integration"}
 
     def test_unknown_kind_raises(self):
         from marvin.services.automation.actions import run_action

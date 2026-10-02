@@ -34,6 +34,7 @@ __all__ = [
     "EMIT_EVENT_MIN_ROLE",
     "HANDLER_MIN_ROLE",
     "WEBHOOK_MIN_ROLE",
+    "INTEGRATION_ACTION_MIN_ROLE",
     "resolve_authorizer_role",
     "require_role",
 ]
@@ -47,6 +48,7 @@ ENTRY_ACTION_MIN_ROLE = ROLE_AUTHOR  # publish/unpublish/archive/restore — a c
 EMIT_EVENT_MIN_ROLE = ROLE_AUTHOR  # chain an internal event — the authoring privilege
 HANDLER_MIN_ROLE = ROLE_ADMIN  # run a maintenance/index/rebuild job
 WEBHOOK_MIN_ROLE = ROLE_ADMIN  # send workspace data to an external endpoint
+INTEGRATION_ACTION_MIN_ROLE = ROLE_ADMIN  # call an external service with the workspace's integration credentials
 
 
 def resolve_authorizer_role(session, group_id, author_id) -> int:
