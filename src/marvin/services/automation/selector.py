@@ -59,6 +59,54 @@ def _created_desc():
     return Entries.created_at.desc()
 
 
+def json_field_equals(column, key: str, value, dialect: str = "sqlite"):
+    """`column[key] == value` for a JSON column, reading typed-in text the way people mean it.
+
+    Workflow editors and agents pass values as text, but a checkbox is stored as true/false and a
+    number as a number, so "true" or "45" must also match those.
+
+    Postgres compares the field's JSON text against every form the value can take (`"available"`,
+    `true`, `45`) — no casts, because casting a text field to boolean/float raises there. SQLite has
+    no such errors, so it compares typed extractions directly.
+    """
+    import json as _json
+
+    import sqlalchemy as sa
+
+    from .matcher import as_bool, as_number
+
+    if isinstance(value, bool):
+        typed: list = [value]
+    elif isinstance(value, int | float):
+        typed = [value]
+    else:
+        text = str(value)
+        typed = [text]
+        if text.strip().lower() in ("true", "false"):
+            typed.append(as_bool(text))
+        if (n := as_number(text)) is not None:
+            typed.append(n)
+
+    field = column[key]
+    if dialect == "postgresql":
+        forms: set[str] = set()
+        for v in typed:
+            forms.add(_json.dumps(v))
+            if isinstance(v, int | float) and not isinstance(v, bool):
+                forms.update({_json.dumps(int(v)) if float(v).is_integer() else _json.dumps(v), _json.dumps(float(v))})
+        return sa.cast(field, sa.Text).in_(sorted(forms))
+
+    options = []
+    for v in typed:
+        if isinstance(v, bool):
+            options.append(field.as_boolean() == v)
+        elif isinstance(v, int | float):
+            options.append(field.as_float() == float(v))
+        else:
+            options.append(field.as_string() == v)
+    return sa.or_(*options) if len(options) > 1 else options[0]
+
+
 def _entries_query(session, group_id, query: dict):
     """Build an Entries query from a query dict. Same vocabulary as the find_entries tool:
     entry_type (slug), status, text (title contains), has_assets/has_images/has_resources,
@@ -100,7 +148,7 @@ def _entries_query(session, group_id, query: dict):
             for key, value in pairs.items():
                 if value is None or value == "":
                     return q.filter(sa.false())
-                q = q.filter(column[key].as_string() == str(value))
+                q = q.filter(json_field_equals(column, key, value, session.get_bind().dialect.name))
     collection = query.get("collection")
     if collection:
         q = (

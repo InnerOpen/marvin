@@ -194,14 +194,29 @@ def search_content(ctx: ToolContext, args: dict) -> str:
     return json.dumps({"results": results, "count": len(results)})
 
 
+# Rows stay lean, so a larger page is affordable — enough to compare every available artwork's price
+# in one call instead of opening each entry.
+FIND_ENTRIES_MAX_ROWS = 200
+FIND_ENTRIES_MAX_FIELDS = 8
+
+
 @register_tool(
     name="find_entries",
-    description="Find entries with filters: entry_type (slug), status, a title substring (query), has_images (entries with an image asset), has_assets (any attachment), or has_resources (a linked resource). Returns `count` (the true total match) plus a sample of entries. Each row is a LIGHTWEIGHT preview carrying its image-ready asset refs (with a real `url` for thumbnails) and lightweight resource refs; call get_entry for the full entry (descriptions, metadata, roles). Use `count` to answer 'how many'.",  # noqa: E501
+    description='Find entries with filters: entry_type (slug), status (the PUBLISH status: inbox, draft, needs_review, approved, published, archived — not a field), fields (exact match on the entry type\'s own fields, e.g. an artwork\'s {"status": "available"} or {"sellOnline": true}), a title substring (query), tags, has_images, has_assets or has_resources. Returns `count` (the true total match) plus up to `limit` rows (default 10, max 200). Rows are LIGHTWEIGHT previews with image-ready asset refs; pass include_fields (e.g. ["price", "size"]) to get those field values on each row — use that to compare or sort many entries instead of calling get_entry on each. Use `count` to answer \'how many\'.',  # noqa: E501
     input_schema={
         "type": "object",
         "properties": {
             "entry_type": {"type": "string"},
-            "status": {"type": "string"},
+            "status": {"type": "string", "description": "publish status: inbox | draft | needs_review | approved | published | archived"},
+            "fields": {
+                "type": "object",
+                "description": 'exact match on the entry type\'s own fields (data), e.g. {"status": "available", "sellOnline": true}',
+            },
+            "include_fields": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": 'field keys whose values to include on each row, e.g. ["price", "size", "medium"]',
+            },
             "query": {"type": "string"},
             "tags": {
                 "type": "array",
@@ -227,7 +242,27 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
         q = q.join(EntryTypes, Entries.entry_type_id == EntryTypes.id).filter(EntryTypes.slug.in_(spellings))
     st = args.get("status")
     if st:
+        from marvin.schemas.platform.entries import ENTRY_STATUSES
+
+        if st not in ENTRY_STATUSES:
+            # The usual mistake: a field value (an artwork's "available"/"sold") passed as the publish status.
+            return json.dumps(
+                {
+                    "count": 0,
+                    "entries": [],
+                    "note": f"'{st}' is not a publish status ({', '.join(sorted(ENTRY_STATUSES))}). "
+                    f'If it\'s a value of the entry type\'s own field, use fields, e.g. {{"status": "{st}"}}.',
+                }
+            )
         q = q.filter(Entries.status == st)
+    fields = args.get("fields")
+    if isinstance(fields, dict) and fields:
+        from marvin.services.automation.selector import json_field_equals
+
+        for key, value in fields.items():
+            if value is None or value == "":
+                return json.dumps({"count": 0, "entries": [], "note": f"fields.{key} has no value"})
+            q = q.filter(json_field_equals(Entries.data_json, str(key), value, ctx.session.get_bind().dialect.name))
     text = args.get("query")
     if text:
         q = q.filter(Entries.title.ilike(f"%{text}%"))
@@ -245,7 +280,8 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
     if args.get("has_resources"):
         q = q.join(EntryResources, EntryResources.entry_id == Entries.id).distinct()
     total = q.count()  # true total, independent of the row cap below
-    limit = min(int(args.get("limit") or 10), 50)
+    limit = min(int(args.get("limit") or 10), FIND_ENTRIES_MAX_ROWS)
+    include = [str(k) for k in (args.get("include_fields") or []) if str(k).strip()][:FIND_ENTRIES_MAX_FIELDS]
     rows = q.limit(limit).all()
     # This is a LIST, not a detail view: keep rows LEAN to avoid bloating the agent's context.
     # Enough for the caller/UI to show thumbnails and link out — image-ready asset refs (with a
@@ -286,6 +322,7 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
             "assets": assets_by_entry.get(e.id, []),
             "resources": resources_by_entry.get(e.id, []),
             "tags": tags_by_entry.get(e.id, []),
+            **({"fields": {k: (e.data_json or {}).get(k) for k in include}} if include else {}),
         }
         for e in rows
     ]
