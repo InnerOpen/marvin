@@ -181,8 +181,9 @@ class RequestSiteRebuildHandler(ScheduledTaskHandler):
     description = "Queue a static site rebuild; one webhook_triggered event is sent once requests go quiet"
 
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        from marvin.core.config import get_app_settings
         from marvin.db.models.groups.groups import Groups
-        from marvin.services.site_rebuild import QUIET_SECONDS, request_rebuild
+        from marvin.services.site_rebuild import request_rebuild
 
         reason = task.task_config.get("reason", "scheduled")
 
@@ -196,7 +197,8 @@ class RequestSiteRebuildHandler(ScheduledTaskHandler):
 
         scope = "this workspace" if task.group_id else f"all {len(workspace_ids)} workspaces"
         pending = f", {counts[0]} requests pending" if task.group_id and counts[0] > 1 else ""
-        summary = f"Site rebuild queued ({scope}, reason: {reason}{pending}); sent once requests are quiet for {QUIET_SECONDS}s"
+        quiet = get_app_settings().SITE_REBUILD_QUIET_SECONDS
+        summary = f"Site rebuild queued ({scope}, reason: {reason}{pending}); sent once requests are quiet for {quiet}s"
         logger.info(summary)
         return summary
 

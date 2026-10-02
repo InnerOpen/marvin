@@ -9,13 +9,21 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from pytest import fixture
+from pytest import fixture, raises
 from sqlalchemy import delete, select
 
 from marvin.db.models.platform.site_rebuild_requests import SiteRebuildRequestModel
-from marvin.services.site_rebuild import MAX_WAIT_SECONDS, QUIET_SECONDS, dispatch_due_rebuilds, request_rebuild
+from marvin.services import site_rebuild
+from marvin.services.site_rebuild import request_rebuild
 
 T0 = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
+QUIET_SECONDS = 60
+MAX_WAIT_SECONDS = 600
+
+
+def dispatch_due_rebuilds(session, send, *, now):
+    """The tick under test, with the windows pinned so the tests don't depend on the environment."""
+    return site_rebuild.dispatch_due_rebuilds(session, send, now=now, quiet_seconds=QUIET_SECONDS, max_wait_seconds=MAX_WAIT_SECONDS)
 
 
 def _workspace(db_session):
@@ -147,3 +155,20 @@ def test_the_handler_queues_instead_of_dispatching(db_session, workspace):
     row = db_session.execute(select(SiteRebuildRequestModel).where(SiteRebuildRequestModel.group_id == workspace)).scalar_one()
     assert row.request_count == 2 and row.reason == "square listing"
     assert "queued" in summary and "2 requests pending" in summary
+
+
+def test_the_windows_come_from_app_settings(db_session, workspace, sent, monkeypatch):
+    settings = SimpleNamespace(SITE_REBUILD_QUIET_SECONDS=5, SITE_REBUILD_MAX_WAIT_SECONDS=30)
+    monkeypatch.setattr(site_rebuild, "get_app_settings", lambda: settings)
+    request_rebuild(db_session, workspace, "quick", now=_at(0))
+
+    assert site_rebuild.dispatch_due_rebuilds(db_session, sent.send, now=_at(5)) == 1
+
+
+def test_max_wait_shorter_than_quiet_is_rejected():
+    from pydantic import ValidationError
+
+    from marvin.core.settings.settings import AppSettings
+
+    with raises(ValidationError, match="SITE_REBUILD_MAX_WAIT_SECONDS"):
+        AppSettings(SECRET="x", SITE_REBUILD_QUIET_SECONDS=120, SITE_REBUILD_MAX_WAIT_SECONDS=60)

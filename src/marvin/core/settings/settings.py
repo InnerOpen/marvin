@@ -181,6 +181,34 @@ class AppSettings(BaseSettings):
             )
         return self
 
+    SITE_REBUILD_QUIET_SECONDS: int = 60
+    """
+    How long rebuild requests must stop arriving before a workspace's queued site rebuild is sent.
+
+    `request_site_rebuild` (usually from a workflow) only queues a rebuild; the scheduler tick sends
+    one per workspace once requests go quiet, so a bulk edit costs one static-site build. Lower =
+    a single change starts building sooner; higher = longer bursts still collapse into one build.
+    Checked on the scheduler tick, so the real delay is this plus up to SCHEDULER_INTERVAL_SECONDS.
+    """
+
+    SITE_REBUILD_MAX_WAIT_SECONDS: int = 600
+    """
+    The longest a queued site rebuild waits for requests to go quiet. A steady stream (requests
+    closer together than SITE_REBUILD_QUIET_SECONDS) still gets a build at least this often.
+    Validated to be >= SITE_REBUILD_QUIET_SECONDS.
+    """
+
+    @model_validator(mode="after")
+    def _validate_site_rebuild_waits(self) -> "AppSettings":
+        if self.SITE_REBUILD_QUIET_SECONDS < 0:
+            raise ValueError("SITE_REBUILD_QUIET_SECONDS must be >= 0")
+        if self.SITE_REBUILD_MAX_WAIT_SECONDS < self.SITE_REBUILD_QUIET_SECONDS:
+            raise ValueError(
+                f"SITE_REBUILD_MAX_WAIT_SECONDS ({self.SITE_REBUILD_MAX_WAIT_SECONDS}) must be >= "
+                f"SITE_REBUILD_QUIET_SECONDS ({self.SITE_REBUILD_QUIET_SECONDS})"
+            )
+        return self
+
     FRONTEND_PORT: int | None = None
     """
     Port the frontend server binds to on startup.

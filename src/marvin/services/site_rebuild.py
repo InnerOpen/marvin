@@ -4,8 +4,8 @@ Rebuilding a static site takes minutes and the host meters builds, but rebuild r
 bursts: a bulk edit fires a workflow per entry, and each one asks for a rebuild. So a request only
 records that the workspace needs one (:func:`request_rebuild`), and the scheduler's frequent tick
 sends one `webhook_triggered` per workspace (:func:`dispatch_due_rebuilds`) once requests have gone
-quiet for ``QUIET_SECONDS`` — or after ``MAX_WAIT_SECONDS``, so a steady stream can't defer the
-build forever. The outgoing webhooks subscribed to `webhook_triggered` (a deploy hook) do the rest.
+quiet for SITE_REBUILD_QUIET_SECONDS — or after SITE_REBUILD_MAX_WAIT_SECONDS, so a steady stream
+can't defer the build forever (both app settings, i.e. env vars). The outgoing webhooks subscribed to `webhook_triggered` (a deploy hook) do the rest.
 
 Trailing edge on purpose: a build started while the edits are still landing would miss the later
 ones and need a second build anyway. The cost is up to a minute or two before a single change
@@ -20,16 +20,11 @@ from sqlalchemy import delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from marvin.core.config import get_app_settings
 from marvin.core.root_logger import get_logger
 from marvin.db.models.platform.site_rebuild_requests import SiteRebuildRequestModel
 
 logger = get_logger(__name__)
-
-QUIET_SECONDS = 60
-"""Send once no request has arrived for this long."""
-
-MAX_WAIT_SECONDS = 600
-"""Send anyway once the oldest waiting request is this old."""
 
 
 def request_rebuild(session: Session, group_id: UUID, reason: str | None, *, now: datetime | None = None) -> int:
@@ -51,19 +46,29 @@ def request_rebuild(session: Session, group_id: UUID, reason: str | None, *, now
     return session.execute(select(SiteRebuildRequestModel.request_count).where(SiteRebuildRequestModel.group_id == group_id)).scalar_one()
 
 
-def dispatch_due_rebuilds(session: Session, send: Callable[[UUID, str], None], *, now: datetime | None = None) -> int:
+def dispatch_due_rebuilds(
+    session: Session,
+    send: Callable[[UUID, str], None],
+    *,
+    now: datetime | None = None,
+    quiet_seconds: int | None = None,
+    max_wait_seconds: int | None = None,
+) -> int:
     """Send every rebuild whose requests have gone quiet (or waited too long). Returns how many were sent.
 
     A row is claimed by deleting it *as read*: if a new request bumped it in the meantime, the delete
     matches nothing and the row waits for a later tick, so no request is ever dropped.
     """
     now = now or datetime.now(UTC)
+    settings = get_app_settings()
+    quiet = settings.SITE_REBUILD_QUIET_SECONDS if quiet_seconds is None else quiet_seconds
+    max_wait = settings.SITE_REBUILD_MAX_WAIT_SECONDS if max_wait_seconds is None else max_wait_seconds
     due = (
         session.execute(
             select(SiteRebuildRequestModel).where(
                 or_(
-                    SiteRebuildRequestModel.last_requested_at <= now - timedelta(seconds=QUIET_SECONDS),
-                    SiteRebuildRequestModel.first_requested_at <= now - timedelta(seconds=MAX_WAIT_SECONDS),
+                    SiteRebuildRequestModel.last_requested_at <= now - timedelta(seconds=quiet),
+                    SiteRebuildRequestModel.first_requested_at <= now - timedelta(seconds=max_wait),
                 )
             )
         )
