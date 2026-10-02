@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.123 (2026-10-02)
+
+### Features
+
+- **integrations**: INTEGRATION_HTTP_MAX_BYTES caps provider downloads
+  ([`1fd3bd8`](https://github.com/InnerOpen/marvin/commit/1fd3bd812618d716d65548bc97c67569d685f64f))
+
+
 ## v1.0.0-rc.122 (2026-10-02)
 
 ### Features
