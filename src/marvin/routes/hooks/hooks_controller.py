@@ -23,7 +23,7 @@ from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookMo
 from marvin.services.event_bus_service.event_bus_service import EventBusService
 from marvin.services.event_bus_service.event_types import EventIncomingWebhookData, EventTypes
 from marvin.services.security.client_info import get_client_ip
-from marvin.services.webhooks.incoming_signature import DEFAULT_SIGNATURE_HEADER, verify_signature
+from marvin.services.webhooks.incoming_signature import DEFAULT_HEADERS, DEFAULT_SIGNATURE_HEADER, verify_for_scheme
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -43,18 +43,21 @@ def _check_signature(webhook: WorkspaceIncomingWebhookModel, raw: bytes, request
     from marvin.services.secrets.resolver import resolve_secret
 
     key = resolve_secret(ref, webhook.group_id)
-    header = webhook.signature_header or DEFAULT_SIGNATURE_HEADER
+    scheme = webhook.signature_scheme
+    header = webhook.signature_header or DEFAULT_HEADERS.get(scheme or "", DEFAULT_SIGNATURE_HEADER)
     presented = request.headers.get(header)
-    if not verify_signature(raw, presented, key):
+    if not verify_for_scheme(scheme, raw, presented, key, webhook.signature_url):
         # Say what arrived without leaking it: the header's shape is enough to tell a wrong key from a
         # wrong header name or an unexpected encoding (base64 vs hex, missing prefix).
         shape = "absent" if presented is None else f"len={len(presented)} prefix={presented[:7]!r}"
         logger.warning(
-            "incoming webhook %s: signature rejected (header %s %s; key %s; body %d bytes; signature headers seen: %s)",
+            "incoming webhook %s: signature rejected (scheme %s; header %s %s; key %s; url %s; body %d bytes; signature headers seen: %s)",
             webhook.slug,
+            scheme or "hmac_sha256_hex",
             header,
             shape,
             "resolved" if key else "UNRESOLVED",
+            "set" if webhook.signature_url else "unset",
             len(raw),
             [h for h in request.headers if "sign" in h.lower()],
         )

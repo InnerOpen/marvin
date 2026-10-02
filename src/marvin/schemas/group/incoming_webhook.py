@@ -7,10 +7,15 @@ authenticates purely by the token value.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import UUID4, ConfigDict
 
 from marvin.schemas._marvin import _MarvinModel
+
+# How the sender signs: the original hex HMAC-SHA256 of the raw body, or Square's base64 HMAC-SHA256 of
+# notification URL + body (which needs `signature_url`).
+SignatureScheme = Literal["hmac_sha256_hex", "square"]
 
 
 class IncomingWebhookCreate(_MarvinModel):
@@ -22,6 +27,8 @@ class IncomingWebhookCreate(_MarvinModel):
     # header that carries `sha256=<hex>` (defaults to X-Signature-256 when unset).
     signing_secret_ref: str | None = None
     signature_header: str | None = None
+    signature_scheme: SignatureScheme | None = None
+    signature_url: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -32,6 +39,8 @@ class IncomingWebhookUpdate(_MarvinModel):
     enabled: bool | None = None
     signing_secret_ref: str | None = None
     signature_header: str | None = None
+    signature_scheme: SignatureScheme | None = None
+    signature_url: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -46,6 +55,8 @@ class IncomingWebhookRead(_MarvinModel):
     token: str | None = None  # the secret; ADMIN-only surface. Null = no token minted yet.
     signing_secret_ref: str | None = None
     signature_header: str | None = None
+    signature_scheme: SignatureScheme | None = None
+    signature_url: str | None = None
     received_count: int = 0
     last_received_at: datetime | None = None
 

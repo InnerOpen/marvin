@@ -140,13 +140,18 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
       ${tokenBlock}
       <div class="signing-row">
         <span class="hint">Signing: ${w.signingSecretRef
-          ? `HMAC-SHA256 with secret <code>${esc(w.signingSecretRef)}</code> in header <code>${esc(w.signatureHeader || "X-Signature-256")}</code>`
+          ? `${w.signatureScheme === "square" ? "Square (HMAC of URL + body)" : "HMAC-SHA256"} with secret <code>${esc(w.signingSecretRef)}</code> in header <code>${esc(w.signatureHeader || (w.signatureScheme === "square" ? "x-square-hmacsha256-signature" : "X-Signature-256"))}</code>`
           : "off — the URL token is the only credential"}</span>
         <button class="button ghost sm" data-act="edit-signing">${w.signingSecretRef ? "Change" : "Set up signing"}</button>
       </div>
       <div class="signing-edit" hidden>
         <input class="input" data-signing-ref placeholder="Secret slug, e.g. WEBHOOK_SIGNING_KEY" value="${esc(w.signingSecretRef || "")}" />
         <input class="input" data-signing-header placeholder="Header (default X-Signature-256)" value="${esc(w.signatureHeader || "")}" />
+        <select class="input" data-signing-scheme title="How the sender signs">
+          <option value="" ${w.signatureScheme === "square" ? "" : "selected"}>sha256=hex HMAC of the body</option>
+          <option value="square" ${w.signatureScheme === "square" ? "selected" : ""}>Square (base64 HMAC of URL + body)</option>
+        </select>
+        <input class="input url" data-signing-url placeholder="Square: the exact notification URL registered in Square" value="${esc(w.signatureUrl || (w.token ? hookUrl(w.token) : ""))}" />
         <button class="button sm" data-act="save-signing">Save</button>
         <button class="button ghost sm" data-act="gen-signing" title="Create a random key, store it as that secret, and show it once so you can paste it into the sender">Generate key</button>
         <button class="button ghost sm" data-act="cancel-signing">Cancel</button>
@@ -258,8 +263,11 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         const box = btn.closest(".signing-edit");
         const signingSecretRef = (box.querySelector("[data-signing-ref]") as HTMLInputElement).value.trim() || null;
         const signatureHeader = (box.querySelector("[data-signing-header]") as HTMLInputElement).value.trim() || null;
+        const signatureScheme = (box.querySelector("[data-signing-scheme]") as HTMLSelectElement).value || null;
+        // Square signs the URL it was given, so it is stored; other schemes don't use it.
+        const signatureUrl = signatureScheme === "square" ? (box.querySelector("[data-signing-url]") as HTMLInputElement).value.trim() || null : null;
         setStatus("Saving…");
-        upsert(await sdk().incomingWebhooks.update(id, { signingSecretRef, signatureHeader } as any));
+        upsert(await sdk().incomingWebhooks.update(id, { signingSecretRef, signatureHeader, signatureScheme, signatureUrl } as any));
         setStatus("");
       } else if (act === "copy") {
         await navigator.clipboard.writeText(hookUrl(w.token));
