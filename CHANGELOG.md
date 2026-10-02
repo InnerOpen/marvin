@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.127 (2026-10-02)
+
+### Features
+
+- **admin**: Centre the activity toasts under the top bar
+  ([`5f853a2`](https://github.com/InnerOpen/marvin/commit/5f853a298cb6d23fb1333231a9a3a4de13926ca2))
+
+
 ## v1.0.0-rc.126 (2026-10-02)
 
 ### Bug Fixes
