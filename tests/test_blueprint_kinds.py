@@ -20,7 +20,7 @@ from marvin.db.models.platform.entry_types import EntryTypes
 from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
 from marvin.routes._base.checks import OperationChecks
 from marvin.schemas.platform.blueprints import Blueprint
-from marvin.services.blueprints import already_applied, apply_blueprint, apply_many
+from marvin.services.blueprints import already_applied, apply_blueprint, apply_many, outdated, update_blueprint
 
 ARTWORK_FIELDS = Blueprint(
     kind="entry_fields",
@@ -266,3 +266,61 @@ def test_integration_parameter_falls_back_to_the_only_connection(db_session, wor
     row = db_session.query(WorkspaceAutomationModel).filter_by(group_id=workspace.id, slug="shop-calls").one()
     assert result.created and row.definition["actions"][0]["integration"] == "shop_main"
     assert already_applied(db_session, workspace.id, workflow)  # the card now ticks it
+
+
+# --- updating an applied workflow ------------------------------------------------------------------
+
+NEWER_WORKFLOW = Blueprint(
+    **{
+        **WORKFLOW.model_dump(),
+        "payload": {
+            "definition": {
+                "trigger": {"type": "incoming_webhook", "webhook": "shop-events"},
+                "conditions": [{"field": "event.payload.type", "op": "eq", "value": "sold"}],
+                "actions": [{"kind": "entry", "op": "set_data", "data": {"status": "sold"}}],
+            }
+        },
+    }
+)
+
+
+def test_applied_older_version_reads_outdated_and_update_replaces_steps(db_session, workspace):
+    apply_blueprint(db_session, workspace.id, WORKFLOW, actor_id=workspace.user_id)
+    row = db_session.query(WorkspaceAutomationModel).filter_by(group_id=workspace.id, slug="shop-mark-sold").one()
+    row.enabled = True
+    db_session.commit()
+
+    assert not outdated(db_session, workspace.id, WORKFLOW)
+    assert outdated(db_session, workspace.id, NEWER_WORKFLOW)
+
+    result = update_blueprint(db_session, workspace.id, NEWER_WORKFLOW)
+    db_session.commit()
+    db_session.expire_all()
+    row = db_session.query(WorkspaceAutomationModel).filter_by(group_id=workspace.id, slug="shop-mark-sold").one()
+
+    assert result.updated and row.enabled is True  # on/off kept
+    assert row.definition["conditions"][0]["value"] == "sold"
+    assert not outdated(db_session, workspace.id, NEWER_WORKFLOW)
+    assert "already up to date" in update_blueprint(db_session, workspace.id, NEWER_WORKFLOW).detail
+
+
+def test_update_of_a_workflow_not_applied_says_add_it(db_session, workspace):
+    result = update_blueprint(db_session, workspace.id, NEWER_WORKFLOW)
+    assert not result.updated and "add it" in result.detail
+
+
+def test_update_to_an_invalid_definition_changes_nothing(db_session, workspace):
+    apply_blueprint(db_session, workspace.id, WORKFLOW, actor_id=workspace.user_id)
+    broken = Blueprint(**{**WORKFLOW.model_dump(), "payload": {"definition": {"trigger": {"type": "telepathy"}, "actions": []}}})
+
+    result = update_blueprint(db_session, workspace.id, broken)
+
+    row = db_session.query(WorkspaceAutomationModel).filter_by(group_id=workspace.id, slug="shop-mark-sold").one()
+    assert not result.updated and "invalid" in result.detail
+    assert row.definition["actions"][0]["op"] == "set_data"
+
+
+def test_non_workflow_kinds_are_never_outdated_or_updated(db_session, workspace):
+    apply_blueprint(db_session, workspace.id, ARTWORK_FIELDS, {"entry_type": "artwork"})
+    assert not outdated(db_session, workspace.id, ARTWORK_FIELDS)
+    assert "can't be updated" in update_blueprint(db_session, workspace.id, ARTWORK_FIELDS).detail

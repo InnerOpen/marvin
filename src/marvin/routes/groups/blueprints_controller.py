@@ -23,6 +23,8 @@ from marvin.services.blueprints import (
     get_blueprint,
     list_blueprints,
     missing_requirements,
+    outdated,
+    update_blueprint,
 )
 
 router = APIRouter(prefix="/groups/blueprints")
@@ -40,6 +42,7 @@ class BlueprintsController(BaseUserController):
             available=not missing,
             missing_requirements=missing,
             applied=already_applied(self.session, self.group_id, blueprint, None, integration_id),
+            outdated=outdated(self.session, self.group_id, blueprint),
         )
 
     @router.get("", response_model=list[BlueprintRead])
@@ -87,6 +90,18 @@ class BlueprintsController(BaseUserController):
         result = apply_blueprint(self.session, self.group_id, blueprint, params, integration_id, actor_id=self.user.id)
         self.session.commit()
         logger.info("Blueprint '%s' applied to %s: created=%s", slug, self.group_id, result.created)
+        return result
+
+    @router.post("/{slug}/update", response_model=BlueprintApplyResult)
+    def update_one(self, slug: str, params: dict | None = Body(None), source: str | None = Query(None)):
+        """Replace an applied workflow's steps with what its integration declares now."""
+        blueprint = get_blueprint(slug, source=source)
+        if blueprint is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No blueprint '{slug}'.")
+        self.checks.can_manage_settings(self.group_id)
+        result = update_blueprint(self.session, self.group_id, blueprint, params)
+        self.session.commit()
+        logger.info("Blueprint '%s' update in %s: updated=%s (%s)", slug, self.group_id, result.updated, result.detail)
         return result
 
     @router.post("/apply", response_model=list[BlueprintApplyResult])

@@ -170,7 +170,11 @@ class BlueprintRead(Blueprint):
 
     applied: bool = False
     """True when this workspace already has something with that slug — applying again is a no-op.
-    Always False for a parameterised blueprint: its slug is not known until the parameters are."""
+    A parameterised blueprint is judged by its defaults."""
+
+    outdated: bool = False
+    """Applied, but the provider now declares something different (workflows only) — the card offers
+    Update, which replaces the workflow's steps (hand edits included) and keeps whether it's on."""
 
 
 class BlueprintApplyResult(_MarvinModel):
@@ -180,6 +184,9 @@ class BlueprintApplyResult(_MarvinModel):
     kind: BlueprintKind
     created: bool
     """False when it already existed; the existing object is left exactly as it was."""
+
+    updated: bool = False
+    """True when an Update replaced an applied workflow's steps with the provider's current version."""
 
     detail: str = ""
     """Why nothing was created, when nothing was."""

@@ -140,8 +140,8 @@ function statusMeta(status: string): { text: string; cls: string } {
                 const askable = missingRequired;
 
                 const row = (b: Blueprint) => (
-                  <li class={b.applied ? "is-there" : "is-missing"}>
-                    <span class="tick">{b.applied ? "✓" : "○"}</span>
+                  <li class={b.applied ? (b.outdated ? "is-there is-outdated" : "is-there") : "is-missing"}>
+                    <span class="tick" title={b.outdated ? "Update available" : undefined}>{b.applied ? (b.outdated ? "↑" : "✓") : "○"}</span>
                     <span class="needs-name">{b.name}</span>
                     <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
                     <span class="needs-desc">{b.description}</span>
@@ -176,6 +176,18 @@ function statusMeta(status: string): { text: string; cls: string } {
                           );
                         })}
                       </span>
+                    )}
+                    {b.applied && b.outdated && (
+                      <button
+                        type="button"
+                        class="button tiny secondary js-update-blueprint"
+                        data-source={it.provider}
+                        data-slug={b.slug}
+                        data-name={b.name}
+                        title="The integration ships a newer version of this workflow"
+                      >
+                        Update
+                      </button>
                     )}
                     {!b.applied && (
                       <button
@@ -426,7 +438,7 @@ function statusMeta(status: string): { text: string; cls: string } {
     checkIntegration,
     runIntegrationAction,
   } from "@/lib/api/integrations";
-  import { applyBlueprints } from "@/lib/api/blueprints";
+  import { applyBlueprints, updateBlueprint } from "@/lib/api/blueprints";
   import type { IntegrationProviderInfo } from "@/lib/api/integrations";
 
   const providers: IntegrationProviderInfo[] = JSON.parse(
@@ -771,6 +783,32 @@ function statusMeta(status: string): { text: string; cls: string } {
     }),
   );
 
+  // A newer version of an applied workflow: replace its steps, after saying what that overwrites.
+  document.querySelectorAll<HTMLButtonElement>("button.js-update-blueprint").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const ok = confirm(
+        `Update "${button.dataset.name}" to the integration's current version?\n\n` +
+          "Its steps are replaced — any edits you made to this workflow are lost. Whether it's switched on stays as it is.",
+      );
+      if (!ok) return;
+      button.disabled = true;
+      button.textContent = "Updating…";
+      try {
+        const result = await updateBlueprint(button.dataset.slug!, button.dataset.source);
+        toast(result.updated ? `Updated ${result.name || result.slug}.` : `Not updated: ${result.detail}`, !!result.updated);
+        if (result.updated) setTimeout(reload, 900);
+        else {
+          button.disabled = false;
+          button.textContent = "Update";
+        }
+      } catch (e) {
+        toast(e instanceof Error ? e.message : String(e), false);
+        button.disabled = false;
+        button.textContent = "Update";
+      }
+    });
+  });
+
   // "What this needs to work" — apply the provider's declared content. The SDK only ever declares;
   // creating it is an explicit act here, and it never overwrites anything already in the workspace.
   document.querySelectorAll<HTMLButtonElement>("button.js-apply-needs").forEach((button) => {
@@ -817,6 +855,9 @@ function statusMeta(status: string): { text: string; cls: string } {
 
 <style>
   .conn-meta { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+  .needs li.is-outdated { opacity: 1; }
+  .needs li.is-outdated .tick { color: var(--mv-accent, #2563eb); }
+  .needs li > .js-update-blueprint,
   .needs li > .js-apply-needs { grid-column: -2; grid-row: 1; justify-self: end; align-self: center; }
   .needs-params { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 2 / -2; grid-row: 2; }
   .needs-params label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }

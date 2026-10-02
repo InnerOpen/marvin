@@ -16,7 +16,7 @@
 
 import { fetchApi } from "./client";
 
-export type BlueprintKind = "collection" | "entry_type" | "scheduled_task";
+export type BlueprintKind = "collection" | "entry_type" | "entry_fields" | "scheduled_task" | "event_subscription" | "incoming_webhook" | "workflow";
 
 /** `entry_type`/`collection` render as a picker fed by the workspace's own content. */
 export type ParameterKind = "entry_type" | "collection" | "integration" | "text" | "number";
@@ -49,12 +49,16 @@ export interface Blueprint {
   /** Already in this workspace. Always false for a parameterised blueprint: its slug
    *  is not known until the parameters are. */
   applied: boolean;
+  /** Applied, but the integration now declares a different version (workflows) — Update replaces its steps. */
+  outdated?: boolean;
 }
 
 export interface BlueprintApplyResult {
   slug: string;
   kind: BlueprintKind;
   created: boolean;
+  /** An Update replaced an applied workflow's steps. */
+  updated?: boolean;
   detail: string;
   name: string;
 }
@@ -117,6 +121,15 @@ export async function applyBlueprints(
   return fetchApi<BlueprintApplyResult[]>(
     `/api/groups/blueprints/apply${query({ source })}`,
     { method: "POST", body: JSON.stringify({ slugs, params: params ?? null }), headers: { "Content-Type": "application/json" } },
+    authToken,
+  );
+}
+
+/** Replace an applied workflow's steps with what its integration declares now (keeps whether it's on). */
+export async function updateBlueprint(slug: string, source?: string, authToken?: string): Promise<BlueprintApplyResult> {
+  return fetchApi<BlueprintApplyResult>(
+    `/api/groups/blueprints/${encodeURIComponent(slug)}/update${query({ source })}`,
+    { method: "POST", body: JSON.stringify(null), headers: { "Content-Type": "application/json" } },
     authToken,
   );
 }

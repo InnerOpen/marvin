@@ -392,3 +392,68 @@ def _add_fields(session, group_id, blueprint: Blueprint, params: dict) -> str:
     flag_modified(entry_type, "schema_json")
     session.flush()
     return f"added {', '.join(f['key'] for f in missing)} to '{entry_type.slug}'"
+
+
+# --- updating what an integration declared earlier ------------------------------------------------
+#
+# Apply never overwrites, so a workspace keeps whatever version of a blueprint it applied. When the
+# provider ships a new version, the card offers an explicit Update instead — for workflows, whose
+# steps are the provider's logic (a fix there should reach everyone who applied it).
+
+UPDATABLE_KINDS = ("workflow",)
+
+
+def _canonical(value) -> str:
+    import json
+
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _declared_and_existing(session, group_id, blueprint: Blueprint, params: dict | None):
+    """(resolved declared payload, existing row) — or (None, None) when there is nothing to compare."""
+    if blueprint.kind not in UPDATABLE_KINDS:
+        return None, None
+    try:
+        resolved = resolve_parameters(session, group_id, blueprint, params)
+    except BlueprintParameterError:
+        return None, None
+    row = _existing(session, group_id, blueprint, substitute(blueprint.slug, resolved), None, resolved)
+    return (substitute(blueprint.payload, resolved), row) if row is not None else (None, None)
+
+
+def outdated(session, group_id, blueprint: Blueprint, params: dict | None = None) -> bool:
+    """True when this workspace has the blueprint's workflow but its steps differ from what the
+    provider declares now (an older version — or one edited by hand, which Update would replace)."""
+    declared, row = _declared_and_existing(session, group_id, blueprint, params)
+    if row is None:
+        return False
+    return _canonical(row.definition or {}) != _canonical(declared.get("definition") or {})
+
+
+def update_blueprint(session, group_id, blueprint: Blueprint, params: dict | None = None) -> BlueprintApplyResult:
+    """Replace an applied workflow's steps with the provider's current version. Whether it is
+    switched on is kept; the new definition must pass structural validation first."""
+    result = BlueprintApplyResult(slug=blueprint.slug, kind=blueprint.kind, created=False)
+    if blueprint.kind not in UPDATABLE_KINDS:
+        result.detail = f"a {blueprint.kind.replace('_', ' ')} can't be updated from its blueprint"
+        return result
+    declared, row = _declared_and_existing(session, group_id, blueprint, params)
+    if row is None:
+        result.detail = "not applied in this workspace — add it instead"
+        return result
+    definition = declared.get("definition") or {}
+    from marvin.services.automation.validation import structural_issues
+
+    issues = structural_issues(definition)
+    if issues:
+        result.detail = f"the new workflow definition is invalid: {issues}"
+        return result
+    if _canonical(row.definition or {}) == _canonical(definition):
+        result.detail = "already up to date"
+        return result
+    row.definition = definition
+    session.flush()
+    result.slug, result.name, result.updated = row.slug, row.name, True
+    result.detail = "updated to the integration's current version"
+    logger.info("Blueprint updated: workflow '%s' (%s)", row.slug, blueprint.source)
+    return result
