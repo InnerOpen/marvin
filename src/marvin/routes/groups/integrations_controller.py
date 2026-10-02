@@ -6,6 +6,7 @@ health check, and an action test-fire. Credentials are written to the configured
 backend and referenced by `secret_ref` — never stored on the row or returned.
 """
 
+import re
 from dataclasses import asdict
 from datetime import UTC, datetime
 
@@ -50,6 +51,31 @@ def _secret_ref(slug: str) -> str:
     return f"INTEGRATION_{slug.upper()}"
 
 
+_SECRET_REFERENCE = re.compile(r"^\{\{\s*([A-Za-z0-9_]+)\s*\}\}$")
+
+
+def _referenced_secret(credential: str, group_id) -> str | None:
+    """`{{SLUG}}` → that workspace secret's slug, so the integration reads the shared secret instead
+    of holding a copy (one place to rotate it). A plain value → None (store it as before). A
+    reference to a secret that doesn't exist is refused rather than saved broken."""
+    match = _SECRET_REFERENCE.match(credential.strip())
+    if not match:
+        return None
+    slug = match.group(1)
+    if resolve_secret(slug, group_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"No workspace secret '{slug}' — create it first, or paste the value itself.",
+        )
+    return slug
+
+
+def _owns_secret(row: IntegrationModel) -> bool:
+    """Whether the stored secret is this integration's own copy — never a referenced workspace
+    secret, which deleting or rotating the integration must not touch."""
+    return row.secret_ref == _secret_ref(row.slug)
+
+
 def _to_read(row: IntegrationModel) -> IntegrationRead:
     # If the provider's package was uninstalled, the row is orphaned — surface that instead of a
     # stale "ok", so the UI can grey it out rather than pretend it still works.
@@ -62,6 +88,7 @@ def _to_read(row: IntegrationModel) -> IntegrationRead:
         enabled=row.enabled,
         config=row.config,
         has_credential=bool(row.secret_ref),
+        credential_secret=None if not row.secret_ref or _owns_secret(row) else row.secret_ref,
         status=row.status if available else "unavailable",
         last_checked_at=row.last_checked_at,
         last_error=row.last_error if available else f"Provider '{row.provider}' is not installed.",
@@ -214,8 +241,11 @@ class IntegrationsController(BaseUserController):
 
         secret_ref = None
         if data.credential is not None:
-            secret_ref = _secret_ref(slug)
-            get_secret_backend().set(secret_ref, data.credential.get_secret_value(), self.group_id)
+            value = data.credential.get_secret_value()
+            secret_ref = _referenced_secret(value, self.group_id)
+            if secret_ref is None:
+                secret_ref = _secret_ref(slug)
+                get_secret_backend().set(secret_ref, value, self.group_id)
 
         row = IntegrationModel(
             session=self.session,
@@ -255,9 +285,17 @@ class IntegrationsController(BaseUserController):
             self._validate_config(provider, data.config)
             row.config = data.config or None
         if data.credential is not None:
-            ref = row.secret_ref or _secret_ref(row.slug)
-            get_secret_backend().set(ref, data.credential.get_secret_value(), self.group_id)
-            row.secret_ref = ref
+            value = data.credential.get_secret_value()
+            referenced = _referenced_secret(value, self.group_id)
+            if referenced is not None:
+                if _owns_secret(row):  # switching from an own copy to a shared secret: drop the copy
+                    _delete_secret_quietly(row.secret_ref, self.group_id)
+                row.secret_ref = referenced
+            else:
+                # A new value always lands in the integration's own slot — never over a shared secret it referenced.
+                ref = _secret_ref(row.slug)
+                get_secret_backend().set(ref, value, self.group_id)
+                row.secret_ref = ref
 
         self.session.commit()
         self.session.refresh(row)
@@ -269,11 +307,8 @@ class IntegrationsController(BaseUserController):
     def delete_integration(self, integration_id: UUID4):
         """Delete an integration and its stored credential."""
         row = self._get_or_404(integration_id)
-        if row.secret_ref:
-            try:
-                get_secret_backend().delete(row.secret_ref, self.group_id)
-            except Exception as e:  # noqa: BLE001 — best-effort cleanup, never block the delete
-                logger.warning(f"[integrations] could not delete secret {row.secret_ref}: {e}")
+        if row.secret_ref and _owns_secret(row):  # a referenced workspace secret is shared — leave it
+            _delete_secret_quietly(row.secret_ref, self.group_id)
         self.session.delete(row)
         self.session.commit()
 
@@ -323,3 +358,10 @@ class IntegrationsController(BaseUserController):
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
         return IntegrationActionResult(ok=True, result=result)
+
+
+def _delete_secret_quietly(ref: str, group_id) -> None:
+    try:
+        get_secret_backend().delete(ref, group_id)
+    except Exception as e:  # noqa: BLE001 — best-effort cleanup, never block the caller
+        logger.warning(f"[integrations] could not delete secret {ref}: {e}")

@@ -36,6 +36,7 @@ class IntegrationRead(_MarvinModel):
     enabled: bool
     config: dict | None = None
     has_credential: bool = False  # whether a secret_ref is set — not the value
+    credential_secret: str | None = None  # the workspace secret it reads (`{{SLUG}}`), when it isn't its own copy
     status: str
     last_checked_at: datetime | None = None
     last_error: str | None = None

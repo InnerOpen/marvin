@@ -210,3 +210,10 @@ def test_applying_blueprints_is_refused_below_admin(role):
     with pytest.raises(HTTPException) as exc:
         _checks(role=role, gid=gid).can_manage_settings(gid)
     assert exc.value.status_code == 403
+
+
+def test_parameterised_blueprint_applied_with_defaults_reads_as_applied(db_session, workspace):
+    apply_blueprint(db_session, workspace.id, ARTWORK_FIELDS, {"entry_type": "artwork"})
+
+    # The integration card checks without parameters; the default ("artwork") is what it applies.
+    assert already_applied(db_session, workspace.id, ARTWORK_FIELDS) is True

@@ -115,11 +115,14 @@ def missing_requirements(session, group_id, blueprint: Blueprint) -> list[str]:
 def already_applied(session, group_id, blueprint: Blueprint, params: dict | None = None, integration_id=None) -> bool:
     """True when this workspace already has an object with the blueprint's (resolved) slug.
 
-    Always False for a parameterised blueprint with no parameters supplied — its slug isn't known
-    until they are.
+    A parameterised blueprint checked without parameters is judged by its defaults — the values an
+    integration's card applies when nobody changes them. One with a parameter that has no default
+    can't be judged blind, so it reads as not applied.
     """
     if blueprint.parameters and not params:
-        return False
+        if any(p.default in (None, "") for p in blueprint.parameters if p.required):
+            return False
+        params = {p.key: p.default for p in blueprint.parameters if p.default not in (None, "")}
     try:
         resolved = resolve_parameters(session, group_id, blueprint, params)
         target = resolve_integration_id(session, group_id, blueprint, integration_id)

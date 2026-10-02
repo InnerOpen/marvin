@@ -106,6 +106,9 @@ function statusMeta(status: string): { text: string; cls: string } {
                 </div>
               </div>
               {it.lastError && <p class="conn-error">{it.lastError}</p>}
+              {(it as { credentialSecret?: string }).credentialSecret && (
+                <p class="conn-meta">Credential: workspace secret <code>{`{{${(it as { credentialSecret?: string }).credentialSecret}}}`}</code></p>
+              )}
 
               {(() => {
                 const needs = needsByProvider.get(it.provider) ?? [];
@@ -115,8 +118,9 @@ function statusMeta(status: string): { text: string; cls: string } {
                 const required = needs.filter((b) => b.required);
                 const suggested = needs.filter((b) => !b.required);
                 const missingRequired = required.filter((b) => !b.applied);
-                // A parameterised blueprint cannot be applied blind — it has to ask first.
-                const askable = missingRequired.filter((b) => b.parameters.length === 0);
+                // Parameterised items carry their inputs in the row (prefilled with defaults), so every
+                // missing item can be added — the Add buttons read those inputs.
+                const askable = missingRequired;
 
                 const row = (b: Blueprint) => (
                   <li class={b.applied ? "is-there" : "is-missing"}>
@@ -124,7 +128,17 @@ function statusMeta(status: string): { text: string; cls: string } {
                     <span class="needs-name">{b.name}</span>
                     <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
                     <span class="needs-desc">{b.description}</span>
-                    {!b.applied && b.parameters.length === 0 && (
+                    {!b.applied && b.parameters.length > 0 && (
+                      <span class="needs-params">
+                        {b.parameters.map((p) => (
+                          <label title={p.help || ""}>
+                            <span>{p.label}</span>
+                            <input class="input tiny" data-bp={b.slug} data-param={p.key} value={p.default ?? ""} required={p.required} />
+                          </label>
+                        ))}
+                      </span>
+                    )}
+                    {!b.applied && (
                       <button
                         type="button"
                         class="button tiny secondary js-apply-needs"
@@ -339,6 +353,21 @@ function statusMeta(status: string): { text: string; cls: string } {
     </div>
   </div>
 
+  <!-- Result panel (what an action returned, e.g. Square's locations) -->
+  <div id="result-overlay" class="overlay" hidden>
+    <div class="panel" role="dialog" aria-modal="true" aria-labelledby="result-title">
+      <div class="panel-head">
+        <h3 id="result-title">Result</h3>
+        <button type="button" class="icon-btn" id="result-close" aria-label="Close">×</button>
+      </div>
+      <pre id="result-body" class="result-body"></pre>
+      <div class="panel-actions">
+        <button type="button" class="button secondary" id="result-copy">Copy</button>
+        <button type="button" class="button" id="result-done">Done</button>
+      </div>
+    </div>
+  </div>
+
   <script type="application/json" id="providers-data" set:html={JSON.stringify(providers)}></script>
 </AppLayout>
 
@@ -437,7 +466,15 @@ function statusMeta(status: string): { text: string; cls: string } {
       if (grouped) parts.push('<p class="group-label">Credentials</p>');
       for (const c of p.credentials) {
         parts.push(
-          fieldHtml({ kind: "credential", key: c.key, label: c.label, required: c.required, help: c.help, type: "password", placeholder: "Stored as a secret" }),
+          fieldHtml({
+            kind: "credential",
+            key: c.key,
+            label: c.label,
+            required: c.required,
+            help: `${c.help ? `${c.help} ` : ""}Paste the value, or {{SECRET_NAME}} to use a workspace secret.`,
+            type: "password",
+            placeholder: "Value, or {{SECRET_NAME}}",
+          }),
         );
       }
     }
@@ -546,6 +583,27 @@ function statusMeta(status: string): { text: string; cls: string } {
     return runIntegrationAction(id, key, args);
   }
 
+  // An action's return value is the point of running it by hand (list_locations → the location
+  // ids to paste into the config), so show it rather than a bare "Done".
+  const resultOverlay = document.getElementById("result-overlay") as HTMLElement;
+  const resultBody = document.getElementById("result-body") as HTMLElement;
+  function showResult(title: string, result: unknown) {
+    const empty = result == null || (typeof result === "object" && Object.keys(result as object).length === 0);
+    if (empty) return false;
+    (document.getElementById("result-title") as HTMLElement).textContent = title;
+    resultBody.textContent = JSON.stringify(result, null, 2);
+    resultOverlay.hidden = false;
+    return true;
+  }
+  const closeResult = () => (resultOverlay.hidden = true);
+  document.getElementById("result-close")?.addEventListener("click", closeResult);
+  document.getElementById("result-done")?.addEventListener("click", closeResult);
+  resultOverlay?.addEventListener("click", (e) => { if (e.target === resultOverlay) closeResult(); });
+  document.getElementById("result-copy")?.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(resultBody.textContent || "");
+    toast("Copied.", true);
+  });
+
   document.querySelectorAll<HTMLButtonElement>(".js-action").forEach((b) =>
     b.addEventListener("click", async () => {
       const provider = bySlug.get(b.dataset.provider || "");
@@ -558,7 +616,8 @@ function statusMeta(status: string): { text: string; cls: string } {
         b.disabled = true;
         try {
           const res = await fireAction(b.dataset.id!, b.dataset.action!, {});
-          toast(res.ok ? "Done." : "Action returned a failure.", res.ok);
+          if (!res.ok) toast("Action returned a failure.", false);
+          else if (!showResult(action?.label || "Result", res.result)) toast("Done.", true);
         } catch (err) {
           toast(errorMessage(err), false);
         } finally {
@@ -612,7 +671,8 @@ function statusMeta(status: string): { text: string; cls: string } {
     try {
       const res = await fireAction(pendingAction.id, pendingAction.key, args);
       closeActionPanel();
-      toast(res.ok ? "Sent ✓" : "Action returned a failure.", res.ok);
+      if (!res.ok) toast("Action returned a failure.", false);
+      else if (!showResult((document.getElementById("action-title") as HTMLElement).textContent || "Result", res.result)) toast("Sent ✓", true);
     } catch (err) {
       showError(actionErrEl, errorMessage(err));
     } finally {
@@ -649,11 +709,20 @@ function statusMeta(status: string): { text: string; cls: string } {
       const slugs: string[] = JSON.parse(button.dataset.slugs || "[]");
       if (slugs.length === 0) return;
 
+      // Parameter values come from the rows' inputs (prefilled with each blueprint's defaults).
+      const scope = button.closest(".needs") ?? document;
+      const params: Record<string, Record<string, string>> = {};
+      for (const slug of slugs) {
+        scope.querySelectorAll<HTMLInputElement>(`input[data-bp="${CSS.escape(slug)}"]`).forEach((inp) => {
+          (params[slug] ??= {})[inp.dataset.param!] = inp.value.trim();
+        });
+      }
+
       const original = button.textContent;
       button.disabled = true;
       button.textContent = "Adding…";
       try {
-        const results = await applyBlueprints(slugs, undefined, source);
+        const results = await applyBlueprints(slugs, Object.keys(params).length ? params : undefined, source);
         const created = results.filter((r) => r.created).length;
         const skipped = results.filter((r) => !r.created);
         toast(
@@ -677,6 +746,12 @@ function statusMeta(status: string): { text: string; cls: string } {
 </script>
 
 <style>
+  .conn-meta { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+  .needs-params { display: flex; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; }
+  .needs-params label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .needs-params .input.tiny { padding: 3px 6px; font-size: 12px; width: 12ch; }
+  .result-body { max-height: 50vh; overflow: auto; background: var(--panel-2, var(--panel)); padding: 12px; border-radius: var(--radius); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
+
   .page-header {
     display: flex;
     justify-content: space-between;
