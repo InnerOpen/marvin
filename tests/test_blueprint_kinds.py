@@ -217,3 +217,23 @@ def test_parameterised_blueprint_applied_with_defaults_reads_as_applied(db_sessi
 
     # The integration card checks without parameters; the default ("artwork") is what it applies.
     assert already_applied(db_session, workspace.id, ARTWORK_FIELDS) is True
+
+
+def test_integration_parameter_must_name_a_connection_in_this_workspace(db_session, workspace):
+    from marvin.db.models.groups.integrations import IntegrationModel
+
+    db_session.add(IntegrationModel(session=db_session, group_id=workspace.id, provider="shop", name="Shop", slug="shop", enabled=True))
+    db_session.commit()
+    workflow = Blueprint(
+        **{
+            **WORKFLOW.model_dump(),
+            "slug": "shop-uses-{{integration}}",
+            "parameters": [{"key": "integration", "label": "Which connection", "kind": "integration", "default": "shop"}],
+        }
+    )
+
+    refused = apply_blueprint(db_session, workspace.id, workflow, {"integration": "nope"}, actor_id=workspace.user_id)
+    created = apply_blueprint(db_session, workspace.id, workflow, {"integration": "shop"}, actor_id=workspace.user_id)
+
+    assert not refused.created and "no integration 'nope'" in refused.detail
+    assert created.created and created.slug == "shop-uses-shop"

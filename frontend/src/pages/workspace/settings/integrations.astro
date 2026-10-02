@@ -1,6 +1,6 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import type { Integration, IntegrationPluginInfo, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
 import { listIntegrations, listPlugins, listProviders } from "@/lib/api/integrations";
 import type { Blueprint } from "@/lib/api/blueprints";
@@ -26,6 +26,23 @@ try {
 } catch (e) {
   console.error("[integrations] load error:", e);
   error = e instanceof Error ? e.message : String(e);
+}
+
+// The workspace's own entry types and collections, for blueprint parameters that pick one. Optional:
+// without them the parameters fall back to plain text inputs.
+const items = (r: any): any[] => (Array.isArray(r) ? r : r?.items ?? []);
+let entryTypeOptions: { slug: string; name: string }[] = [];
+let collectionOptions: { slug: string; name: string }[] = [];
+try {
+  const [types, collections] = await Promise.all([
+    fetchApi<any>("/api/platform/entry-types", {}, authToken),
+    fetchApi<any>("/api/platform/collections", {}, authToken),
+  ]);
+  const unique = (rows: any[]) => [...new Map(rows.map((r) => [r.slug, { slug: r.slug, name: r.name || r.slug }])).values()];
+  entryTypeOptions = unique(items(types)).sort((a, b) => a.name.localeCompare(b.name));
+  collectionOptions = unique(items(collections).filter((c: any) => !c.isSystem && !c.is_system)).sort((a, b) => a.name.localeCompare(b.name));
+} catch (e) {
+  console.error("[integrations] could not load entry types / collections for parameter pickers:", e);
 }
 
 const needsByProvider = new Map<string, Blueprint[]>();
@@ -130,12 +147,34 @@ function statusMeta(status: string): { text: string; cls: string } {
                     <span class="needs-desc">{b.description}</span>
                     {!b.applied && b.parameters.length > 0 && (
                       <span class="needs-params">
-                        {b.parameters.map((p) => (
-                          <label title={p.help || ""}>
-                            <span>{p.label}</span>
-                            <input class="input tiny" data-bp={b.slug} data-param={p.key} value={p.default ?? ""} required={p.required} />
-                          </label>
-                        ))}
+                        {b.parameters.map((p) => {
+                          // Pickers for what the workspace already has; the default is pre-selected —
+                          // for an integration, the card it's shown on.
+                          const options =
+                            p.kind === "entry_type"
+                              ? entryTypeOptions
+                              : p.kind === "collection"
+                                ? collectionOptions
+                                : p.kind === "integration"
+                                  ? integrations.filter((x) => x.provider === it.provider).map((x) => ({ slug: x.slug, name: x.name }))
+                                  : null;
+                          const selected = p.kind === "integration" ? it.slug : p.default ?? "";
+                          return (
+                            <label title={p.help || ""}>
+                              <span>{p.label}</span>
+                              {options && options.length > 0 ? (
+                                <select class="input tiny" data-bp={b.slug} data-param={p.key} required={p.required}>
+                                  {!options.some((o) => o.slug === selected) && <option value="">Choose…</option>}
+                                  {options.map((o) => (
+                                    <option value={o.slug} selected={o.slug === selected}>{o.name}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input class="input tiny" data-bp={b.slug} data-param={p.key} value={selected} required={p.required} />
+                              )}
+                            </label>
+                          );
+                        })}
                       </span>
                     )}
                     {!b.applied && (
@@ -744,7 +783,7 @@ function statusMeta(status: string): { text: string; cls: string } {
       const scope = button.closest(".needs") ?? document;
       const params: Record<string, Record<string, string>> = {};
       for (const slug of slugs) {
-        scope.querySelectorAll<HTMLInputElement>(`input[data-bp="${CSS.escape(slug)}"]`).forEach((inp) => {
+        scope.querySelectorAll<HTMLInputElement | HTMLSelectElement>(`[data-bp="${CSS.escape(slug)}"]`).forEach((inp) => {
           (params[slug] ??= {})[inp.dataset.param!] = inp.value.trim();
         });
       }
@@ -781,7 +820,7 @@ function statusMeta(status: string): { text: string; cls: string } {
   .needs li > .js-apply-needs { grid-column: -2; grid-row: 1; justify-self: end; align-self: center; }
   .needs-params { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 2 / -2; grid-row: 2; }
   .needs-params label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
-  .needs-params .input.tiny { padding: 3px 6px; font-size: 12px; width: 12ch; }
+  .needs-params .input.tiny { padding: 3px 6px; font-size: 12px; min-width: 12ch; max-width: 24ch; }
   .result-body { max-height: 50vh; overflow: auto; background: var(--panel-2, var(--panel)); padding: 12px; border-radius: var(--radius); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
 
   .page-header {

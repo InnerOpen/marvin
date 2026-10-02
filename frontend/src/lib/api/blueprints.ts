@@ -19,7 +19,7 @@ import { fetchApi } from "./client";
 export type BlueprintKind = "collection" | "entry_type" | "scheduled_task";
 
 /** `entry_type`/`collection` render as a picker fed by the workspace's own content. */
-export type ParameterKind = "entry_type" | "collection" | "text" | "number";
+export type ParameterKind = "entry_type" | "collection" | "integration" | "text" | "number";
 
 export interface BlueprintParameter {
   key: string;

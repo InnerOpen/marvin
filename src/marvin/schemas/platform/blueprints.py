@@ -40,10 +40,11 @@ ACTS_WHEN_ENABLED_KINDS = ("scheduled_task", "event_subscription", "incoming_web
 #: so it is only ever minted by an admin, never shipped in a declaration.
 FORBIDDEN_PAYLOAD_KEYS = {"incoming_webhook": ("token",)}
 
-#: What a parameter asks for. `entry_type`/`collection` render as a picker fed by the workspace's
-#: own content and are validated against it — that is how a blueprint stays general without ever
-#: naming someone's content model.
-ParameterKind = Literal["entry_type", "collection", "text", "number"]
+#: What a parameter asks for. `entry_type`/`collection`/`integration` render as a picker fed by the
+#: workspace's own content (for `integration`: its connections of the declaring provider) and are
+#: validated against it — that is how a blueprint stays general without ever naming someone's content
+#: model or connection.
+ParameterKind = Literal["entry_type", "collection", "integration", "text", "number"]
 
 #: `requires` entries look like "entry_type:<slug>" — a blueprint that references content the
 #: workspace does not have is surfaced as unavailable rather than applied into a broken state.
@@ -67,7 +68,7 @@ class BlueprintParameter(_MarvinModel):
     """What the UI asks."""
 
     kind: ParameterKind = "text"
-    """`entry_type`/`collection` are pickers validated against the workspace; the rest are free input."""
+    """`entry_type`/`collection`/`integration` are pickers validated against the workspace; the rest are free input."""
 
     required: bool = True
     default: str | None = None

@@ -52,15 +52,16 @@ def resolve_integration_id(session, group_id, blueprint: Blueprint, integration_
 def resolve_parameters(session, group_id, blueprint: Blueprint, params: dict | None) -> dict:
     """Validate supplied parameters and fill in defaults.
 
-    A picker parameter (`entry_type`, `collection`) is checked against the workspace, so a
-    blueprint can reference the user's own content without the catalog ever naming it.
+    A picker parameter (`entry_type`, `collection`, `integration`) is checked against the workspace,
+    so a blueprint can reference the user's own content — or connection — without naming it.
     """
+    from marvin.db.models.groups.integrations import IntegrationModel
     from marvin.db.models.platform.collections import Collections
     from marvin.db.models.platform.entry_types import EntryTypes
 
     supplied = dict(params or {})
     resolved: dict = {}
-    models = {"entry_type": EntryTypes, "collection": Collections}
+    models = {"entry_type": EntryTypes, "collection": Collections, "integration": IntegrationModel}
 
     for parameter in blueprint.parameters:
         value = supplied.get(parameter.key, parameter.default)
