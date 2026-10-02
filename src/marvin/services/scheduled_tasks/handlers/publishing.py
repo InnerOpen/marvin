@@ -167,42 +167,49 @@ class UnpublishExpiredEntriesHandler(ScheduledTaskHandler):
 
 class RequestSiteRebuildHandler(ScheduledTaskHandler):
     """
-    Trigger a static site rebuild via webhook, scoped to the task's workspace.
+    Request a static site rebuild for the task's workspace (every workspace for a system task).
+
+    Requests are coalesced (marvin.services.site_rebuild): the scheduler dispatches one
+    `webhook_triggered` per workspace once requests go quiet, so a burst — a workflow per entry in
+    a bulk edit — costs one build.
 
     Configuration (task_config):
     - reason: str (default: "scheduled") - Reason for the rebuild
     """
 
     name = "Request Site Rebuild"
-    description = "Dispatch a webhook_triggered event to kick off a static site rebuild"
+    description = "Queue a static site rebuild; one webhook_triggered event is sent once requests go quiet"
 
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
-        from marvin.db.db_setup import session_context as _sc
         from marvin.db.models.groups.groups import Groups
+        from marvin.services.site_rebuild import QUIET_SECONDS, request_rebuild
 
-        config = task.task_config
-        reason = config.get("reason", "scheduled")
+        reason = task.task_config.get("reason", "scheduled")
 
-        if task.group_id:
-            workspace_ids = [UUID(str(task.group_id))]
-        else:
-            # Admin system task — dispatch rebuild for every workspace
-            with _sc() as session:
+        with session_context() as session:
+            if task.group_id:
+                workspace_ids = [UUID(str(task.group_id))]
+            else:
+                # Admin system task — rebuild every workspace
                 workspace_ids = [row[0] for row in session.query(Groups.id).all()]
-
-        for wid in workspace_ids:
-            event_bus.dispatch(
-                integration_id="scheduled_tasks",
-                group_id=wid,
-                event_type=EventTypes.webhook_triggered,
-                document_data=None,
-                message=f"Site rebuild requested: {reason}",
-            )
+            counts = [request_rebuild(session, wid, reason) for wid in workspace_ids]
 
         scope = "this workspace" if task.group_id else f"all {len(workspace_ids)} workspaces"
-        summary = f"Site rebuild event dispatched ({scope}, reason: {reason})"
+        pending = f", {counts[0]} requests pending" if task.group_id and counts[0] > 1 else ""
+        summary = f"Site rebuild queued ({scope}, reason: {reason}{pending}); sent once requests are quiet for {QUIET_SECONDS}s"
         logger.info(summary)
         return summary
+
+
+def dispatch_site_rebuild(group_id: UUID, reason: str, event_bus: EventBusService | None = None) -> None:
+    """Send the `webhook_triggered` event that the workspace's deploy-hook webhooks listen for."""
+    (event_bus or EventBusService(bg_tasks=None)).dispatch(
+        integration_id="scheduled_tasks",
+        group_id=group_id,
+        event_type=EventTypes.webhook_triggered,
+        document_data=None,
+        message=f"Site rebuild requested: {reason}",
+    )
 
 
 # Register handlers

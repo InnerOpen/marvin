@@ -251,6 +251,7 @@ async def start_scheduler() -> None:
         scheduler_tasks.ping,
         scheduler_tasks.post_group_webhooks,
         scheduler_tasks.check_scheduled_tasks,
+        scheduler_tasks.dispatch_site_rebuilds,
     )
 
     # Register hourly tasks
@@ -356,7 +357,6 @@ def main() -> None:
         log_level="info",  # Uvicorn's own log level
         use_colors=True,  # Enable colored logging output
         log_config=_uvicorn_log_config(),  # Uvicorn defaults + a filter that drops health-probe lines
-
         workers=1,  # Number of worker processes (typically 1 for dev, more for prod)
         forwarded_allow_ips="*",  # Trust X-Forwarded-For headers from any IP (specific IPs better for prod)
     )

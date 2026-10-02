@@ -18,6 +18,7 @@ from .resource_tags import ResourceTags
 from .resources import Resources
 from .scheduled_tasks import ScheduledTaskExecutionLogModel, ScheduledTaskModel
 from .scheduler_lock import SCHEDULER_LOCK_ID, SchedulerLockModel
+from .site_rebuild_requests import SiteRebuildRequestModel
 from .submission_rate_limits import SubmissionRateLimits
 from .tags import Tags
 
@@ -46,6 +47,7 @@ __all__ = [
     "ScheduledTaskExecutionLogModel",
     "ScheduledTaskModel",
     "SchedulerLockModel",
+    "SiteRebuildRequestModel",
     "SubmissionRateLimits",
     "Tags",
     # CODE_GEN_ID: PLATFORM_MODEL_ALL
