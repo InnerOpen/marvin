@@ -256,3 +256,22 @@ Built locally at `~/code/MarvinIntegrationSquare` (`2d16ab7`, 68 tests, Square-V
 - Opt-in per artwork: `sellOnline` boolean on `artwork`.
 - Shipping: flat fee per artwork — `shippingFee` field, added to the Square order as a shipping charge.
 - Build now on `develop`, tested locally + in Square's sandbox; roll out to the live server only when Jared says.
+
+# Grace go-live — Square from sandbox to production (2026-10-02, Jared: "make a todo")
+
+State 2026-10-02: 129 of Grace's 131 available artworks are listed in Square's **sandbox** (bulk "Turn on Sell online"
+workflow; 129 items, 129 links, no duplicates, 128 with the painting). Fevered Radiance and Manifolds… have no price.
+Between Lives was listed before item pictures existed — it gets one on its next price/shipping change.
+
+- [ ] **Reset-listings workflow** in the Square integration (`content.py`), manual + target `artwork` / Fields equal
+      `sellOnline = true`: clear `square_listed_for` (and the `square_*` ids) so every artwork re-lists against the
+      production token. One click at go-live; also useful after a token/location change.
+- [ ] **Shipping policy** — every link is free shipping today (no `shippingFee` on 129 of 131). Grace decides a fee or a
+      rule (e.g. by size); then a bulk "Set fields" workflow sets it, which re-lists each with the fee.
+- [ ] **Production credentials**: Grace's production access token (`{{SQUARE_TOKEN}}` secret), environment
+      `production`, her real `location_id` (list_locations), `redirect_url`.
+- [ ] **Production webhook**: subscription in her Square developer app (`inventory.count.updated`) → the `square-events`
+      incoming webhook URL; store the returned signature key as the webhook's secret.
+- [ ] **Go-live order**: switch the integration to production → run Reset listings → watch the toaster → spot-check a
+      link with a real card refund, or a $1 test item → clear the sandbox catalog.
+- [ ] Optional: strip HTML from activity-toast failure details (a 404 page showed raw HTML) — Jared: not now.
