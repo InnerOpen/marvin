@@ -5,7 +5,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from marvin.services.integrations.http_client import MarvinHttpHelper, SsrfError
+pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not installed (optional feature)")
+
+from marvin.services.integrations.http_client import MarvinHttpHelper, SsrfError  # noqa: E402
 
 
 class _FakeResponse:
