@@ -302,6 +302,13 @@ cannot create a workflow / entry type / collection / scheduled task, and has no 
   editor. A person reviews, enables and runs. Writes go through the agent permission matrix; AI content still obeys
   Approval mode.
 - **Teach while doing:** Builder explains what it built and why (Run on vs Only if, the 250 cap…), the way this session did.
+- **Guided steps come first** (Jared, 2026-10-02: "you told me how to build it, and I was able to build it… even steps
+  would be good based on their need"). Builder's first answer is numbered steps written for *this* workspace — the
+  editor's exact labels, the user's real types/fields/values, what Preview should show, what to watch for — then
+  "want me to draft it instead?". Needs no write tools; drafting is the opt-in second mode.
+- **Labels must match the screen**: the catalog returns each item's UI label next to its internal name (`set_data` →
+  "Set fields", target → "Run on a query of entries", `data` → "Fields equal"), and a CI check fails when a label the
+  docs use no longer exists in the editor.
 
 ## Plan
 1. [ ] **Unblock the manual** (prereq; Brain task "docs site — unblock and publish"). The staged docs never committed:
@@ -320,7 +327,12 @@ cannot create a workflow / entry type / collection / scheduled task, and has no 
        and connected integrations + their actions.
 6. [ ] **Doc-coverage CI check**: fail when a workflow trigger, step kind, entry op or AI operation has no mention in
        the manual — so a feature can't ship undocumented and Builder never meets something it can't explain.
-7. [ ] **`draft_workflow` tool** (category `automation_author`, write, **ask** by default): validates the definition
+6b. [ ] **Guided-steps mode (ship first)**: Builder answers "how do I…" with numbered, workspace-specific steps
+       (exact UI labels from the catalog, real field names and typed values, expected Preview count, run warnings),
+       ending with an offer to draft. Works with only docs + catalog + read tools. Catalog gains UI labels; CI label
+       check (step 6) covers them. Verify with this session's Sell-online question: the steps must match what Jared
+       built by hand.
+7. [ ] **`draft_workflow` tool** (second mode, opt-in) (category `automation_author`, write, **ask** by default): validates the definition
        (same validator as the editor), creates it **disabled**, runs the target Preview, returns id + editor link +
        match count + any validation warnings. Never enables or runs.
 8. [ ] **Builder agent** (system agent, persona kind): instructions = configure-not-code line, drafts-only, explain
