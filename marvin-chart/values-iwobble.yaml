@@ -113,3 +113,7 @@ extraEnv:
   # (STORAGE_LOCAL_PUBLIC_URL) — this only sets the URL prefix. See STORAGE_LOCAL_PUBLIC_BASE_URL.
   - name: STORAGE_LOCAL_PUBLIC_BASE_URL
     value: https://api.iwobble.com/assets
+  # Square uploads an item's picture (it accepts up to 15 MiB); the 5 MB default would skip a
+  # large photo. 16 MiB so anything Square takes can be fetched.
+  - name: INTEGRATION_HTTP_MAX_BYTES
+    value: "16777216"
