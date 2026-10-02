@@ -117,4 +117,6 @@ def _entries_query(session, group_id, query: dict):
     if query.get("has_resources"):
         q = q.join(EntryResources, EntryResources.entry_id == Entries.id)
 
-    return q.distinct()
+    # De-duplicate the joins by id rather than `SELECT DISTINCT entries.*`: Postgres has no equality
+    # operator for `json` columns, so DISTINCT over the whole row fails there (SQLite allows it).
+    return session.query(Entries).filter(Entries.id.in_(q.with_entities(Entries.id)))
