@@ -186,7 +186,7 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
         orm = session.get(Entries, entity_id)
         if orm is None or orm.group_id != group_id:
             raise AutomationActionError(f"entry {entity_id} not found in this workspace")
-        merged = {**(orm.data_json or {}), **_typed_like_schema(patch, orm.entry_type)}
+        merged = {**(orm.data_json or {}), **_typed_like_schema(patch, getattr(orm, "entry_type", None))}
         svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
         try:
             updated = svc.update(entity_id, {"data_json": merged}, reaction_depth=depth)
