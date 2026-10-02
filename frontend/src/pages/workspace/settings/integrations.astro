@@ -253,6 +253,14 @@ function statusMeta(status: string): { text: string; cls: string } {
                       {a.label}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    class="icon-btn-sm js-edit"
+                    data-provider={it.provider}
+                    data-integration={JSON.stringify({ id: it.id, name: it.name, config: it.config ?? {}, hasCredential: it.hasCredential, credentialSecret: (it as { credentialSecret?: string }).credentialSecret ?? null })}
+                    title="Edit integration"
+                    aria-label="Edit integration"
+                  >✎</button>
                   <button type="button" class="icon-btn-sm js-check" data-id={it.id} title="Run health check" aria-label="Run health check">↻</button>
                   <button type="button" class="icon-btn-sm danger js-delete" data-id={it.id} data-name={it.name} title="Delete integration" aria-label="Delete integration">✕</button>
                 </div>
@@ -437,23 +445,37 @@ function statusMeta(status: string): { text: string; cls: string } {
     help?: string;
     type?: string;
     placeholder?: string;
+    value?: string;
   }): string {
     return `
       <label class="field">
         <span>${esc(o.label)}${o.required ? ' <em class="req">Required</em>' : ""}</span>
-        <input type="${o.type ?? "text"}" data-kind="${o.kind}" data-key="${esc(o.key)}"
+        <input type="${o.type ?? "text"}" data-kind="${o.kind}" data-key="${esc(o.key)}" value="${esc(o.value ?? "")}"
                ${o.required ? "required" : ""} placeholder="${esc(o.placeholder ?? "")}" autocomplete="off" />
         ${o.help ? `<small>${esc(o.help)}</small>` : ""}
       </label>`;
   }
 
-  function openPanel(slug: string) {
+  type Existing = { id: string; name: string; config: Record<string, unknown>; hasCredential: boolean; credentialSecret: string | null };
+  // Set while the panel edits a connected integration; null while it creates one.
+  let editing: Existing | null = null;
+
+  function openPanel(slug: string, existing: Existing | null = null) {
     const p = bySlug.get(slug);
     if (!p) return;
+    editing = existing;
+    (document.getElementById("add-title") as HTMLElement).textContent = existing ? `Edit ${existing.name}` : "Configure integration";
+    (document.getElementById("add-submit") as HTMLButtonElement).textContent = existing ? "Save changes" : "Add integration";
     (document.getElementById("add-provider") as HTMLInputElement).value = slug;
     (document.getElementById("add-provider-desc") as HTMLElement).textContent = p.description;
-    (document.getElementById("add-name") as HTMLInputElement).value = "";
+    (document.getElementById("add-name") as HTMLInputElement).value = existing?.name ?? "";
     errEl.hidden = true;
+    // Editing: the credential is optional — blank keeps what's stored, a value or {{SECRET}} replaces it.
+    const keepNote = existing?.credentialSecret
+      ? `Using workspace secret {{${existing.credentialSecret}}} — leave blank to keep it.`
+      : existing?.hasCredential
+        ? "A credential is stored — leave blank to keep it."
+        : "";
 
     const props = (p.configSchema?.properties ?? {}) as Record<string, any>;
     const required = (p.configSchema?.required ?? []) as string[];
@@ -470,10 +492,10 @@ function statusMeta(status: string): { text: string; cls: string } {
             kind: "credential",
             key: c.key,
             label: c.label,
-            required: c.required,
-            help: `${c.help ? `${c.help} ` : ""}Paste the value, or {{SECRET_NAME}} to use a workspace secret.`,
+            required: c.required && !existing?.hasCredential,
+            help: `${keepNote ? `${keepNote} ` : ""}${c.help ? `${c.help} ` : ""}Paste the value, or {{SECRET_NAME}} to use a workspace secret.`,
             type: "password",
-            placeholder: "Value, or {{SECRET_NAME}}",
+            placeholder: existing?.hasCredential ? "Leave blank to keep the current one" : "Value, or {{SECRET_NAME}}",
           }),
         );
       }
@@ -492,6 +514,7 @@ function statusMeta(status: string): { text: string; cls: string } {
             help: prop.description,
             type: isUri ? "url" : "text",
             placeholder: isUri ? "https://…" : "",
+            value: existing?.config?.[key] != null ? String(existing.config[key]) : "",
           }),
         );
       }
@@ -506,6 +529,9 @@ function statusMeta(status: string): { text: string; cls: string } {
 
   document.querySelectorAll<HTMLButtonElement>(".js-configure").forEach((b) =>
     b.addEventListener("click", () => openPanel(b.dataset.slug!)),
+  );
+  document.querySelectorAll<HTMLButtonElement>(".js-edit").forEach((b) =>
+    b.addEventListener("click", () => openPanel(b.dataset.provider!, JSON.parse(b.dataset.integration || "null"))),
   );
   document.getElementById("add-close")?.addEventListener("click", closePanel);
   document.getElementById("add-cancel")?.addEventListener("click", closePanel);
@@ -533,7 +559,12 @@ function statusMeta(status: string): { text: string; cls: string } {
     const submit = document.getElementById("add-submit") as HTMLButtonElement;
     submit.disabled = true;
     try {
-      await createIntegration({ provider, name, config, credential });
+      if (editing) {
+        // Config is sent whole (a cleared field is dropped); the credential only when one was typed.
+        await updateIntegration(editing.id, { name, config, ...(credential ? { credential } : {}) } as any);
+      } else {
+        await createIntegration({ provider, name, config, credential });
+      }
       reload();
     } catch (err) {
       showError(errEl, errorMessage(err));
@@ -747,7 +778,8 @@ function statusMeta(status: string): { text: string; cls: string } {
 
 <style>
   .conn-meta { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
-  .needs-params { display: flex; flex-wrap: wrap; gap: 8px; grid-column: 1 / -1; }
+  .needs li > .js-apply-needs { grid-column: -2; grid-row: 1; justify-self: end; align-self: center; }
+  .needs-params { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 2 / -2; grid-row: 2; }
   .needs-params label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
   .needs-params .input.tiny { padding: 3px 6px; font-size: 12px; width: 12ch; }
   .result-body { max-height: 50vh; overflow: auto; background: var(--panel-2, var(--panel)); padding: 12px; border-radius: var(--radius); font-size: 12px; white-space: pre-wrap; word-break: break-word; }
