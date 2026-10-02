@@ -179,6 +179,9 @@
         greeted = true;
         addMsg('marvin', esc(pick(GREETINGS)), false); // flavor line, not part of the saved transcript
       }
+      // A restored conversation was appended while the panel was display:none, where scrolling is
+      // a no-op — so land on the latest turn now that it has a height.
+      log.scrollTop = log.scrollHeight;
       input.focus();
     }
     function closePanel() {
