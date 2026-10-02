@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.118 (2026-10-02)
+
+### Features
+
+- **blueprints**: Update an applied workflow to its integration's current version
+  ([`d874a58`](https://github.com/InnerOpen/marvin/commit/d874a58d65dcad3942b33681e42a41523701b1ec))
+
+
 ## v1.0.0-rc.117 (2026-10-02)
 
 ### Bug Fixes
