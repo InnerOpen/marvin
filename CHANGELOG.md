@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.132 (2026-10-02)
+
+### Bug Fixes
+
+- **automation**: Set_data reads the entry type defensively
+  ([`28a6d27`](https://github.com/InnerOpen/marvin/commit/28a6d27f5bb9e6ea7642479949639e46f40eae3d))
+
+
 ## v1.0.0-rc.131 (2026-10-02)
 
 ### Bug Fixes
