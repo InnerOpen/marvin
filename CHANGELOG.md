@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.117 (2026-10-02)
+
+### Bug Fixes
+
+- **blueprints**: An integration parameter defaults to the workspace's own connection
+  ([`145dfbe`](https://github.com/InnerOpen/marvin/commit/145dfbe0d3cbb308702bca3044cec3faf873ba7b))
+
+
 ## v1.0.0-rc.116 (2026-10-02)
 
 ### Features
