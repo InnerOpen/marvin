@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.129 (2026-10-02)
+
+### Bug Fixes
+
+- **automation**: Query runs see each entry's fields, and can filter by them
+  ([`0e254e4`](https://github.com/InnerOpen/marvin/commit/0e254e4c8bac33998b040bf9c571033e3d6a20bb))
+
+
 ## v1.0.0-rc.128 (2026-10-02)
 
 ### Features
