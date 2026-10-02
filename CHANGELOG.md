@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.116 (2026-10-02)
+
+### Features
+
+- **blueprints**: Pick parameters from dropdowns — entry types, collections, integrations
+  ([`c6e8547`](https://github.com/InnerOpen/marvin/commit/c6e8547219a2f1ade10218636512073b6aa3d381))
+
+
 ## v1.0.0-rc.115 (2026-10-02)
 
 ### Features
