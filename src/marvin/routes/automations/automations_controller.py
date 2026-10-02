@@ -184,6 +184,7 @@ class AutomationsController(BaseUserController):
         entities it would act on — WITHOUT running any action. `matches` is the capped set that also
         passes the conditions; `total` is the full query count so the caller sees when it's capped."""
         _require_admin(self.user, self.group_id)
+        from marvin.services.automation.engine import target_entry_context
         from marvin.services.automation.matcher import matches as _conds_match
         from marvin.services.automation.selector import entity_ref, resolve_target_entities
 
@@ -202,7 +203,7 @@ class AutomationsController(BaseUserController):
         matched: list[AutomationPreviewMatch] = []
         for ent in entities:
             ref = entity_ref(ent)
-            ctx = {**context, "entry": ref, "event": {**context["event"], "entry_id": ref["id"]}}
+            ctx = {**context, "entry": target_entry_context(self.session, self.group_id, ent), "event": {**context["event"], "entry_id": ref["id"]}}
             if _conds_match(conditions, ctx):
                 matched.append(AutomationPreviewMatch(**ref))
 

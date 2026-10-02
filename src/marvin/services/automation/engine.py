@@ -55,6 +55,14 @@ def _entry_context(session, group_id, entry_id) -> dict | None:
     }
 
 
+def target_entry_context(session, group_id, entity) -> dict:
+    """The `entry` a target row is matched and acted on as — the same full facts an event-triggered
+    run sees (`data`, `metadata`, `image`), so a condition like `entry.data.status` works per row."""
+    from .selector import entity_ref
+
+    return _entry_context(session, group_id, entity.id) or entity_ref(entity)
+
+
 def _featured_image_url(entry) -> str | None:
     """Same pick as the publishing API's featured asset — a hero/featured image first, else the first
     image by position — skipping pending AI suggestions, which never reach published output."""
@@ -194,7 +202,9 @@ def _run_targets(
                 total,
                 len(entities),
             )
-        pairs: list[tuple[dict, Any]] = [(_target_context(base_context, (ref := entity_ref(ent))), ref) for ent in entities]
+        pairs: list[tuple[dict, Any]] = [
+            (_target_context(base_context, target_entry_context(session, group_id, ent)), entity_ref(ent)) for ent in entities
+        ]
         gate = True  # a target's conditions are its WHERE clause — always applied
     else:
         # Non-target: single context. If gated and conditions fail, it's a non-run — don't record.

@@ -127,6 +127,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
               <span>Metadata equals <span class="muted">(key = value; values may be templates like <code>{"${event.payload.id}"}</code>)</span></span>
               <div id="wf-t-meta"></div>
             </div>
+            <div class="tf target-meta">
+              <span>Fields equal <span class="muted">(the entry type's fields, e.g. status = available — narrows the query before the 250-entry cap)</span></span>
+              <div id="wf-t-data"></div>
+            </div>
             <div class="target-preview-row">
               <button type="button" class="button secondary sm" id="wf-preview-btn">Preview matches</button>
               <span class="hint" id="wf-preview-status"></span>
@@ -623,6 +627,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     setOrDrop("has_resources", ($("wf-t-resources") as HTMLInputElement).checked);
     const metadata = readKv($("wf-t-meta"));
     setOrDrop("metadata", Object.keys(metadata).length ? metadata : null);
+    const data = readKv($("wf-t-data"));
+    setOrDrop("data", Object.keys(data).length ? data : null);
     return { target: { entity: "entry", query } };
   }
 
@@ -697,6 +703,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     ($("wf-t-resources") as HTMLInputElement).checked = !!tq.has_resources;
     const metaWrap = $("wf-t-meta"); metaWrap.innerHTML = "";
     metaWrap.appendChild(kvEditor(tq.metadata));
+    const dataWrap = $("wf-t-data"); dataWrap.innerHTML = "";
+    dataWrap.appendChild(kvEditor(tq.data));
     syncTargetBody();
     ($("wf-preview-result") as HTMLElement).setAttribute("hidden", "");
 
