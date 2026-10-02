@@ -2111,13 +2111,13 @@ class AIOperationsController(BaseUserController):
     def _persona(self) -> tuple[str, str]:
         """(assistant_name, persona_prompt) from the workspace AI settings.
 
-        Defaults preserve prior behavior: the assistant is named "Marvin" and no extra
-        voice/tone instruction is appended when unset.
+        Unset, the assistant is Marvin with Marvin's built-in voice — the "default voice" the AI settings
+        page promises (see marvin.services.ai.persona). A workspace persona replaces it.
         """
+        from marvin.services.ai.persona import resolve_persona
+
         settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        name = (settings.assistant_name if settings and settings.assistant_name else None) or "Marvin"
-        persona = (settings.persona_prompt if settings and settings.persona_prompt else "") or ""
-        return name, persona
+        return resolve_persona(settings.assistant_name if settings else None, settings.persona_prompt if settings else None)
 
     # Tone registers. Persona and register are DIFFERENT axes and must not share one knob:
     #   persona  = how the assistant ADDRESSES you (workspace-level, user-authored)
