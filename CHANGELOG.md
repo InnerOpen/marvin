@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.119 (2026-10-02)
+
+### Features
+
+- **automation**: Workflows see the entry's featured image URL; integration HTTP sends a named
+  User-Agent
+  ([`c4691e6`](https://github.com/InnerOpen/marvin/commit/c4691e617cbc6f599b44d64e4056af8d147229e4))
+
+
 ## v1.0.0-rc.118 (2026-10-02)
 
 ### Features
