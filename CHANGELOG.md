@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.113 (2026-10-02)
+
+### Features
+
+- **hooks**: One general webhook-signature engine — core presets, integration presets, custom
+  ([`ddac9b1`](https://github.com/InnerOpen/marvin/commit/ddac9b1d23bc95e46ebb1d8660cee9640ffb4056))
+
+
 ## v1.0.0-rc.112 (2026-10-02)
 
 ### Bug Fixes
