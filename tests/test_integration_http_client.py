@@ -78,3 +78,32 @@ def test_requests_carry_a_named_user_agent(helper):
 def test_a_providers_own_user_agent_is_kept(helper):
     helper.post("https://api.example.com/x", data=b"", headers={"User-Agent": "provider/1"})
     assert _sent(helper).get_header("User-agent") == "provider/1"
+
+
+class _BigResponse(_FakeResponse):
+    def __init__(self, size):
+        self._body = b"x" * size
+
+
+def test_response_cap_comes_from_settings(monkeypatch):
+    from types import SimpleNamespace
+
+    import marvin.services.integrations.http_client as http_client
+
+    monkeypatch.setattr(http_client, "get_app_settings", lambda: SimpleNamespace(INTEGRATION_HTTP_MAX_BYTES=10))
+    monkeypatch.setattr(http_client, "_host_is_public", lambda host: True)
+    h = MarvinHttpHelper()
+    h._opener = MagicMock()
+    h._opener.open.return_value = _BigResponse(11)
+
+    with pytest.raises(ValueError, match="size cap"):
+        h.get("https://cms.example/picture.jpg")
+
+
+def test_response_within_the_cap_is_returned(monkeypatch):
+    monkeypatch.setattr("marvin.services.integrations.http_client._host_is_public", lambda host: True)
+    h = MarvinHttpHelper(max_bytes=11)
+    h._opener = MagicMock()
+    h._opener.open.return_value = _BigResponse(11)
+
+    assert len(h.get("https://cms.example/picture.jpg").content) == 11

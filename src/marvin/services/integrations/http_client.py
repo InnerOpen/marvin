@@ -1,6 +1,6 @@
 """Core implementation of the SDK's HttpHelper — the safe HTTP client handed to providers.
 
-Enforces timeouts, a response-size cap, and an SSRF guard (refuses to call private/loopback/
+Enforces timeouts, a response-size cap (INTEGRATION_HTTP_MAX_BYTES), and an SSRF guard (refuses to call private/loopback/
 link-local/reserved hosts, and re-checks on redirect). Providers get safe outbound HTTP for free.
 """
 
@@ -12,7 +12,8 @@ from urllib.parse import urlparse
 
 from marvin_integration_sdk.http import Response
 
-_DEFAULT_MAX_BYTES = 5_000_000
+from marvin.core.config import get_app_settings
+
 # urllib's default "Python-urllib/x.y" is refused outright by Cloudflare's bot rules (error 1010), so
 # a provider fetching anything behind Cloudflare — including this install's own public asset URLs —
 # would get a 403. A named agent also tells the far side who is calling.
@@ -57,9 +58,9 @@ class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
 class MarvinHttpHelper:
     """Implements ``marvin_integration_sdk.http.HttpHelper``."""
 
-    def __init__(self, max_bytes: int = _DEFAULT_MAX_BYTES) -> None:
+    def __init__(self, max_bytes: int | None = None) -> None:
         self._opener = urllib.request.build_opener(_GuardedRedirectHandler())
-        self._max_bytes = max_bytes
+        self._max_bytes = get_app_settings().INTEGRATION_HTTP_MAX_BYTES if max_bytes is None else max_bytes
 
     def _send(self, req: urllib.request.Request, timeout: float) -> Response:
         _guard(req.full_url)

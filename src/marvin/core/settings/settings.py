@@ -181,6 +181,20 @@ class AppSettings(BaseSettings):
             )
         return self
 
+    INTEGRATION_HTTP_MAX_BYTES: int = 5_000_000
+    """
+    The largest response an integration provider may download through Marvin's HTTP client, in
+    bytes. A bigger response is refused (the provider sees an error). Bounds memory per call; raise
+    it for providers that move files — e.g. Square uploads an item's picture, up to 15 MB.
+    """
+
+    @field_validator("INTEGRATION_HTTP_MAX_BYTES")
+    @classmethod
+    def _validate_integration_http_max_bytes(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("INTEGRATION_HTTP_MAX_BYTES must be >= 1")
+        return v
+
     SITE_REBUILD_QUIET_SECONDS: int = 60
     """
     How long rebuild requests must stop arriving before a workspace's queued site rebuild is sent.
