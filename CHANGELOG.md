@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.112 (2026-10-02)
+
+### Bug Fixes
+
+- **auth**: Workspace admins got a 500 on workflows, webhooks and AI settings
+  ([`0c58086`](https://github.com/InnerOpen/marvin/commit/0c58086be3f44a9eedbcdbadf6bb4bfaa3d71a1c))
+
+### Testing
+
+- **integrations**: Skip the HTTP helper tests when the optional SDK is absent
+  ([`82c7e04`](https://github.com/InnerOpen/marvin/commit/82c7e048ee514a4f5003089cdd81055daf86ef5b))
+
+
 ## v1.0.0-rc.111 (2026-10-02)
 
 ### Chores
