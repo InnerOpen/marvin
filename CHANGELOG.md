@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.135 (2026-10-02)
+
+### Features
+
+- **ai**: The bubble wears the workspace's assistant name and icon
+  ([`1a9dcc6`](https://github.com/InnerOpen/marvin/commit/1a9dcc61001ca883eab1118bdc4a3b5b083d2bb5))
+
+
 ## v1.0.0-rc.134 (2026-10-02)
 
 ### Bug Fixes
