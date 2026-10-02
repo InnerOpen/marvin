@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.115 (2026-10-02)
+
+### Features
+
+- **integrations**: Edit a connected integration; keep Add buttons on the right
+  ([`ace1355`](https://github.com/InnerOpen/marvin/commit/ace1355e5547d166fefd222c28ffeb167eeb8668))
+
+
 ## v1.0.0-rc.114 (2026-10-02)
 
 ### Bug Fixes
