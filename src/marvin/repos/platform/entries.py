@@ -151,9 +151,12 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
         if "data_json" in data_dict:
             self._validate_content(data_dict["entry_type_id"], data_dict["data_json"])
 
-        # Auto-set published_at when creating with status 'published'
-        if data_dict.get("status") == "published" and not data_dict.get("published_at"):
-            data_dict["published_at"] = datetime.now(UTC)
+        # Auto-set published_at when creating with status 'published'; a schedule is moot then
+        # (see update)
+        if data_dict.get("status") == "published":
+            if not data_dict.get("published_at"):
+                data_dict["published_at"] = datetime.now(UTC)
+            data_dict["publish_at"] = None
 
         # Extract relationship IDs before creating entry
         collection_ids = data_dict.pop("collection_ids", None)
@@ -220,6 +223,9 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
         # Handle published_at based on status changes
         if "status" in data_dict:
             if data_dict["status"] == "published":
+                # Publishing by any route consumes the schedule, so the Publish Scheduled Entries
+                # task can't put the entry live again after a later unpublish.
+                data_dict["publish_at"] = None
                 # Only set published_at if not already provided (first publish)
                 if "published_at" not in data_dict:
                     # Get current entry to check if it was already published

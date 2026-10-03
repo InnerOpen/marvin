@@ -1,8 +1,8 @@
-"""The Publish Scheduled Entries task publishes due entries once, and only the ones it should.
+"""Scheduled publishing publishes due entries once, and only the ones it should.
 
-Regression: publishing never cleared publish_at, so an entry that went live on schedule and was
-then unpublished went live again on the next run, and an archived entry with an old schedule was
-brought back.
+Regression: publishing never cleared publish_at, so an entry that went live (on schedule or by
+hand) and was then unpublished went live again on the next run, and an archived entry with an old
+schedule was brought back.
 """
 
 import uuid
@@ -131,3 +131,43 @@ def test_publish_dry_run_changes_nothing(db_session, workspace, make_entry):
     entry = reload(db_session, entry_id)
     assert (entry.status, entry.publish_at is not None, events) == ("draft", True, [])
     assert summary.endswith("(dry run)")
+
+
+def repos_for(db_session, workspace):
+    from marvin.repos.all_repositories import get_repositories
+
+    return get_repositories(db_session, group_id=workspace.id)
+
+
+def test_manual_publish_clears_schedule(db_session, workspace, make_entry):
+    from marvin.schemas.platform import EntryUpdate
+
+    entry_id = make_entry(publish_at=FUTURE)
+
+    repos_for(db_session, workspace).entries.update(entry_id, EntryUpdate(status="published"))
+
+    assert reload(db_session, entry_id).publish_at is None
+
+
+def test_create_as_published_drops_schedule(db_session, workspace):
+    from marvin.schemas.platform import EntryCreate
+
+    created = repos_for(db_session, workspace).entries.create(
+        EntryCreate(entry_type_id=workspace.entry_type_id, title="Live now", status="published", publish_at=FUTURE)
+    )
+
+    assert reload(db_session, created.id).publish_at is None
+
+
+def test_manual_publish_then_unpublish_is_not_republished_by_task(db_session, workspace, make_entry):
+    from marvin.schemas.platform import EntryUpdate
+
+    entry_id = make_entry(publish_at=PAST)
+    repos = repos_for(db_session, workspace)
+    repos.entries.update(entry_id, EntryUpdate(status="published"))
+    repos.entries.update(entry_id, EntryUpdate(status="draft"))
+
+    run_task(workspace.id)
+
+    assert reload(db_session, entry_id).status == "draft"
+
