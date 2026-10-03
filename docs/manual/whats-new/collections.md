@@ -1,6 +1,6 @@
 # Collections
 
-A collection groups entries by hand or by rule; smart collections now support rolling date windows, and new workspaces no longer inherit a "Recent" collection.
+A collection groups entries by hand or by rule; smart collections now support rolling date windows and field conditions, are edited in a visual builder or as JSON, and can be previewed with **Run Query** before saving. New workspaces no longer inherit a "Recent" collection.
 
 ## What it does
 
@@ -19,6 +19,7 @@ Every workspace also gets five locked **system** collections (`inbox`, `drafts`,
 | `entry_types` | entry | entry-type slugs |
 | `statuses` | entry | entry status values |
 | `published_within_days` | entry | `published_at` within the last N days |
+| `where` | entry | field conditions, `[{"field": key, "op": op, "value": v}]`; each condition is one dimension |
 | `asset_types` | asset | asset type bucket, e.g. `image` |
 | `mime_types` | asset | exact MIME type, e.g. `image/svg+xml` |
 | `resource_types` | resource | resource type |
@@ -32,6 +33,8 @@ Every workspace also gets five locked **system** collections (`inbox`, `drafts`,
 {"statuses": ["published"], "published_within_days": 30, "match": "all"}
 ```
 
+`where` is the same condition a workflow's entry query uses (see [Workflows](workflows.md#run-on-a-query-of-entries)), evaluated by the same code: `field` is a field key of the entry type or `metadata.<key>`, and `op` is `eq`, `neq`, `in`, `contains`, `exists`, `missing`, `gt`, `gte`, `lt` or `lte`; comparisons read number-like text (`"$1,170"` → 1170). An unknown op never matches. The rest of the two shapes differ: smart rules use plural keys (`entry_types`, `statuses`), rolling windows and `match`, while a workflow query uses `entry_type`/`status`, `text`, `collection`, date ranges and `sort`, which smart rules do not read. **Run Query** names any key it ignores.
+
 ### Materialisation
 
 - `SmartCollectionReactionListener` re-evaluates an entry against every smart collection on `entry_created`, `entry_updated`, `entry_published`, `entry_unpublished`, `entry_archived` and `entry_restored`. Deletion needs no reaction; the junction cascades.
@@ -42,15 +45,16 @@ Every workspace also gets five locked **system** collections (`inbox`, `drafts`,
 
 ## Where
 
-- Create: `/workspace/collections/new`. Edit: `/workspace/collections/{id}`. Both render `SmartCollectionFields`: a **Smart Collection** toggle and a **Rules (JSON)** editor with an inline reference.
+- Create: `/workspace/collections/new`. Edit: `/workspace/collections/{id}/edit`. Both render `SmartCollectionFields`: a **Smart Collection** toggle, the rules under two tabs, **Builder** and **JSON**, and a **Run Query** button.
 - Admin: the platform scheduled-tasks list, for `resync_smart_collections`.
 
 ## How to use
 
-1. Create a collection and switch on **Smart Collection**.
-2. Paste a rules object. Keys are `snake_case` and stored as opaque JSON; the server evaluates exactly these keys.
-3. Save. Membership is computed on save and kept current by the reactions above.
-4. Treat the entry list as read-only; pins on a smart collection are not preserved (smart XOR manual in this release).
+1. Create a collection and switch on **Smart Collection**, then choose what it collects (entries, assets or resources).
+2. Build the rules on the **Builder** tab: **Match** all or any, entry types and statuses (or asset types and MIME types, or resource types), tags, the published and created windows, and **Field conditions** (field, operator, value; `is one of` takes a comma-separated list). Or write them on the **JSON** tab. Both tabs edit the same rules: a builder change rewrites the JSON, and valid JSON redraws the builder. Invalid JSON shows the parse error under the editor, leaves the builder on the last valid rules, and blocks saving. Keys the builder has no control for stay in the JSON untouched.
+3. Press **Run Query** to evaluate the unsaved rules: it shows how many items would be in the collection and links the first 10, newest first. Empty rules say they match nothing. The preview uses the same matching code as saving, so the count is the membership you get.
+4. Save. Membership is computed on save and kept current by the reactions above.
+5. Treat the entry list as read-only; pins on a smart collection are not preserved (smart XOR manual in this release).
 
 Want the old "Recent" behaviour? Create a smart collection with `published_within_days: 30` and `statuses: ["published"]`, or apply the core `recently-published` blueprint. Since 921047ad the bootstrap no longer creates one: it was a manual collection described as "recently published content", so nothing could fill it, and it sat empty in every workspace on the instance. Existing workspaces keep whatever they already have.
 
@@ -64,6 +68,7 @@ Workspace collections live under `/api/platform/collections`:
 | GET / PATCH / DELETE | `/{id}` | Read / update (a rules change re-materialises) / delete |
 | PATCH | `/order` | Reorder collections |
 | GET | `/{id}/members` | Members of any target type |
+| POST | `/preview` | Evaluate unsaved rules: body `{"targetType", "smartRules", "limit"}` (limit 0–50, default 10); returns `total`, `items` (`id`, `label`, `slug`, `type`, newest first), `ignoredKeys` and `note`. Saves nothing; scoped to your workspace |
 | GET | `/{id}/entries` | Entries, with junction data |
 | PATCH | `/{id}/entries/order`, `/{id}/entries/{entry_id}` | Manual ordering and junction metadata |
 
@@ -75,7 +80,7 @@ None. The resync cadence is the system task's interval (daily); an admin can adj
 
 ## Since
 
-Rolling windows: rc.82 (`142eb6e9`). No default "Recent": rc.83 (`921047ad`). Asset/resource targets, `mime_types` and `tags` predate this release.
+Builder, **Run Query**, `where` and `POST /preview`: after rc.167. Rolling windows: rc.82 (`142eb6e9`). No default "Recent": rc.83 (`921047ad`). Asset/resource targets, `mime_types` and `tags` predate this release.
 
 ## Related
 

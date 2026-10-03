@@ -6,15 +6,47 @@
  * `smartRules` instead of being curated by hand; membership is materialized server-side and
  * kept in sync as entries are created / published / edited.
  *
- * Emits two form fields: `is_smart` (checkbox) and `smartRules` (JSON textarea).
+ * The rules are edited in a visual builder or as JSON; both views edit the same `smartRules`
+ * textarea (sync logic: lib/smartRules.ts). **Run Query** previews the unsaved rules against the
+ * workspace (POST /api/platform/collections/preview).
+ *
+ * Emits form fields: `is_smart` (checkbox), `target_type` (select) and `smartRules` (JSON textarea).
  */
+import { getAuthToken } from "@/lib/api/client";
+import { listEntryTypes } from "@/lib/api/entryTypes";
+import { listTags } from "@/lib/api/tags";
+
 interface Props {
   checked?: boolean;
   rules?: Record<string, unknown> | null;
   targetType?: string;
 }
 const { checked = false, rules = null, targetType = "entry" } = Astro.props;
-const rulesText = rules ? JSON.stringify(rules, null, 2) : "";
+const rulesText = rules && Object.keys(rules).length ? JSON.stringify(rules, null, 2) : "";
+
+// The builder's vocabularies. Soft-fail: without them the chips are empty and the JSON tab still works.
+type SchemaField = { key?: string; label?: string };
+const authToken = getAuthToken(Astro.cookies);
+let entryTypes: { value: string; label: string }[] = [];
+let tags: { value: string; label: string }[] = [];
+let fieldKeys: { key: string; hint: string }[] = [];
+let vocabularyError = false;
+if (authToken) {
+  const [typesResult, tagsResult] = await Promise.allSettled([listEntryTypes(authToken), listTags(authToken)]);
+  if (typesResult.status === "fulfilled") {
+    entryTypes = typesResult.value.map((t) => ({ value: t.slug, label: t.name }));
+    const seen = new Map<string, string>();
+    for (const t of typesResult.value) {
+      const fields = ((t.schemaJson as { fields?: SchemaField[] } | null)?.fields ?? []) as SchemaField[];
+      for (const f of fields) if (f.key && !seen.has(f.key)) seen.set(f.key, `${t.name}: ${f.label || f.key}`);
+    }
+    fieldKeys = [...seen].map(([key, hint]) => ({ key, hint }));
+  } else {
+    vocabularyError = true;
+  }
+  if (tagsResult.status === "fulfilled") tags = tagsResult.value.map((t) => ({ value: t.slug, label: t.name }));
+}
+const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
 ---
 
 <fieldset class="smart-panel">
@@ -37,62 +69,410 @@ const rulesText = rules ? JSON.stringify(rules, null, 2) : "";
       <span class="form-help">Which kind of content this collection groups.</span>
     </div>
 
-    <label for="smartRules">Rules (JSON)</label>
-    <textarea id="smartRules" name="smartRules" rows="6" spellcheck="false">{rulesText}</textarea>
-    <div class="smart-help">
-      <p>
-        Items that match these rules are added automatically and kept in sync as they're created,
-        edited, or tagged. Every field is optional; combine them with <code>match</code>. An empty rule
-        set matches nothing.
-      </p>
-      {/* Per-target dimension hints — JS shows the one matching the selected target type. */}
-      <ul class="dim-hints" data-target="entry">
-        <li><code>entry_types</code> — entry-type slugs, e.g. <code>["article", "bench-note"]</code></li>
-        <li><code>statuses</code> — e.g. <code>["published"]</code>, or <code>["inbox"]</code> for a Drafts collection</li>
-      </ul>
-      <ul class="dim-hints" data-target="asset" hidden>
-        <li><code>asset_types</code> — <code>["image", "document", "video", "audio", "archive", "svg", "other"]</code></li>
-      </ul>
-      <ul class="dim-hints" data-target="resource" hidden>
-        <li><code>resource_types</code> — resource-type values, e.g. <code>["fabric", "tool", "supplier"]</code></li>
-      </ul>
-      <ul>
-        <li><code>tags</code> — tag slugs or names, e.g. <code>["waxed-canvas", "workwear"]</code></li>
-        <li><code>match</code> — <code>"all"</code> (default, every rule must hold) or <code>"any"</code></li>
-      </ul>
-      <p class="smart-help-example">
-        Example: <code class="dim-example" data-target="entry">{'{"entry_types": ["article"], "statuses": ["published"]}'}</code><code class="dim-example" data-target="asset" hidden>{'{"asset_types": ["image"], "tags": ["hero"]}'}</code><code class="dim-example" data-target="resource" hidden>{'{"resource_types": ["fabric"], "tags": ["waxed-canvas"], "match": "any"}'}</code>
-      </p>
+    <div class="sr-head">
+      <span class="sr-title">Rules</span>
+      <div class="sr-tabs" role="tablist" aria-label="Rules editor">
+        <button type="button" role="tab" id="sr-tab-builder" aria-controls="sr-builder" aria-selected="true">Builder</button>
+        <button type="button" role="tab" id="sr-tab-json" aria-controls="sr-json" aria-selected="false">JSON</button>
+      </div>
     </div>
+
+    <div id="sr-builder" class="sr-builder" role="tabpanel" aria-labelledby="sr-tab-builder">
+      <p class="sr-notice" id="sr-json-stale" hidden>
+        The JSON has an error, so the builder shows the last valid rules. Fix it on the JSON tab, or edit here to replace it.
+      </p>
+      <div class="sr-match">
+        Match
+        <select id="sr-match" aria-label="Match">
+          <option value="all">all</option>
+          <option value="any">any</option>
+        </select>
+        of these rules
+      </div>
+
+      <div class="sr-row" data-target="entry">
+        <span class="sr-label">Entry types</span>
+        <div class="sr-chips" id="sr-entry-types"></div>
+        {vocabularyError && <span class="form-help">Couldn't load the workspace's entry types — use the JSON tab.</span>}
+      </div>
+      <div class="sr-row" data-target="entry">
+        <span class="sr-label">Statuses</span>
+        <div class="sr-chips" id="sr-statuses"></div>
+      </div>
+      <div class="sr-row" data-target="asset">
+        <span class="sr-label">Asset types</span>
+        <div class="sr-chips" id="sr-asset-types"></div>
+      </div>
+      <label class="sr-row" data-target="asset">
+        <span class="sr-label">MIME types <span class="form-help">exact, comma-separated</span></span>
+        <input class="sr-input" id="sr-mime-types" placeholder="e.g. image/svg+xml, application/pdf" />
+      </label>
+      <label class="sr-row" data-target="resource">
+        <span class="sr-label">Resource types <span class="form-help">comma-separated</span></span>
+        <input class="sr-input" id="sr-resource-types" placeholder="e.g. fabric, tool, supplier" />
+      </label>
+      <div class="sr-row">
+        <span class="sr-label">Tags <span class="form-help">has any of these</span></span>
+        <div class="sr-chips sr-chips-scroll" id="sr-tags"></div>
+      </div>
+      <div class="sr-row sr-windows">
+        <label data-target="entry">Published in the last <input class="sr-input sr-days" type="number" min="1" id="sr-published-days" /> days</label>
+        <label>Created in the last <input class="sr-input sr-days" type="number" min="1" id="sr-created-days" /> days</label>
+      </div>
+      <div class="sr-row" data-target="entry">
+        <span class="sr-label">Field conditions <span class="form-help">the entry type's own fields, or <code>metadata.&lt;key&gt;</code> — same as a workflow query's <code>where</code></span></span>
+        <div class="sr-where" id="sr-where"></div>
+        <button type="button" class="sr-linkish" id="sr-add-condition">+ Add condition</button>
+      </div>
+      <datalist id="sr-field-keys">
+        {fieldKeys.map((f) => <option value={f.key}>{f.hint}</option>)}
+      </datalist>
+    </div>
+
+    <div id="sr-json" class="sr-json" role="tabpanel" aria-labelledby="sr-tab-json" hidden>
+      <label for="smartRules" class="sr-label">Rules (JSON)</label>
+      <textarea id="smartRules" name="smartRules" rows="8" spellcheck="false" aria-describedby="sr-json-error">{rulesText}</textarea>
+      <p class="sr-error" id="sr-json-error" role="alert" hidden></p>
+      <div class="smart-help">
+        <p>
+          Items that match these rules are added automatically and kept in sync as they're created,
+          edited, or tagged. Every field is optional; combine them with <code>match</code>. An empty rule
+          set matches nothing.
+        </p>
+        {/* Per-target dimension hints — JS shows the one matching the selected target type. */}
+        <ul data-target="entry">
+          <li><code>entry_types</code> — entry-type slugs, e.g. <code>["article", "bench-note"]</code></li>
+          <li><code>statuses</code> — e.g. <code>["published"]</code>, or <code>["inbox"]</code> for a Drafts collection</li>
+          <li><code>published_within_days</code> — published in the last N days</li>
+          <li><code>where</code> — field conditions, e.g. <code>{'[{"field": "price", "op": "gt", "value": 100}]'}</code>; ops <code>eq neq in contains exists missing gt gte lt lte</code></li>
+        </ul>
+        <ul data-target="asset" hidden>
+          <li><code>asset_types</code> — <code>["image", "document", "video", "audio", "archive", "svg", "other"]</code></li>
+          <li><code>mime_types</code> — exact MIME types, e.g. <code>["image/svg+xml"]</code></li>
+        </ul>
+        <ul data-target="resource" hidden>
+          <li><code>resource_types</code> — resource-type values, e.g. <code>["fabric", "tool", "supplier"]</code></li>
+        </ul>
+        <ul>
+          <li><code>tags</code> — tag slugs or names, e.g. <code>["waxed-canvas", "workwear"]</code></li>
+          <li><code>created_within_days</code> — created in the last N days</li>
+          <li><code>match</code> — <code>"all"</code> (default, every rule must hold) or <code>"any"</code></li>
+        </ul>
+        <p class="smart-help-example">
+          Example: <code data-target="entry">{'{"entry_types": ["article"], "statuses": ["published"]}'}</code><code data-target="asset" hidden>{'{"asset_types": ["image"], "tags": ["hero"]}'}</code><code data-target="resource" hidden>{'{"resource_types": ["fabric"], "tags": ["waxed-canvas"], "match": "any"}'}</code>
+        </p>
+      </div>
+    </div>
+
+    <div class="sr-run-row">
+      <button type="button" class="button secondary sr-run" id="sr-run">Run Query</button>
+      <span class="sr-status" id="sr-status" role="status"></span>
+    </div>
+    <div class="sr-result" id="sr-result" hidden></div>
   </div>
+  <script type="application/json" id="sr-vocab" is:inline set:html={vocabJson}></script>
 </fieldset>
 
 <script>
-  const checkbox = document.getElementById("is_smart") as HTMLInputElement | null;
-  const rulesField = document.getElementById("smart-rules-field") as HTMLElement | null;
-  const targetSelect = document.getElementById("target_type") as HTMLSelectElement | null;
-  const rulesArea = document.getElementById("smartRules") as HTMLTextAreaElement | null;
+  import { previewSmartRules, type SmartRulesPreview } from "@/lib/api/collections";
+  import {
+    ASSET_TYPES,
+    type BuilderState,
+    type Condition,
+    conditionValueFromText,
+    conditionValueText,
+    ENTRY_STATUSES,
+    formatRules,
+    parseRules,
+    type Rules,
+    rulesFromState,
+    splitList,
+    stateFromRules,
+    type TargetType,
+    VALUELESS_OPS,
+    WHERE_OPS,
+  } from "@/lib/smartRules";
 
+  type Option = { value: string; label: string };
+
+  const OP_LABELS: Record<string, string> = {
+    eq: "equals",
+    neq: "does not equal",
+    in: "is one of (comma-separated)",
+    contains: "contains",
+    exists: "has a value",
+    missing: "is empty",
+    gt: "is greater than",
+    gte: "is at least",
+    lt: "is less than",
+    lte: "is at most",
+  };
+  const NOUNS: Record<TargetType, [string, string]> = {
+    entry: ["entry", "entries"],
+    asset: ["asset", "assets"],
+    resource: ["resource", "resources"],
+  };
+  const ITEM_PATHS: Record<TargetType, string> = {
+    entry: "/workspace/entries",
+    asset: "/workspace/assets",
+    resource: "/workspace/resources",
+  };
   const PLACEHOLDERS: Record<string, string> = {
     entry: '{\n  "entry_types": ["article"],\n  "statuses": ["published"]\n}',
     asset: '{\n  "asset_types": ["image"],\n  "tags": ["hero"]\n}',
     resource: '{\n  "resource_types": ["fabric"],\n  "tags": ["waxed-canvas"]\n}',
   };
 
+  const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T | null;
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+  const checkbox = $<HTMLInputElement>("is_smart");
+  const rulesField = $("smart-rules-field");
+  const targetSelect = $<HTMLSelectElement>("target_type");
+  const rulesArea = $<HTMLTextAreaElement>("smartRules");
+  const builder = $("sr-builder");
+  const jsonPanel = $("sr-json");
+  const jsonError = $("sr-json-error");
+  const staleNotice = $("sr-json-stale");
+  const whereWrap = $("sr-where");
+  const result = $("sr-result");
+  const statusEl = $("sr-status");
+
+  const vocab = JSON.parse($("sr-vocab")?.textContent || "{}") as { entryTypes?: Option[]; tags?: Option[] };
+  const plain = (values: string[]): Option[] => values.map((v) => ({ value: v, label: v.replace(/_/g, " ") }));
+
+  // The last rules that parsed — the builder's base, and what Run Query and the builder fall back to.
+  let lastValid: Rules = {};
+  let jsonValid = true;
+
+  const target = (): TargetType => (targetSelect?.value as TargetType) || "entry";
+
+  // ── Builder controls ─────────────────────────────────────────────────────
+  function renderChips(id: string, options: Option[], selected: string[]) {
+    const wrap = $(id);
+    if (!wrap) return;
+    // A selected value the vocabulary doesn't know (a renamed type, a hand-typed tag) stays visible and checked.
+    const known = new Set(options.map((o) => o.value));
+    const all = [...options, ...selected.filter((v) => !known.has(v)).map((v) => ({ value: v, label: v }))];
+    wrap.innerHTML = all.length
+      ? all
+          .map(
+            (o) =>
+              `<label class="sr-chip"><input type="checkbox" value="${esc(o.value)}" ${selected.includes(o.value) ? "checked" : ""} /> ${esc(o.label)}</label>`,
+          )
+          .join("")
+      : `<span class="sr-empty">None in this workspace yet.</span>`;
+  }
+
+  const checkedValues = (id: string) =>
+    [...($(id)?.querySelectorAll<HTMLInputElement>("input[type=checkbox]:checked") ?? [])].map((i) => i.value);
+
+  function conditionRow(c: Condition): HTMLElement {
+    const row = document.createElement("div");
+    row.className = "sr-cond";
+    const ops = WHERE_OPS.map((op) => `<option value="${op}" ${op === c.op ? "selected" : ""}>${OP_LABELS[op] ?? op}</option>`).join("");
+    row.innerHTML = `
+      <input class="sr-input sr-c-field" list="sr-field-keys" placeholder="field key" aria-label="Field" value="${esc(c.field)}" />
+      <select class="sr-input sr-c-op" aria-label="Operator">${ops}</select>
+      <input class="sr-input sr-c-value" placeholder="value" aria-label="Value" value="${esc(conditionValueText(c.value))}" />
+      <button type="button" class="sr-icon-btn" aria-label="Remove condition" title="Remove">✕</button>`;
+    const op = row.querySelector<HTMLSelectElement>(".sr-c-op")!;
+    const value = row.querySelector<HTMLInputElement>(".sr-c-value")!;
+    const syncValue = () => value.toggleAttribute("hidden", VALUELESS_OPS.has(op.value));
+    op.addEventListener("change", syncValue);
+    syncValue();
+    row.querySelector(".sr-icon-btn")!.addEventListener("click", () => {
+      row.remove();
+      onBuilderChange();
+    });
+    return row;
+  }
+
+  function renderBuilder(state: BuilderState) {
+    ($<HTMLSelectElement>("sr-match")!).value = state.match;
+    renderChips("sr-entry-types", vocab.entryTypes ?? [], state.entryTypes);
+    renderChips("sr-statuses", plain(ENTRY_STATUSES), state.statuses);
+    renderChips("sr-asset-types", plain(ASSET_TYPES), state.assetTypes);
+    renderChips("sr-tags", vocab.tags ?? [], state.tags);
+    ($<HTMLInputElement>("sr-mime-types")!).value = state.mimeTypes.join(", ");
+    ($<HTMLInputElement>("sr-resource-types")!).value = state.resourceTypes.join(", ");
+    ($<HTMLInputElement>("sr-published-days")!).value = state.publishedWithinDays?.toString() ?? "";
+    ($<HTMLInputElement>("sr-created-days")!).value = state.createdWithinDays?.toString() ?? "";
+    if (whereWrap) {
+      whereWrap.innerHTML = "";
+      for (const c of state.where) whereWrap.appendChild(conditionRow(c));
+    }
+  }
+
+  function readBuilder(): BuilderState {
+    const num = (id: string) => {
+      const raw = ($<HTMLInputElement>(id)!).value.trim();
+      return raw === "" || !Number.isFinite(Number(raw)) ? null : Number(raw);
+    };
+    const where = [...(whereWrap?.querySelectorAll<HTMLElement>(".sr-cond") ?? [])].map((row) => {
+      const op = row.querySelector<HTMLSelectElement>(".sr-c-op")!.value;
+      return {
+        field: row.querySelector<HTMLInputElement>(".sr-c-field")!.value,
+        op,
+        value: conditionValueFromText(op, row.querySelector<HTMLInputElement>(".sr-c-value")!.value),
+      };
+    });
+    return {
+      match: ($<HTMLSelectElement>("sr-match")!).value === "any" ? "any" : "all",
+      entryTypes: checkedValues("sr-entry-types"),
+      statuses: checkedValues("sr-statuses"),
+      publishedWithinDays: num("sr-published-days"),
+      where,
+      assetTypes: checkedValues("sr-asset-types"),
+      mimeTypes: splitList(($<HTMLInputElement>("sr-mime-types")!).value),
+      resourceTypes: splitList(($<HTMLInputElement>("sr-resource-types")!).value),
+      tags: checkedValues("sr-tags"),
+      createdWithinDays: num("sr-created-days"),
+    };
+  }
+
+  // ── Two-way sync ─────────────────────────────────────────────────────────
+  function setJsonError(message: string | null) {
+    jsonValid = message === null;
+    if (jsonError) {
+      jsonError.textContent = message ? `Invalid JSON: ${message}` : "";
+      jsonError.hidden = jsonValid;
+    }
+    rulesArea?.toggleAttribute("aria-invalid", !jsonValid);
+    if (staleNotice) staleNotice.hidden = jsonValid;
+  }
+
+  function onBuilderChange() {
+    lastValid = rulesFromState(readBuilder(), target(), lastValid);
+    if (rulesArea) rulesArea.value = formatRules(lastValid);
+    setJsonError(null);
+    markStale();
+  }
+
+  function onJsonInput() {
+    const parsed = parseRules(rulesArea?.value ?? "");
+    if (!parsed.ok) {
+      setJsonError(parsed.error); // the builder keeps showing the last valid rules
+      return;
+    }
+    lastValid = parsed.rules;
+    setJsonError(null);
+    renderBuilder(stateFromRules(lastValid));
+    markStale();
+  }
+
+  function setMode(mode: "builder" | "json") {
+    builder?.toggleAttribute("hidden", mode !== "builder");
+    jsonPanel?.toggleAttribute("hidden", mode !== "json");
+    $("sr-tab-builder")?.setAttribute("aria-selected", String(mode === "builder"));
+    $("sr-tab-json")?.setAttribute("aria-selected", String(mode === "json"));
+  }
+
   function syncTarget() {
-    const t = targetSelect?.value || "entry";
-    document.querySelectorAll<HTMLElement>(".dim-hints, .dim-example").forEach((el) => {
+    const t = target();
+    rulesField?.querySelectorAll<HTMLElement>("[data-target]").forEach((el) => {
       el.hidden = el.dataset.target !== t;
     });
     if (rulesArea) rulesArea.placeholder = PLACEHOLDERS[t] ?? PLACEHOLDERS.entry;
   }
 
+  // ── Run Query ────────────────────────────────────────────────────────────
+  function markStale() {
+    if (result && !result.hidden) result.classList.add("stale");
+  }
+
+  function renderPreview(preview: SmartRulesPreview, t: TargetType) {
+    if (!result) return;
+    const [one, many] = NOUNS[t];
+    const noun = (n: number) => `${n} ${n === 1 ? one : many}`;
+    const head = preview.total
+      ? `<strong>${noun(preview.total)}</strong> would be in this collection.`
+      : `<strong>No ${many}</strong> match these rules.`;
+    const ignored = preview.ignoredKeys.length
+      ? `<p class="sr-result-note">Not rules for ${many}, so ignored: ${preview.ignoredKeys.map((k) => `<code>${esc(k)}</code>`).join(", ")}.</p>`
+      : "";
+    const note = preview.note ? `<p class="sr-result-note">${esc(preview.note)}</p>` : "";
+    const items = preview.items
+      .map((i) => `<li><a href="${ITEM_PATHS[t]}/${encodeURIComponent(i.id)}">${esc(i.label)}</a></li>`)
+      .join("");
+    const more = preview.total > preview.items.length ? `<p class="sr-result-more">…and ${preview.total - preview.items.length} more.</p>` : "";
+    result.innerHTML = `<p class="sr-result-head">${head}</p>${note}${ignored}${items ? `<ol class="sr-result-list">${items}</ol>` : ""}${more}`;
+    result.classList.remove("stale");
+    result.hidden = false;
+  }
+
+  async function runQuery() {
+    if (!statusEl) return;
+    const parsed = parseRules(rulesArea?.value ?? "");
+    if (!parsed.ok) {
+      setJsonError(parsed.error);
+      statusEl.textContent = "Fix the JSON first.";
+      statusEl.className = "sr-status error";
+      return;
+    }
+    const t = target();
+    statusEl.textContent = "Running…";
+    statusEl.className = "sr-status";
+    try {
+      renderPreview(await previewSmartRules(t, parsed.rules, 10), t);
+      statusEl.textContent = "";
+    } catch (e) {
+      statusEl.textContent = `Couldn't run the query: ${e instanceof Error ? e.message : String(e)}`;
+      statusEl.className = "sr-status error";
+    }
+  }
+
+  // ── Wire up ──────────────────────────────────────────────────────────────
   if (checkbox && rulesField) {
-    const sync = () => { rulesField.hidden = !checkbox.checked; };
+    const sync = () => {
+      rulesField.hidden = !checkbox.checked;
+    };
     checkbox.addEventListener("change", sync);
     sync();
   }
-  targetSelect?.addEventListener("change", syncTarget);
+  targetSelect?.addEventListener("change", () => {
+    syncTarget();
+    markStale();
+  });
+  builder?.addEventListener("input", onBuilderChange);
+  builder?.addEventListener("change", onBuilderChange);
+  rulesArea?.addEventListener("input", onJsonInput);
+  $("sr-tab-builder")?.addEventListener("click", () => setMode("builder"));
+  $("sr-tab-json")?.addEventListener("click", () => setMode("json"));
+  $("sr-add-condition")?.addEventListener("click", () => {
+    whereWrap?.appendChild(conditionRow({ field: "", op: "eq" }));
+    whereWrap?.querySelector<HTMLInputElement>(".sr-cond:last-child .sr-c-field")?.focus();
+  });
+  $("sr-run")?.addEventListener("click", runQuery);
+
+  // Don't let a form submit with rules that don't parse: the create page would silently drop them.
+  // Capture phase, so this runs before the page's own submit handler.
+  document.addEventListener(
+    "submit",
+    (e) => {
+      const form = e.target as HTMLFormElement | null;
+      if (!form || !rulesArea || !form.contains(rulesArea) || !checkbox?.checked) return;
+      const parsed = parseRules(rulesArea.value);
+      if (parsed.ok) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setJsonError(parsed.error);
+      setMode("json");
+      rulesArea.focus();
+    },
+    true,
+  );
+
+  const initial = parseRules(rulesArea?.value ?? "");
+  if (initial.ok) {
+    lastValid = initial.rules;
+    renderBuilder(stateFromRules(lastValid));
+  } else {
+    renderBuilder(stateFromRules({}));
+    setJsonError(initial.error);
+    setMode("json");
+  }
   syncTarget();
 </script>
 
@@ -105,6 +485,11 @@ const rulesText = rules ? JSON.stringify(rules, null, 2) : "";
     display: grid;
     gap: 0.75rem;
     min-inline-size: 0;
+  }
+
+  /* Several controls set display, which would override the [hidden] attribute — force it. */
+  .smart-panel [hidden] {
+    display: none;
   }
 
   /* Scoped styles don't inherit the page's .form-help — define the same small-grey helper here. */
@@ -141,30 +526,225 @@ const rulesText = rules ? JSON.stringify(rules, null, 2) : "";
 
   .smart-rules {
     display: grid;
-    gap: 0.5rem;
+    gap: 0.75rem;
     padding-top: 0.75rem;
     border-top: 1px solid var(--line);
-  }
-
-  .smart-rules[hidden] {
-    display: none;
   }
 
   .smart-target {
     display: grid;
     gap: 0.3rem;
-    margin-bottom: 0.25rem;
   }
-  .smart-target select {
+
+  /* :global — the field-condition rows are built in JS, outside Astro's scoping. */
+  .smart-target select,
+  .smart-panel :global(.sr-input) {
     padding: 0.4rem 0.6rem;
     border: 1px solid var(--line);
     border-radius: 6px;
     background: var(--bg);
     color: var(--ink);
     font-size: 0.875rem;
+    box-sizing: border-box;
+  }
+
+  .smart-target select {
     max-width: 12rem;
   }
-  .dim-hints[hidden], .dim-example[hidden] { display: none; }
+
+  /* ── Builder / JSON tabs (same look as the app's .segmented control) ── */
+  .sr-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .sr-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--ink);
+  }
+
+  .sr-tabs {
+    display: inline-flex;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+  }
+
+  .sr-tabs button {
+    border: 0;
+    background: none;
+    color: var(--muted);
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+
+  .sr-tabs button[aria-selected="true"] {
+    background: var(--accent);
+    color: white;
+  }
+
+  .sr-builder,
+  .sr-json {
+    display: grid;
+    gap: 0.85rem;
+  }
+
+  .sr-match {
+    font-size: 0.875rem;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .sr-match select {
+    padding: 0.2rem 0.4rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  .sr-row {
+    display: grid;
+    gap: 0.35rem;
+    font-weight: 400;
+  }
+
+  .sr-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .sr-label .form-help,
+  .sr-label code {
+    font-weight: 400;
+  }
+
+  .sr-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .sr-chips :global(.sr-empty) {
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .sr-chips-scroll {
+    max-height: 9rem;
+    overflow-y: auto;
+  }
+
+  .sr-chips :global(.sr-chip) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 2px 10px 2px 7px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--ink);
+    font-size: 0.8rem;
+    font-weight: 400;
+    cursor: pointer;
+    margin: 0;
+  }
+
+  .sr-chips :global(.sr-chip:has(input:checked)) {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+
+  .sr-chips :global(.sr-chip input) {
+    margin: 0;
+  }
+
+  .sr-windows {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.25rem;
+    font-size: 0.875rem;
+    color: var(--ink);
+  }
+
+  .sr-windows label {
+    font-weight: 400;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0;
+  }
+
+  .sr-days {
+    width: 5rem;
+  }
+
+  .sr-where {
+    display: grid;
+    gap: 6px;
+  }
+
+  .sr-where :global(.sr-cond) {
+    display: grid;
+    grid-template-columns: minmax(8rem, 1fr) minmax(9rem, auto) minmax(8rem, 1fr) auto;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .sr-where :global(.sr-c-value[hidden]) {
+    visibility: hidden;
+    display: block;
+  }
+
+  .sr-where :global(.sr-icon-btn) {
+    border: none;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 4px 6px;
+    border-radius: 6px;
+  }
+
+  .sr-where :global(.sr-icon-btn:hover) {
+    color: var(--color-error);
+    background: color-mix(in srgb, var(--color-error) 10%, transparent);
+  }
+
+  .sr-linkish {
+    justify-self: start;
+    border: none;
+    background: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 0.8rem;
+    padding: 3px 6px;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+
+  .sr-linkish:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .sr-notice {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    color: var(--ink);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
+  }
 
   /* Match the page's textareas (scoped styles don't reach into the component). */
   .smart-panel textarea {
@@ -174,9 +754,20 @@ const rulesText = rules ? JSON.stringify(rules, null, 2) : "";
     border: 1px solid var(--line);
     border-radius: 6px;
     background: var(--bg);
-    font-size: 0.875rem;
-    font-family: inherit;
+    color: var(--ink);
+    font-size: 0.8rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     resize: vertical;
+  }
+
+  .smart-panel textarea[aria-invalid] {
+    border-color: var(--color-error);
+  }
+
+  .sr-error {
+    margin: -0.4rem 0 0;
+    font-size: 0.8rem;
+    color: var(--color-error);
   }
 
   .smart-help {
@@ -200,12 +791,88 @@ const rulesText = rules ? JSON.stringify(rules, null, 2) : "";
     margin-top: 0.5rem;
   }
 
-  .smart-help code {
+  .smart-help code,
+  .sr-label code,
+  .sr-result :global(code) {
     font-size: 0.72rem;
     background: var(--bg);
     padding: 0.05rem 0.35rem;
     border-radius: 4px;
     border: 1px solid var(--line);
     word-break: break-word;
+  }
+
+  /* ── Run Query ── */
+  .sr-run-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  .sr-run {
+    min-height: 32px;
+    padding: 5px 12px;
+    font-size: 0.8rem;
+  }
+
+  .sr-status {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .sr-status.error {
+    color: var(--color-error);
+  }
+
+  .sr-result {
+    padding: 0.65rem 0.85rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: var(--ink);
+    transition: opacity 0.15s;
+  }
+
+  /* The rules changed since this ran — keep it visible but say so. */
+  .sr-result.stale {
+    opacity: 0.55;
+  }
+
+  .sr-result.stale::before {
+    content: "Rules changed — run the query again.";
+    display: block;
+    font-size: 0.75rem;
+    color: var(--muted);
+    margin-bottom: 0.35rem;
+  }
+
+  .sr-result :global(.sr-result-head) {
+    margin: 0 0 0.35rem;
+  }
+
+  .sr-result :global(.sr-result-note),
+  .sr-result :global(.sr-result-more) {
+    margin: 0.25rem 0;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+
+  .sr-result :global(.sr-result-list) {
+    margin: 0.35rem 0 0;
+    padding-left: 1.4rem;
+    display: grid;
+    gap: 0.15rem;
+  }
+
+  .sr-result :global(a) {
+    color: var(--accent);
+  }
+
+  @media (max-width: 640px) {
+    .sr-where :global(.sr-cond) {
+      grid-template-columns: 1fr 1fr;
+    }
   }
 </style>

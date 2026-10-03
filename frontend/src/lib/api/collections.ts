@@ -10,6 +10,7 @@ import type {
   PlatformEntry,
 } from "@inneropen/marvin-sdk/platform";
 import { createSdkClient } from "../sdk";
+import { fetchApi } from "./client";
 import { getApiUrl } from "./config";
 
 // Re-export SDK types with legacy names for backward compatibility
@@ -94,6 +95,34 @@ export async function getCollectionMembers(collectionId: string, authToken?: str
   });
   if (!res.ok) throw new Error(`get members failed: ${res.status}`);
   return res.json();
+}
+
+export interface SmartRulesPreview {
+  total: number;
+  items: CollectionMember[];
+  ignoredKeys: string[];
+  note: string | null;
+}
+
+/**
+ * Evaluate unsaved smart-collection rules — what the collection would contain if saved now.
+ * Same matching code as materialization, so the count is the real membership. Saves nothing.
+ */
+export async function previewSmartRules(
+  targetType: CollectionMember["type"],
+  smartRules: Record<string, unknown>,
+  limit = 10,
+  authToken?: string,
+): Promise<SmartRulesPreview> {
+  return fetchApi<SmartRulesPreview>(
+    "/api/platform/collections/preview",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetType, smartRules, limit }),
+    },
+    authToken,
+  );
 }
 
 /**
