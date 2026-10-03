@@ -23,6 +23,8 @@ from .collections import (
     CollectionSummary,
     CollectionUpdate,
     EntryCollectionRead,
+    SmartRulesPreview,
+    SmartRulesPreviewRequest,
     UpdateEntryCollectionRequest,
 )
 from .entries import (
@@ -86,6 +88,8 @@ __all__ = [
     "CollectionSummary",
     "CollectionUpdate",
     "EntryCollectionRead",
+    "SmartRulesPreview",
+    "SmartRulesPreviewRequest",
     "UpdateEntryCollectionRequest",
     "AssetAttachment",
     "EntryAssetRead",

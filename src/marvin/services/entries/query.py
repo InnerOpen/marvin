@@ -198,6 +198,15 @@ def _matches(actual, op: str, expected) -> bool:
     return _equal(actual, expected)  # eq
 
 
+def condition_matches(entry, condition: dict) -> bool:
+    """One ``where`` condition (``{"field", "op", "value"}``) against one entry.
+
+    Shared with smart-collection rules, so a field condition means the same thing in a workflow
+    query and in a collection's rules. The caller rejects unknown ops first; here one compares as eq.
+    """
+    return _matches(_field_value(entry, str(condition["field"])), str(condition.get("op") or "eq"), condition.get("value"))
+
+
 def _equal(actual, expected) -> bool:
     from marvin.services.automation.matcher import _like
 
@@ -254,7 +263,7 @@ def run(session, group_id, spec: dict | None, *, limit: int | None = None, offse
     candidates = q.order_by(Entries.created_at.desc(), Entries.id).limit(SCAN_CAP + 1).all()
     scan_capped = len(candidates) > SCAN_CAP
     candidates = candidates[:SCAN_CAP]
-    matched = [e for e in candidates if all(_matches(_field_value(e, str(w["field"])), str(w.get("op") or "eq"), w.get("value")) for w in where)]
+    matched = [e for e in candidates if all(condition_matches(e, w) for w in where)]
 
     groups = None
     if group_by:

@@ -14,8 +14,16 @@ Rule shape (every dimension optional; an absent/empty dimension is not constrain
       "tags": ["<tag>", "<tag>"],                  # RESERVED — matches once entries carry tags
       "published_within_days": 30,                 # entries published in the last N days
       "created_within_days": 30,                   # any item created in the last N days
+      "where": [{"field": "price", "op": "gt", "value": 100}],  # entry field conditions
       "match": "all" | "any"                       # combine dimensions (default "all")
     }
+
+``where`` is the workflow entry query's field condition (services/entries/query.py), matched by the
+same function, so ``field`` is a field key or ``metadata.<key>`` and ``op`` is one of ``WHERE_OPS``.
+Each condition is its own dimension, so ``match: "any"`` ORs them with the rest. An unknown op is a
+dimension that never holds — a typo must not widen the collection. The other keys of a workflow
+query (``entry_type``, ``status``, ``text``, date ranges…) are not smart rules; ``ignored_keys``
+names them so a preview can say so instead of quietly matching nothing.
 
 The ``*_within_days`` dimensions are *rolling*: an item silently ages out of the window. Membership
 is materialized, so nothing re-evaluates it on its own — the nightly ``resync_smart_collections``
@@ -47,6 +55,25 @@ logger = get_logger(__name__)
 
 TARGET_TYPES = ("entry", "asset", "resource")
 
+_UNIVERSAL_KEYS = ("tags", "created_within_days", "match")
+RULE_KEYS = {
+    "entry": ("entry_types", "statuses", "published_within_days", "where", *_UNIVERSAL_KEYS),
+    "asset": ("asset_types", "mime_types", *_UNIVERSAL_KEYS),
+    "resource": ("resource_types", *_UNIVERSAL_KEYS),
+}
+"""The rule keys each target type reads; anything else in ``smart_rules`` is ignored."""
+
+
+def has_rules(rules: dict | None, target_type: str = "entry") -> bool:
+    """True when ``rules`` sets at least one dimension this target type reads (``match`` alone doesn't)."""
+    return any(k != "match" and (rules or {}).get(k) not in (None, "", [], {}) for k in RULE_KEYS.get(target_type, ()))
+
+
+def ignored_keys(rules: dict | None, target_type: str = "entry") -> list[str]:
+    """Keys in ``rules`` that ``matches_rules`` doesn't read for ``target_type``."""
+    known = RULE_KEYS.get(target_type, ())
+    return sorted(k for k in (rules or {}) if k not in known)
+
 
 def _within_days(value, days) -> bool:
     """True when ``value`` is a datetime no older than ``days`` days.
@@ -73,7 +100,8 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
     """Return True if ``item`` satisfies a smart collection's ``rules`` for ``target_type``.
 
     Dimensions are type-specific except ``tags`` (universal, matched on slugs):
-      entry    → entry_types (entry_type.slug), statuses (status), published_within_days (published_at)
+      entry    → entry_types (entry_type.slug), statuses (status), published_within_days (published_at),
+                 where (field conditions, one dimension each)
       asset    → asset_types (asset_type), mime_types (mime_type, exact e.g. image/svg+xml)
       resource → resource_types (resource_type)
     ``tags`` and ``created_within_days`` are universal. An empty/None rule set — or one with no recognized dimension — matches nothing.
@@ -93,6 +121,7 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
         published_within = rules.get("published_within_days")
         if published_within is not None:
             dimensions.append(_within_days(getattr(item, "published_at", None), published_within))
+        dimensions.extend(_where_dimensions(item, rules.get("where")))
     elif target_type == "asset":
         asset_types = rules.get("asset_types")
         if asset_types:
@@ -124,6 +153,16 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
     if rules.get("match") == "any":
         return any(dimensions)
     return all(dimensions)
+
+
+def _where_dimensions(entry, where) -> list[bool]:
+    """One bool per well-formed ``where`` condition; an unknown op never holds."""
+    from marvin.services.entries.query import WHERE_OPS, condition_matches
+
+    if not isinstance(where, list):
+        return []
+    conditions = [c for c in where if isinstance(c, dict) and c.get("field")]
+    return [(c.get("op") or "eq") in WHERE_OPS and condition_matches(entry, c) for c in conditions]
 
 
 def entry_matches_rules(entry, rules: dict | None) -> bool:
@@ -182,6 +221,19 @@ def sync_entry(session, group_id, entry) -> int:
     return sync_item(session, group_id, entry, "entry")
 
 
+def matching_items(session, group_id, rules: dict | None, target_type: str = "entry") -> list:
+    """Every item of ``target_type`` in the workspace that ``rules`` match, newest first.
+
+    The one evaluation behind both materialization (``sync_collection``) and the editor's preview of
+    unsaved rules, so a preview is exactly the membership a save would produce.
+    """
+    if not rules:
+        return []
+    model, _junction, _fk = _membership(target_type)
+    items = session.query(model).filter_by(group_id=group_id).order_by(model.created_at.desc(), model.id).all()
+    return [i for i in items if matches_rules(i, rules, target_type)]
+
+
 def sync_collection(session, group_id, collection) -> int:
     """Re-evaluate one smart collection's membership across all items of its target type.
 
@@ -192,11 +244,9 @@ def sync_collection(session, group_id, collection) -> int:
         return 0
 
     target_type = getattr(collection, "target_type", "entry") or "entry"
-    model, junction, fk = _membership(target_type)
+    _model, junction, fk = _membership(target_type)
 
-    rules = collection.smart_rules or {}
-    items = session.query(model).filter_by(group_id=group_id).all()
-    desired = {i.id for i in items if matches_rules(i, rules, target_type)}
+    desired = {i.id for i in matching_items(session, group_id, collection.smart_rules, target_type)}
     current = {getattr(row, fk) for row in session.query(junction).filter_by(collection_id=collection.id).all()}
 
     to_add = desired - current

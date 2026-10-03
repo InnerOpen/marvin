@@ -6,7 +6,15 @@ from pydantic import UUID4, BaseModel, ConfigDict, Field
 
 from marvin.db.models.platform import EntryCollections
 from marvin.routes._base import BaseUserController, controller
-from marvin.schemas.platform import CollectionCreate, CollectionRead, CollectionUpdate, EntryRead, UpdateEntryCollectionRequest
+from marvin.schemas.platform import (
+    CollectionCreate,
+    CollectionRead,
+    CollectionUpdate,
+    EntryRead,
+    SmartRulesPreview,
+    SmartRulesPreviewRequest,
+    UpdateEntryCollectionRequest,
+)
 from marvin.services.event_bus_service.event_types import EventCollectionData, EventOperation, EventTypes
 
 router = APIRouter(prefix="/collections")
@@ -119,6 +127,28 @@ class CollectionsController(BaseUserController):
         )
 
         return collection
+
+    @router.post("/preview", response_model=SmartRulesPreview, summary="Preview Smart Collection Rules")
+    def preview_smart_rules(self, data: SmartRulesPreviewRequest) -> SmartRulesPreview:
+        """What a smart collection with these (unsaved) rules would contain, without saving anything.
+
+        Evaluated by ``matching_items`` — the same code that materializes membership on save — so
+        the count is exactly what the collection would hold. Scoped to the caller's workspace.
+        """
+        from marvin.services.collections.smart_collections import has_rules, ignored_keys, matching_items
+
+        rules = data.smart_rules or {}
+        matches = matching_items(self.session, self.group_id, rules, data.target_type)
+        label_attr = "title" if data.target_type == "entry" else "name"
+        items = [
+            {"id": m.id, "label": getattr(m, label_attr, None) or m.slug or str(m.id), "slug": m.slug, "type": data.target_type}
+            for m in matches[: data.limit]
+        ]
+        ignored = ignored_keys(rules, data.target_type)
+        note = None
+        if not has_rules(rules, data.target_type):
+            note = "None of these keys is a rule here, so nothing matches." if ignored else "No rules yet. An empty rule set matches nothing."
+        return SmartRulesPreview(total=len(matches), items=items, ignored_keys=ignored, note=note)
 
     @router.get("/{item_id}", response_model=CollectionRead, summary="Get Collection")
     def get_collection(self, item_id: UUID4) -> CollectionRead:

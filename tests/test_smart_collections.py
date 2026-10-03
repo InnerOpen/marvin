@@ -8,7 +8,7 @@ delegate to it.
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-from marvin.services.collections.smart_collections import entry_matches_rules, matches_rules
+from marvin.services.collections.smart_collections import entry_matches_rules, has_rules, ignored_keys, matches_rules
 
 
 def _ago(days, aware=False):
@@ -17,7 +17,7 @@ def _ago(days, aware=False):
     return when if aware else when.replace(tzinfo=None)
 
 
-def _entry(type_slug="bench-note", status="published", tag_names=None, published_at=None, created_at=None):
+def _entry(type_slug="bench-note", status="published", tag_names=None, published_at=None, created_at=None, data=None, metadata=None):
     # `tag_names` = the entry's tag SLUGS. The matcher reads `entry.tag_names` (a property over the
     # real tags relationship), not `entry.tags` (which is now Tag objects).
     return SimpleNamespace(
@@ -26,6 +26,8 @@ def _entry(type_slug="bench-note", status="published", tag_names=None, published
         tag_names=tag_names,
         published_at=published_at,
         created_at=created_at,
+        data_json=data or {},
+        metadata_json=metadata or {},
     )
 
 
@@ -184,3 +186,43 @@ def test_a_recent_style_rule_still_works_for_anyone_who_wants_one():
     assert entry_matches_rules(_entry(status="published", published_at=_ago(1)), rules) is True
     assert entry_matches_rules(_entry(status="published", published_at=_ago(400)), rules) is False
     assert entry_matches_rules(_entry(status="draft", published_at=None), rules) is False
+
+
+# ── where: the workflow entry query's field conditions, one dimension each ────
+def test_where_condition_reads_number_like_field_text():
+    rules = {"where": [{"field": "price", "op": "gte", "value": 100}]}
+    assert entry_matches_rules(_entry(data={"price": "$1,170"}), rules) is True
+    assert entry_matches_rules(_entry(data={"price": "$45"}), rules) is False
+
+
+def test_where_reads_metadata_and_combines_under_match_all():
+    rules = {"statuses": ["published"], "where": [{"field": "metadata.featured", "op": "eq", "value": "true"}]}
+    assert entry_matches_rules(_entry(metadata={"featured": True}), rules) is True
+    assert entry_matches_rules(_entry(status="draft", metadata={"featured": True}), rules) is False
+
+
+def test_each_where_condition_is_its_own_dimension_under_match_any():
+    rules = {"match": "any", "where": [{"field": "a", "op": "exists"}, {"field": "b", "op": "exists"}]}
+    assert entry_matches_rules(_entry(data={"b": "x"}), rules) is True
+    assert entry_matches_rules(_entry(data={}), rules) is False
+
+
+def test_an_unknown_where_op_never_holds_rather_than_widening():
+    rules = {"match": "any", "where": [{"field": "price", "op": "greater", "value": 1}]}
+    assert entry_matches_rules(_entry(data={"price": 5}), rules) is False
+
+
+def test_where_is_entry_only():
+    asset = SimpleNamespace(asset_type="image", tag_names=None, created_at=None)
+    assert matches_rules(asset, {"where": [{"field": "x", "op": "missing"}]}, "asset") is False
+
+
+def test_workflow_query_keys_are_reported_as_ignored_not_matched():
+    rules = {"entry_type": "recipe", "status": "published", "tags": ["x"]}
+    assert ignored_keys(rules, "entry") == ["entry_type", "status"]
+    assert entry_matches_rules(_entry(type_slug="recipe"), {"entry_type": "recipe"}) is False
+
+
+def test_match_alone_is_not_a_rule():
+    assert has_rules({"match": "any"}) is False
+    assert has_rules({"match": "any", "statuses": ["draft"]}) is True
