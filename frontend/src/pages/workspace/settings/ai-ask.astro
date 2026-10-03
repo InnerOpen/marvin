@@ -2,6 +2,7 @@
 import AppLayout from "@/layouts/AppLayout.astro";
 import { type Agent, listAgents } from "@/lib/api/aiAgents";
 import { getAuthToken } from "@/lib/api/client";
+import { MAIN_AGENT } from "@/lib/marvin/cast";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -10,12 +11,15 @@ const authed = !!authToken;
 let aiEnabled = false;
 let settingsError: string | null = null;
 let agents: Agent[] = [];
+// The workspace's name for its main agent (AI settings), shown wherever that agent is named.
+let assistantName = "";
 
 // Gate the surface on AI being enabled AND valid auth (see ai-frontend-gating).
 if (authed) {
   try {
     const settings = await createSdkClient(authToken).ai.settings.get();
     aiEnabled = (settings as any)?.enabled !== false;
+    assistantName = String((settings as any)?.assistantName ?? "").trim();
   } catch (e) {
     settingsError = e instanceof Error ? e.message : String(e);
     console.error("[ai-ask] Error loading AI settings:", e);
@@ -27,6 +31,7 @@ if (authed) {
   }
 }
 const agentsJson = JSON.stringify(agents);
+const agentDisplayName = (a: Agent) => (a.slug === MAIN_AGENT && assistantName ? assistantName : a.name);
 ---
 
 <AppLayout title="Ask" eyebrow="Settings">
@@ -55,7 +60,7 @@ const agentsJson = JSON.stringify(agents);
     </div>
   ) : (
   <>
-    <div class="chat" data-agents={agentsJson}>
+    <div class="chat" data-agents={agentsJson} data-assistant-name={assistantName}>
       <!-- Toolbar: agent picker, tone, tools panel -->
       <div class="toolbar">
         <label class="tb-field">
@@ -63,7 +68,7 @@ const agentsJson = JSON.stringify(agents);
           <select id="agent" class="input">
             {agents.map((a) => (
               <option value={a.slug} selected={a.slug === "ask"}>
-                {(a.icon ? a.icon + " " : "") + a.name}{a.allowWrites ? "" : " · read-only"}
+                {(a.icon ? a.icon + " " : "") + agentDisplayName(a)}{a.allowWrites ? "" : " · read-only"}
               </option>
             ))}
           </select>
@@ -150,12 +155,15 @@ const agentsJson = JSON.stringify(agents);
     type Thread,
   } from "@/lib/api/aiAgents";
   import { fetchApi } from "@/lib/api/client";
+  import { groupThreads, handOffNote } from "@/lib/askThreads";
   import { renderMarkdown } from "@/lib/marvin/capabilities";
+  import { MAIN_AGENT } from "@/lib/marvin/cast";
   import { createSdkClient } from "@/lib/sdk";
 
   const root = document.querySelector<HTMLElement>(".chat");
   if (root) {
     const agents: Agent[] = JSON.parse(root.dataset.agents || "[]");
+    const assistantName = root.dataset.assistantName || "";
     const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T | null;
     const agentSel = $<HTMLSelectElement>("agent")!;
     const registerSel = $<HTMLSelectElement>("register")!;
@@ -226,7 +234,7 @@ const agentsJson = JSON.stringify(agents);
     agentSel.addEventListener("change", () => {
       if (threadId) resetConversation();
       syncAgent();
-      if (!threadsPanel.hidden) void loadThreads();
+      if (thisAgentOnly && !threadsPanel.hidden) void loadThreads();
     });
     syncAgent();
 
@@ -293,7 +301,12 @@ const agentsJson = JSON.stringify(agents);
       const used = [...new Set(tools)];
       return used.length ? `<span>Used:</span> ${used.map((t) => `<code>${esc(t)}</code>`).join(" ")}` : "";
     }
-    const agentName = (slug: string) => agents.find((a) => a.slug === slug)?.name ?? slug;
+    const agentName = (slug: string) =>
+      slug === MAIN_AGENT && assistantName ? assistantName : (agents.find((a) => a.slug === slug)?.name ?? slug);
+    const agentLabel = (slug: string) => {
+      const icon = agents.find((a) => a.slug === slug)?.icon;
+      return (icon ? `${icon} ` : "") + agentName(slug);
+    };
     // "Handed off: Materials ↗" opens the specialist's child thread; the next send continues it (= /use).
     function handoffsHtml(handoffs: Handoff[] | undefined | null): string {
       const items = (handoffs ?? []).map((h) =>
@@ -369,18 +382,35 @@ const agentsJson = JSON.stringify(agents);
     }
     newBtn.addEventListener("click", resetConversation);
 
-    // ── Threads panel: your saved conversations with this agent ──
+    // ── Threads panel: your saved conversations, every agent's (or just this agent's) ──
+    // A router thread's hand-offs nest under it; opening any thread switches the agent to its own, so
+    // the next send continues it (a hand-off child too — the same as `/use` from the bubble).
+    const THIS_AGENT_ONLY_KEY = "ask.threads.thisAgentOnly";
+    const THREADS_LIMIT = 50;
+    let thisAgentOnly = false;
+    try {
+      thisAgentOnly = sessionStorage.getItem(THIS_AGENT_ONLY_KEY) === "1";
+    } catch {
+      /* storage unavailable */
+    }
     const when = (iso: string | null | undefined) => {
       if (!iso) return "";
       const d = new Date(iso.endsWith("Z") || iso.includes("+") ? iso : `${iso}Z`);
       return Number.isNaN(d.getTime()) ? "" : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
     };
-    function threadRow(t: Thread): string {
+    function threadRow(t: Thread, opts: { child?: boolean; showAgent?: boolean } = {}): string {
       const active = t.id === threadId ? " active" : "";
-      return `<div class="th-row${active}" data-id="${esc(t.id)}">
+      const title = esc(t.title || "(untitled)");
+      const meta = [
+        !opts.child && opts.showAgent ? esc(agentLabel(t.agentSlug)) : "",
+        esc(when(t.lastMessageAt || t.createdAt)),
+        t.status === "awaiting_approval" ? "awaiting approval" : "",
+        opts.child ? "" : esc(handOffNote(t) ?? ""),
+      ].filter(Boolean);
+      return `<div class="th-row${opts.child ? " th-child" : ""}${active}" data-id="${esc(t.id)}">
         <button type="button" class="th-open" title="Reopen this conversation">
-          <span class="th-title">${esc(t.title || "(untitled)")}</span>
-          <span class="th-when">${esc(when(t.lastMessageAt || t.createdAt))}${t.status === "awaiting_approval" ? " · awaiting approval" : ""}</span>
+          <span class="th-line">${opts.child ? `<span class="th-agent">↳ ${esc(agentLabel(t.agentSlug))} · </span>` : ""}<span class="th-title">${title}</span></span>
+          <span class="th-when">${meta.join(" · ")}</span>
         </button>
         <span class="th-actions">
           <button type="button" class="link-btn th-rename" title="Rename">✎</button>
@@ -388,15 +418,28 @@ const agentsJson = JSON.stringify(agents);
         </span>
       </div>`;
     }
+    function threadsHeader(a: Agent): string {
+      const heading = thisAgentOnly ? `Conversations with <strong>${esc(agentName(a.slug))}</strong>` : "Conversations";
+      return `<div class="th-head"><span class="tp-title">${heading}</span>
+        <label class="th-filter"><input type="checkbox" class="th-this-agent"${thisAgentOnly ? " checked" : ""} /> This agent only</label></div>`;
+    }
     async function loadThreads() {
       const a = current();
       if (!a) return;
       threadsPanel.innerHTML = `<div class="tp-loading">Loading…</div>`;
       try {
-        const rows = await listThreads({ agent: a.slug, limit: 50 });
-        threadsPanel.innerHTML = rows.length
-          ? `<div class="tp-title">Conversations with <strong>${esc(a.name)}</strong></div>${rows.map(threadRow).join("")}`
-          : `<div class="tp-loading">No saved conversations with ${esc(a.name)} yet — send a message to start one.</div>`;
+        const agent = thisAgentOnly ? a.slug : null;
+        const rows = await listThreads({ ...(agent ? { agent } : {}), children: true, limit: THREADS_LIMIT });
+        const groups = groupThreads(rows, agent);
+        const empty = agent
+          ? `No saved conversations with ${esc(agentName(a.slug))} yet — send a message to start one.`
+          : "No saved conversations yet — send a message to start one.";
+        const body = groups.length
+          ? groups
+              .map((g) => threadRow(g.thread, { showAgent: !agent }) + g.children.map((c) => threadRow(c, { child: true })).join(""))
+              .join("")
+          : `<div class="tp-loading">${empty}</div>`;
+        threadsPanel.innerHTML = threadsHeader(a) + body;
       } catch (e) {
         threadsPanel.innerHTML = `<div class="tp-loading">Couldn't load threads: ${esc(e instanceof Error ? e.message : e)}</div>`;
       }
@@ -408,6 +451,7 @@ const agentsJson = JSON.stringify(agents);
         if (t.agentSlug !== agentSel.value && agents.some((a) => a.slug === t.agentSlug)) {
           agentSel.value = t.agentSlug;
           syncAgent();
+          if (thisAgentOnly && !threadsPanel.hidden) void loadThreads();
         }
         threadId = null;
         transcript.querySelectorAll(".turn").forEach((el) => el.remove());
@@ -466,6 +510,17 @@ const agentsJson = JSON.stringify(agents);
       });
       input.addEventListener("blur", () => void finish(true));
     }
+    threadsPanel.addEventListener("change", (e) => {
+      const box = (e.target as HTMLElement).closest<HTMLInputElement>(".th-this-agent");
+      if (!box) return;
+      thisAgentOnly = box.checked;
+      try {
+        sessionStorage.setItem(THIS_AGENT_ONLY_KEY, thisAgentOnly ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      void loadThreads();
+    });
     threadsPanel.addEventListener("click", async (e) => {
       const target = e.target as HTMLElement;
       const row = target.closest<HTMLElement>(".th-row");
@@ -847,12 +902,19 @@ const agentsJson = JSON.stringify(agents);
 
   .threads-panel, .tools-panel { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); padding: 12px 14px; }
   .threads-panel :global(.tp-title) { font-size: 13px; margin-bottom: 6px; }
+  .threads-panel :global(.th-head) { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .threads-panel :global(.th-filter) { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; margin-bottom: 6px; }
   .threads-panel :global(.tp-loading) { font-size: 13px; color: var(--muted); }
   .threads-panel :global(.th-row) { display: flex; align-items: center; gap: 8px; border-top: 1px solid var(--line); padding: 6px 0; }
   .threads-panel :global(.th-row.active) { background: var(--panel-2); margin: 0 -8px; padding-left: 8px; padding-right: 8px; border-radius: var(--radius); }
   .threads-panel :global(.th-open) { flex: 1; display: grid; gap: 2px; text-align: left; border: 0; background: none; cursor: pointer; color: var(--ink); padding: 2px 0; font: inherit; }
-  .threads-panel :global(.th-title) { font-size: 14px; }
+  .threads-panel :global(.th-line), .threads-panel :global(.th-title) { font-size: 14px; }
   .threads-panel :global(.th-when) { font-size: 12px; color: var(--muted); }
+  /* A hand-off under the thread that made it: indented, joined to its parent without a rule. */
+  .threads-panel :global(.th-row.th-child) { border-top: 0; padding-top: 0; padding-left: 18px; }
+  .threads-panel :global(.th-row.th-child.active) { padding-left: 26px; }
+  .threads-panel :global(.th-child .th-line), .threads-panel :global(.th-child .th-title) { font-size: 13px; }
+  .threads-panel :global(.th-agent) { color: var(--muted); }
   .threads-panel :global(.th-actions) { display: flex; gap: 6px; }
   .threads-panel :global(.th-actions .link-btn) { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 1; padding: 2px 4px; }
   .threads-panel :global(.th-actions .link-btn:hover) { color: var(--ink); }

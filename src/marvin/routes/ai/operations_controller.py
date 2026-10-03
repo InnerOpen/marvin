@@ -1007,7 +1007,12 @@ class AIOperationsController(BaseUserController):
 
     @router.get("/threads", response_model=list[AIThreadRead], summary="List my Ask threads (admins: every thread)")
     def list_threads(self, agent: str | None = None, limit: int = 50, children: bool = False) -> list[AIThreadRead]:
-        """Top-level threads; `children=true` includes the specialist threads opened by hand-offs."""
+        """Top-level threads, every agent's unless `agent` is given.
+
+        `children=true` adds the specialist threads opened by hand-offs (each with `parentThreadId` and
+        `parentTitle`) under the listed ones; `limit` counts the listed threads, not their children.
+        With `agent`, that agent's hand-off threads count as listed too.
+        """
         from marvin.services.ai.threads import list_threads
 
         rows = list_threads(

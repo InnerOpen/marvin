@@ -5,6 +5,7 @@ DB-backed through `db_session` with a hand-inserted workspace row, like test_ass
 
 import json
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -187,6 +188,50 @@ def test_list_threads_hides_children_unless_asked(db_session, workspace):
     assert {t.id for t in with_children} == {parent.id, child.id}
     by_agent = svc.list_threads(db_session, workspace.group_id, workspace.alice, agent_slug="materials", include_children=True)
     assert [t.id for t in by_agent] == [child.id]
+
+
+def _at(thread, minute: int):
+    """Pin a thread's last activity so list order is deterministic."""
+    thread.last_message_at = datetime(2026, 10, 1, 12, minute, tzinfo=UTC).replace(tzinfo=None)  # naive UTC, like the column
+    return thread
+
+
+def test_list_threads_without_an_agent_returns_every_agents_threads_newest_first(db_session, workspace):
+    older = _at(svc.create_thread(db_session, workspace.group_id, workspace.alice, "ask", "older"), 1)
+    newer = _at(svc.create_thread(db_session, workspace.group_id, workspace.alice, "marvin", "newer"), 2)
+    db_session.flush()
+    assert [t.id for t in svc.list_threads(db_session, workspace.group_id, workspace.alice)] == [newer.id, older.id]
+
+
+def test_list_threads_with_children_limits_top_level_threads_and_brings_their_children(db_session, workspace):
+    old_parent = _at(svc.create_thread(db_session, workspace.group_id, workspace.alice, "marvin", "old route"), 1)
+    _at(svc.create_thread(db_session, workspace.group_id, workspace.alice, "materials", "old stock", parent_thread_id=old_parent.id), 2)
+    parent = _at(svc.create_thread(db_session, workspace.group_id, workspace.alice, "marvin", "route me"), 3)
+    child = _at(svc.create_thread(db_session, workspace.group_id, workspace.alice, "materials", "stock?", parent_thread_id=parent.id), 4)
+    db_session.flush()
+    rows = svc.list_threads(db_session, workspace.group_id, workspace.alice, limit=1, include_children=True)
+    assert [(t.id, t.parent_thread_id, t.parent_title) for t in rows] == [(child.id, parent.id, "route me"), (parent.id, None, None)]
+
+
+def test_list_threads_by_agent_with_children_counts_its_hand_off_threads_as_its_own(db_session, workspace):
+    parent = _at(svc.create_thread(db_session, workspace.group_id, workspace.alice, "marvin", "route me"), 1)
+    child = _at(svc.create_thread(db_session, workspace.group_id, workspace.alice, "materials", "stock?", parent_thread_id=parent.id), 2)
+    direct = _at(svc.create_thread(db_session, workspace.group_id, workspace.alice, "materials", "direct"), 3)
+    db_session.flush()
+    specialist = svc.list_threads(db_session, workspace.group_id, workspace.alice, agent_slug="materials", include_children=True)
+    assert [(t.id, t.parent_title) for t in specialist] == [(direct.id, None), (child.id, "route me")]
+    router = svc.list_threads(db_session, workspace.group_id, workspace.alice, agent_slug="marvin", include_children=True)
+    assert [t.id for t in router] == [child.id, parent.id]  # its own threads, with the hand-offs under them
+
+
+def test_list_threads_with_children_hides_other_users_threads_unless_see_all(db_session, workspace):
+    mine = svc.create_thread(db_session, workspace.group_id, workspace.alice, "marvin", "mine")
+    theirs = svc.create_thread(db_session, workspace.group_id, workspace.bob, "marvin", "theirs")
+    their_child = svc.create_thread(db_session, workspace.group_id, workspace.bob, "materials", "stock?", parent_thread_id=theirs.id)
+    own = svc.list_threads(db_session, workspace.group_id, workspace.alice, include_children=True)
+    assert {t.id for t in own} == {mine.id}
+    every = svc.list_threads(db_session, workspace.group_id, workspace.alice, see_all=True, include_children=True)
+    assert {t.id for t in every} == {mine.id, theirs.id, their_child.id}
 
 
 def test_deleting_the_parent_orphans_the_child(db_session, workspace):

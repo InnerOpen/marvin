@@ -54,6 +54,9 @@ class AIThreadModel(SqlAlchemyBase, BaseMixins):
     pending_json: Mapped[dict | None] = mapped_column(sa.JSON(none_as_null=True), nullable=True)
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_message_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)
+    # Not a column: the parent's title, filled in when the thread list includes hand-off children
+    # (services/ai/threads.list_threads) so a child listed without its parent can still name it.
+    parent_title = None
 
     messages: Mapped[list[AIThreadMessageModel]] = orm.relationship(
         "AIThreadMessageModel",

@@ -144,6 +144,8 @@ export interface Thread {
   createdBy: string;
   /** Set on a hand-off child (the specialist's thread under a router thread). */
   parentThreadId?: string | null;
+  /** The parent thread's title, on a hand-off child listed with `children: true`. */
+  parentTitle?: string | null;
   status: "open" | "awaiting_approval" | "archived";
   totalTokens: number;
   lastMessageAt?: string | null;
@@ -260,7 +262,11 @@ export function getRunProgress(runId: string, authToken?: string): Promise<RunPr
 
 // ── Threads (server-side Ask conversations; own-only, admins see all) ──
 
-/** Top-level threads by default; `children: true` includes the specialist threads hand-offs opened. */
+/**
+ * Top-level threads, every agent's unless `agent` is given. `children: true` adds the specialist threads
+ * hand-offs opened under the listed ones (`limit` counts listed threads only); with `agent`, its own
+ * hand-off threads are listed too. See groupThreads (lib/askThreads.ts) for nesting them.
+ */
 export function listThreads(
   opts: { agent?: string; limit?: number; children?: boolean } = {},
   authToken?: string,

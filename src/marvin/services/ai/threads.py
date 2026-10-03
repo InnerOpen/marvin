@@ -12,7 +12,8 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, aliased
 
 from marvin.db.models.groups.ai_threads import THREAD_STATUS_AWAITING, THREAD_STATUS_OPEN, AIThreadMessageModel, AIThreadModel
 
@@ -21,6 +22,7 @@ from marvin.db.models.groups.ai_threads import THREAD_STATUS_AWAITING, THREAD_ST
 STEP_RESULT_MAX_CHARS = 2000
 TITLE_MAX_CHARS = 80
 HISTORY_LIMIT = 10
+LIST_LIMIT_MAX = 200
 
 
 class ThreadNotFound(LookupError):
@@ -111,14 +113,37 @@ def list_threads(
     limit: int = 50,
     include_children: bool = False,
 ) -> list[AIThreadModel]:
-    """Top-level threads by default; hand-off children (rows with a parent) only when asked for."""
-    q = _visible(session.query(AIThreadModel).filter_by(group_id=group_id), user_id, see_all)
+    """Threads, most recent activity first; top-level only unless `include_children`.
+
+    With `include_children` the limit picks the listed threads — top-level ones, or every thread of
+    `agent_slug` (a specialist's threads are mostly hand-off children) — and each comes with the
+    hand-off children hanging off it, so the client can nest them. Rows then carry `parent_title`.
+    """
+    limit = max(1, min(limit, LIST_LIMIT_MAX))
+    listed = _visible(session.query(AIThreadModel).filter_by(group_id=group_id), user_id, see_all)
     if agent_slug:
-        q = q.filter(AIThreadModel.agent_slug == agent_slug)
+        listed = listed.filter(AIThreadModel.agent_slug == agent_slug)
     if not include_children:
-        q = q.filter(AIThreadModel.parent_thread_id.is_(None))
-    q = q.order_by(AIThreadModel.last_message_at.desc().nullslast(), AIThreadModel.created_at.desc())
-    return q.limit(max(1, min(limit, 200))).all()
+        return _by_activity(listed.filter(AIThreadModel.parent_thread_id.is_(None))).limit(limit).all()
+    if not agent_slug:
+        listed = listed.filter(AIThreadModel.parent_thread_id.is_(None))
+    listed_ids = select(_by_activity(listed).with_entities(AIThreadModel.id).limit(limit).subquery().c.id)
+    parent = aliased(AIThreadModel)
+    q = (
+        session.query(AIThreadModel, parent.title)
+        .outerjoin(parent, AIThreadModel.parent_thread_id == parent.id)
+        .filter(AIThreadModel.group_id == group_id)
+        .filter(or_(AIThreadModel.id.in_(listed_ids), AIThreadModel.parent_thread_id.in_(listed_ids)))
+    )
+    rows = []
+    for thread, parent_title in _by_activity(_visible(q, user_id, see_all)).all():
+        thread.parent_title = parent_title
+        rows.append(thread)
+    return rows
+
+
+def _by_activity(query):
+    return query.order_by(AIThreadModel.last_message_at.desc().nullslast(), AIThreadModel.created_at.desc())
 
 
 def history_rows(thread: AIThreadModel, limit: int = HISTORY_LIMIT) -> list[AIThreadMessageModel]:
