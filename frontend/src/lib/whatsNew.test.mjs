@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { changesUrl, formatItem, prepareReleases, safeCommitUrl, visibleSections } from "./whatsNew.ts";
+import { changesUrl, formatItem, prepareReleases, releaseLabel, safeCommitUrl, visibleSections } from "./whatsNew.ts";
 
 const item = (summary, over = {}) => ({ scope: null, summary, commit: null, commitUrl: null, ...over });
 const section = (title, ...summaries) => ({ title, items: summaries.map((s) => item(s)) });
@@ -118,5 +118,15 @@ describe("changesUrl", () => {
 
   test("works without a rendered version", () => {
     assert.equal(changesUrl(undefined), "/api/app/changes");
+  });
+});
+
+describe("releaseLabel", () => {
+  test("prefixes a version with v", () => {
+    assert.equal(releaseLabel("1.0.0-rc.158"), "v1.0.0-rc.158");
+  });
+
+  test("leaves the unreleased entry as named", () => {
+    assert.equal(releaseLabel("Unreleased"), "Unreleased");
   });
 });

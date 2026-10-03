@@ -205,7 +205,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
     </div>
     <script>
       import { getApiBaseUrl } from "@/lib/api/config";
-      import { changesUrl, prepareReleases, type WhatsNewRelease } from "@/lib/whatsNew";
+      import { changesUrl, prepareReleases, releaseLabel, type WhatsNewRelease } from "@/lib/whatsNew";
 
       // Deploy detection. The page carries the versions it was rendered with (RuntimeConfig);
       // /version.json reports the live pair. Poll once a minute and whenever the tab regains
@@ -281,7 +281,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
           ...releases.map((release) => {
             const block = document.createElement("section");
             const heading = document.createElement("h3");
-            heading.textContent = `v${release.version}`;
+            heading.textContent = releaseLabel(release.version);
             if (release.date) {
               const date = document.createElement("span");
               date.className = "update-banner-date";

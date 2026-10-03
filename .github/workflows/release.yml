@@ -124,6 +124,11 @@ jobs:
           ref: ${{ github.ref }}
           fetch-depth: 0
 
+      - name: Record unreleased commits
+        # Built from the release commit, which carries the tag: the file lists nothing, and the
+        # changelog already has this release's section.
+        run: docker/write-unreleased.sh UNRELEASED.txt
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 

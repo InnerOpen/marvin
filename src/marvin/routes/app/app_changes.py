@@ -19,9 +19,15 @@ def get_app_changes(
     until: str | None = Query(None, description="The newest release to include; defaults to the running version."),
     since_commit: str | None = Query(None, description="A commit sha (prefix) the caller's frontend was built from."),
 ) -> list[ChangelogRelease]:
-    """Release notes from CHANGELOG.md, newest first.
+    """Release notes from CHANGELOG.md, newest first, led by the image's not-yet-released commits.
 
-    Starts after the older of `since` and the release listing `since_commit`; falls back to the
-    latest few releases when neither can be placed. Empty when the changelog isn't installed.
+    Starts after `since_commit` when it can be placed, else after `since`; falls back to the latest
+    few releases when neither can. Empty when no release notes are installed.
     """
-    return changelog.select_releases(changelog.get_releases(), since=since, until=until, since_commit=since_commit)
+    return changelog.select_releases(
+        changelog.get_releases(),
+        since=since,
+        until=until,
+        since_commit=since_commit,
+        unreleased=changelog.get_unreleased(),
+    )

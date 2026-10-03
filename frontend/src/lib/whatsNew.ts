@@ -66,6 +66,11 @@ export function changesUrl(rendered: RenderedVersion | undefined, base = ""): st
   return `${base}${CHANGES_PATH}${query ? `?${query}` : ""}`;
 }
 
+/** A release's heading: "v1.0.0-rc.158" for a version, as-is for the backend's "Unreleased" entry. */
+export function releaseLabel(version: string): string {
+  return /^\d/.test(version) ? `v${version}` : version;
+}
+
 /** Only web links to a commit page are rendered as links; anything else in the file stays text. */
 export function safeCommitUrl(url: string | null | undefined): string | null {
   return url && /^https:\/\//i.test(url) ? url : null;

@@ -10,14 +10,20 @@ each version changed; this parses it rather than keeping a second copy. The form
     - **admin**: Group the admin nav, ...
       ([`dffdd86`](https://github.com/InnerOpen/marvin/commit/dffdd86...))
 
-Release notes are a nicety: a missing or unreadable changelog yields no releases, never an error.
-The file only changes with a new image, so it is parsed once per process.
+The image is built from a code commit before the release job writes that commit's section, so its
+changelog always stops short of its own code. CI records the gap at build time
+(docker/write-unreleased.sh → UNRELEASED.txt: the commits since the last release tag), and it is
+shown as an "Unreleased" entry above the releases.
+
+Release notes are a nicety: a missing or unreadable file yields nothing, never an error. Both files
+only change with a new image, so each is parsed once per process.
 """
 
 import re
 from collections.abc import Iterable, Sequence
 from functools import lru_cache
 from pathlib import Path
+from typing import NamedTuple
 
 import marvin
 from marvin.core.root_logger import get_logger
@@ -27,10 +33,16 @@ from marvin.schemas.app import ChangelogItem, ChangelogRelease, ChangelogSection
 logger = get_logger(__name__)
 
 CHANGELOG_FILENAME = "CHANGELOG.md"
+UNRELEASED_FILENAME = "UNRELEASED.txt"
+UNRELEASED_VERSION = "Unreleased"
+
+# Conventional-commit types worth a line in "What's new", titled as semantic-release titles them in
+# CHANGELOG.md. The rest (chore, ci, test, style, refactor, build) are developer bookkeeping.
+UNRELEASED_SECTIONS = {"feat": "Features", "fix": "Bug Fixes", "perf": "Performance Improvements", "docs": "Documentation"}
 
 # A request never returns more than this many releases, however far back `since` reaches.
 MAX_RELEASES = 20
-# When the caller's starting point can't be placed (garbage or unknown version, unreleased commit),
+# When the caller's starting point can't be placed (garbage or unknown version, unknown commit),
 # show this many of the latest releases instead of nothing.
 FALLBACK_RELEASES = 5
 
@@ -51,6 +63,9 @@ _SCOPE_RE = re.compile(r"^\*\*(?P<scope>[^*]+)\*\*:\s*(?P<rest>.*)$")
 _LINKS_RE = re.compile(r"\s*\(\[.*$")
 _COMMIT_LINK_RE = re.compile(r"\[`(?P<short>[0-9a-f]{7,40})`\]\((?P<url>[^)\s]+)\)")
 _URL_SHA_RE = re.compile(r"/commit/(?P<sha>[0-9a-f]{7,40})")
+_CONVENTIONAL_RE = re.compile(r"^(?P<type>[a-z]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<summary>.+)$")
+_BUILT_RE = re.compile(r"^#\s*built:\s*(?P<date>\d{4}-\d{2}-\d{2})")
+_UNRELEASED_LINE_RE = re.compile(r"^(?P<sha>[0-9a-f]{7,40})\t(?P<subject>.+)$")
 _SEMVER_RE = re.compile(r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)(?:-(?P<pre>[0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
 
 
@@ -131,45 +146,139 @@ def parse_changelog(text: str) -> list[ChangelogRelease]:
     return releases
 
 
+# ── unreleased commits ───────────────────────────────────────────────────────
+
+
+class UnreleasedCommit(NamedTuple):
+    sha: str
+    type: str | None  # the conventional-commit type, or None for a free-form subject
+    scope: str | None
+    summary: str
+
+
+class Unreleased(NamedTuple):
+    built: str | None
+    commits: tuple[UnreleasedCommit, ...]  # newest first; every commit, so since_commit can place any
+
+
+def _parse_subject(sha: str, subject: str) -> UnreleasedCommit:
+    m = _CONVENTIONAL_RE.match(subject)
+    if not m:
+        return UnreleasedCommit(sha, None, None, subject)
+    summary = m["summary"].strip()
+    # semantic-release capitalises the summary in CHANGELOG.md; match it so both entries read alike.
+    return UnreleasedCommit(sha, m["type"], (m["scope"] or "").strip() or None, summary[:1].upper() + summary[1:])
+
+
+def parse_unreleased(text: str) -> Unreleased:
+    """The commits docker/write-unreleased.sh recorded: `# key: value` headers, then `sha<TAB>subject` lines."""
+    built = None
+    commits = []
+    for line in text.splitlines():
+        if m := _BUILT_RE.match(line):
+            built = m["date"]
+        elif m := _UNRELEASED_LINE_RE.match(line):
+            commits.append(_parse_subject(m["sha"], m["subject"].strip()))
+    return Unreleased(built, tuple(commits))
+
+
+def _commit_url_base(releases: Iterable[ChangelogRelease]) -> str | None:
+    """The repo's commit-URL prefix, taken from the changelog's own links rather than configured twice."""
+    for release in releases:
+        for section in release.sections:
+            for item in section.items:
+                if item.commit_url and (m := _URL_SHA_RE.search(item.commit_url)):
+                    return item.commit_url[: m.start()] + "/commit/"
+    return None
+
+
+def unreleased_release(commits: Iterable[UnreleasedCommit], built: str | None, url_base: str | None) -> ChangelogRelease | None:
+    """The commits as a release-shaped "Unreleased" entry, or None when none of them is user-facing."""
+    sections: dict[str, ChangelogSection] = {}
+    for commit in commits:
+        title = UNRELEASED_SECTIONS.get(commit.type or "")
+        if title is None:
+            continue
+        section = sections.setdefault(title, ChangelogSection(title=title))
+        section.items.append(
+            ChangelogItem(
+                scope=commit.scope,
+                summary=commit.summary,
+                commit=commit.sha,
+                commit_url=f"{url_base}{commit.sha}" if url_base else None,
+            )
+        )
+    if not sections:
+        return None
+    return ChangelogRelease(version=UNRELEASED_VERSION, date=built, sections=list(sections.values()))
+
+
 # ── loading ──────────────────────────────────────────────────────────────────
 
 
-def find_changelog() -> Path | None:
-    """The changelog shipped with this install: the image's /app (BASE_DIR) or a source checkout's root."""
-    candidates = (BASE_DIR / CHANGELOG_FILENAME, Path(marvin.__file__).resolve().parents[2] / CHANGELOG_FILENAME)
+def find_install_file(filename: str) -> Path | None:
+    """A file shipped beside this install: the image's /app (BASE_DIR) or a source checkout's root."""
+    candidates = (BASE_DIR / filename, Path(marvin.__file__).resolve().parents[2] / filename)
     return next((p for p in candidates if p.is_file()), None)
+
+
+def find_changelog() -> Path | None:
+    return find_install_file(CHANGELOG_FILENAME)
+
+
+def find_unreleased() -> Path | None:
+    return find_install_file(UNRELEASED_FILENAME)
+
+
+def _read(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.warning(f"Could not read {path} for release notes: {exc}")
+        return None
 
 
 @lru_cache(maxsize=4)
 def load_releases(path: Path | None) -> tuple[ChangelogRelease, ...]:
     """The parsed releases at `path`, cached for the life of the process; empty if unreadable."""
-    if path is None:
-        return ()
-    try:
-        return tuple(parse_changelog(path.read_text(encoding="utf-8")))
-    except (OSError, UnicodeDecodeError) as exc:
-        logger.warning(f"Could not read {path} for release notes: {exc}")
-        return ()
+    text = _read(path) if path else None
+    return tuple(parse_changelog(text)) if text else ()
+
+
+@lru_cache(maxsize=4)
+def load_unreleased(path: Path | None) -> Unreleased | None:
+    """The image's unreleased commits, cached like the changelog; None if absent or unreadable."""
+    text = _read(path) if path else None
+    return parse_unreleased(text) if text else None
 
 
 def get_releases() -> tuple[ChangelogRelease, ...]:
     return load_releases(find_changelog())
 
 
+def get_unreleased() -> Unreleased | None:
+    return load_unreleased(find_unreleased())
+
+
 # ── selecting ────────────────────────────────────────────────────────────────
 
 
+def _commit_prefix(since_commit: str | None) -> str | None:
+    prefix = (since_commit or "").strip().lower()
+    return prefix if len(prefix) >= MIN_COMMIT_PREFIX and re.fullmatch(r"[0-9a-f]+", prefix) else None
+
+
+def _same_commit(sha: str | None, prefix: str) -> bool:
+    # Either side may be the shorter: the frontend reports 12 chars, a bullet may only carry the
+    # 7-char form when its link has no full-sha URL.
+    return bool(sha) and (sha.startswith(prefix) or prefix.startswith(sha))
+
+
 def _release_with_commit(releases: Iterable[ChangelogRelease], prefix: str) -> ChangelogRelease | None:
-    prefix = prefix.strip().lower()
-    if len(prefix) < MIN_COMMIT_PREFIX or not re.fullmatch(r"[0-9a-f]+", prefix):
-        return None
     for release in releases:
         for section in release.sections:
-            for item in section.items:
-                # Either side may be the shorter: the frontend reports 12 chars, a bullet may only
-                # carry the 7-char form when its link has no full-sha URL.
-                if item.commit and (item.commit.startswith(prefix) or prefix.startswith(item.commit)):
-                    return release
+            if any(_same_commit(item.commit, prefix) for item in section.items):
+                return release
     return None
 
 
@@ -178,13 +287,18 @@ def select_releases(
     since: str | None = None,
     until: str | None = None,
     since_commit: str | None = None,
+    unreleased: Unreleased | None = None,
 ) -> list[ChangelogRelease]:
-    """Releases newer than the caller's starting point, up to and including `until`, newest first.
+    """What the caller hasn't seen, newest first: an "Unreleased" entry, then releases up to `until`.
 
-    The starting point is the older of `since` (a version) and the release that lists
-    `since_commit` (the admin frontend's build sha), so a tab that was behind on either half sees
-    everything it missed. When neither can be placed, the latest FALLBACK_RELEASES are returned.
-    `until` defaults to the running version. Never more than MAX_RELEASES.
+    The starting point is `since_commit` (the admin frontend's build sha) when it can be placed —
+    among the unreleased commits, or in a release's bullets — and `since` (a version) otherwise.
+    The commit wins because it is the finer of the two: an image built from a code commit still
+    reports the previous release's version, so the version lags the code by one release. When
+    neither can be placed, the latest FALLBACK_RELEASES are returned.
+
+    `until` defaults to the running version; the unreleased commits are newer than it, so they are
+    only included when `until` is left to default. Never more than MAX_RELEASES entries.
     """
     ordered = sorted(
         ((key, release) for release in releases if (key := version_key(release.version)) is not None),
@@ -195,16 +309,23 @@ def select_releases(
     if until_key is not None:
         ordered = [(key, release) for key, release in ordered if key <= until_key]
 
-    lower_bounds = []
-    if (since_key := version_key(since or "")) is not None:
-        lower_bounds.append(since_key)
-    # Searched across every release, not just those up to `until`: the frontend may be built from a
-    # commit that the running backend's version predates.
-    if since_commit and (match := _release_with_commit(releases, since_commit)):
-        if (commit_key := version_key(match.version)) is not None:
-            lower_bounds.append(commit_key)
+    commits = unreleased.commits if unreleased and until is None else ()
+    prefix = _commit_prefix(since_commit)
+    cut = next((i for i, c in enumerate(commits) if _same_commit(c.sha, prefix)), None) if prefix else None
 
-    if not lower_bounds:
-        return [release for _, release in ordered[:FALLBACK_RELEASES]]
-    lower = min(lower_bounds)
-    return [release for key, release in ordered if key > lower][:MAX_RELEASES]
+    if cut is not None:
+        # The caller's frontend is past every release; only the unreleased commits after it are new.
+        picked: list[ChangelogRelease] = []
+        commits = commits[:cut]
+    else:
+        # Searched across every release, not just those up to `until`: the frontend may be built
+        # from a commit that the running backend's version predates.
+        match = _release_with_commit(releases, prefix) if prefix else None
+        lower = version_key(match.version) if match else version_key(since or "")
+        if lower is None:
+            picked = [release for _, release in ordered[:FALLBACK_RELEASES]]
+        else:
+            picked = [release for key, release in ordered if key > lower]
+
+    entry = unreleased_release(commits, unreleased.built if unreleased else None, _commit_url_base(releases))
+    return ([entry] if entry else []) + picked[: MAX_RELEASES - (1 if entry else 0)]

@@ -108,7 +108,10 @@ COPY --from=uv-base --chown=app:app /app/.venv /app/.venv
 ENV BASE_DIR=$MARVIN_HOME
 # Release notes behind the admin update banner's "What's new" list. The venv holds only the
 # package, so the changelog is copied beside it; services/changelog.py looks in BASE_DIR.
-COPY --chown=app:app CHANGELOG.md $MARVIN_HOME/CHANGELOG.md
+# UNRELEASED.txt (docker/write-unreleased.sh, run by CI before the build) lists the commits since
+# the last release, which this image's changelog can't have yet. It is optional: the [t] glob lets
+# a plain local `docker build` without it succeed, since COPY only fails when nothing matches at all.
+COPY --chown=app:app CHANGELOG.md UNRELEASED.tx[t] $MARVIN_HOME/
 
 # ##################################
 # Backend Image — the API only (no frontend, no Node)

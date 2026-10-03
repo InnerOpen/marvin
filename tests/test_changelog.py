@@ -9,8 +9,11 @@ from marvin.services import changelog
 from marvin.services.changelog import (
     FALLBACK_RELEASES,
     MAX_RELEASES,
+    UNRELEASED_VERSION,
     load_releases,
+    load_unreleased,
     parse_changelog,
+    parse_unreleased,
     select_releases,
     version_key,
 )
@@ -201,14 +204,101 @@ def test_select_releases_since_commit_matches_without_since():
     assert _versions(select_releases(RELEASES, until="1.0.0-rc.10", since_commit="de146566f1bf")) == ["1.0.0-rc.10", "1.0.0-rc.9"]
 
 
-def test_select_releases_uses_the_older_of_since_and_since_commit():
-    picked = select_releases(RELEASES, since="1.0.0-rc.9", until="1.0.0-rc.10", since_commit="de14656")
-    assert _versions(picked) == ["1.0.0-rc.10", "1.0.0-rc.9"]
+def test_select_releases_prefers_a_placed_commit_over_the_lagging_version():
+    # An image built from 6bc32ec still reports the release before it (rc.2): the commit is finer.
+    picked = select_releases(RELEASES, since="1.0.0-rc.2", until="1.0.0-rc.10", since_commit="6bc32ecc0702")
+    assert _versions(picked) == ["1.0.0-rc.10"]
 
 
 @pytest.mark.parametrize("commit", ["0123456789ab", "dff", "zzzzzzzzzzzz"])
 def test_select_releases_with_an_unknown_commit_falls_back_to_since(commit):
     assert _versions(select_releases(RELEASES, since="1.0.0-rc.9", until="1.0.0-rc.10", since_commit=commit)) == ["1.0.0-rc.10"]
+
+
+# ── unreleased commits ───────────────────────────────────────────────────────
+
+FEAT_SHA = "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+CHORE_SHA = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+FIX_SHA = "3333333ccccccccccccccccccccccccccccccccc"
+DOCS_SHA = "4444444ddddddddddddddddddddddddddddddddd"
+
+UNRELEASED = parse_unreleased(
+    "# since: v1.0.0-rc.10\n"
+    "# built: 2026-10-04T09:30:00Z\n"
+    f"{FEAT_SHA}\tfeat(ui): pick a bubble character from cards, not a dropdown\n"
+    f"{CHORE_SHA}\tchore(deps): bump astro\n"
+    f"{FIX_SHA}\tfix!: keep threads per workspace\n"
+    f"{DOCS_SHA}\tdocs: publish the Marvin manual\n"
+)
+
+
+def _unreleased_entry(picked):
+    assert picked and picked[0].version == UNRELEASED_VERSION
+    return picked[0]
+
+
+def test_parse_unreleased_reads_the_build_date_and_every_commit():
+    assert (UNRELEASED.built, [c.sha for c in UNRELEASED.commits]) == ("2026-10-04", [FEAT_SHA, CHORE_SHA, FIX_SHA, DOCS_SHA])
+
+
+def test_parse_unreleased_splits_conventional_subjects():
+    feat = UNRELEASED.commits[0]
+    assert (feat.type, feat.scope, feat.summary) == ("feat", "ui", "Pick a bubble character from cards, not a dropdown")
+
+
+def test_parse_unreleased_keeps_a_free_form_subject_untyped():
+    (commit,) = parse_unreleased(f"{FEAT_SHA}\tMerge the thing\n").commits
+    assert (commit.type, commit.summary) == (None, "Merge the thing")
+
+
+def test_parse_unreleased_of_a_header_only_file_has_no_commits():
+    assert parse_unreleased("# since: v1.0.0-rc.10\n# built: 2026-10-04T09:30:00Z\n").commits == ()
+
+
+def test_unreleased_entry_groups_by_type_and_drops_bookkeeping():
+    entry = _unreleased_entry(select_releases(RELEASES, since="1.0.0-rc.10", unreleased=UNRELEASED))
+    assert [(s.title, [i.commit for i in s.items]) for s in entry.sections] == [
+        ("Features", [FEAT_SHA]),
+        ("Bug Fixes", [FIX_SHA]),
+        ("Documentation", [DOCS_SHA]),
+    ]
+
+
+def test_unreleased_entry_links_commits_like_the_changelog_and_carries_the_build_date():
+    entry = _unreleased_entry(select_releases(RELEASES, since="1.0.0-rc.10", unreleased=UNRELEASED))
+    assert (entry.date, entry.sections[0].items[0].commit_url) == ("2026-10-04", f"{COMMIT}{FEAT_SHA}")
+
+
+def test_select_releases_puts_unreleased_first_then_releases(monkeypatch):
+    monkeypatch.setattr(changelog, "APP_VERSION", "1.0.0-rc.10")
+    picked = select_releases(RELEASES, since="1.0.0-rc.2", unreleased=UNRELEASED)
+    assert _versions(picked) == [UNRELEASED_VERSION, "1.0.0-rc.10", "1.0.0-rc.9"]
+
+
+def test_select_releases_since_an_unreleased_commit_lists_only_newer_unreleased_ones(monkeypatch):
+    monkeypatch.setattr(changelog, "APP_VERSION", "1.0.0-rc.10")
+    picked = select_releases(RELEASES, since="1.0.0-rc.10", since_commit=FIX_SHA[:12], unreleased=UNRELEASED)
+    (entry,) = picked
+    assert [i.commit for s in entry.sections for i in s.items] == [FEAT_SHA]
+
+
+def test_select_releases_since_the_newest_unreleased_commit_is_empty(monkeypatch):
+    monkeypatch.setattr(changelog, "APP_VERSION", "1.0.0-rc.10")
+    assert select_releases(RELEASES, since="1.0.0-rc.9", since_commit=FEAT_SHA[:12], unreleased=UNRELEASED) == []
+
+
+def test_select_releases_skips_an_unreleased_entry_with_only_bookkeeping(monkeypatch):
+    monkeypatch.setattr(changelog, "APP_VERSION", "1.0.0-rc.10")
+    chores = parse_unreleased(f"{CHORE_SHA}\tchore(deps): bump astro\nci: cache\n")
+    assert _versions(select_releases(RELEASES, since="1.0.0-rc.9", unreleased=chores)) == ["1.0.0-rc.10"]
+
+
+def test_select_releases_with_an_explicit_until_leaves_unreleased_out():
+    assert _versions(select_releases(RELEASES, since="1.0.0-rc.9", until="1.0.0-rc.10", unreleased=UNRELEASED)) == ["1.0.0-rc.10"]
+
+
+def test_load_unreleased_of_a_missing_file_is_none(tmp_path: Path):
+    assert (load_unreleased(tmp_path / "UNRELEASED.txt"), load_unreleased(None)) == (None, None)
 
 
 # ── loading ──────────────────────────────────────────────────────────────────
@@ -251,6 +341,7 @@ def signed_in(client):
 @pytest.fixture
 def fixture_changelog(monkeypatch):
     monkeypatch.setattr(changelog, "get_releases", lambda: tuple(RELEASES))
+    monkeypatch.setattr(changelog, "get_unreleased", lambda: None)
     monkeypatch.setattr(changelog, "APP_VERSION", "1.0.0-rc.10")
 
 
@@ -275,3 +366,17 @@ def test_changes_endpoint_without_a_changelog_is_an_empty_list(signed_in, monkey
     monkeypatch.setattr(changelog, "find_changelog", lambda: None)
     res = signed_in.get(CHANGES_URL, params={"since": "garbage"})
     assert (res.status_code, res.json()) == (200, [])
+
+
+def test_changes_endpoint_leads_with_unreleased_commits(signed_in, fixture_changelog, monkeypatch):
+    monkeypatch.setattr(changelog, "get_unreleased", lambda: UNRELEASED)
+    res = signed_in.get(CHANGES_URL, params={"since": "1.0.0-rc.10", "since_commit": DOCS_SHA[:12]})
+    assert [(r["version"], [s["title"] for s in r["sections"]]) for r in res.json()] == [(UNRELEASED_VERSION, ["Features", "Bug Fixes"])]
+
+
+def test_changes_endpoint_without_an_unreleased_file_still_lists_releases(signed_in, monkeypatch):
+    monkeypatch.setattr(changelog, "get_releases", lambda: tuple(RELEASES))
+    monkeypatch.setattr(changelog, "find_unreleased", lambda: None)
+    monkeypatch.setattr(changelog, "APP_VERSION", "1.0.0-rc.10")
+    res = signed_in.get(CHANGES_URL, params={"since": "1.0.0-rc.9"})
+    assert [r["version"] for r in res.json()] == ["1.0.0-rc.10"]

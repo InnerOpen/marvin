@@ -18,6 +18,8 @@ frontend/dist/
 
 # Docker config
 docker/config/
+# Written by docker/write-unreleased.sh at image build time
+UNRELEASED.txt
 
 # local env files
 .env.local
