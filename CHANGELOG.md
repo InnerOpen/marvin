@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.144 (2026-10-03)
+
+### Features
+
+- Site build/deploy status from a host's webhook, as Marvin events and toasts
+  ([`3ef20e4`](https://github.com/InnerOpen/marvin/commit/3ef20e4fb86f32d80d20beae235087057cb22522))
+
+
 ## v1.0.0-rc.143 (2026-10-03)
 
 ### Features
