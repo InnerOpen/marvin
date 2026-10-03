@@ -11,6 +11,8 @@ class AIExecutionRead(_MarvinModel):
     id: UUID4
     group_id: UUID4
     operation_slug: str
+    # For display: an agent run as `agent:<the agent's current name>` (see agents.operation_label).
+    operation_label: str | None = None
     provider_type: str
     model_id: str
     status: str

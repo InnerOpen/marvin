@@ -24,6 +24,7 @@ from marvin.schemas.group.ai_execution import (
     AIToolInvokeRequest,
 )
 from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, AIThreadRead, AIThreadResumeRequest, AIThreadUpdate
+from marvin.services.ai.agents import ROUTER_SLUG
 from marvin.services.ai.executions import link_child_execution
 from marvin.services.ui_links import entry_edit_url, entry_review_link
 
@@ -345,14 +346,20 @@ class AIOperationsController(BaseUserController):
         if entity_id:
             q = q.filter(AIExecutionModel.entity_id == entity_id)
         rows = q.order_by(AIExecutionModel.created_at.desc()).offset(offset).limit(limit).all()
-        return [AIExecutionRead.model_validate(r) for r in rows]
+        return self._labelled(rows)
 
     @router.get("/executions/{execution_id}", response_model=AIExecutionRead, summary="Get Execution")
     def get_execution(self, execution_id: UUID4) -> AIExecutionRead:
         row = self.session.get(AIExecutionModel, execution_id)
         if not row or row.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found.")
-        return AIExecutionRead.model_validate(row)
+        return self._labelled([row])[0]
+
+    def _labelled(self, rows: list) -> list[AIExecutionRead]:
+        from marvin.services.ai.agents import agent_names, operation_label
+
+        names = agent_names(self.session, self.group_id)
+        return [AIExecutionRead.model_validate(r).model_copy(update={"operation_label": operation_label(r.operation_slug, names)}) for r in rows]
 
     @router.delete("/executions/{execution_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete Execution")
     def delete_execution(self, execution_id: UUID4) -> None:
@@ -765,8 +772,8 @@ class AIOperationsController(BaseUserController):
             entity_id=entity_id,
             tools=tools,
             max_steps=max_steps,
-            operation_slug="agent",
-            agent_slug="marvin",
+            operation_slug=f"agent:{ROUTER_SLUG}",
+            agent_slug=ROUTER_SLUG,
             ctx=ctx,
         )
 
@@ -2053,11 +2060,13 @@ class AIOperationsController(BaseUserController):
         if not settings or not getattr(settings, "external_mcp_enabled", False):
             return []
 
+        from marvin.core.config import get_app_settings
         from marvin.db.models.groups.mcp_servers import WorkspaceMcpServerModel
         from marvin.services.ai import mcp_client
         from marvin.services.ai.agent import AgentTool
         from marvin.services.ai.tools.categories import category_of
 
+        app = get_app_settings()
         servers = self.session.query(WorkspaceMcpServerModel).filter_by(group_id=self.group_id, enabled=True).all()
         tools: list = []
         for server in servers:
@@ -2076,10 +2085,11 @@ class AIOperationsController(BaseUserController):
 
                 def _run(args, s=server, tn=t.name):
                     try:
-                        text, _is_error = mcp_client.call_server_tool(s, tn, args or {}, timeout=20.0)
-                        return text or json.dumps({"error": "empty result"})
+                        text, _is_error = mcp_client.call_server_tool(s, tn, args or {}, timeout=app.MCP_TOOL_TIMEOUT_SECONDS)
                     except Exception as e:  # unreachable/timeout — non-fatal, surfaced to the model
+                        self.logger.warning("external MCP '%s' tool %s failed: %s", s.slug, tn, e)
                         return json.dumps({"error": str(e)})
+                    return mcp_client.clip_result(text, app.MCP_TOOL_RESULT_MAX_CHARS) if text else json.dumps({"error": "empty result"})
 
                 tools.append(
                     AgentTool(
@@ -2477,64 +2487,17 @@ class AIOperationsController(BaseUserController):
             )
 
     def _max_output_tokens(self) -> int | None:
-        """Per-request output-token cap for this workspace.
+        """Per-request output-token cap: the workspace's `max_tokens_per_request`, else the app default."""
+        from marvin.services.ai.budget import max_output_tokens
 
-        Honours `budget_config.max_tokens_per_request` (a workspace override that was stored but
-        never read — every call used the global AI_DEFAULT_MAX_TOKENS regardless). Falls back to
-        the app default when the workspace hasn't set one. A non-positive/invalid value is ignored
-        rather than clamping every response to zero.
-        """
-        from marvin.core.config import get_app_settings
-
-        default = getattr(get_app_settings(), "AI_DEFAULT_MAX_TOKENS", None)
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        raw = (settings.budget_config or {}).get("max_tokens_per_request") if settings else None
-        if raw is None:
-            return default
-        try:
-            cap = int(raw)
-        except (TypeError, ValueError):
-            return default
-        return cap if cap > 0 else default
+        return max_output_tokens(self.session, self.group_id)
 
     def _check_budget(self) -> None:
-        from sqlalchemy import func
+        from marvin.services.ai.budget import blocked_reason
 
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        if not settings or not settings.budget_config:
-            return
-        budget = settings.budget_config
-
-        max_per_day = budget.get("max_requests_per_day")
-        if max_per_day:
-            today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
-            count = (
-                self.session.query(func.count(AIExecutionModel.id))
-                .filter(
-                    AIExecutionModel.group_id == self.group_id,
-                    AIExecutionModel.created_at >= today_start,
-                )
-                .scalar()
-                or 0
-            )
-            if count >= max_per_day:
-                raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=f"Daily request limit ({max_per_day}) reached.")
-
-        max_cost = budget.get("max_cost_per_month_usd")
-        if max_cost:
-            month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            spent = (
-                self.session.query(func.sum(AIExecutionModel.estimated_cost_usd))
-                .filter(
-                    AIExecutionModel.group_id == self.group_id,
-                    AIExecutionModel.created_at >= month_start,
-                    AIExecutionModel.status == "completed",
-                )
-                .scalar()
-                or 0.0
-            )
-            if spent >= max_cost:
-                raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=f"Monthly cost limit (${max_cost:.2f}) reached.")
+        reason = blocked_reason(self.session, self.group_id)
+        if reason:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=reason)
 
     def _validate_model_capabilities(self, operation, model: str) -> None:
         """Reject the call up front if the operation needs a capability the model lacks (§7).
@@ -2665,47 +2628,13 @@ class AIOperationsController(BaseUserController):
 
     def _emit_budget_thresholds(self, execution) -> None:
         """Emit budget threshold/exceeded events on the call that crosses the line (once)."""
-        from sqlalchemy import func
-
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        budget = (settings.budget_config if settings else None) or {}
-        max_cost = budget.get("max_cost_per_month_usd")
-        if not max_cost:
-            return
-        month_start = datetime.now(UTC).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        spent = (
-            self.session.query(func.sum(AIExecutionModel.estimated_cost_usd))
-            .filter(
-                AIExecutionModel.group_id == self.group_id,
-                AIExecutionModel.created_at >= month_start,
-                AIExecutionModel.status == "completed",
-            )
-            .scalar()
-            or 0.0
-        )
-        prev = spent - (execution.estimated_cost_usd or 0.0)
-        from marvin.core.config import get_app_settings
+        from marvin.services.ai.budget import crossing_after
         from marvin.services.event_bus_service.event_types import EventTypes
 
-        warn_frac = getattr(get_app_settings(), "AI_BUDGET_WARNING_PERCENT", 80.0) / 100.0
-        if prev < max_cost <= spent:
-            self._emit_budget_event(
-                EventTypes.ai_budget_exceeded,
-                "monthly_cost",
-                spent,
-                max_cost,
-                100.0,
-                f"Monthly AI cost limit of ${max_cost:.2f} reached (spent ${spent:.2f})",
-            )
-        elif warn_frac > 0 and prev < warn_frac * max_cost <= spent:
-            self._emit_budget_event(
-                EventTypes.ai_budget_threshold_reached,
-                "monthly_cost",
-                spent,
-                max_cost,
-                round(spent / max_cost * 100, 1),
-                f"AI spend reached {round(spent / max_cost * 100)}% of the ${max_cost:.2f} monthly limit",
-            )
+        crossing = crossing_after(self.session, self.group_id, execution.estimated_cost_usd)
+        if crossing:
+            event = EventTypes.ai_budget_exceeded if crossing.exceeded else EventTypes.ai_budget_threshold_reached
+            self._emit_budget_event(event, "monthly_cost", crossing.spent, crossing.limit, crossing.percent, crossing.detail)
 
     def _maybe_emit_quota(self, execution, error: str) -> None:
         """Emit ai_provider_quota_exceeded when a provider rejects the call for lack of quota/credits."""

@@ -33,7 +33,12 @@ UNSENT_SOURCES = ("forms", "actions", "scheduled")
 
 INVOCATION_SOURCE_CATALOG: tuple[dict[str, str], ...] = (
     {"key": "editor", "label": "Entry editor", "description": "Inline AI actions inside the entry editor (summarize, tags, rewrite…)."},
-    {"key": "agent", "label": "Ask Marvin", "description": "The Ask Marvin bubble, the Ask page and named agents (incl. resuming a paused chat)."},
+    # `{assistant}` is the workspace's assistant name (AI settings → Persona), filled in when served.
+    {
+        "key": "agent",
+        "label": "Ask {assistant}",
+        "description": "The Ask {assistant} bubble, the Ask page and named agents (incl. resuming a paused chat).",
+    },
     {"key": "automation", "label": "Workflows", "description": "Workflows running an AI-operation step (incl. form- or schedule-triggered ones)."},
     {"key": "mcp", "label": "External MCP hosts", "description": "External assistants (Claude Desktop, etc.) calling in over MCP."},
     {"key": "api", "label": "API", "description": "Direct calls to the AI operation endpoints."},

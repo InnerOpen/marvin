@@ -1,5 +1,7 @@
 """Pydantic schemas for per-workspace AI workflow policy settings."""
 
+from datetime import date
+
 from pydantic import UUID4, ConfigDict
 
 from marvin.schemas._marvin import _MarvinModel
@@ -64,3 +66,33 @@ class WorkspaceAISettingsRead(WorkspaceAISettingsCreate):
     allow_workspace_credentials: bool = True
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AIUsageOperation(_MarvinModel):
+    operation: str
+    label: str
+    runs: int
+    tokens: int
+    cost_usd: float
+
+
+class AIUsageLimits(_MarvinModel):
+    max_cost_per_month_usd: float | None = None
+    max_requests_per_day: int | None = None
+    max_tokens_per_request: int | None = None
+
+
+class WorkspaceAIUsage(_MarvinModel):
+    """Where the workspace stands against its AI limits — see services/ai/budget.py."""
+
+    limits: AIUsageLimits
+    warning_percent: float
+    level: str  # "ok" | "warn" | "over"
+    month_cost_usd: float
+    month_tokens: int
+    month_runs: int
+    month_percent: float | None = None
+    today_runs: int
+    day_percent: float | None = None
+    resets_on: date | None = None
+    by_operation: list[AIUsageOperation] = []

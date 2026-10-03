@@ -114,6 +114,12 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
             "would_write_back": bool(action.get("write_back")),
         }
 
+    from marvin.services.ai import budget
+
+    # Workflows spend from the same monthly budget as every other AI run.
+    if reason := budget.blocked_reason(session, group_id):
+        raise AutomationActionError(f"AI budget: {reason}")
+
     try:
         provider = get_workspace_ai_provider(session, group_id)
     except AIDisabledError as e:
@@ -158,7 +164,7 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
         _app = get_app_settings()
         opts = CompletionOptions(
             temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7),
-            max_tokens=getattr(_app, "AI_DEFAULT_MAX_TOKENS", None),
+            max_tokens=budget.max_output_tokens(session, group_id),
         )
         messages = operation.build_prompt(op_input, ctx)
         messages = resolve_prompt_messages(messages, group_id, ctx.variables)
@@ -181,6 +187,8 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
         execution.completed_at = datetime.now(UTC)
         session.commit()
         raise AutomationActionError(f"operation '{slug}' failed: {e}") from e
+    if crossing := budget.crossing_after(session, group_id, execution.estimated_cost_usd):
+        budget.emit_crossing(group_id, crossing, user_id=user_id, source=AUTOMATION_SOURCE)
 
     # Optional write-back of the operation's own writeback map — gated by the workspace approval mode
     # like every other AI write-back: applied when the mode allows it for this entry, else staged as a

@@ -8,8 +8,11 @@ from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.ai_settings import (
+    AIUsageLimits,
+    AIUsageOperation,
     WorkspaceAISettingsRead,
     WorkspaceAISettingsUpdate,
+    WorkspaceAIUsage,
 )
 
 router = APIRouter(prefix="/groups/ai-settings", route_class=MarvinCrudRoute)
@@ -36,9 +39,37 @@ class AISettingsController(BaseUserController):
     def list_invocation_sources(self) -> list[dict]:
         """The catalog of AI invocation surfaces — key + human label/description — so the settings UI
         can render a toggle per source. A source is allowed unless the workspace policy sets it false."""
+        from marvin.services.ai.agents import ROUTER_SLUG, agent_names
         from marvin.services.ai.operations.base import INVOCATION_SOURCE_CATALOG
 
-        return [dict(s) for s in INVOCATION_SOURCE_CATALOG]
+        assistant = agent_names(self.session, self.group_id)[ROUTER_SLUG]
+        return [{k: v.format(assistant=assistant) for k, v in s.items()} for s in INVOCATION_SOURCE_CATALOG]
+
+    @router.get("/usage", response_model=WorkspaceAIUsage, summary="AI usage against the workspace's limits")
+    def get_usage(self) -> WorkspaceAIUsage:
+        """This month's estimated spend and today's runs against the budget limits, and what cost the most."""
+        from marvin.services.ai import budget
+        from marvin.services.ai.agents import agent_names, operation_label
+
+        u = budget.usage(self.session, self.group_id)
+        names = agent_names(self.session, self.group_id)
+        return WorkspaceAIUsage(
+            limits=AIUsageLimits(
+                max_cost_per_month_usd=u.limits.month_usd,
+                max_requests_per_day=u.limits.per_day,
+                max_tokens_per_request=u.limits.tokens_per_request,
+            ),
+            warning_percent=u.warning_percent,
+            level=u.level,
+            month_cost_usd=u.month_cost_usd,
+            month_tokens=u.month_tokens,
+            month_runs=u.month_runs,
+            month_percent=u.month_percent,
+            today_runs=u.today_runs,
+            day_percent=u.day_percent,
+            resets_on=u.resets_on,
+            by_operation=[AIUsageOperation(label=operation_label(o["operation"], names), **o) for o in u.by_operation],
+        )
 
     @router.get("", response_model=WorkspaceAISettingsRead, summary="Get AI Workflow Settings")
     def get_ai_settings(self) -> WorkspaceAISettingsRead:

@@ -123,6 +123,7 @@ function formatDuration(ms: number | null): string {
         <tbody>
           {filteredExecutions.map((exec: any, i: number) => {
             const operationSlug = getField(exec, 'operationSlug', 'operation_slug');
+            const operationLabel = getField(exec, 'operationLabel', 'operation_label') || operationSlug;
             const providerType = getField(exec, 'providerType', 'provider_type');
             const modelId = getField(exec, 'modelId', 'model_id');
             const createdAt = getField(exec, 'createdAt', 'created_at');
@@ -144,7 +145,7 @@ function formatDuration(ms: number | null): string {
                     )}
                   </td>
                   <td class="nowrap">{formatDate(createdAt)}</td>
-                  <td><code class="op-badge">{operationSlug}</code></td>
+                  <td><code class="op-badge" title={operationSlug}>{operationLabel}</code></td>
                   <td>
                     <span class="model-cell">
                       <span class="muted">{providerType}</span>

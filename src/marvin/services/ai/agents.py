@@ -32,6 +32,12 @@ ASK_SYSTEM_PROMPT = (
 # the RAG" with Red/Amber/Green) and knows which tool answers which kind of question. Only tools actually
 # bound for the run are mentioned.
 CONTENT_SYNONYMS = '"the RAG", "the knowledge base", "the index", "your content" or "what you know"'
+# A hand-off once asked Ask (workspace search only) to "answer from the Brain vault"; it searched the workspace
+# and reported the results as the vault's. An agent without a source's tools must say so instead.
+SOURCE_HONESTY_RULE = (
+    "You can only see this workspace's content. If asked about a source outside it — a vault, a notebook, another "
+    "app or system — say you cannot reach it from here; never present workspace results as coming from it."
+)
 # Tool results carry workspace paths (`editUrl`: /workspace/entries/<id>); the backend does not know the UI's
 # public host, and the chat renders on that host, so a relative link is the one that always works.
 LINKS_RULE = (
@@ -75,8 +81,12 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
         listed = ", ".join(f"{slug} ({n} tools, named mcp__{slug}__*)" for slug, n in sorted(servers.items()))
         lines.append(
             f"Connected external sources (MCP servers): {listed}. When the user names one of these — "
-            "'check the brain', 'in my vault' — answer from that server's tools, not from workspace content."
+            "'check the brain', 'in my vault' — answer from that server's tools yourself, not from workspace "
+            "content, and do not hand the question to another agent unless the user names that agent: the "
+            "others may not see these sources."
         )
+    elif names:
+        lines.append(SOURCE_HONESTY_RULE)
     if names:
         lines.append(
             "Act, don't announce: when a question needs a tool, call it in this same turn. Never reply with "
@@ -200,6 +210,22 @@ def list_agents(session, group_id) -> list[AgentSpec]:
 
     rows = session.query(WorkspaceAgentModel).filter_by(group_id=group_id).order_by(WorkspaceAgentModel.slug).all()
     return [*(_system_agent(session, group_id, s) for s in SYSTEM_AGENTS.values()), *(spec_from_row(r) for r in rows)]
+
+
+def agent_names(session, group_id) -> dict[str, str]:
+    """`{slug: name}` for every agent, the main agent under the workspace's assistant name."""
+    return {s.slug: s.name for s in list_agents(session, group_id)}
+
+
+def operation_label(operation_slug: str, names: dict[str, str]) -> str:
+    """How an execution's operation reads: an agent run shows the agent's current name, so renaming the
+    assistant renames its history too. The stored `agent:<slug>` stays stable for filtering."""
+    if operation_slug == "agent":  # the bubble's main-agent runs were stored without the slug
+        operation_slug = f"agent:{ROUTER_SLUG}"
+    if not operation_slug.startswith("agent:"):
+        return operation_slug
+    slug = operation_slug.split(":", 1)[1]
+    return f"agent:{names.get(slug, slug)}"
 
 
 def resolve_agent(session, group_id, slug: str) -> AgentSpec | None:

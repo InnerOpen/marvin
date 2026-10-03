@@ -195,6 +195,28 @@ class AppSettings(BaseSettings):
             raise ValueError("INTEGRATION_HTTP_MAX_BYTES must be >= 1")
         return v
 
+    MCP_TOOL_TIMEOUT_SECONDS: float = 45.0
+    """
+    How long the assistant waits for one tool call on a workspace's external MCP server, in seconds.
+    A call that runs longer is reported to the model as an error. Some servers are slow — a vault
+    search can take 20 s — but every call holds the chat request open, so keep it well under the
+    proxy's request timeout.
+    """
+
+    MCP_TOOL_RESULT_MAX_CHARS: int = 20_000
+    """
+    The most text from one external MCP tool call the assistant sees; longer results are cut, with a
+    note asking the model to narrow the call. A broad vault search can return 400 KB, which would
+    cost ~100k tokens a call or overflow the model's context.
+    """
+
+    @field_validator("MCP_TOOL_TIMEOUT_SECONDS", "MCP_TOOL_RESULT_MAX_CHARS")
+    @classmethod
+    def _validate_mcp_limits(cls, v, info):
+        if v <= 0:
+            raise ValueError(f"{info.field_name} must be > 0")
+        return v
+
     SITE_REBUILD_QUIET_SECONDS: int = 60
     """
     How long rebuild requests must stop arriving before a workspace's queued site rebuild is sent.

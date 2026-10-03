@@ -105,6 +105,16 @@ async def _acall_tool(url, transport, headers, name, args, timeout) -> tuple[str
         return text, bool(getattr(res, "isError", False))
 
 
+def clip_result(text: str, max_chars: int) -> str:
+    """Cut an over-long tool result, telling the model it was cut and how to get the rest."""
+    if len(text) <= max_chars:
+        return text
+    return (
+        text[:max_chars] + f"\n\n[Result truncated: showing {max_chars:,} of {len(text):,} characters. "
+        "Narrow the call — a more specific query, a path, or a limit — to see what was cut.]"
+    )
+
+
 def _describe(exc: BaseException) -> str:
     """A useful message from a failed client call.
 

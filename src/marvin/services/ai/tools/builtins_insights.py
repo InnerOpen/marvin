@@ -41,6 +41,7 @@ def _dump(value) -> str:
 )
 def list_ai_executions(ctx: ToolContext, args: dict) -> str:
     from marvin.db.models.groups.ai_executions import AIExecutionModel
+    from marvin.services.ai.agents import agent_names, operation_label
 
     q = ctx.session.query(AIExecutionModel).filter(AIExecutionModel.group_id == ctx.group_id)
     if args.get("status"):
@@ -51,10 +52,12 @@ def list_ai_executions(ctx: ToolContext, args: dict) -> str:
         q = q.filter(AIExecutionModel.entity_type == args["entity_type"])
     limit = min(int(args.get("limit", 25) or 25), 100)
     rows = q.order_by(AIExecutionModel.started_at.desc()).limit(limit).all()
+    names = agent_names(ctx.session, ctx.group_id)
     out = [
         {
             "id": str(r.id),
             "operation": r.operation_slug,
+            "operationLabel": operation_label(r.operation_slug, names),
             "status": r.status,
             "provider": r.provider_type,
             "model": r.model_id,
@@ -80,6 +83,7 @@ def list_ai_executions(ctx: ToolContext, args: dict) -> str:
 )
 def get_ai_execution(ctx: ToolContext, args: dict) -> str:
     from marvin.db.models.groups.ai_executions import AIExecutionModel
+    from marvin.services.ai.agents import agent_names, operation_label
 
     r = ctx.session.get(AIExecutionModel, args.get("id"))
     if not r or r.group_id != ctx.group_id:
@@ -88,6 +92,7 @@ def get_ai_execution(ctx: ToolContext, args: dict) -> str:
         {
             "id": str(r.id),
             "operation": r.operation_slug,
+            "operationLabel": operation_label(r.operation_slug, agent_names(ctx.session, ctx.group_id)),
             "status": r.status,
             "provider": r.provider_type,
             "model": r.model_id,
