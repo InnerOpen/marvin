@@ -106,6 +106,9 @@ FROM python-base AS build-base
 
 COPY --from=uv-base --chown=app:app /app/.venv /app/.venv
 ENV BASE_DIR=$MARVIN_HOME
+# Release notes behind the admin update banner's "What's new" list. The venv holds only the
+# package, so the changelog is copied beside it; services/changelog.py looks in BASE_DIR.
+COPY --chown=app:app CHANGELOG.md $MARVIN_HOME/CHANGELOG.md
 
 # ##################################
 # Backend Image — the API only (no frontend, no Node)
