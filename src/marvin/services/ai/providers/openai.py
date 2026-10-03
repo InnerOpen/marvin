@@ -9,23 +9,7 @@ from ..base import (
     ToolCall,
     ToolDefinition,
 )
-
-# Reasoning models reject `max_tokens` outright — even null — in favour of `max_completion_tokens`,
-# and accept only the default temperature.
-_REASONING_MODEL_PREFIXES = ("o1", "o3", "o4", "gpt-5")
-
-
-def _sampling_kwargs(model: str, opts: CompletionOptions, *, include_top_p: bool = False) -> dict:
-    """The length and sampling parameters this model accepts; unset limits are left out."""
-    is_reasoning = model.startswith(_REASONING_MODEL_PREFIXES)
-    kwargs: dict = {}
-    if opts.max_tokens is not None:
-        kwargs["max_completion_tokens" if is_reasoning else "max_tokens"] = opts.max_tokens
-    if not is_reasoning:
-        kwargs["temperature"] = opts.temperature
-        if include_top_p:
-            kwargs["top_p"] = opts.top_p
-    return kwargs
+from .openai_params import REASONING_MODEL_PREFIXES, create_chat_completion
 
 
 class OpenAIProvider(AIProvider):
@@ -94,11 +78,7 @@ class OpenAIProvider(AIProvider):
     def complete(self, messages: list[Message], model: str, options: CompletionOptions | None = None) -> CompletionResult:
         opts = options or CompletionOptions()
         client = self._client()
-        resp = client.chat.completions.create(
-            model=model,
-            messages=self._to_api_messages(messages),
-            **_sampling_kwargs(model, opts, include_top_p=True),
-        )
+        resp = create_chat_completion(client, model, opts, include_top_p=True, messages=self._to_api_messages(messages))
         choice = resp.choices[0]
         return CompletionResult(
             content=choice.message.content or "",
@@ -123,12 +103,13 @@ class OpenAIProvider(AIProvider):
         client = self._client()
         api_tools = [{"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.input_schema}} for t in tools]
         choice_map = {"auto": "auto", "required": "required", "none": "none"}
-        resp = client.chat.completions.create(
-            model=model,
+        resp = create_chat_completion(
+            client,
+            model,
+            opts,
             messages=self._to_api_tool_messages(messages),
             tools=api_tools,
             tool_choice=choice_map.get(tool_choice, "auto"),
-            **_sampling_kwargs(model, opts),
         )
         choice = resp.choices[0]
         tool_calls: list[ToolCall] = []
@@ -154,29 +135,31 @@ class OpenAIProvider(AIProvider):
 
         opts = options or CompletionOptions()
         client = self._client()
-        resp = client.chat.completions.create(
-            model=model,
+        resp = create_chat_completion(
+            client,
+            model,
+            opts,
             messages=self._to_api_messages(messages),
             response_format={"type": "json_schema", "json_schema": {"name": "output", "schema": output_schema, "strict": False}},
-            **_sampling_kwargs(model, opts),
         )
         return json.loads(resp.choices[0].message.content or "{}")
 
     def list_models(self) -> list[str]:
         client = self._client()
         models = client.models.list()
-        return sorted(m.id for m in models.data if "gpt" in m.id or "o1" in m.id or "o3" in m.id)
+        return sorted(m.id for m in models.data if "gpt" in m.id or m.id.startswith(REASONING_MODEL_PREFIXES))
 
     def execute_operation(self, messages, model, output_schema, options=None):
         import json
 
         opts = options or CompletionOptions()
         client = self._client()
-        resp = client.chat.completions.create(
-            model=model,
+        resp = create_chat_completion(
+            client,
+            model,
+            opts,
             messages=self._to_api_messages(messages),
             response_format={"type": "json_schema", "json_schema": {"name": "output", "schema": output_schema, "strict": False}},
-            **_sampling_kwargs(model, opts),
         )
         parsed = json.loads(resp.choices[0].message.content or "{}")
         result = CompletionResult(

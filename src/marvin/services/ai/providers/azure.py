@@ -9,6 +9,7 @@ from ..base import (
     ToolCall,
     ToolDefinition,
 )
+from .openai_params import create_chat_completion
 
 
 class AzureOpenAIProvider(AIProvider):
@@ -87,13 +88,13 @@ class AzureOpenAIProvider(AIProvider):
         opts = options or CompletionOptions()
         api_tools = [{"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.input_schema}} for t in tools]
         choice_map = {"auto": "auto", "required": "required", "none": "none"}
-        resp = self._client().chat.completions.create(
-            model=model,
+        resp = create_chat_completion(
+            self._client(),
+            model,
+            opts,
             messages=self._to_api_tool_messages(messages),
             tools=api_tools,
             tool_choice=choice_map.get(tool_choice, "auto"),
-            max_tokens=opts.max_tokens,
-            temperature=opts.temperature,
         )
         choice = resp.choices[0]
         tool_calls: list[ToolCall] = []
@@ -116,12 +117,7 @@ class AzureOpenAIProvider(AIProvider):
 
     def complete(self, messages: list[Message], model: str, options: CompletionOptions | None = None) -> CompletionResult:
         opts = options or CompletionOptions()
-        resp = self._client().chat.completions.create(
-            model=model,
-            messages=self._to_api_messages(messages),
-            max_tokens=opts.max_tokens,
-            temperature=opts.temperature,
-        )
+        resp = create_chat_completion(self._client(), model, opts, messages=self._to_api_messages(messages))
         choice = resp.choices[0]
         return CompletionResult(
             content=choice.message.content or "",
@@ -136,11 +132,12 @@ class AzureOpenAIProvider(AIProvider):
         import json
 
         opts = options or CompletionOptions()
-        resp = self._client().chat.completions.create(
-            model=model,
+        resp = create_chat_completion(
+            self._client(),
+            model,
+            opts,
             messages=self._to_api_messages(messages),
             response_format={"type": "json_schema", "json_schema": {"name": "output", "schema": output_schema}},
-            max_tokens=opts.max_tokens,
         )
         return json.loads(resp.choices[0].message.content or "{}")
 
