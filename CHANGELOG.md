@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.157 (2026-10-03)
+
+### Documentation
+
+- Publish the Marvin manual
+  ([`888ba85`](https://github.com/InnerOpen/marvin/commit/888ba85da32a4008ff6df49fa52f30395a3d0fa2))
+
+### Features
+
+- **ui**: Pick a bubble character from cards, not a dropdown
+  ([`27b56db`](https://github.com/InnerOpen/marvin/commit/27b56db49d4575d267df1f8eadfd3738410c5247))
+
+
 ## v1.0.0-rc.156 (2026-10-03)
 
 ### Bug Fixes
