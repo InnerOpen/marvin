@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.170 (2026-10-03)
+
+### Bug Fixes
+
+- **entries**: Publishing by any route clears the schedule
+  ([`02ce26a`](https://github.com/InnerOpen/marvin/commit/02ce26a2ca53e0074967cd5a6b9397f65da2c53b))
+
+### Features
+
+- **scheduler**: Scheduled publish and expiry run out of the box as system tasks
+  ([`0e3725d`](https://github.com/InnerOpen/marvin/commit/0e3725d9cde63af6e6452b50580772c3aa6b90ea))
+
+
 ## v1.0.0-rc.169 (2026-10-03)
 
 ### Features
