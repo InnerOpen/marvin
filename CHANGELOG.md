@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.149 (2026-10-03)
+
+### Bug Fixes
+
+- **dashboard**: Count inbox and drafts apart in Needs Attention
+  ([`1fc74f1`](https://github.com/InnerOpen/marvin/commit/1fc74f18e8ba9b1623b633150afe274153319351))
+
+### Refactoring
+
+- **ai**: Official OpenAI via the Responses API; no per-model rules
+  ([`03a62bb`](https://github.com/InnerOpen/marvin/commit/03a62bb5fa253438342c440d46bb48d2011eddbc))
+
+
 ## v1.0.0-rc.148 (2026-10-03)
 
 ### Bug Fixes
