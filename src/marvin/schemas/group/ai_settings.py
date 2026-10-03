@@ -129,6 +129,7 @@ class AssistantCharacter(_MarvinModel):
 class AssistantCharacterUpload(AssistantCharacter):
     ignored: list[str] = []  # uploaded files that weren't a GIF, WebP or PNG image (or were duplicates)
     idle_guessed: bool = False  # no file was named for idle, so the first image stands in
+    cleared: list[str] = []  # files whose solid background was made transparent (services/ai/character.py: clear_matte)
 
 
 class AssistantCharacterAssign(_MarvinModel):

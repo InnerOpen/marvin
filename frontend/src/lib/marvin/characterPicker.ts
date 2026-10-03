@@ -39,7 +39,7 @@ export type StoredCharacter = {
   files: CharacterFile[];
   missing?: string[];
 };
-type UploadResult = StoredCharacter & { ignored: string[]; idleGuessed: boolean };
+type UploadResult = StoredCharacter & { ignored: string[]; idleGuessed: boolean; cleared: string[] };
 
 function parseData<T>(raw: string | undefined, fallback: T): T {
   try {
@@ -195,6 +195,10 @@ export function mountCharacterPicker(root: HTMLElement): void {
     const missing = (res.missing ?? []).map((k) => STATE_LABELS[k as CharacterState] ?? k);
     if (missing.length) lines.push(`No animation for: ${missing.join(", ")} — these fall back.`);
     if (res.ignored.length) lines.push(`Skipped (not a GIF, WebP or PNG): ${res.ignored.join(", ")}`);
+    if (res.cleared.length) {
+      const files = res.cleared.length === 1 ? "1 file" : `${res.cleared.length} files`;
+      lines.push(`Removed a solid background from ${files}: ${res.cleared.join(", ")}`);
+    }
     report.replaceChildren(...lines.map((l) => el("li", undefined, l)));
     report.hidden = !lines.length;
   }

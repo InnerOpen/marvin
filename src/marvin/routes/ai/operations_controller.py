@@ -909,7 +909,7 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
         character = store_character(self._character_store(), plan)
         self._save_agent_character(row, character)
-        return AssistantCharacterUpload(**describe(character), ignored=plan.ignored, idle_guessed=plan.idle_guessed)
+        return AssistantCharacterUpload(**describe(character), ignored=plan.ignored, idle_guessed=plan.idle_guessed, cleared=plan.cleared)
 
     @router.put("/agents/{slug}/character/states", response_model=AssistantCharacter, summary="Assign an agent's bubble character state")
     def assign_agent_character_state(self, slug: str, data: AssistantCharacterAssign) -> AssistantCharacter:

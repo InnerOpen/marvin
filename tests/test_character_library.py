@@ -15,6 +15,7 @@ from fastapi import HTTPException, UploadFile
 from PIL import Image
 
 from marvin.services.ai.character_library import LIBRARY_STORAGE_PREFIX
+from tests import character_images as images
 
 
 def _gif() -> bytes:
@@ -343,3 +344,59 @@ def test_the_settings_the_bubble_reads_carry_each_agents_character(admin, settin
     assert settings.get().agent_characters == {}
     agents.use_library("scout", pack.id)
     assert set(settings.get().agent_characters["scout"]) == {"idle", "greeting"}
+
+
+# --- solid backgrounds ----------------------------------------------------------------------------
+
+
+def test_a_pack_upload_lists_the_files_whose_background_was_cleared(admin):
+    from marvin.routes.admin.character_packs_controller import AdminCharacterPacksController as C
+
+    files = [UploadFile(io.BytesIO(images.matted_gif()), filename="running.gif"), UploadFile(io.BytesIO(_gif()), filename="idle.gif")]
+    assert C.create_pack(admin, name="Boxed", files=files).cleared == ["running.gif"]
+
+
+def test_an_agent_upload_lists_the_files_whose_background_was_cleared(agents):
+    from marvin.routes.ai.operations_controller import AIOperationsController as C
+
+    res = C.upload_agent_character(agents, "scout", [UploadFile(io.BytesIO(images.matted_gif()), filename="idle.gif")])
+    assert res.cleared == ["idle.gif"]
+
+
+@pytest.fixture
+def boxed_files(admin, settings, agents, storage, db_session):
+    """A library pack, a workspace's own character and an agent's, each with one file stored before uploads
+    cleared backgrounds: its stored bytes swapped for a matted GIF behind the controller's back."""
+    from marvin.db.models.platform import Assets
+
+    pack = admin.create("idle.gif", "running.gif", name="Old pack")
+    own = settings.upload("idle.gif")
+    agent = agents.upload("scout", "idle.gif")
+    keys = [f.url.removeprefix("/assets/") for f in pack.files if f.name == "running.gif"]
+    keys += [db_session.get(Assets, uuid.UUID(c.files[0].asset_id)).storage_key for c in (own, agent)]
+    for key in keys:
+        storage.put(storage_key=key, file_data=io.BytesIO(images.matted_gif()), content_type="image/gif")
+    return keys
+
+
+def _stored_bytes(storage, key) -> bytes:
+    return storage.get(key).read()
+
+
+def test_the_matte_repair_dry_run_reports_but_writes_nothing(boxed_files, storage, db_session):
+    from marvin.scripts.repair_character_mattes import repair_stored_mattes
+
+    repairs = repair_stored_mattes(db_session, storage)
+    assert {r.key for r in repairs if not r.error} >= set(boxed_files)
+    assert all(_stored_bytes(storage, key) == images.matted_gif() for key in boxed_files)
+
+
+def test_the_matte_repair_overwrites_each_file_in_place(boxed_files, storage, db_session):
+    from marvin.db.models.platform import Assets
+    from marvin.scripts.repair_character_mattes import repair_stored_mattes
+
+    repair_stored_mattes(db_session, storage, apply=True)
+    assert all(f.getpixel((0, 0))[3] == 0 for key in boxed_files for f in images.frames_rgba(_stored_bytes(storage, key)))
+    asset = db_session.query(Assets).filter_by(storage_key=boxed_files[-1]).one()
+    assert asset.file_size == len(_stored_bytes(storage, boxed_files[-1]))
+    assert not {r.key for r in repair_stored_mattes(db_session, storage)} & set(boxed_files)  # nothing left to do

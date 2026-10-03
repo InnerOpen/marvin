@@ -16,6 +16,7 @@ from PIL import Image
 
 from marvin.services.ai import character as ch
 from marvin.services.ai.character import CharacterError, assign_state, character_problem, plan_character, state_for
+from tests import character_images as images
 
 # The names in the pack this was built for, plus its demo reel, which matches no state.
 SAMPLE_NAMES = [
@@ -172,6 +173,74 @@ def test_a_corrupt_zip_is_refused():
         plan_character([("pack.zip", b"PK\x03\x04 not really a zip")])
 
 
+# --- clearing a solid background ---------------------------------------------------------------
+
+
+def _gif_image(data: bytes, name: str = "look-loop.gif") -> ch.CharacterImage:
+    return ch.CharacterImage(name=name, data=data, mime_type="image/gif", extension="gif")
+
+
+def _corners(frame: Image.Image) -> list[tuple[int, int, int, int]]:
+    last = images.SIZE - 1
+    return [frame.getpixel(xy) for xy in ((0, 0), (last, 0), (0, last), (last, last))]
+
+
+def test_clear_matte_on_a_matted_gif_clears_the_background_and_keeps_the_character():
+    assert all(c[3] == 255 for f in images.frames_rgba(images.matted_gif()) for c in _corners(f))  # the box being fixed
+    cleared = ch.clear_matte(_gif_image(images.matted_gif()))
+    frames = images.frames_rgba(cleared.data)
+    assert all(c[3] == 0 for f in frames for c in _corners(f))
+    for offset, frame in enumerate(frames):
+        assert frame.getpixel(images.body(offset)) == (*images.BODY, 255)
+        # Near-black but not the matte: within any loose tolerance, so it would go with the background.
+        assert frame.getpixel(images.outline(offset)) == (*images.OUTLINE, 255)
+        # The matte's very colour, but no background reaches it: only edge-connected matte is cleared.
+        assert frame.getpixel(images.eye(offset)) == (*images.EYE, 255)
+
+
+def test_clear_matte_keeps_the_animations_timing_and_format():
+    cleared = ch.clear_matte(_gif_image(images.matted_gif()))
+    with Image.open(io.BytesIO(cleared.data)) as img:
+        assert img.format == "GIF" and img.n_frames == len(images.DURATIONS) and img.info["loop"] == images.LOOP
+        durations = []
+        for i in range(img.n_frames):
+            img.seek(i)
+            durations.append(img.info["duration"])
+    assert durations == images.DURATIONS
+    assert (cleared.name, cleared.mime_type, cleared.extension) == ("look-loop.gif", "image/gif", "gif")
+
+
+@pytest.mark.parametrize("data", [images.clean_gif(), _gif(), _png()], ids=["transparent", "one-colour", "empty"])
+def test_clear_matte_leaves_an_image_without_a_matte_alone(data):
+    assert ch.clear_matte(_gif_image(data)) is None
+
+
+def test_clear_matte_on_a_still_png_with_a_matte():
+    image = ch.CharacterImage(name="idle.png", data=images.matted_png(), mime_type="image/png", extension="png")
+    (frame,) = images.frames_rgba(ch.clear_matte(image).data)
+    assert all(c[3] == 0 for c in _corners(frame)) and frame.getpixel(images.body(0)) == (*images.BODY, 255)
+
+
+def test_clear_matte_keeps_the_original_when_it_cannot_redo_it(monkeypatch):
+    def broken(*_a, **_k):
+        raise OSError("encoder exploded")
+
+    monkeypatch.setattr(ch, "_encode", broken)
+    assert ch.clear_matte(_gif_image(images.matted_gif())) is None
+
+
+def test_clear_matte_never_makes_a_file_bigger_than_the_cap(monkeypatch):
+    monkeypatch.setattr(ch, "MAX_CHARACTER_FILE_BYTES", 10)
+    assert ch.clear_matte(_gif_image(images.matted_gif())) is None
+
+
+def test_the_plan_lists_the_files_whose_background_was_cleared():
+    matted = images.matted_gif()
+    plan = plan_character([("idle.gif", images.clean_gif()), ("look-loop.gif", matted)])
+    assert plan.cleared == ["look-loop.gif"]
+    assert plan.states["idle_variant"].data != matted and plan.states["idle"].data == images.clean_gif()
+
+
 # --- the stored character, through the controller -----------------------------------------------
 
 
@@ -271,6 +340,11 @@ def test_upload_stores_every_image_as_an_asset_and_maps_states(ctrl, db_session,
     assert {f.asset_id for f in res.files} == _asset_ids(db_session, workspace[0])
     # The bubble loads each file by the same public URL the asset pages display.
     assert all(f.url == ctrl.repos.assets.get_one(uuid.UUID(f.asset_id)).public_url for f in res.files)
+
+
+def test_upload_result_lists_the_files_whose_background_was_cleared(ctrl):
+    res = ctrl.upload([("idle.gif", images.clean_gif()), ("look-loop.gif", images.matted_gif())])
+    assert res.cleared == ["look-loop.gif"]
 
 
 def test_path_traversal_names_only_label_the_file(ctrl, tmp_path):

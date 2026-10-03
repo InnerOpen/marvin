@@ -23,20 +23,28 @@ Only GIF, WebP and PNG/APNG are accepted, recognised by their magic bytes — ne
 SVG, which is a script vector when served from the app's own origin. Zips are read in memory with
 entry-count and size caps checked from the archive's directory before anything is decompressed, and
 enforced again while reading; entry names are only ever used to pick a state, never as paths.
+
+Some generated packs come with an opaque solid background ("matte") in a file or two — a GIF that
+declares a transparent colour but paints its background with another, identical one — which the bubble
+shows as a box around the character. Uploads clear it (clear_matte); scripts/repair_character_mattes.py
+does the same for files stored before that.
 """
 
 from __future__ import annotations
 
 import io
+import logging
 import re
 import uuid
 import zipfile
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Protocol
 
+import numpy as np
 from fastapi import UploadFile
+from PIL import Image, ImageDraw, ImageSequence, PngImagePlugin
 from pydantic import UUID4
 
 from marvin.services.ai.persona import url_problem
@@ -45,6 +53,8 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from marvin.services.assets.asset_storage_service import AssetStorageService
+
+logger = logging.getLogger(__name__)
 
 IDLE_STATE = "idle"
 CHARACTER_STATES = (
@@ -96,6 +106,23 @@ _ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06")  # a local file header, or an empty 
 _JUNK_DIRS = {"__MACOSX"}
 _DOT_DIRS = {".", ".."}
 
+# A frame has a matte when at least this share of its 1-px border is one opaque colour — not all of it,
+# since a character may touch the edge here and there (feet on the bottom row).
+MATTE_BORDER_RATIO = 0.98
+# How far, per channel, a pixel may be from the matte colour and still be background. Tight on purpose:
+# generated characters' near-black outlines sit only 3-4 levels off a black matte, and a looser match
+# would strip the outline along with the background. The mattes seen so far are exact.
+MATTE_TOLERANCE = 2
+# Frames x pixels decoded to clear a matte at most, bounding memory (4 bytes each, all held at once):
+# far past any real bubble animation (a 58-frame 192x208 reel is 2.3M), well short of what 5 MB of GIF
+# can claim to hold.
+MAX_MATTE_PIXELS = 32_000_000
+_OPAQUE = 255
+_FLOOD_MATTE, _FLOOD_REACHED = 255, 128  # mask values: background-coloured, and reached from the edge
+_GIF_TRANSPARENT_INDEX = 0
+_GIF_MAX_COLORS = 255  # a GIF palette holds 256 entries, one of them the transparent one
+_GIF_DISPOSE_TO_BACKGROUND = 2  # every frame is stored whole, drawn on a cleared canvas
+
 
 class CharacterError(ValueError):
     """An upload or assignment that can't become the bubble's character; the message says why."""
@@ -122,6 +149,8 @@ class CharacterPlan:
     idle_guessed: bool = False
     # The pack's display name: a zip's own name; None for loose files.
     name: str | None = None
+    # Files whose solid background was made transparent (clear_matte).
+    cleared: list[str] = field(default_factory=list)
 
 
 # --- naming -------------------------------------------------------------------------------------
@@ -248,6 +277,7 @@ def read_uploads(uploads: Iterable[tuple[str, bytes]]) -> tuple[list[CharacterIm
 def plan_character(uploads: list[tuple[str, bytes]]) -> CharacterPlan:
     """Read an upload and give each state its best-named file. Raises CharacterError when unusable."""
     images, ignored = read_uploads(uploads)
+    images, cleared = clear_mattes(images)
     if not images:
         raise CharacterError("no GIF, WebP or PNG images found — a character needs at least an idle animation")
     best: dict[str, tuple[int, CharacterImage]] = {}
@@ -260,7 +290,141 @@ def plan_character(uploads: list[tuple[str, bytes]]) -> CharacterPlan:
     if idle_guessed:
         states[IDLE_STATE] = images[0]
     zips = [_path(name).stem for name, data in uploads if is_zip(data)]
-    return CharacterPlan(images=images, states=states, ignored=ignored, idle_guessed=idle_guessed, name=zips[0] if zips else None)
+    name = zips[0] if zips else None
+    return CharacterPlan(images=images, states=states, ignored=ignored, idle_guessed=idle_guessed, name=name, cleared=cleared)
+
+
+# --- clearing a solid background ----------------------------------------------------------------
+
+
+@dataclass
+class _Animation:
+    """An image's frames, each whole (RGBA, H x W x 4), and what playing them needs."""
+
+    frames: list[np.ndarray]
+    durations: list[int]
+    loop: int | None  # None: the file doesn't say, so it plays once
+
+
+def clear_mattes(images: list[CharacterImage]) -> tuple[list[CharacterImage], list[str]]:
+    """`images` with any solid backgrounds cleared, and the names of those that had one."""
+    result, cleared = [], []
+    for image in images:
+        fixed = clear_matte(image)
+        result.append(fixed or image)
+        if fixed:
+            cleared.append(image.name)
+    return result, cleared
+
+
+def clear_matte(image: CharacterImage) -> CharacterImage | None:
+    """`image` with the solid background around its character made transparent, or None when it has
+    none. Only background connected to the edge goes, so a dark part of the character that the
+    background doesn't reach keeps its colour. Never raises: an image this can't safely redo is kept
+    as it came (None), because a box around the character is better than refusing the upload."""
+    try:
+        animation = _decode(image.data)
+        if animation is None:
+            return None
+        cleared = [_clear_frame(frame) for frame in animation.frames]
+        if all(frame is None for frame in cleared):
+            return None
+        frames = [new if new is not None else old for new, old in zip(cleared, animation.frames, strict=True)]
+        if not any(frame[..., 3].any() for frame in frames):
+            return None  # one solid colour throughout: a picture of nothing, not a character on a matte
+        data = _encode(replace(animation, frames=frames), image.extension)
+    except Exception:
+        logger.warning("Couldn't clear the background of %s; keeping it as uploaded", image.name, exc_info=True)
+        return None
+    if len(data) > MAX_CHARACTER_FILE_BYTES:
+        logger.warning("Clearing the background of %s would take it over the file cap; keeping it as uploaded", image.name)
+        return None
+    return replace(image, data=data)
+
+
+def _decode(data: bytes) -> _Animation | None:
+    """Every frame of a GIF, PNG/APNG or WebP, composited whole; None when it's too big to hold."""
+    with Image.open(io.BytesIO(data)) as img:
+        if getattr(img, "n_frames", 1) * img.width * img.height > MAX_MATTE_PIXELS:
+            logger.info("Not checking a %dx%d, %d-frame image for a matte: too large", img.width, img.height, getattr(img, "n_frames", 1))
+            return None
+        loop = img.info.get("loop")
+        frames, durations = [], []
+        for frame in ImageSequence.Iterator(img):
+            frames.append(np.array(frame.convert("RGBA")))
+            durations.append(int(frame.info.get("duration") or 0))
+    return _Animation(frames=frames, durations=durations, loop=loop)
+
+
+def _matte_color(frame: np.ndarray) -> np.ndarray | None:
+    """The frame's solid background colour (RGB), when its border is nearly all one opaque colour."""
+    border = np.concatenate([frame[0], frame[-1], frame[1:-1, 0], frame[1:-1, -1]])
+    opaque = border[border[:, 3] == _OPAQUE][:, :3]
+    if len(opaque) < MATTE_BORDER_RATIO * len(border):
+        return None
+    colors, counts = np.unique(opaque, axis=0, return_counts=True)
+    color = colors[counts.argmax()]
+    close = np.abs(opaque.astype(np.int16) - color).max(axis=1) <= MATTE_TOLERANCE
+    return color if close.sum() >= MATTE_BORDER_RATIO * len(border) else None
+
+
+def _clear_frame(frame: np.ndarray) -> np.ndarray | None:
+    """The frame with its edge-connected matte transparent; None when it has no matte."""
+    color = _matte_color(frame)
+    if color is None:
+        return None
+    matte = (frame[..., 3] == _OPAQUE) & (np.abs(frame[..., :3].astype(np.int16) - color).max(axis=2) <= MATTE_TOLERANCE)
+    # A 1-px ring of matte around the frame lets one fill from a corner reach every edge pixel. (Built
+    # from bytes, not fromarray: that image is read-only, and floodfill silently leaves it unchanged.)
+    ringed = np.pad(matte, 1, constant_values=True).astype(np.uint8) * _FLOOD_MATTE
+    mask = Image.frombytes("L", (ringed.shape[1], ringed.shape[0]), ringed.tobytes())
+    ImageDraw.floodfill(mask, (0, 0), _FLOOD_REACHED)
+    background = np.asarray(mask)[1:-1, 1:-1] == _FLOOD_REACHED
+    cleared = frame.copy()
+    cleared[background] = 0
+    return cleared
+
+
+def _encode(animation: _Animation, extension: str) -> bytes:
+    """The frames as a file of the same format, each stored whole with its original timing."""
+    images = [_gif_frame(f) for f in animation.frames] if extension == "gif" else [Image.fromarray(f) for f in animation.frames]
+    options: dict = {}
+    if len(images) > 1:
+        options = {"save_all": True, "append_images": images[1:], "duration": animation.durations}
+        if animation.loop is not None:
+            options["loop"] = animation.loop
+    out = io.BytesIO()
+    if extension == "gif":
+        images[0].save(out, "GIF", transparency=_GIF_TRANSPARENT_INDEX, disposal=_GIF_DISPOSE_TO_BACKGROUND, **options)
+    elif extension == "png":
+        # Each whole frame replaces the last outright, transparent pixels included.
+        images[0].save(out, "PNG", blend=PngImagePlugin.Blend.OP_SOURCE, **options)
+    else:
+        # Lossless: the file only loses its background, not detail.
+        images[0].save(out, "WEBP", lossless=True, **options)
+    return out.getvalue()
+
+
+def _gif_frame(frame: np.ndarray) -> Image.Image:
+    """A frame as a palette image of exactly its own colours, the transparent one first. (Pillow's own
+    RGBA-to-GIF conversion requantizes, which can shift colours or merge dark ones with the clear.)"""
+    opaque = frame[..., 3] > 0
+    rgb = frame[..., :3]
+    packed = (rgb[..., 0].astype(np.uint32) << 16) | (rgb[..., 1].astype(np.uint32) << 8) | rgb[..., 2]
+    colors, inverse = np.unique(packed[opaque], return_inverse=True)
+    if len(colors) <= _GIF_MAX_COLORS:
+        palette = np.stack([colors >> 16, (colors >> 8) & 0xFF, colors & 0xFF], axis=1)
+    else:
+        # Rare: composited frames whose local palettes add up past a GIF's colours.
+        quantized = Image.fromarray(rgb).quantize(_GIF_MAX_COLORS, dither=Image.Dither.NONE)
+        palette = np.array(quantized.getpalette()[: 3 * _GIF_MAX_COLORS]).reshape(-1, 3)
+        inverse = np.asarray(quantized)[opaque]
+    indices = np.full(opaque.shape, _GIF_TRANSPARENT_INDEX, np.uint8)
+    indices[opaque] = inverse.ravel() + 1
+    image = Image.frombytes("P", (frame.shape[1], frame.shape[0]), indices.tobytes())
+    image.putpalette([0, 0, 0, *palette.astype(np.uint8).ravel().tolist()])
+    image.info["transparency"] = _GIF_TRANSPARENT_INDEX
+    return image
 
 
 # --- the stored character -----------------------------------------------------------------------

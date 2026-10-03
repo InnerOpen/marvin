@@ -264,7 +264,7 @@ class AISettingsController(BaseUserController):
         store = self._character_store()
         character = store_character(store, plan)
         save_character(self.session, self._settings_row(), "assistant_character", character, store)
-        return AssistantCharacterUpload(**describe(character), ignored=plan.ignored, idle_guessed=plan.idle_guessed)
+        return AssistantCharacterUpload(**describe(character), ignored=plan.ignored, idle_guessed=plan.idle_guessed, cleared=plan.cleared)
 
     @router.put("/character/states", response_model=AssistantCharacter, summary="Assign a bubble character state")
     def assign_character_state(self, data: AssistantCharacterAssign) -> AssistantCharacter:
