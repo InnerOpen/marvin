@@ -6,6 +6,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.162 (2026-10-03)
+
+### Bug Fixes
+
+- **ai**: Big bulk writes ask first, tagging uses the images, restart-killed runs are marked,
+  deploys drain
+  ([`8dbc749`](https://github.com/InnerOpen/marvin/commit/8dbc749cbbf228fb197c88c71a44ca962d2c59b3))
+
+- **ui**: The update banner shows on admin pages too
+  ([`0ad5707`](https://github.com/InnerOpen/marvin/commit/0ad570706cf8c2d3e3e358fad3e697638d2deb08))
+
+
 ## v1.0.0-rc.161 (2026-10-03)
 
 ### Features
