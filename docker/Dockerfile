@@ -112,6 +112,9 @@ ENV BASE_DIR=$MARVIN_HOME
 # the last release, which this image's changelog can't have yet. It is optional: the [t] glob lets
 # a plain local `docker build` without it succeed, since COPY only fails when nothing matches at all.
 COPY --chown=app:app CHANGELOG.md UNRELEASED.tx[t] $MARVIN_HOME/
+# The user manual, for the agents' search_docs / read_doc tools (services/docs.py looks in
+# BASE_DIR/docs/manual), so they answer from the docs of the version actually running.
+COPY --chown=app:app docs/manual $MARVIN_HOME/docs/manual
 
 # ##################################
 # Backend Image — the API only (no frontend, no Node)

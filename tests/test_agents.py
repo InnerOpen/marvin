@@ -75,7 +75,7 @@ def test_agent_read_marks_system_agents_without_an_id():
 def test_system_agents_match_the_reserved_slugs_and_shapes():
     assert tuple(SYSTEM_AGENTS) == SYSTEM_AGENT_SLUGS
     assert SYSTEM_AGENTS["marvin"].tool_allowlist is None  # everything the role allows
-    assert SYSTEM_AGENTS["ask"].tool_allowlist == ("search_content", "workspace_overview", "suggest_agent")
+    assert SYSTEM_AGENTS["ask"].tool_allowlist == ("search_content", "workspace_overview", "search_docs", "read_doc", "suggest_agent")
     assert SYSTEM_AGENTS["chat"].kind == "model"
     assert all(s.is_system for s in SYSTEM_AGENTS.values())
 
@@ -408,7 +408,7 @@ def test_preamble_tells_agents_to_keep_workspace_paths_relative():
 
 def test_ask_agent_may_use_the_overview_tool():
     ask = SYSTEM_AGENTS["ask"]
-    assert set(ask.tool_allowlist) == {"search_content", "workspace_overview", "suggest_agent"}
+    assert set(ask.tool_allowlist) == {"search_content", "workspace_overview", "search_docs", "read_doc", "suggest_agent"}
     # it may refer (a no-op) but never hand off
     assert resolve_policy(ask, "suggest_agent", "agents_read", ROLE_VIEWER)[0] == POLICY_ALLOW
     assert resolve_policy(ask, "run_agent", "agents_run", ROLE_VIEWER)[0] == POLICY_BLOCK

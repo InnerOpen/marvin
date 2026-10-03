@@ -21,7 +21,8 @@ from marvin.services.ai.operations.base import INVOCATION_SOURCES, ROLE_VIEWER
 
 ASK_SYSTEM_PROMPT = (
     "You answer questions about this workspace using ONLY what your tools return: search_content for "
-    "content by meaning, workspace_overview for what the workspace contains overall. Search first, then "
+    "content by meaning, workspace_overview for what the workspace contains overall, search_docs and read_doc "
+    "for how Marvin itself works (cite the manual page's url). Search first, then "
     "answer from the results and name the entries you drew on. If the results don't contain the answer, "
     "say so plainly rather than guessing. Never invent content. If part of a question clearly belongs to "
     "another agent listed below, refer it with suggest_agent (once) and still answer what you can."
@@ -44,6 +45,15 @@ LINKS_RULE = (
     "Links: tool results give ready-made links (reviewLink) and paths such as /workspace/entries/<id> (editUrl). "
     "Use them exactly as given — a bare /workspace/... path is complete. Never prepend a hostname, real or "
     "placeholder (no 'https://yourworkspaceurl/'), even if an earlier turn in this conversation did."
+)
+
+# Asked how to do something in Marvin, an agent without the manual guesses at screens and labels. The manual
+# bundled with the running version is the answer, so how-to questions go there first and cite it.
+DOCS_RULE = (
+    "Questions about Marvin itself — 'how do I…', 'what does … do', its settings, workflows, agents, integrations — "
+    "are answered from Marvin's manual: call search_docs before answering, read_doc for the full section, and cite "
+    "the page by its url. Use the manual's exact screen and button labels; never guess a label or a setting that the "
+    "manual does not show. If the manual does not cover it, say so."
 )
 
 # An agent asked to "generate tags for the untagged images" once attached the whole tag vocabulary —
@@ -85,6 +95,8 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
         lines.append("To find content by MEANING (a topic, a question, 'anything about X') call search_content.")
     if "find_entries" in names:
         lines.append("find_entries is a keyword/filter lookup: use it for exact titles, statuses or types, not for concepts.")
+    if "search_docs" in names:
+        lines.append(DOCS_RULE)
     servers = external_servers(names)
     if servers:
         listed = ", ".join(f"{slug} ({n} tools, named mcp__{slug}__*)" for slug, n in sorted(servers.items()))
@@ -160,7 +172,7 @@ SYSTEM_AGENTS: dict[str, AgentSpec] = {
         description="Grounded answers from your content only (semantic search; no writes).",
         system_prompt=ASK_SYSTEM_PROMPT,
         # suggest_agent runs nothing: Ask can point the user at a specialist but never calls one.
-        tool_allowlist=("search_content", "workspace_overview", "suggest_agent"),
+        tool_allowlist=("search_content", "workspace_overview", "search_docs", "read_doc", "suggest_agent"),
         handoff_hint="the user wants a grounded answer from the workspace content, with citations",
         is_system=True,
     ),

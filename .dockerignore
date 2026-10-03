@@ -37,7 +37,9 @@ tests
 # Not used at runtime. NB: the healthcheck is marvin.scripts.healthcheck (src/marvin/scripts),
 # which is unaffected by excluding the repo-root scripts/ directory.
 scripts
-docs
+# docs/ is design notes, except the user manual: the docs tools read docs/manual at run time.
+docs/*
+!docs/manual
 tasks
 marvin-chart
 

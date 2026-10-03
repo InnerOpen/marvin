@@ -323,6 +323,10 @@ class AppSettings(BaseSettings):
 
     GITHUB_VERSION_URL: str = "https://api.github.com/repos/InnerOpen/marvin/tags"
 
+    DOCS_BASE_URL: str = "https://inneropen.github.io/marvin/"
+    """Where the user manual is published. The docs tools (search_docs / read_doc) read the manual
+    bundled with this install and link each hit to this site. Not the API docs (see DOCS_URL)."""
+
     GIT_COMMIT_HASH: str = "unknown"
 
     ALLOW_SIGNUP: bool = False

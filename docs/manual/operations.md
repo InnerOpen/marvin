@@ -25,6 +25,8 @@ The root probes live outside `/api` so orchestrators can hit them without knowin
 | `frontend` | `ghcr.io/inneropen/marvin-frontend` | Astro SSR UI only (`start-frontend.sh`) |
 | `lambda` | not published | `FROM production` |
 
+The backend-based images carry `CHANGELOG.md` (the update banner's release notes) and this manual (`docs/manual`, which the agents' `search_docs` / `read_doc` tools read) beside the venv, so both always match the running version.
+
 ## Helm chart
 
 `marvin-chart/` is the current deployment unit; read [`marvin-chart/README.md`](https://github.com/InnerOpen/marvin/blob/develop/marvin-chart/README.md) for install commands. `mode: combined` (default) runs the single image; `mode: split` creates backend and frontend Deployments from the `-backend` / `-frontend` images. Overlays: `values-k8s.yaml`, `values-staging.yaml`, `values-production.yaml`. Probes default to `/healthz` (liveness, initial delay 30 s, period 10 s) and `/readyz` (readiness, initial delay 10 s, period 5 s). Use `extraEnv` for settings the chart does not model and `initContainers` plus `extraVolumes` to install integration plugins before start (worked example in the chart README).
@@ -101,6 +103,7 @@ Admin: **Admin Settings → Database Backups** (`/admin/backups`) and `/api/admi
 | `AI_DEFAULT_TEMPERATURE` | unset | sent with every AI call only when set; unset (the default since rc.149; it was `0.7`) lets each model use its own, and some reasoning models refuse any other value |
 | `AI_DEFAULT_MAX_TOKENS` | unset | output-token cap when a workspace sets no **Max output tokens per request** |
 | `AI_BUDGET_WARNING_PERCENT` | `80` | percent of a workspace's monthly AI cost limit that fires `ai_budget_threshold_reached` and its toast; `0` turns the warning off |
+| `DOCS_BASE_URL` | `https://inneropen.github.io/marvin/` | where this manual is published; `search_docs` / `read_doc` link each section here (the text itself comes from the manual bundled with the install) |
 | `MCP_TOOL_TIMEOUT_SECONDS` | `45` | how long an agent waits for one external MCP tool call; keep it well under the proxy's request timeout. Must be above 0 (rc.146) |
 | `MCP_TOOL_RESULT_MAX_CHARS` | `20000` | longest external MCP tool result an agent sees; longer ones are cut with a note. Must be above 0 (rc.146) |
 | `AI_ALLOW_WORKSPACE_CREDENTIALS` | `true` | workspaces may store their own provider keys |

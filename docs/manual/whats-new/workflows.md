@@ -40,7 +40,7 @@ Templates in step inputs: `$event.entry_id` or `${event.count}` alone keeps the 
 
 ### Run on a query of entries
 
-Tick **Run on a query of entries** to run the steps once per matching entry instead of on the triggering entry. Each row gets the full `entry.*` context above, so a condition on `entry.data.<field>` works per row; conditions act as the query's WHERE clause. A run acts on at most **250** entries (`MAX_TARGET_ENTITIES`). **Preview matches** shows the true count and says when it is capped, so narrow the query itself (for example with **Fields equal**) rather than relying on conditions to filter a larger set.
+Tick **Run on a query of entries** to run the steps once per matching entry instead of on the triggering entry. This is how to bulk update entries: with a **Set fields** step (`set_data`) it changes the same fields on every entry the query matches. Each row gets the full `entry.*` context above, so a condition on `entry.data.<field>` works per row; conditions act as the query's WHERE clause. A run acts on at most **250** entries (`MAX_TARGET_ENTITIES`). **Preview matches** shows the true count and says when it is capped, so narrow the query itself (for example with **Fields equal**) rather than relying on conditions to filter a larger set.
 
 The form fills a `target`, `{"entity": "entry", "query": {…}}`, using the same entry query as the agent's `find_entries` tool and bulk agent actions. Form labels map to keys: **Entry type** → `entry_type`, **Status** → `status`, **Title contains** → `text`, **In collection** → `collection`, **has images** / **has assets** / **has resources** → `has_images` / `has_assets` / `has_resources`, **Metadata equals** → `metadata`, **Fields equal** → `data`. **Edit as JSON** accepts every key:
 
