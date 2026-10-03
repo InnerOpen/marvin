@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.166 (2026-10-03)
+
+### Features
+
+- **ai**: Search and read Marvin's own manual from agents (search_docs, read_doc)
+  ([`47182a9`](https://github.com/InnerOpen/marvin/commit/47182a98e3bd3d32bcaa40c5e76cc46f17705375))
+
+
 ## v1.0.0-rc.165 (2026-10-03)
 
 ### Features
