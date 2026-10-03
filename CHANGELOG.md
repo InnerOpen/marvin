@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.151 (2026-10-03)
+
+### Bug Fixes
+
+- **events**: Site build/deploy events can trigger workflows and notifications
+  ([`31b5266`](https://github.com/InnerOpen/marvin/commit/31b52661cc0ca3acb08a8bf5fc4d54036d14522b))
+
+
 ## v1.0.0-rc.150 (2026-10-03)
 
 ### Features
