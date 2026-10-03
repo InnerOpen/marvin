@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.145 (2026-10-03)
+
+### Features
+
+- **integrations**: {{SECRET}} references in integration action arguments
+  ([`a9daeda`](https://github.com/InnerOpen/marvin/commit/a9daedaa80fa14d92abd15b38ce662dd2bd17391))
+
+
 ## v1.0.0-rc.144 (2026-10-03)
 
 ### Features
