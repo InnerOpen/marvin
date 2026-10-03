@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.159 (2026-10-03)
+
+### Bug Fixes
+
+- **character**: Clear solid backgrounds from bubble-character images
+  ([`4929ec5`](https://github.com/InnerOpen/marvin/commit/4929ec59564c8ba3e68eb777c31f02888f5c4db9))
+
+### Features
+
+- **admin**: Delete a character pack from its card, even one in use
+  ([`f29fdbf`](https://github.com/InnerOpen/marvin/commit/f29fdbfe72cef571768581a0085c3ae9a7e591e0))
+
+
 ## v1.0.0-rc.158 (2026-10-03)
 
 ### Features
