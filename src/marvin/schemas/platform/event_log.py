@@ -58,6 +58,17 @@ class EventFeedItem(EventLogSummary):
     """What a site rebuild covers, newest last (capped) — None for any other event."""
     request_count: int | None = None
     """How many requests that rebuild covers; more than len(changes) when repeats collapsed or the list was capped."""
+    run_id: str | None = None
+    """A workflow run's id on automation_started / automation_ran / automation_failed — the toaster
+    updates one toast per run."""
+    workflow_name: str | None = None
+    """The workflow's display name (falls back to its slug) on those events."""
+    target_count: int | None = None
+    """How many entries a target-query run acts on (automation_started)."""
+    quiet_seconds: int | None = None
+    """A queued site rebuild is sent once requests have been quiet this long (site_rebuild_queued)."""
+    max_wait_seconds: int | None = None
+    """…or at the latest this long after its first request (site_rebuild_queued)."""
 
 
 class EventFeed(_MarvinModel):

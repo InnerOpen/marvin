@@ -62,6 +62,24 @@ def sent():
     return _Sent()
 
 
+@fixture(autouse=True)
+def announced(monkeypatch):
+    """Every event request_rebuild dispatches (the batch-opening `site_rebuild_queued`), as dispatch kwargs."""
+    from marvin.services.event_bus_service import event_bus_service
+
+    dispatched: list[dict] = []
+
+    class _Bus:
+        def __init__(self, *a, **kw):
+            pass
+
+        def dispatch(self, **kw):
+            dispatched.append(kw)
+
+    monkeypatch.setattr(event_bus_service, "EventBusService", _Bus)
+    return dispatched
+
+
 def _at(seconds: float) -> datetime:
     return T0 + timedelta(seconds=seconds)
 
@@ -257,3 +275,53 @@ def test_the_rebuild_event_carries_the_changes():
     assert body["changes"] == [
         {"label": "Entry 'e1' published", "event": "entry_published", "entityType": "entry", "entityId": str(uuid.UUID(int=1))}
     ]
+
+
+# --- Queued: the request that opens a batch announces it, so the admin sees it coming ---
+
+
+def test_only_the_request_that_opens_a_batch_announces_it(db_session, workspace, announced):
+    from marvin.services.event_bus_service.event_types import EventTypes
+
+    for n in range(5):
+        request_rebuild(db_session, workspace, f"edit {n}", change=_entry_change(n), now=_at(n))
+
+    (kw,) = announced
+    data = kw["document_data"]
+    assert kw["event_type"] == EventTypes.site_rebuild_queued and kw["group_id"] == workspace
+    assert data.workspace_id == workspace and data.reason == "edit 0" and data.change.label == "Entry 'e0' published"
+
+
+def test_the_next_batch_is_announced_again(db_session, workspace, sent, announced):
+    request_rebuild(db_session, workspace, "a", now=_at(0))
+    dispatch_due_rebuilds(db_session, sent.send, now=_at(QUIET_SECONDS))
+    request_rebuild(db_session, workspace, "b", now=_at(QUIET_SECONDS + 1))
+
+    assert [kw["document_data"].reason for kw in announced] == ["a", "b"]
+
+
+def test_the_queued_event_carries_the_windows_from_app_settings(db_session, workspace, announced, monkeypatch):
+    settings = SimpleNamespace(SITE_REBUILD_QUIET_SECONDS=45, SITE_REBUILD_MAX_WAIT_SECONDS=300)
+    monkeypatch.setattr(site_rebuild, "get_app_settings", lambda: settings)
+
+    request_rebuild(db_session, workspace, "quick", now=_at(0))
+
+    data = announced[0]["document_data"]
+    assert (data.quiet_seconds, data.max_wait_seconds) == (45, 300)
+    assert data.queued_at == T0 and data.expected_send_at == _at(45)
+
+
+def test_a_failed_announcement_still_queues_the_rebuild(db_session, workspace, sent, monkeypatch):
+    from marvin.services.event_bus_service import event_bus_service
+
+    class _DownBus:
+        def __init__(self, *a, **kw):
+            pass
+
+        def dispatch(self, **kw):
+            raise RuntimeError("bus down")
+
+    monkeypatch.setattr(event_bus_service, "EventBusService", _DownBus)
+
+    assert request_rebuild(db_session, workspace, "a", now=_at(0)) == 1
+    assert dispatch_due_rebuilds(db_session, sent.send, now=_at(QUIET_SECONDS)) == 1

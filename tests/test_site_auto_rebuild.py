@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from pytest import fixture
 from sqlalchemy import delete
 
+from marvin.db.models.platform.event_log import EventLogModel
 from marvin.db.models.platform.site_rebuild_requests import SiteRebuildRequestModel
 from marvin.services.event_bus_service.event_bus_listener import SiteRebuildReactionListener
 from marvin.services.event_bus_service.event_types import EventTypes
@@ -36,6 +37,8 @@ def site(db_session):
     db_session.commit()
     yield SimpleNamespace(gid=gid, live=live.id, draft=draft.id)
     db_session.execute(delete(SiteRebuildRequestModel).where(SiteRebuildRequestModel.group_id == gid))
+    # The request that opens a batch logs `site_rebuild_queued` against the workspace.
+    db_session.query(EventLogModel).filter_by(workspace_id=gid).delete()
     db_session.query(Entries).filter_by(group_id=gid).delete()
     db_session.query(EntryTypes).filter_by(group_id=gid).delete()
     db_session.query(GroupPreferencesModel).filter_by(group_id=gid).delete()
@@ -130,3 +133,12 @@ def test_a_message_that_does_not_name_the_entry_gets_its_title(db_session, site)
     _fire(site.gid, _entry_event(EventTypes.entry_tag_attached, site.live, site.gid, "Tag 'summer' attached"))
 
     assert _listed(db_session, site.gid)[0]["label"] == "Tag 'summer' attached — Live"
+
+
+def test_the_first_change_logs_the_queued_rebuild_and_later_ones_join_it(db_session, site):
+    _fire(site.gid, _event(EventTypes.entry_published, site.live))
+    _fire(site.gid, _event(EventTypes.entry_updated, site.live))
+
+    db_session.expire_all()
+    logged = db_session.query(EventLogModel).filter_by(workspace_id=site.gid, event_type="site_rebuild_queued").all()
+    assert _queued(db_session, site.gid) == 2 and len(logged) == 1

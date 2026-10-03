@@ -49,6 +49,7 @@ class RunAutomationHandler(ScheduledTaskHandler):
                 user_id=None,
                 logger=logger,
                 recorder=ExecutionRecorder(session, automation.group_id),
+                trigger_kind="schedule",
             )
 
         summary = f"ran automation '{automation.slug}' (ok={res.get('ok')})"

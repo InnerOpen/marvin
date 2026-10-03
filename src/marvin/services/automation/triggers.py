@@ -5,7 +5,9 @@ emitted (see the event-catalog honesty pass) and (b) are useful to react to. Int
 deliberately excluded: `ai_operation_executed`, `ai_embeddings_reindexed`, `*_delivery_*`,
 `scheduled_task_*`, `webhook_task`, notifications, search-index, session/auth, budget/quota,
 `automation_ran`/`automation_failed` (those drive the `chained`/`on_error` trigger TYPES, not the
-event dropdown).
+event dropdown), and `automation_started` (a workflow reacting to runs starting — its own included —
+would loop; it exists for the activity toaster), and `site_rebuild_queued` (rebuild progress, not
+content).
 
 Adding a family here is what lets `$event.<field>` conditions fire for non-entry events — the engine
 flattens each event's `document_data` into the match context, so an `asset_uploaded` trigger can

@@ -74,7 +74,7 @@ def test_run_workflow_matches_case_insensitively_by_name_or_slug(workspace, monk
     monkeypatch.setattr(
         engine,
         "run_automation_now",
-        lambda s, g, auto, user_id=None, logger=None, recorder=None: ran.append(auto.slug) or {"ok": True, "result": "done"},
+        lambda s, g, auto, user_id=None, logger=None, recorder=None, trigger_kind=None: ran.append(auto.slug) or {"ok": True, "result": "done"},
     )
     assert json.loads(run_workflow(workspace, {"workflow": "SUMMARIZE PUBLISHED BENCH NOTES"}))["ok"] is True
     assert json.loads(run_workflow(workspace, {"workflow": "Summarize-Bench-Notes"}))["workflow"] == "summarize-bench-notes"

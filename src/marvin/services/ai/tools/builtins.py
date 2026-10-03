@@ -797,6 +797,12 @@ def run_workflow(ctx: ToolContext, args: dict) -> str:
     user_id = ctx.user.id if ctx.user else None
     # Recorded like the Run button, so a run started from chat or MCP shows under the workflow's Runs.
     res = run_automation_now(
-        ctx.session, ctx.group_id, auto, user_id=user_id, logger=ctx.logger, recorder=ExecutionRecorder(ctx.session, ctx.group_id)
+        ctx.session,
+        ctx.group_id,
+        auto,
+        user_id=user_id,
+        logger=ctx.logger,
+        recorder=ExecutionRecorder(ctx.session, ctx.group_id),
+        trigger_kind="chat",
     )
     return json.dumps({"workflow": auto.slug, "ok": res.get("ok"), "result": res.get("result")})

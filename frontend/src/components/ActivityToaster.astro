@@ -1,6 +1,8 @@
 ---
 // Live activity toasts (a speech bubble off the bell; newest on top): what Marvin just did in this workspace — workflows that ran or failed,
 // webhooks received, site rebuilds sent (with a "N changes" list of what each covers), content changed by someone else.
+// A queued site rebuild and a running workflow show a pending toast that the event ending it (the rebuild
+// sent; the run's ran/failed) updates in place — keyed per workspace / per run (see planToasts in toast.ts).
 //
 // Polls GET /api/platform/events/feed (the audit log, oldest first) every few seconds while the tab
 // is visible. Everything shown is already in the event log; this only surfaces it as it happens.
@@ -18,7 +20,20 @@ const { userId = null } = Astro.props;
 <div class="activity-stack" id="activity-stack" role="log" aria-live="polite" aria-label="Recent activity"></div>
 
 <script>
-  import { type ChangeList, changesLabel, dismissTimer, moreLabel, type RebuildChange, summarizeChanges } from "@/lib/activity/toast";
+  import {
+    type ChangeList,
+    changesLabel,
+    type DismissTimer,
+    dismissTimer,
+    keyedToasts,
+    moreLabel,
+    planToasts,
+    type RebuildChange,
+    STICKY_TONES,
+    summarizeChanges,
+    type Tone,
+    toastView,
+  } from "@/lib/activity/toast";
   import { fetchApi } from "@/lib/api/client";
 
   type FeedEvent = {
@@ -33,18 +48,23 @@ const { userId = null } = Astro.props;
     detail?: string | null;
     changes?: RebuildChange[] | null;
     requestCount?: number | null;
+    workspaceId?: string | null;
+    runId?: string | null;
+    workflowName?: string | null;
+    targetCount?: number | null;
+    quietSeconds?: number | null;
+    maxWaitSeconds?: number | null;
   };
   type Feed = { now: string; events: FeedEvent[] };
   type Mode = "all" | "failures" | "off";
   type Kind = {
-    tone: "ok" | "info" | "warn" | "err"; // warn and err stay until dismissed and show in "failures only"
+    tone: Tone; // warn and err stay until dismissed and show in "failures only"
     label: string;
     href?: (e: FeedEvent) => string;
     othersOnly?: boolean;
     skip?: (e: FeedEvent) => boolean;
   };
 
-  const STICKY = new Set<Kind["tone"]>(["warn", "err"]);
   const POLL_MS = 5000;
   const TOAST_MS = 6000;
   const MAX_TOASTS = 5;
@@ -58,9 +78,11 @@ const { userId = null } = Astro.props;
 
   // What's worth a toast. Anything not listed stays in the event log only.
   const KINDS: Record<string, Kind> = {
+    automation_started: { tone: "info", label: "Workflow", href: () => "/automation/workflows" },
     automation_ran: { tone: "ok", label: "Workflow", href: () => "/automation/workflows" },
     automation_failed: { tone: "err", label: "Workflow failed", href: () => "/automation/workflows" },
     incoming_webhook: { tone: "info", label: "Webhook received", href: () => "/automation/incoming-webhooks" },
+    site_rebuild_queued: { tone: "info", label: "Site rebuild" },
     webhook_triggered: { tone: "info", label: "Site rebuild" },
     webhook_delivery_failed: { tone: "err", label: "Webhook delivery failed", href: () => "/automation/webhooks" },
     site_build_started: { tone: "info", label: "Site build started" },
@@ -136,7 +158,7 @@ const { userId = null } = Astro.props;
 
   function shouldShow(e: FeedEvent, kind: Kind | undefined): kind is Kind {
     if (!kind || mode === "off") return false;
-    if (mode === "failures" && !STICKY.has(kind.tone)) return false;
+    if (mode === "failures" && !STICKY_TONES.has(kind.tone)) return false;
     if (kind.othersOnly && me && e.userId === me) return false;
     if (kind.skip?.(e)) return false;
     return true;
@@ -191,18 +213,24 @@ const { userId = null } = Astro.props;
     return wrap;
   }
 
-  function show(e: FeedEvent, kind: Kind) {
+  type Toast = { el: HTMLElement; countdown: DismissTimer | null };
+  // Queued rebuilds and running workflows, waiting for the event that ends them.
+  const pending = keyedToasts<Toast>((t) => dismiss(t.el));
+
+  /** Build a toast for `e`; with `replace`, it takes that toast's place (an in-place update). */
+  function show(e: FeedEvent, kind: Kind, opts: { replace?: Toast; key?: string } = {}): Toast {
+    const view = toastView(e, kind, Boolean(opts.replace));
     const changes = summarizeChanges(e.changes, e.requestCount);
     // A toast with its own links inside can't itself be a link.
     const link = kind.href && !changes ? kind.href(e) : null;
     const el = document.createElement(link ? "a" : "div");
-    el.className = `activity-toast ${kind.tone}`;
+    el.className = `activity-toast ${view.tone}${opts.replace ? " updated" : ""}`;
     if (link) (el as HTMLAnchorElement).href = link;
 
     const head = document.createElement("div");
     head.className = "activity-head";
     const label = document.createElement("strong");
-    label.textContent = kind.label;
+    label.textContent = view.label;
     const time = document.createElement("time");
     time.dateTime = e.occurredAt;
     time.textContent = new Date(e.occurredAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
@@ -210,8 +238,15 @@ const { userId = null } = Astro.props;
 
     const body = document.createElement("div");
     body.className = "activity-body";
-    body.textContent = e.messageBody || e.messageTitle;
+    body.textContent = view.text;
     el.append(head, body);
+
+    if (view.note) {
+      const note = document.createElement("div");
+      note.className = "activity-note";
+      note.textContent = view.note;
+      el.append(note);
+    }
 
     if (e.detail) {
       const detail = document.createElement("div");
@@ -220,9 +255,10 @@ const { userId = null } = Astro.props;
       el.append(detail);
     }
 
-    // Failures stay until dismissed — they're the ones you'd act on. Others wait while you're
-    // reading them: pointer over, focus inside, or the change list open.
-    const countdown = STICKY.has(kind.tone) ? null : dismissTimer(TOAST_MS, () => dismiss(el));
+    // Failures stay until dismissed — they're the ones you'd act on; a pending toast stays until what
+    // it waits for arrives. Others wait while you're reading them: pointer over, focus inside, or the
+    // change list open.
+    const countdown = view.lifetime === "auto" ? dismissTimer(TOAST_MS, () => dismiss(el)) : null;
     if (countdown) {
       el.addEventListener("pointerenter", () => countdown.hold("pointer"));
       el.addEventListener("pointerleave", () => countdown.release("pointer"));
@@ -242,12 +278,33 @@ const { userId = null } = Astro.props;
       ev.preventDefault();
       ev.stopPropagation();
       countdown?.cancel();
+      // Only a pending toast holds its slot; a finished one's key may already hold the next batch's.
+      if (opts.key && view.lifetime === "pending") pending.take(opts.key);
       dismiss(el);
     });
     el.append(close);
 
-    stack.prepend(el);
-    while (stack.children.length > MAX_TOASTS) stack.lastElementChild?.remove();
+    const toast = { el, countdown };
+    if (opts.replace?.el.isConnected) {
+      opts.replace.countdown?.cancel();
+      opts.replace.el.replaceWith(el);
+    } else {
+      stack.prepend(el);
+      while (stack.children.length > MAX_TOASTS) stack.lastElementChild?.remove();
+    }
+    if (opts.key && view.lifetime === "pending") pending.open(opts.key, toast, view.capMs ?? TOAST_MS);
+    return toast;
+  }
+
+  // A poll's new events, oldest first: a start whose end is in the same poll shows only the end.
+  function land(events: FeedEvent[]) {
+    for (const { event: e, key, action } of planToasts(events, pending.has)) {
+      const kind = KINDS[e.eventType];
+      const visible = shouldShow(e, kind);
+      const prior = action === "update" && key ? pending.take(key) : undefined;
+      if (visible) show(e, kind, { replace: prior, key: key ?? undefined });
+      else if (prior) dismiss(prior.el); // muted since it opened — don't leave it waiting
+    }
   }
 
   const seen = new Set<string>();
@@ -261,12 +318,9 @@ const { userId = null } = Astro.props;
       const q = since ? `?since=${encodeURIComponent(since)}` : "";
       const feed = await fetchApi<Feed>(`/api/platform/events/feed${q}`);
       since = feed.now;
-      for (const e of feed.events) {
-        if (seen.has(e.eventId)) continue;
-        seen.add(e.eventId);
-        const kind = KINDS[e.eventType];
-        if (shouldShow(e, kind)) show(e, kind);
-      }
+      const fresh = feed.events.filter((e) => !seen.has(e.eventId));
+      for (const e of fresh) seen.add(e.eventId);
+      land(fresh);
       if (seen.size > SEEN_CAP) {
         for (const id of [...seen].slice(0, seen.size - SEEN_CAP)) seen.delete(id);
       }
@@ -331,6 +385,8 @@ const { userId = null } = Astro.props;
   .activity-stack :global(.activity-head) { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
   .activity-stack :global(.activity-head time) { color: var(--muted); font-size: 11px; white-space: nowrap; }
   .activity-stack :global(.activity-body) { overflow-wrap: anywhere; }
+  .activity-stack :global(.activity-toast.updated) { animation: none; }
+  .activity-stack :global(.activity-note) { margin-top: 2px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
   .activity-stack :global(.activity-detail) { margin-top: 4px; color: #dc2626; font-size: 12px; overflow-wrap: anywhere; }
   .activity-stack :global(.activity-changes) { margin-top: 4px; }
   .activity-stack :global(.activity-changes-toggle) {

@@ -55,6 +55,23 @@ def _changes(event_data: dict) -> tuple[list[SiteRebuildChange] | None, int | No
     return changes, count if isinstance(count, int) else None
 
 
+def _int(value) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _progress(event_data: dict) -> dict:
+    """What pairs a "running"/"queued" toast with the event that ends it, and what that toast says."""
+    doc = _document(event_data)
+    run_id = doc.get("executionId")
+    return {
+        "run_id": str(run_id) if run_id else None,
+        "workflow_name": doc.get("automationName") or doc.get("automationSlug"),
+        "target_count": _int(doc.get("targetCount")),
+        "quiet_seconds": _int(doc.get("quietSeconds")),
+        "max_wait_seconds": _int(doc.get("maxWaitSeconds")),
+    }
+
+
 def _feed_item(event) -> EventFeedItem:
     event_data = event.event_data or {}
     changes, request_count = _changes(event_data)
@@ -63,6 +80,7 @@ def _feed_item(event) -> EventFeedItem:
         detail=_detail(event_data),
         changes=changes,
         request_count=request_count,
+        **_progress(event_data),
     )
 
 

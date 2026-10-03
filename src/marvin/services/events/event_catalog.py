@@ -690,6 +690,22 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("error_message", "What went wrong", "Compilation error", type="error"),
         ],
     ),
+    CatalogEntry(
+        event_type="site_rebuild_queued",
+        name="Site Rebuild Queued",
+        # One per batch: later requests join it silently, and `webhook_triggered` sends it.
+        description="A change queued a site rebuild; more changes join it until requests go quiet, then it is sent.",
+        category="Publishing",
+        variables=COMMON_VARS
+        + [
+            EventVariable("reason", "Why the first request asked for a rebuild", "content change: Entry 'Summer menu' published"),
+            EventVariable("change", "The first change it covers (label, event, entity)", "{...}"),
+            EventVariable("quiet_seconds", "Sent once requests have been quiet this long", "60", type="number"),
+            EventVariable("max_wait_seconds", "...or at the latest this long after the first request", "600", type="number"),
+            EventVariable("queued_at", "When the first request arrived", "2026-07-16T10:00:00Z", type="datetime"),
+            EventVariable("expected_send_at", "When it is sent if nothing else joins it", "2026-07-16T10:01:00Z", type="datetime"),
+        ],
+    ),
     # ── Connect: Webhooks ─────────────────────────────────────────────────────
     CatalogEntry(
         event_type="incoming_webhook",
@@ -931,6 +947,21 @@ CATALOG: list[CatalogEntry] = [
         variables=COMMON_VARS
         + [
             EventVariable("task_name", "Name of the deleted task", "Daily Cleanup", type="name"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="automation_started",
+        name="Workflow Started",
+        # Not a workflow trigger (automation/triggers.py): reacting to a run starting would loop.
+        description="A workflow run began; the run's automation_ran / automation_failed event carries the same execution id.",
+        category="Automation",
+        variables=COMMON_VARS
+        + [
+            EventVariable("automation_name", "The workflow's name", "Tag new recipes", type="name"),
+            EventVariable("automation_slug", "The workflow's slug", "tag-new-recipes"),
+            EventVariable("execution_id", "The run's id, shared with the event that ends it", "<execution-uuid>"),
+            EventVariable("trigger", "What started it (manual, schedule, chat, event, incoming_webhook, chained, on_error)", "manual"),
+            EventVariable("target_count", "For a target-query run, how many entries it acts on", "12", type="number"),
         ],
     ),
     CatalogEntry(

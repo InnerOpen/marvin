@@ -366,6 +366,18 @@ def get_payload_example(event_type: str) -> dict:
                 {"label": "Entry 'Summer menu' published", "event": "entry_published", "entityType": "entry", "entityId": "<entry-uuid>"},
             ],
         },
+        # The request that opens a rebuild batch announces it (one per batch, not per request).
+        "site_rebuild_queued": {
+            "documentType": "deployment",
+            "operation": "info",
+            "workspaceId": "<workspace-uuid>",
+            "reason": "content change: Entry 'Summer menu' published",
+            "change": {"label": "Entry 'Summer menu' published", "event": "entry_published", "entityType": "entry", "entityId": "<entry-uuid>"},
+            "quietSeconds": 60,
+            "maxWaitSeconds": 600,
+            "queuedAt": "2026-07-16T00:00:00Z",
+            "expectedSendAt": "2026-07-16T00:01:00Z",
+        },
         # --- Site build / deploy events (emitted by a workflow's Emit event step) ---
         "site_build_started": {
             "documentType": "deployment",
@@ -534,6 +546,19 @@ def get_payload_example(event_type: str) -> dict:
             "entryTypeSlug": "blog-post",
             "workspaceId": "<workspace-uuid>",
             "workspaceName": "My Workspace",
+        },
+        # --- Workflow (automation) runs; automation_ran / automation_failed carry the same executionId ---
+        "automation_started": {
+            "documentType": "ai",
+            "operation": "info",
+            "automationId": "<automation-uuid>",
+            "automationSlug": "tag-new-recipes",
+            "automationName": "Tag new recipes",
+            "executionId": "<execution-uuid>",
+            "trigger": "manual",
+            "targetCount": 12,
+            "ok": True,
+            "workspaceId": "<workspace-uuid>",
         },
         # --- Scheduled task events ---
         "scheduled_task_created": {

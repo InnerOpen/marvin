@@ -14,6 +14,10 @@ starts building; a site that must react faster to a sale reads availability live
 Each request can also say what changed (:func:`rebuild_change`); the pending row keeps a short list
 of them so the `webhook_triggered` event — and the admin's "Site rebuild" toast — can show what one
 build covers.
+
+The request that opens a batch also announces it (`site_rebuild_queued`, with both windows), so the
+admin sees "queued — building in about a minute" instead of silence until it's sent. Only the
+opening one: a bulk edit can add hundreds of requests to the same batch.
 """
 
 from collections.abc import Callable
@@ -69,7 +73,8 @@ def request_rebuild(session: Session, group_id: UUID, reason: str | None, *, cha
         .where(SiteRebuildRequestModel.group_id == group_id)
         .values(last_requested_at=now, request_count=SiteRebuildRequestModel.request_count + 1, reason=reason)
     )
-    if bumped.rowcount == 0:
+    opened = bumped.rowcount == 0
+    if opened:
         session.add(
             SiteRebuildRequestModel(
                 session=session,
@@ -94,7 +99,36 @@ def request_rebuild(session: Session, group_id: UUID, reason: str | None, *, cha
         # Another request created the row between our UPDATE and INSERT — join it instead.
         session.rollback()
         return request_rebuild(session, group_id, reason, change=change, now=now)
+    if opened:
+        _announce_queued(group_id, reason, change, now)
     return session.execute(select(SiteRebuildRequestModel.request_count).where(SiteRebuildRequestModel.group_id == group_id)).scalar_one()
+
+
+def _announce_queued(group_id: UUID, reason: str | None, change: dict | None, queued_at: datetime) -> None:
+    """Dispatch `site_rebuild_queued` for a batch that just opened. Best-effort — the request is already saved."""
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+    from marvin.services.event_bus_service.event_types import EventSiteRebuildQueuedData, EventTypes, SiteRebuildChange
+
+    settings = get_app_settings()
+    quiet, max_wait = settings.SITE_REBUILD_QUIET_SECONDS, settings.SITE_REBUILD_MAX_WAIT_SECONDS
+    try:
+        EventBusService(bg_tasks=None).dispatch(
+            integration_id="site_rebuild",
+            group_id=group_id,
+            event_type=EventTypes.site_rebuild_queued,
+            document_data=EventSiteRebuildQueuedData(
+                workspace_id=group_id,
+                reason=reason,
+                change=SiteRebuildChange.model_validate(change) if change else None,
+                quiet_seconds=quiet,
+                max_wait_seconds=max_wait,
+                queued_at=queued_at,
+                expected_send_at=queued_at + timedelta(seconds=quiet),
+            ),
+            message=f"Site rebuild queued: {(change or {}).get('label') or reason or 'requested'}",
+        )
+    except Exception as e:  # noqa: BLE001 — announcing must never lose the queued rebuild
+        logger.warning("could not announce the queued site rebuild for %s: %s", group_id, e)
 
 
 def dispatch_due_rebuilds(

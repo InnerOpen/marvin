@@ -140,3 +140,41 @@ def test_other_events_carry_no_change_list(db_session, workspace):
     (event,) = _feed(db_session, workspace, since=NOW - timedelta(seconds=5)).events
 
     assert event.changes is None and event.request_count is None
+
+
+def _stored_document(event_type, data) -> dict:
+    """document_data as the event log stores it — the dispatched Event's JSON, aliases and all."""
+    from fastapi.encoders import jsonable_encoder
+
+    from marvin.services.event_bus_service.event_types import Event, EventBusMessage
+
+    event = Event(message=EventBusMessage.from_type(event_type, ""), event_type=event_type, integration_id="x", document_data=data)
+    return jsonable_encoder(event)["documentData"]
+
+
+def test_a_workflow_run_carries_what_pairs_its_start_and_end(db_session, workspace):
+    from marvin.services.event_bus_service.event_types import EventAutomationData, EventTypes
+
+    run_id = uuid.uuid4()
+    data = EventAutomationData(
+        automation_id=uuid.uuid4(), automation_slug="tag-all", automation_name="Tag all", execution_id=run_id, target_count=12, workspace_id=workspace
+    )
+    _event(db_session, workspace, 1, event_type="automation_started", document=_stored_document(EventTypes.automation_started, data))
+
+    (event,) = _feed(db_session, workspace, since=NOW - timedelta(seconds=5)).events
+
+    assert (event.run_id, event.workflow_name, event.target_count) == (str(run_id), "Tag all", 12)
+
+
+def test_a_queued_rebuild_carries_its_windows(db_session, workspace):
+    from marvin.services.event_bus_service.event_types import EventSiteRebuildQueuedData, EventTypes
+
+    data = EventSiteRebuildQueuedData(
+        workspace_id=workspace, quiet_seconds=45, max_wait_seconds=300, queued_at=NOW, expected_send_at=NOW + timedelta(seconds=45)
+    )
+    _event(db_session, workspace, 1, event_type="site_rebuild_queued", document=_stored_document(EventTypes.site_rebuild_queued, data))
+
+    (event,) = _feed(db_session, workspace, since=NOW - timedelta(seconds=5)).events
+
+    assert (event.quiet_seconds, event.max_wait_seconds) == (45, 300)
+    assert event.model_dump(by_alias=True)["quietSeconds"] == 45

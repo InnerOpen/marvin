@@ -1680,6 +1680,118 @@ class TestExecutionRecording:
         assert len(spy.actions) == 1 and spy.finished[0]["targets_run"] == 1
 
 
+# ── Run lifecycle events: automation_started pairs with ran/failed by run id ──
+@pytest.fixture
+def lifecycle(monkeypatch):
+    """The run lifecycle events the engine dispatches, as dispatch kwargs."""
+    from marvin.services.event_bus_service import event_bus_service
+
+    dispatched: list[dict] = []
+
+    class _Bus:
+        def __init__(self, *a, **kw):
+            pass
+
+        def dispatch(self, **kw):
+            dispatched.append(kw)
+
+    monkeypatch.setattr(event_bus_service, "EventBusService", _Bus)
+    return dispatched
+
+
+class _IdRecorder(_SpyRecorder):
+    """A spy that hands out a real execution id, as ExecutionRecorder does."""
+
+    def __init__(self):
+        super().__init__()
+        self.exec_id = uuid4()
+
+    def start(self, automation, trigger_type, **kw):
+        super().start(automation, trigger_type, **kw)
+        return self.exec_id
+
+
+def _workflow(definition: dict):
+    return SimpleNamespace(id=uuid4(), slug="tag-all", name="Tag all", enabled=True, group_id=uuid4(), definition=definition)
+
+
+def _names(dispatched) -> list[str]:
+    return [kw["event_type"].name for kw in dispatched]
+
+
+class TestRunLifecycleEvents:
+    MANUAL = {"trigger": {"type": "manual"}, "conditions": [], "actions": [{"kind": "emit_event", "event": "noted"}]}
+
+    def test_manual_run_announces_start_and_end_with_the_execution_id(self, lifecycle):
+        auto, spy = _workflow(self.MANUAL), _IdRecorder()
+
+        engine.run_automation_now(_FakeSession([]), uuid4(), auto, run_action=lambda *a, **k: {}, recorder=spy)
+
+        assert _names(lifecycle) == ["automation_started", "automation_ran"]
+        started, ran = (kw["document_data"] for kw in lifecycle)
+        assert started.execution_id == ran.execution_id == spy.exec_id
+        assert (started.automation_name, started.trigger, started.target_count) == ("Tag all", "manual", None)
+
+    def test_failed_run_ends_with_the_same_id(self, lifecycle):
+        auto, spy = _workflow(self.MANUAL), _IdRecorder()
+
+        def failing(*a, **k):
+            raise AutomationActionError("nope")
+
+        engine.run_automation_now(_FakeSession([]), uuid4(), auto, run_action=failing, recorder=spy)
+
+        assert _names(lifecycle) == ["automation_started", "automation_failed"]
+        assert {kw["document_data"].execution_id for kw in lifecycle} == {spy.exec_id}
+
+    def test_scheduled_run_says_so(self, lifecycle):
+        engine.run_automation_now(_FakeSession([]), uuid4(), _workflow(self.MANUAL), run_action=lambda *a, **k: {}, trigger_kind="schedule")
+
+        assert lifecycle[0]["document_data"].trigger == "schedule"
+
+    def test_unrecorded_run_still_pairs_its_events(self, lifecycle):
+        engine.run_automation_now(_FakeSession([]), uuid4(), _workflow(self.MANUAL), run_action=lambda *a, **k: {})
+
+        started, ran = (kw["document_data"].execution_id for kw in lifecycle)
+        assert started is not None and started == ran
+
+    def test_target_run_announces_how_many_entries_it_acts_on(self, lifecycle, monkeypatch):
+        from marvin.services.automation import selector
+
+        ents = [SimpleNamespace(id=uuid4(), entry_type=SimpleNamespace(slug="recipe"), status="draft", title=t, slug=t) for t in "abc"]
+        monkeypatch.setattr(selector, "resolve_target_entities", lambda *a, **k: (ents, 3))
+        auto = _workflow({**self.MANUAL, "target": {"entity": "entry", "query": {"status": "draft"}}})
+
+        engine.run_automation_now(_FakeSession([]), uuid4(), auto, run_action=lambda *a, **k: {})
+
+        assert lifecycle[0]["document_data"].target_count == 3
+
+    def test_event_run_announces_its_trigger(self, lifecycle):
+        auto = _workflow(
+            {"trigger": {"type": "event", "event": "entry_published"}, "conditions": [], "actions": [{"kind": "emit_event", "event": "x"}]}
+        )
+        ctx = {"event_type": "entry_published", "user_id": None}
+
+        engine.run_automations_for_event(_FakeSession([auto]), uuid4(), ctx, run_action=lambda *a, **k: {})
+
+        assert _names(lifecycle) == ["automation_started", "automation_ran"]
+        assert lifecycle[0]["document_data"].trigger == "event"
+
+    def test_run_gated_out_by_its_conditions_announces_nothing(self, lifecycle):
+        conditions = [{"field": "entry.status", "op": "eq", "value": "published"}]
+        auto = _workflow(
+            {"trigger": {"type": "event", "event": "entry_published"}, "conditions": conditions, "actions": [{"kind": "emit_event", "event": "x"}]}
+        )
+
+        engine.run_automations_for_event(_FakeSession([auto]), uuid4(), {"event_type": "entry_published"}, run_action=lambda *a, **k: {})
+
+        assert lifecycle == []
+
+    def test_dry_run_announces_nothing(self, lifecycle):
+        engine.run_automation_now(_FakeSession([]), uuid4(), _workflow(self.MANUAL), run_action=lambda *a, **k: {}, dry_run=True)
+
+        assert lifecycle == []
+
+
 # ── Correlation id: one chain, one id ─────────────────────────────────────────
 class TestCorrelationId:
     def test_scope_mints_inherits_and_overrides(self):

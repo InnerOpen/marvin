@@ -13,6 +13,7 @@ the engine is unit-testable without real executors.
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
+from uuid import uuid4
 
 from marvin.services.event_bus_service.correlation import correlation_scope, current_correlation_id
 
@@ -131,7 +132,7 @@ def run_automations_for_event(
             trig = defn.get("trigger") or {}
             if not _trigger_matches(trig, event_ctx):
                 continue
-            ran_this, ok = _run_targets(
+            ran_this, ok, run_id = _run_targets(
                 session,
                 group_id,
                 automation,
@@ -143,10 +144,11 @@ def run_automations_for_event(
                 gate_conditions=True,
                 recorder=recorder,
                 dry_run=dry_run,
+                trigger_kind=trig.get("type", "event"),
             )
             if ran_this:
                 if not dry_run:
-                    _announce(session, group_id, automation, ok, depth, user_id, context)
+                    _announce(session, group_id, automation, ok, depth, user_id, context, run_id=run_id)
                 ran += 1
 
     return ran
@@ -172,13 +174,16 @@ def _run_targets(
     gate_conditions: bool,
     recorder,
     dry_run: bool = False,
-) -> tuple[int, bool]:
+    trigger_kind: str | None = None,
+) -> tuple[int, bool, Any]:
     """Run the automation's pipeline over its target set (the `target` selector) — or, with no
     target, over the single trigger context — recording the run + each step.
 
-    Returns ``(ran_count, all_ok)``. With a `target`, conditions are always applied as the WHERE
-    over the resolved set. With no target, `gate_conditions` decides (events gate; a manual Run does
-    not). Capped by the selector — a matched set larger than the cap is truncated and logged.
+    Returns ``(ran_count, all_ok, run_id)``; ``run_id`` is the execution row's id (a fresh one when
+    the recorder keeps none), the id `automation_started` and the closing ran/failed event share.
+    With a `target`, conditions are always applied as the WHERE over the resolved set. With no
+    target, `gate_conditions` decides (events gate; a manual Run does not). Capped by the selector —
+    a matched set larger than the cap is truncated and logged.
     """
     defn = automation.definition or {}
     conditions = defn.get("conditions")
@@ -193,7 +198,7 @@ def _run_targets(
         except Exception as e:
             if logger:
                 logger.warning("automation '%s' target query failed: %s", automation.slug, e)
-            return 0, True
+            return 0, True, None
         capped = total > len(entities)
         if logger and capped:
             logger.warning(
@@ -209,7 +214,7 @@ def _run_targets(
     else:
         # Non-target: single context. If gated and conditions fail, it's a non-run — don't record.
         if gate_conditions and not matches(conditions, base_context):
-            return 0, True
+            return 0, True, None
         pairs = [(base_context, base_context.get("entry"))]
         total, capped, gate = 1, False, gate_conditions
 
@@ -221,11 +226,24 @@ def _run_targets(
         user_id=user_id,
         correlation_id=current_correlation_id.get(),
     )
+    run_id = exec_id or uuid4()
+
+    # Every per-target context is built before any step runs, so gating up front picks the same rows
+    # as gating one by one — and tells the "running" announcement how many entries the run acts on.
+    runnable = [(i, ctx, ref) for i, (ctx, ref) in enumerate(pairs) if not gate or matches(conditions, ctx)]
+    if runnable and not dry_run:
+        _announce_start(
+            group_id,
+            automation,
+            run_id,
+            trigger_kind or trigger_type,
+            target_count=len(runnable) if target else None,
+            depth=int(base_context.get("depth", 0)),
+            user_id=user_id,
+        )
 
     ran, ok_all, steps_ok, steps_failed = 0, True, 0, 0
-    for target_index, (ctx, ref) in enumerate(pairs):
-        if gate and not matches(conditions, ctx):
-            continue
+    for target_index, ctx, ref in runnable:
         ok, s_ok, s_failed = _run_pipeline(
             session,
             group_id,
@@ -248,7 +266,7 @@ def _run_targets(
 
     status = "success" if ok_all else ("partial" if steps_ok else "failed")
     recorder.finish(exec_id, status=status, error=base_context.get("_error"), targets_run=ran, steps_ok=steps_ok, steps_failed=steps_failed)
-    return ran, ok_all
+    return ran, ok_all, run_id
 
 
 def _trigger_matches(trig: dict, event_ctx: dict) -> bool:
@@ -279,7 +297,7 @@ def _target_ok(trig: dict, event_ctx: dict) -> bool:
     return target in (event_ctx.get("automation_slug"), event_ctx.get("automation_id"))
 
 
-def _announce(session, group_id, automation, ok: bool, depth: int, user_id, context: dict) -> None:
+def _announce(session, group_id, automation, ok: bool, depth: int, user_id, context: dict, *, run_id=None) -> None:
     """Emit automation_ran / automation_failed so chained + on-error triggers can react.
 
     Dispatched at reaction_depth+1 so chains stay bounded (the listener refuses past MAX_REACTION_DEPTH).
@@ -297,11 +315,44 @@ def _announce(session, group_id, automation, ok: bool, depth: int, user_id, cont
             document_data=EventAutomationData(
                 automation_id=automation.id,
                 automation_slug=automation.slug,
+                automation_name=getattr(automation, "name", None),
+                execution_id=run_id,
                 ok=ok,
                 error=None if ok else context.get("_error"),
                 workspace_id=group_id,
             ),
             message=f"Automation '{automation.slug}' {'ran' if ok else 'failed'}",
+            user_id=user_id,
+            reaction_depth=depth + 1,
+        )
+    except Exception:
+        pass
+
+
+def _announce_start(group_id, automation, run_id, trigger: str, *, target_count: int | None, depth: int, user_id) -> None:
+    """Emit automation_started so the admin sees a run in progress; its ran/failed event carries the same run id.
+
+    Nothing reacts to it (it isn't a workflow trigger), but it goes out at depth+1 like the other
+    lifecycle events. Best-effort — never breaks the run.
+    """
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+    from marvin.services.event_bus_service.event_types import EventAutomationData, EventTypes
+
+    try:
+        EventBusService(bg_tasks=None).dispatch(
+            integration_id="automation",
+            group_id=group_id,
+            event_type=EventTypes.automation_started,
+            document_data=EventAutomationData(
+                automation_id=automation.id,
+                automation_slug=automation.slug,
+                automation_name=getattr(automation, "name", None),
+                execution_id=run_id,
+                trigger=trigger,
+                target_count=target_count,
+                workspace_id=group_id,
+            ),
+            message=f"Automation '{automation.slug}' started",
             user_id=user_id,
             reaction_depth=depth + 1,
         )
@@ -387,11 +438,21 @@ def _run_pipeline(
 
 
 def run_automation_now(
-    session, group_id, automation, *, user_id=None, logger=None, run_action: Callable = _registry_run_action, recorder=None, dry_run: bool = False
+    session,
+    group_id,
+    automation,
+    *,
+    user_id=None,
+    logger=None,
+    run_action: Callable = _registry_run_action,
+    recorder=None,
+    dry_run: bool = False,
+    trigger_kind: str = "manual",
 ) -> dict:
     """Run one automation on demand (the Manual trigger / Run button) — skips the trigger + condition
     gates (the human explicitly asked for it). No event, so `$event.*` resolves to None; best for
     automations whose steps don't need a specific entry (webhook, handler, reindex, …).
+    ``trigger_kind`` says who asked (manual, schedule, chat) on the run's lifecycle events.
 
     ``dry_run=True`` evaluates the target + conditions and resolves each action's inputs but executes
     nothing (no AI call, no mutation, no webhook POST). It records nothing to the execution history and
@@ -411,7 +472,7 @@ def run_automation_now(
         # Manual run skips conditions when acting on the single (implicit) context — the human asked
         # for it. But when a `target` selects a set, its conditions are the WHERE over that set and
         # DO apply.
-        ran, ok = _run_targets(
+        ran, ok, run_id = _run_targets(
             session,
             group_id,
             automation,
@@ -423,9 +484,10 @@ def run_automation_now(
             gate_conditions=False,
             recorder=dry_recorder or recorder or NullRecorder(),
             dry_run=dry_run,
+            trigger_kind=trigger_kind,
         )
         if dry_run:
             assert dry_recorder is not None  # set whenever dry_run is True
             return {"ok": ok, "ran": ran, "dry_run": True, "plan": dry_recorder.plan}
-        _announce(session, group_id, automation, ok, 0, user_id, context)
+        _announce(session, group_id, automation, ok, 0, user_id, context, run_id=run_id)
         return {"ok": ok, "ran": ran, "result": context.get("previous", {})}

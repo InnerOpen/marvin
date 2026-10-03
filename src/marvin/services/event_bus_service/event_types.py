@@ -264,6 +264,8 @@ class EventTypes(EventTypeBase):
     """Event dispatched when a site build process completes."""
     site_build_failed = auto()
     """Event dispatched when a site build process fails."""
+    site_rebuild_queued = auto()
+    """A site rebuild request opened a new coalesced batch; `webhook_triggered` sends it once requests go quiet."""
 
     # ==========================================================================
     # Webhook Events
@@ -429,6 +431,8 @@ class EventTypes(EventTypeBase):
     """Event dispatched when workspace embeddings are (re)indexed for semantic search / RAG."""
     ai_budget_threshold_reached = auto()
     """Event dispatched when workspace AI spend crosses a budget warning threshold (~80%)."""
+    automation_started = auto()
+    """A Flavor B automation run began — the activity toaster's "running" toast (not a workflow trigger)."""
     automation_ran = auto()
     """A Flavor B automation finished running (its pipeline completed) — for chained triggers."""
     automation_failed = auto()
@@ -970,6 +974,27 @@ class EventSiteRebuildData(EventDocumentDataBase):
     """The changes it covers, newest last, capped (repeat edits of one thing collapse to one line)."""
 
 
+class EventSiteRebuildQueuedData(EventDocumentDataBase):
+    """Data payload for `site_rebuild_queued`: a request opened a new coalesced rebuild batch."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.deployment
+    operation: EventOperationBase = EventOperation.info
+    workspace_id: UUID4
+    """The workspace whose site will be rebuilt."""
+    reason: str | None = None
+    """Why the first request asked for a rebuild (e.g. "content change: …", "scheduled")."""
+    change: SiteRebuildChange | None = None
+    """The first change the batch covers, when the request said what changed."""
+    quiet_seconds: int
+    """The batch is sent once requests have been quiet this long (SITE_REBUILD_QUIET_SECONDS)."""
+    max_wait_seconds: int
+    """…or at the latest this long after the first request (SITE_REBUILD_MAX_WAIT_SECONDS)."""
+    queued_at: datetime
+    """When the first request arrived."""
+    expected_send_at: datetime
+    """queued_at + quiet_seconds — when it goes out if nothing else joins it."""
+
+
 class EventAPIClientData(EventDocumentDataBase):
     """Data payload for API client events."""
 
@@ -1197,9 +1222,10 @@ class EventAIEmbeddingsData(EventDocumentDataBase):
 
 
 class EventAutomationData(EventDocumentDataBase):
-    """Data payload for automation lifecycle events (automation_ran / automation_failed).
+    """Data payload for automation lifecycle events (automation_started / automation_ran / automation_failed).
 
-    Carries which Flavor B automation ran so chained / on-error triggers can key on it.
+    Carries which Flavor B automation ran so chained / on-error triggers can key on it, and the run's
+    id so the start and end of one run can be paired (the activity toaster updates one toast per run).
     """
 
     document_type: EventDocumentTypeBase = EventDocumentType.ai
@@ -1213,6 +1239,15 @@ class EventAutomationData(EventDocumentDataBase):
     error: str | None = None
     """Failure detail, when ok is False."""
     workspace_id: UUID4 | None = None
+    execution_id: UUID4 | None = None
+    """The run's id — its automation_executions row, or a fresh id when the run isn't recorded.
+    The same on automation_started and on the automation_ran / automation_failed that ends it."""
+    automation_name: str | None = None
+    """The automation's display name."""
+    trigger: str | None = None
+    """What started the run: manual, schedule, chat, event, incoming_webhook, chained or on_error."""
+    target_count: int | None = None
+    """For a target-query run, how many entries it acts on; None for a single-context run."""
 
 
 class EventAIBudgetData(EventDocumentDataBase):
