@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.156 (2026-10-03)
+
+### Bug Fixes
+
+- **bubble**: Keep threads per workspace; recover from a 404'd thread
+  ([`6bc32ec`](https://github.com/InnerOpen/marvin/commit/6bc32ecc0702a1a85d754029facdd2c086b57618))
+
+### Features
+
+- **ai**: Character library and per-agent bubble characters
+  ([`c31228e`](https://github.com/InnerOpen/marvin/commit/c31228ecafdc03216956db4e7d4192f20ffb103a))
+
+
 ## v1.0.0-rc.155 (2026-10-03)
 
 ### Bug Fixes
