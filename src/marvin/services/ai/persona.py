@@ -17,13 +17,27 @@ MAX_ICON_TEXT = 16
 MAX_ICON_URL = 2048
 
 
+def is_image_url(value: str) -> bool:
+    """Whether `value` reads as an image URL — absolute http(s), or a site path — rather than an emoji."""
+    return value.startswith(("https://", "http://", "/"))
+
+
+def url_problem(value: str) -> str | None:
+    """Why `value` isn't a usable image URL (http(s) or a site path, one token, bounded), or None."""
+    if not is_image_url(value):
+        return "an image must be an http(s) URL or a site path"
+    if len(value) > MAX_ICON_URL or any(c.isspace() for c in value):
+        return "an image URL must be a single URL"
+    return None
+
+
 def icon_problem(icon: str | None) -> str | None:
     """Why `icon` can't be the bubble's icon, or None when it can (None/blank = use the default)."""
     value = (icon or "").strip()
     if not value:
         return None
-    if value.startswith(("https://", "http://", "/")):
-        return None if len(value) <= MAX_ICON_URL and not any(c.isspace() for c in value) else "an icon URL must be a single URL"
+    if is_image_url(value):
+        return None if url_problem(value) is None else "an icon URL must be a single URL"
     if len(value) > MAX_ICON_TEXT:
         return f"an icon is an emoji (up to {MAX_ICON_TEXT} characters) or an image URL"
     return None

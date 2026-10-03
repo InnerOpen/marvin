@@ -1,7 +1,7 @@
 ---
 import EmojiPicker from "@/components/EmojiPicker.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -9,14 +9,17 @@ const authToken = getAuthToken(Astro.cookies);
 let settings: any = null;
 let secrets: any[] = [];
 let sources: any[] = [];
+let characterCatalog: any[] = [];
 let error: string | null = null;
 
 try {
   const sdk = createSdkClient(authToken);
-  [settings, secrets, sources] = await Promise.all([
+  [settings, secrets, sources, characterCatalog] = await Promise.all([
     sdk.ai.settings.get(),
     sdk.secrets.list(),
     sdk.ai.settings.sources().catch(() => []), // catalog for the invocation-sources editor
+    // The file names each bubble-character state picks up (services/ai/character.py) — upload hints.
+    fetchApi<any[]>("/api/groups/ai-settings/character/catalog", {}, authToken).catch(() => []),
   ]);
 } catch (e) {
   console.error("[ai-workflow] Error loading settings:", e);
@@ -38,6 +41,7 @@ const s = {
   allowWorkspaceCredentials: settings?.allowWorkspaceCredentials ?? true,
   assistantName: settings?.assistantName ?? null,
   assistantIcon: (settings as any)?.assistantIcon ?? null,
+  assistantCharacter: (settings as any)?.assistantCharacter ?? null,
   personaPrompt: settings?.personaPrompt ?? null,
   defaultRegister: settings?.defaultRegister ?? "auto",
 };
@@ -257,6 +261,25 @@ const modCfg = s.moderationConfig ?? {};
           <small class="hint">An emoji, or an image (paste its URL — an image URL wins over the emoji). Leave both blank for 🤖.</small>
         </div>
       </div>
+      <div class="form-field character-field" id="character-field"
+        data-character={JSON.stringify(s.assistantCharacter)} data-catalog={JSON.stringify(characterCatalog)}>
+        <span class="label">Bubble character</span>
+        <small class="hint">
+          An animated character shown instead of the icon, one animation per state. Upload a .zip or
+          GIF, WebP or PNG files named for the states (<span id="character-names">idle, waving, review, running…</span>)
+          — or name them anything and pick each state's animation below. Saved as you go.
+          Viewers who prefer reduced motion see a still image.
+        </small>
+        <div class="character-actions">
+          <input type="file" id="character-files" accept=".zip,image/gif,image/webp,image/png" multiple hidden />
+          <button type="button" class="button secondary small" id="character-upload">Upload character…</button>
+          <button type="button" class="button secondary small" id="character-remove" hidden>Remove</button>
+          <span id="character-status" class="save-status"></span>
+        </div>
+        <ul id="character-report" class="hint character-report" hidden></ul>
+        <div id="character-grid" class="character-grid" hidden></div>
+        <small id="character-unassigned" class="hint" hidden></small>
+      </div>
       <label class="form-field">
         <span class="label">Voice / tone</span>
         <textarea name="persona_prompt" class="input persona-prompt" rows="4"
@@ -378,6 +401,147 @@ const modCfg = s.moderationConfig ?? {};
 <script>
   import { fetchApi } from '@/lib/api/client';
   import { createSdkClient } from '@/lib/sdk';
+  import { CHARACTER_STATES, fallbacksOf, imageFor, type CharacterState } from '@/lib/marvin/character';
+
+  // ── Bubble character ── (POST/PUT/DELETE /api/groups/ai-settings/character; services/ai/character.py)
+  // Saved immediately rather than with the form: an upload stores files, so it can't wait for "Save".
+  const STATE_LABELS: Record<CharacterState, string> = {
+    idle: 'Idle',
+    idle_variant: 'Idle fidget',
+    greeting: 'Greeting',
+    thinking: 'Thinking',
+    working: 'Working',
+    waiting: 'Waiting for approval',
+    success: 'Success',
+    error: 'Error',
+    move_left: 'Dragging left',
+    move_right: 'Dragging right',
+  };
+  type CharacterFile = { name: string; assetId: string; url: string };
+  type StoredCharacter = { states: Partial<Record<CharacterState, string>>; files: CharacterFile[]; missing?: string[] };
+
+  const characterField = document.getElementById('character-field') as HTMLElement;
+  const characterGrid = document.getElementById('character-grid')!;
+  const characterReport = document.getElementById('character-report')!;
+  const characterUnassigned = document.getElementById('character-unassigned')!;
+  const characterStatus = document.getElementById('character-status')!;
+  const characterInput = document.getElementById('character-files') as HTMLInputElement;
+  const characterRemove = document.getElementById('character-remove') as HTMLButtonElement;
+  const CHARACTER_API = '/api/groups/ai-settings/character';
+
+  function parseData<T>(raw: string | undefined, fallback: T): T {
+    try { return (JSON.parse(raw || 'null') as T) ?? fallback; } catch { return fallback; }
+  }
+
+  // Name the files the way the backend's alias table reads them, so the hint can't drift from it.
+  const catalog = parseData<{ key: string; aliases: string[] }[]>(characterField.dataset.catalog, []);
+  if (catalog.length) {
+    document.getElementById('character-names')!.textContent = catalog.map((c) => `${c.aliases[0]}.gif`).join(', ');
+  }
+
+  function setCharacterStatus(text: string, kind: '' | 'success' | 'error' = '') {
+    characterStatus.textContent = text;
+    characterStatus.className = `save-status ${kind}`.trim();
+  }
+
+  function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string): HTMLElementTagNameMap[K] {
+    const node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function stateRow(c: StoredCharacter, state: CharacterState, fileByUrl: Map<string, CharacterFile>): HTMLElement {
+    const row = el('div', 'character-row');
+    const own = c.states[state];
+    const src = imageFor(c.states, state);
+    const thumb = el('img', own ? 'character-thumb' : 'character-thumb borrowed');
+    thumb.alt = '';
+    if (src) thumb.src = src;
+    const select = el('select', 'input');
+    select.setAttribute('aria-label', `${STATE_LABELS[state]} animation`);
+    if (state !== 'idle') {
+      const chain = fallbacksOf(state).map((s) => STATE_LABELS[s]).join(', then ');
+      select.append(new Option(`— default (falls back to ${chain})`, ''));
+    }
+    for (const f of c.files) select.append(new Option(f.name, f.assetId, false, f.url === own));
+    if (own && !fileByUrl.has(own)) select.append(new Option('(an image URL)', '', false, true));
+    select.addEventListener('change', () => void assignState(state, select.value || null));
+    row.append(thumb, el('span', 'character-state', STATE_LABELS[state]), select);
+    return row;
+  }
+
+  function renderCharacter(c: StoredCharacter | null) {
+    characterRemove.hidden = !c;
+    characterGrid.hidden = !c;
+    characterUnassigned.hidden = true;
+    if (!c) { characterGrid.replaceChildren(); return; }
+    const fileByUrl = new Map(c.files.map((f) => [f.url, f]));
+    characterGrid.replaceChildren(...CHARACTER_STATES.map((state) => stateRow(c, state, fileByUrl)));
+    const used = new Set(Object.values(c.states));
+    const spare = c.files.filter((f) => !used.has(f.url)).map((f) => f.name);
+    if (spare.length) {
+      characterUnassigned.textContent = `Not used by any state: ${spare.join(', ')}`;
+      characterUnassigned.hidden = false;
+    }
+  }
+
+  function reportUpload(res: StoredCharacter & { ignored: string[]; idleGuessed: boolean }) {
+    const lines: string[] = [];
+    if (res.idleGuessed) {
+      const idle = res.files.find((f) => f.url === res.states.idle);
+      lines.push(`No file was named for Idle, so ${idle?.name ?? 'the first image'} plays as Idle — pick another below.`);
+    }
+    const missing = (res.missing ?? []).map((k) => STATE_LABELS[k as CharacterState] ?? k);
+    if (missing.length) lines.push(`No animation for: ${missing.join(', ')} — these fall back.`);
+    if (res.ignored.length) lines.push(`Skipped (not a GIF, WebP or PNG): ${res.ignored.join(', ')}`);
+    characterReport.replaceChildren(...lines.map((l) => el('li', undefined, l)));
+    characterReport.hidden = !lines.length;
+  }
+
+  async function characterCall<T>(label: string, run: () => Promise<T>): Promise<T | null> {
+    setCharacterStatus(label);
+    try {
+      const res = await run();
+      setCharacterStatus('Saved', 'success');
+      return res;
+    } catch (err) {
+      setCharacterStatus(`Error: ${err instanceof Error ? err.message : String(err)}`, 'error');
+      return null;
+    }
+  }
+
+  async function assignState(state: CharacterState, file: string | null) {
+    const res = await characterCall('Saving…', () =>
+      fetchApi<StoredCharacter>(`${CHARACTER_API}/states`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state, file }),
+      }));
+    if (res) renderCharacter(res);
+  }
+
+  document.getElementById('character-upload')!.addEventListener('click', () => characterInput.click());
+  characterInput.addEventListener('change', async () => {
+    const files = [...(characterInput.files ?? [])];
+    characterInput.value = '';
+    if (!files.length) return;
+    const body = new FormData();
+    for (const f of files) body.append('files', f);
+    const res = await characterCall('Uploading…', () =>
+      fetchApi<StoredCharacter & { ignored: string[]; idleGuessed: boolean }>(CHARACTER_API, { method: 'POST', body }));
+    if (!res) return;
+    renderCharacter(res);
+    reportUpload(res);
+  });
+  characterRemove.addEventListener('click', async () => {
+    if (!confirm('Remove the bubble character? Its uploaded files are deleted and the bubble goes back to the icon.')) return;
+    if ((await characterCall('Removing…', () => fetchApi(CHARACTER_API, { method: 'DELETE' }))) === null) return;
+    characterReport.hidden = true;
+    renderCharacter(null);
+  });
+
+  renderCharacter(parseData<StoredCharacter | null>(characterField.dataset.character, null));
 
   // ── Usage & limits ── (GET /api/groups/ai-settings/usage; see services/ai/budget.py)
   const usd = (n: number) => (n < 0.01 && n > 0 ? '<$0.01' : `$${n.toFixed(2)}`);
@@ -806,6 +970,23 @@ const modCfg = s.moderationConfig ?? {};
   .form-field { display: grid; gap: 8px; }
   .label { font-size: 13px; font-weight: 500; }
   .hint { font-size: 12px; color: var(--muted); }
+
+  .character-field { margin-bottom: 16px; }
+  .character-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .character-report { margin: 0; padding-left: 18px; }
+  .character-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px;
+  }
+  /* Rows are built in the script, so their styles must be :global() to apply. */
+  .character-grid :global(.character-row) {
+    display: grid; grid-template-columns: 40px 1fr minmax(0, 1.4fr); align-items: center; gap: 8px;
+    padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg);
+  }
+  .character-grid :global(.character-thumb) { height: 40px; width: 40px; object-fit: contain; }
+  /* Borrowed from a fallback state: shown, but visibly not its own. */
+  .character-grid :global(.character-thumb.borrowed) { opacity: 0.35; }
+  .character-grid :global(.character-state) { font-size: 13px; }
+  .character-grid :global(select) { font-size: 12px; padding: 4px 6px; }
 
   /* ── Usage & limits ── */
   .usage-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 16px; }

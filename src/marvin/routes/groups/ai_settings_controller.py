@@ -1,6 +1,6 @@
 """API routes for per-workspace AI workflow policy settings."""
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
 from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
@@ -10,6 +10,10 @@ from marvin.routes._base.controller import controller
 from marvin.schemas.group.ai_settings import (
     AIUsageLimits,
     AIUsageOperation,
+    AssistantCharacter,
+    AssistantCharacterAssign,
+    AssistantCharacterState,
+    AssistantCharacterUpload,
     WorkspaceAISettingsRead,
     WorkspaceAISettingsUpdate,
     WorkspaceAIUsage,
@@ -109,6 +113,14 @@ class AISettingsController(BaseUserController):
             if problem:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=problem)
 
+        character_set = "assistant_character" in data.model_fields_set
+        if character_set:
+            from marvin.services.ai.character import character_problem
+
+            problem = character_problem(data.assistant_character)
+            if problem:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=problem)
+
         if "approval_mode" in data.model_fields_set:
             from marvin.services.ai.approval import APPROVAL_MODES
 
@@ -118,14 +130,20 @@ class AISettingsController(BaseUserController):
                     detail=f"approval_mode must be one of: {', '.join(APPROVAL_MODES)}.",
                 )
 
-        row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        if not row:
-            row = WorkspaceAISettingsModel(session=self.session, group_id=self.group_id)
-            self.session.add(row)
+        row = self._settings_row()
 
-        for field, value in data.model_dump(exclude_unset=True).items():
+        updates = data.model_dump(exclude_unset=True)
+        updates.pop("assistant_character", None)  # merged below: the file list isn't the caller's to set
+        for field, value in updates.items():
             if hasattr(row, field):
                 setattr(row, field, value)
+
+        previous_character = row.assistant_character
+        if character_set and data.assistant_character is None:
+            row.assistant_character = None
+        elif character_set:
+            states = {k: v.strip() for k, v in data.assistant_character["states"].items()}
+            row.assistant_character = {**(previous_character or {}), "states": states}
 
         if data.credential_mode is not None and data.credential_mode != "workspace":
             row.secret_ref = None
@@ -133,7 +151,104 @@ class AISettingsController(BaseUserController):
         self.session.commit()
         self.session.refresh(row)
 
+        if character_set and row.assistant_character is None:
+            from marvin.services.ai.character import delete_character_assets
+
+            delete_character_assets(self._asset_service(), previous_character)
+
         result = WorkspaceAISettingsRead.model_validate(row)
         if warnings:
             self.logger.warning("AI settings saved with warnings: %s", "; ".join(warnings))
         return result
+
+    # --- the bubble's animated character (services/ai/character.py) ------------------------------
+
+    def _settings_row(self) -> WorkspaceAISettingsModel:
+        row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
+        if not row:
+            row = WorkspaceAISettingsModel(session=self.session, group_id=self.group_id)
+            self.session.add(row)
+        return row
+
+    def _asset_service(self):
+        from marvin.services.assets.asset_storage_service import AssetStorageService
+        from marvin.services.storage.provider_factory import get_storage_provider
+
+        return AssetStorageService(self.repos, get_storage_provider())
+
+    @router.get("/character/catalog", response_model=list[AssistantCharacterState], summary="Bubble character states")
+    def character_catalog(self) -> list[AssistantCharacterState]:
+        """The canonical bubble states and the file names each one picks up from an upload."""
+        from marvin.services.ai.character import catalog
+
+        return [AssistantCharacterState(**s) for s in catalog()]
+
+    @router.post("/character", response_model=AssistantCharacterUpload, summary="Upload the bubble character")
+    def upload_character(self, files: list[UploadFile] = File(...)) -> AssistantCharacterUpload:
+        """Replace the bubble's character with a .zip or loose GIF/WebP/PNG files, one per state by name.
+
+        Every accepted image is stored as a workspace asset; the previous character's assets are deleted.
+        """
+        from marvin.services.ai.character import (
+            MAX_CHARACTER_UPLOAD_BYTES,
+            CharacterError,
+            delete_character_assets,
+            describe,
+            plan_character,
+            store_character,
+        )
+
+        self._require_admin()
+        uploads = []
+        for f in files:
+            # One byte past the cap tells "too big" from "exactly the cap" without reading it all.
+            data = f.file.read(MAX_CHARACTER_UPLOAD_BYTES + 1)
+            if len(data) > MAX_CHARACTER_UPLOAD_BYTES:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"{f.filename} is too large")
+            uploads.append((f.filename or "upload", data))
+        try:
+            plan = plan_character(uploads)
+        except CharacterError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+
+        service = self._asset_service()
+        character = store_character(service, self.group_id, self.user.id, plan)
+        row = self._settings_row()
+        previous = row.assistant_character
+        row.assistant_character = character
+        try:
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            delete_character_assets(service, character)
+            raise
+        delete_character_assets(service, previous)
+        return AssistantCharacterUpload(**describe(character), ignored=plan.ignored, idle_guessed=plan.idle_guessed)
+
+    @router.put("/character/states", response_model=AssistantCharacter, summary="Assign a bubble character state")
+    def assign_character_state(self, data: AssistantCharacterAssign) -> AssistantCharacter:
+        """Play one of the character's files for a state, or clear the state (it falls back) with file=null."""
+        from marvin.services.ai.character import CharacterError, assign_state, describe
+
+        self._require_admin()
+        row = self._settings_row()
+        try:
+            row.assistant_character = assign_state(row.assistant_character, data.state, data.file)
+        except CharacterError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        self.session.commit()
+        return AssistantCharacter(**describe(row.assistant_character))
+
+    @router.delete("/character", status_code=status.HTTP_204_NO_CONTENT, summary="Remove the bubble character")
+    def delete_character(self) -> None:
+        """Back to the icon; the character's stored assets are deleted."""
+        from marvin.services.ai.character import delete_character_assets
+
+        self._require_admin()
+        row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
+        if not row or not row.assistant_character:
+            return
+        previous = row.assistant_character
+        row.assistant_character = None
+        self.session.commit()
+        delete_character_assets(self._asset_service(), previous)

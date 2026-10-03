@@ -28,6 +28,9 @@ class WorkspaceAISettingsCreate(_MarvinModel):
     # Per-workspace AI persona: display name, bubble icon (emoji or image URL) and a voice/tone instruction.
     assistant_name: str | None = None
     assistant_icon: str | None = None
+    # The bubble's animated character ({"states": {state: url}, "files": [...]}), shown instead of the
+    # icon. Set through POST /groups/ai-settings/character; see services/ai/character.py.
+    assistant_character: dict | None = None
     persona_prompt: str | None = None
     # Default tone register for agent runs (axis B, separate from persona). A per-call register wins.
     default_register: str = "auto"  # "auto" | "professional" | "playful"
@@ -52,6 +55,8 @@ class WorkspaceAISettingsUpdate(_MarvinModel):
     external_mcp_enabled: bool | None = None
     assistant_name: str | None = None
     assistant_icon: str | None = None
+    # Only {"states": ...} is taken (or null, to remove the character); uploads go through /character.
+    assistant_character: dict | None = None
     persona_prompt: str | None = None
     default_register: str | None = None
 
@@ -96,3 +101,36 @@ class WorkspaceAIUsage(_MarvinModel):
     day_percent: float | None = None
     resets_on: date | None = None
     by_operation: list[AIUsageOperation] = []
+
+
+class AssistantCharacterFile(_MarvinModel):
+    """One animation the character's upload stored, assigned to a state or not."""
+
+    name: str
+    asset_id: str
+    url: str
+
+
+class AssistantCharacter(_MarvinModel):
+    """The bubble's animated character — see services/ai/character.py."""
+
+    name: str | None = None
+    states: dict[str, str]
+    files: list[AssistantCharacterFile] = []
+    missing: list[str] = []  # canonical states without an animation; the bubble falls back for these
+
+
+class AssistantCharacterUpload(AssistantCharacter):
+    ignored: list[str] = []  # uploaded files that weren't a GIF, WebP or PNG image (or were duplicates)
+    idle_guessed: bool = False  # no file was named for idle, so the first image stands in
+
+
+class AssistantCharacterAssign(_MarvinModel):
+    state: str
+    file: str | None = None  # a file name or asset id from the character's files; null clears the state
+
+
+class AssistantCharacterState(_MarvinModel):
+    key: str
+    aliases: list[str]
+    required: bool = False

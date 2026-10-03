@@ -196,6 +196,8 @@ export interface RecoveryDeps {
   now(): number;
   /** The run learned an id; persist it so a further navigation doesn't lose it. */
   onUpdate?(run: PendingRun): void;
+  /** Every progress answer, as it arrives — e.g. the bubble character showing the agent at work. */
+  onProgress?(progress: RunProgress): void;
   /** Checked each round — e.g. "Clear" was pressed. */
   isCancelled?(): boolean;
 }
@@ -210,8 +212,10 @@ export async function recoverPendingRun(start: PendingRun, deps: RecoveryDeps): 
   for (;;) {
     if (deps.isCancelled?.()) return { kind: "cancelled" };
     const progress = await deps.getRunProgress(run.clientRunId).catch(() => null);
-    if (progress) missingSince = null;
-    else missingSince ??= deps.now();
+    if (progress) {
+      missingSince = null;
+      deps.onProgress?.(progress);
+    } else missingSince ??= deps.now();
     const next = withProgress(run, progress);
     if (next !== run) {
       run = next;
@@ -228,20 +232,22 @@ export async function recoverPendingRun(start: PendingRun, deps: RecoveryDeps): 
 /**
  * While the run's own request is in flight, learn its thread and execution ids from progress and
  * hand them to `onUpdate`, so a navigation mid-run still knows where the answer will land. Stops
- * once both are known, or when the returned function is called.
+ * once both are known — unless there's an `onProgress` to keep informed — or when the returned
+ * function is called.
  */
 export function learnWhileInFlight(
   start: PendingRun,
-  deps: Pick<RecoveryDeps, "getRunProgress" | "sleep" | "onUpdate">,
+  deps: Pick<RecoveryDeps, "getRunProgress" | "sleep" | "onUpdate" | "onProgress">,
 ): () => void {
   let run = start;
   let stopped = false;
   void (async () => {
-    while (!stopped && !(run.threadId && run.executionId)) {
+    while (!stopped && (deps.onProgress || !(run.threadId && run.executionId))) {
       await deps.sleep(PENDING_POLL_MS);
       if (stopped) break;
       const progress = await deps.getRunProgress(run.clientRunId).catch(() => null);
       if (stopped) break;
+      if (progress) deps.onProgress?.(progress);
       const next = withProgress(run, progress);
       if (next !== run) {
         run = next;

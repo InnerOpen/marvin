@@ -227,6 +227,25 @@ describe("learnWhileInFlight", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     assert.equal(updates.length, 0);
   });
+
+  test("test_learn_while_in_flight_keeps_reporting_progress_while_someone_listens", async () => {
+    const seen = [];
+    const third = new Promise((resolve) => {
+      const stop = learnWhileInFlight(run(), {
+        sleep: async () => {},
+        getRunProgress: async () => progress("running", { threadId: "th-1", executionId: "ex-1" }),
+        onProgress: (p) => {
+          seen.push(p);
+          if (seen.length === 3) {
+            stop();
+            resolve();
+          }
+        },
+      });
+    });
+    await third;
+    assert.equal(seen.length, 3); // past the first answer that already named both ids
+  });
 });
 
 describe("storage", () => {

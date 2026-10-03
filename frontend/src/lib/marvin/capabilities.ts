@@ -11,7 +11,7 @@
 
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { getRunProgress, getThread, NEW_THREAD } from "@/lib/api/aiAgents";
+import { getRunProgress, getThread, NEW_THREAD, type RunProgress } from "@/lib/api/aiAgents";
 import { askWorkspace, listAgents, runAgent, runAgentAs, sendChat } from "@/lib/api/aiBubble";
 import { listAgentTools } from "@/lib/api/aiTools";
 import { getActiveContext } from "@/lib/marvin/context";
@@ -39,6 +39,8 @@ export interface MarvinResult {
    * is recovered after a navigation is never shown twice.
    */
   executionId?: string;
+  /** The agent run paused for the user's approval rather than answering. */
+  parked?: boolean;
 }
 
 export interface Capability {
@@ -237,6 +239,7 @@ async function runBubbleAgent(
         res.threadId,
         (res.pending ?? []).map((c: any) => c.tool),
       ),
+      parked: true,
     };
   }
   return {
@@ -253,8 +256,18 @@ async function serverStillHas(run: PendingRun): Promise<boolean> {
   }
 }
 
+/** Hears every progress poll of the bubble's agent runs — the bubble character, to show the agent at work. */
+let progressListener: ((progress: RunProgress) => void) | undefined;
+
+export function onRunProgress(listener: ((progress: RunProgress) => void) | undefined): void {
+  progressListener = listener;
+}
+
 function pendingDeps(run: PendingRun): RecoveryDeps {
+  const listener = progressListener;
   return {
+    // Only when someone listens: otherwise in-flight polling stops as soon as the ids are known.
+    onProgress: listener,
     getRunProgress: (id) => getRunProgress(id),
     getThread: (id) => getThread(id),
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -281,7 +294,7 @@ export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | 
     const m = outcome.message;
     return { html: agentReplyHtml(m.content, m.stepsJson ?? []), executionId: m.executionId ?? undefined };
   }
-  if (outcome.kind === "parked") return { html: parkedHtml(outcome.threadId, outcome.tools) };
+  if (outcome.kind === "parked") return { html: parkedHtml(outcome.threadId, outcome.tools), parked: true };
   const where = `<a href="${esc(askThreadHref(outcome.threadId))}">${outcome.threadId ? "the conversation on the Ask page" : "the Ask page"}</a>`;
   return {
     html: outcome.timedOut
