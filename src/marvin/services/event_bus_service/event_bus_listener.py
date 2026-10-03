@@ -975,6 +975,93 @@ class SmartCollectionReactionListener(EventListenerBase):
                 self.logger.warning(f"SmartCollectionReactionListener: sync failed for entry {entry_id}: {e}")
 
 
+class SiteRebuildReactionListener(EventListenerBase):
+    """
+    Requests a static-site rebuild when published content changes, so a publish, an edit to a live
+    entry, a collection change or a site-settings change reaches the site without a workflow.
+
+    Requests are coalesced per workspace (services/site_rebuild): a burst of edits becomes one build,
+    sent once they go quiet. Changes nothing a visitor can see — a draft saved, a draft moved between
+    workflow collections — are ignored. Off when the workspace turns off "Rebuild the site
+    automatically" (preferences.site_auto_rebuild). Best-effort: never breaks the write.
+    """
+
+    # Events that can change what a static site renders. Entry-scoped ones count only for a published
+    # entry (or one leaving 'published'); deletes count always (the row is gone, so its status is too).
+    ENTRY_EVENTS = frozenset(
+        {
+            EventTypes.entry_published,
+            EventTypes.entry_unpublished,
+            EventTypes.entry_archived,
+            EventTypes.entry_updated,
+            EventTypes.entry_added_to_collection,
+            EventTypes.entry_removed_from_collection,
+            EventTypes.entry_tag_attached,
+            EventTypes.entry_tag_detached,
+            EventTypes.entry_resource_attached,
+            EventTypes.entry_resource_detached,
+            EventTypes.asset_attached_to_entry,
+            EventTypes.asset_detached_from_entry,
+        }
+    )
+    ALWAYS_EVENTS = frozenset(
+        {
+            EventTypes.entry_deleted,
+            EventTypes.collection_updated,
+            EventTypes.collection_deleted,
+            EventTypes.asset_updated,
+            EventTypes.asset_deleted,
+            EventTypes.resource_updated,
+            EventTypes.resource_deleted,
+            EventTypes.workspace_settings_changed,
+        }
+    )
+    # Leaving 'published' is visible even though the entry no longer is.
+    LEAVING_EVENTS = frozenset({EventTypes.entry_unpublished, EventTypes.entry_archived})
+
+    def __init__(self, group_id: UUID4) -> None:
+        from .publisher import ConsolePublisher
+
+        super().__init__(group_id, ConsolePublisher())
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        return ["site_rebuild"] if event.event_type in self.ENTRY_EVENTS or event.event_type in self.ALWAYS_EVENTS else []
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        try:
+            with self.ensure_session() as session:
+                if not self._enabled(session) or not self._visible(session, event):
+                    return
+                from marvin.services.site_rebuild import request_rebuild
+
+                request_rebuild(session, self.group_id, f"content change: {event.message.body if event.message else event.event_type.name}"[:200])
+        except Exception as e:
+            self.logger.warning(f"SiteRebuildReactionListener: could not queue a rebuild: {e}")
+
+    def _enabled(self, session: Session) -> bool:
+        from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+        prefs = session.query(GroupPreferencesModel).filter_by(group_id=self.group_id).first()
+        return getattr(prefs, "site_auto_rebuild", True) is not False
+
+    def _visible(self, session: Session, event: Event) -> bool:
+        if event.event_type in self.ALWAYS_EVENTS or event.event_type in self.LEAVING_EVENTS:
+            return True
+        entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id
+        if not entry_id:
+            return True  # can't tell — a spare (coalesced) rebuild beats a stale site
+        from marvin.db.models.platform.entries import Entries
+
+        entry = session.get(Entries, entry_id)
+        if entry is None:
+            return True
+        if entry.status == "published":
+            return True
+        # An update that took the entry out of 'published' (status in its changed fields) is visible too.
+        before = getattr(event.document_data, "before", None) or {}
+        return before.get("status") == "published"
+
+
 class AutomationReactionListener(EventListenerBase):
     """Flavor B: run the workspace's *user-configured* automations for a triggering event.
 

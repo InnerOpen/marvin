@@ -225,6 +225,21 @@ const success = urlParams.get("success") === "1";
               <small>Primary contact email for the site</small>
             </label>
 
+            <label class="checkbox-row">
+              <span>Rebuild the site automatically</span>
+              <span>
+                <input
+                  type="checkbox"
+                  name="site_auto_rebuild"
+                  checked={preferences?.siteAutoRebuild !== false}
+                  disabled={!canManage}
+                />
+                When published content changes — a publish, an edit to a live entry, a collection or site-settings
+                change — Marvin requests one rebuild, sent once edits go quiet (~1 minute). Needs an outgoing webhook
+                (your host's deploy hook) on <strong>Webhook Triggered</strong>.
+              </span>
+            </label>
+
             <label>
               <span>Social Links (JSON)</span>
               <textarea
@@ -377,6 +392,7 @@ const success = urlParams.get("success") === "1";
           site_locale: formData.get('site_locale') as string || null,
           site_timezone: formData.get('site_timezone') as string || null,
           site_contact_email: formData.get('site_contact_email') as string || null,
+          site_auto_rebuild: formData.has('site_auto_rebuild'),
         };
 
         // Parse JSON fields
@@ -469,6 +485,7 @@ const success = urlParams.get("success") === "1";
 </script>
 
 <style>
+  .checkbox-row input[type="checkbox"] { width: auto; margin: 0 6px 0 0; vertical-align: middle; }
   .toolbar {
     display: flex;
     justify-content: space-between;

@@ -66,6 +66,13 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         sa.String, nullable=True, default="America/New_York", doc="The timezone for the site (e.g., America/New_York)."
     )
     site_contact_email: Mapped[str | None] = mapped_column(sa.String, nullable=True, doc="Primary contact email for the site.")
+    site_auto_rebuild: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        default=True,
+        server_default=sa.true(),
+        doc="Request a (coalesced) static-site rebuild whenever published content changes.",
+    )
     site_social_json: Mapped[dict | None] = mapped_column(
         sa.JSON, nullable=True, doc="Social media links and handles (e.g., {instagram: 'url', facebook: 'url'})."
     )

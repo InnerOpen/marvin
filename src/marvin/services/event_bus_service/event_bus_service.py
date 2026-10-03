@@ -32,6 +32,7 @@ from marvin.services.event_bus_service.event_bus_listener import (
     IndexingReactionListener,
     IntegrationEventListener,
     ScheduledTaskListener,
+    SiteRebuildReactionListener,
     SmartCollectionReactionListener,
     WebhookEventListener,
 )
@@ -153,6 +154,7 @@ class EventBusService(BaseService):
             AuditLogListener(group_id),  # Persists all events to event_log table (MUST BE FIRST).
             ScheduledTaskListener(group_id),  # Executes scheduled tasks when triggered.
             IndexingReactionListener(group_id),  # Keeps the RAG index fresh for every registered indexable type.
+            SiteRebuildReactionListener(group_id),  # Queues a (coalesced) site rebuild when published content changes.
             AutomationReactionListener(group_id),  # Flavor B: runs user-configured automations on trigger events.
             SmartCollectionReactionListener(group_id),  # Materializes smart-collection membership on entry changes.
             ConsoleEventListener(group_id),  # Logs all events to console for debugging.

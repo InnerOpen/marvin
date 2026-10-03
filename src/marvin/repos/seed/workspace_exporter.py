@@ -210,6 +210,7 @@ class WorkspaceExporter:
             "locale": prefs.site_locale,
             "timezone": prefs.site_timezone,
             "contactEmail": prefs.site_contact_email,
+            "autoRebuild": prefs.site_auto_rebuild,
             "social": prefs.site_social_json,
             "metadataJson": prefs.site_metadata_json,
         }

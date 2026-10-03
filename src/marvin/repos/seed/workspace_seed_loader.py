@@ -489,6 +489,7 @@ class WorkspaceSeedLoader:
             "site_locale": data.get("locale"),
             "site_timezone": data.get("timezone"),
             "site_contact_email": data.get("contactEmail"),
+            **({"site_auto_rebuild": bool(data["autoRebuild"])} if "autoRebuild" in data else {}),
             "site_social_json": data.get("social"),
             "site_metadata_json": data.get("metadataJson"),
         }

@@ -56,6 +56,7 @@ class GroupPreferencesCreate(_MarvinModel):
     site_timezone: str | None = "America/New_York"
     """The timezone for the site (e.g., America/New_York)."""
     site_contact_email: str | None = None
+    site_auto_rebuild: bool = True
     """Primary contact email for the site."""
     site_social_json: dict | None = None
     """DEPRECATED: Social media links. Use site_metadata_json with 'social' key instead."""
@@ -108,6 +109,7 @@ class GroupPreferencesUpdate(_MarvinModel):  # Typically, update schemas allow p
     site_timezone: str | None = None
     """Optional: The timezone for the site (e.g., America/New_York)."""
     site_contact_email: str | None = None
+    site_auto_rebuild: bool | None = None
     """Optional: Primary contact email for the site."""
     site_social_json: dict | None = None
     """Optional: DEPRECATED - Social media links. Use site_metadata_json with 'social' key instead."""
