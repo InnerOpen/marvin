@@ -8,6 +8,11 @@ life of the process — one failed round trip per model, not per call. Older mod
 servers that only know `max_tokens` are corrected the same way in the other direction.
 
 Shared by the OpenAI and Azure OpenAI providers (on Azure, `model` is the deployment name).
+
+Some models refuse function tools on Chat Completions altogether while they reason ("use /v1/responses
+or set reasoning_effort to 'none'"). Turning reasoning off would blunt every agent turn, so that refusal
+is learned too and the provider sends the model's tool calls through the Responses API instead
+(`NeedsResponsesAPI`, `needs_responses`, `create_response`).
 """
 
 import logging
@@ -22,9 +27,18 @@ REASONING_MODEL_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt-6")
 FIX_COMPLETION_TOKENS = "max_completion_tokens"  # the model wants max_completion_tokens
 FIX_LEGACY_MAX_TOKENS = "max_tokens"  # the model / server only knows max_tokens
 FIX_DEFAULT_SAMPLING = "default_sampling"  # the model accepts only the default temperature / top_p
+FIX_RESPONSES_FOR_TOOLS = "responses_for_tools"  # function tools only work on /v1/responses
 MAX_FIXES = 2  # a length fix and a sampling fix
 
 _learned: dict[str, set[str]] = {}
+
+
+class NeedsResponsesAPI(Exception):
+    """Chat Completions refused this model's tool call; send it through the Responses API."""
+
+
+def needs_responses(model: str) -> bool:
+    return FIX_RESPONSES_FOR_TOOLS in _learned.get(model, set())
 
 
 def sampling_kwargs(model: str, opts: CompletionOptions, *, include_top_p: bool = False) -> dict:
@@ -60,6 +74,8 @@ def fix_for(error: Exception) -> str | None:
         return FIX_LEGACY_MAX_TOKENS
     if param in ("temperature", "top_p"):
         return FIX_DEFAULT_SAMPLING
+    if param == "reasoning_effort" and "/v1/responses" in message:
+        return FIX_RESPONSES_FOR_TOOLS
     return None
 
 
@@ -73,5 +89,30 @@ def create_chat_completion(client, model: str, opts: CompletionOptions, *, inclu
             if fix is None or fix in _learned.get(model, set()):
                 raise
             _learned.setdefault(model, set()).add(fix)
+            if fix == FIX_RESPONSES_FOR_TOOLS:
+                raise NeedsResponsesAPI(str(e)) from e
             logger.info("model %s: retrying with %s after: %s", model, fix, e)
     return client.chat.completions.create(model=model, **request, **sampling_kwargs(model, opts, include_top_p=include_top_p))
+
+
+def create_response(client, model: str, opts: CompletionOptions, **request):
+    """`client.responses.create` with the sampling this model accepts, learning from a 400 like the above."""
+    for _ in range(MAX_FIXES):
+        try:
+            return client.responses.create(model=model, **request, **_response_sampling(model, opts))
+        except Exception as e:
+            fix = fix_for(e)
+            if fix != FIX_DEFAULT_SAMPLING or fix in _learned.get(model, set()):
+                raise
+            _learned.setdefault(model, set()).add(fix)
+            logger.info("model %s: retrying with %s after: %s", model, fix, e)
+    return client.responses.create(model=model, **request, **_response_sampling(model, opts))
+
+
+def _response_sampling(model: str, opts: CompletionOptions) -> dict:
+    """The Responses API names the length limit `max_output_tokens` for every model."""
+    kwargs = sampling_kwargs(model, opts)
+    limit = kwargs.pop("max_tokens", None) or kwargs.pop("max_completion_tokens", None)
+    if limit is not None:
+        kwargs["max_output_tokens"] = limit
+    return kwargs
