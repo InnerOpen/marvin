@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.164 (2026-10-03)
+
+### Bug Fixes
+
+- **ui**: Dark mode applies before the first paint — no white flash
+  ([`a00c97f`](https://github.com/InnerOpen/marvin/commit/a00c97fabaf3cf176a2c804f61de73e7cab4b43d))
+
+
 ## v1.0.0-rc.163 (2026-10-03)
 
 ### Chores
