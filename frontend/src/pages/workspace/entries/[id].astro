@@ -210,6 +210,13 @@ const attachedAssetIds = new Set(attachedAssets.map((a: any) => a.id));
 // separate review block with Approve / Reject actions.
 const suggestedAssets = attachedAssets.filter((a: any) => (a.placementMetadata as any)?.suggested);
 const confirmedAssets = attachedAssets.filter((a: any) => !(a.placementMetadata as any)?.suggested);
+// Image preview at the top of Entry Details. Mirrors the client re-render in the page script,
+// which keeps it in sync with attach / remove / reorder in the Assets section.
+const MAX_PREVIEW_IMAGES = 4;
+const previewImages = confirmedAssets.filter((a: any) => a.publicUrl && a.mimeType?.startsWith("image/"));
+const visiblePreviewImages = previewImages.slice(0, MAX_PREVIEW_IMAGES);
+// On overflow the last tile becomes a dimmed "+N" link to the Assets section, so N counts it too.
+const previewOverflow = previewImages.length > MAX_PREVIEW_IMAGES ? previewImages.length - MAX_PREVIEW_IMAGES + 1 : 0;
 const attachedResourceIds = new Set(attachedResources.map((r: any) => r.id));
 
 // entry.tags is a list of slugs (see EntryRead); resolve each to the full tag (id + display
@@ -443,6 +450,28 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
           <div class="sidebar-section">
             <h3>Entry Details</h3>
 
+            <div
+              id="entry-image-preview"
+              class="entry-image-preview"
+              data-count={visiblePreviewImages.length}
+              data-max={MAX_PREVIEW_IMAGES}
+              hidden={previewImages.length === 0}
+            >
+              {visiblePreviewImages.map((asset: any, idx: number) => {
+                const isMoreTile = previewOverflow > 0 && idx === MAX_PREVIEW_IMAGES - 1;
+                return (
+                  <a
+                    href={isMoreTile ? "#entry-assets-section" : `/workspace/assets/${asset.id}/view`}
+                    class="entry-image-thumb"
+                    title={isMoreTile ? `${previewOverflow} more images` : asset.name}
+                  >
+                    <img src={asset.publicUrl} alt={asset.altText || asset.name} loading="lazy" />
+                    {isMoreTile && <span class="entry-image-more">+{previewOverflow}</span>}
+                  </a>
+                );
+              })}
+            </div>
+
             <div class="form-group">
               <label for="entry_type_display">Entry Type</label>
               <select id="entry_type_display" form="entry-form" disabled>
@@ -644,7 +673,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
             </details>
           </div>
 
-          <div class="sidebar-section">
+          <div class="sidebar-section" id="entry-assets-section">
             <h3>Assets (<span id="asset-count">{confirmedAssets.length}</span>)</h3>
             <p class="section-help">Attach images, files, and media</p>
 
@@ -1155,6 +1184,47 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     margin: -0.5rem 0 1rem;
     font-size: 0.75rem;
     color: var(--muted);
+  }
+
+  /* Entry Details image preview. Re-rendered client-side, which this is:global block covers. */
+  .entry-image-preview {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.375rem;
+    margin-bottom: 1rem;
+  }
+  .entry-image-preview[hidden] { display: none; }
+  .entry-image-thumb {
+    position: relative;
+    display: block;
+    aspect-ratio: 1;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .entry-image-preview[data-count="1"] .entry-image-thumb {
+    grid-column: 1 / -1;
+    aspect-ratio: 16 / 9;
+  }
+  .entry-image-thumb:hover,
+  .entry-image-thumb:focus-visible { border-color: var(--accent); }
+  .entry-image-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .entry-image-more {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 600;
   }
 
   /* Tags chip input. In the is:global block so JS-created chips are styled too. */
@@ -2288,6 +2358,53 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     attachedAssetsContainer.querySelectorAll('.attachment-card').forEach(card => {
       setupCardButtons(card as HTMLElement, attachedAssetsContainer, 'asset_attachments', 'asset-count');
     });
+  }
+
+  // Keep the Entry Details image preview in sync with the Assets section. The attachment cards
+  // are the source of truth (they're what Save posts), so re-render from them on any attach,
+  // remove or reorder instead of tracking assets separately. Mirrors the SSR markup.
+  const entryImagePreview = document.getElementById('entry-image-preview') as HTMLElement | null;
+
+  function renderEntryImagePreview() {
+    if (!entryImagePreview || !attachedAssetsContainer) return;
+    const maxImages = Number(entryImagePreview.dataset.max) || 4;
+    const images = Array.from(attachedAssetsContainer.querySelectorAll<HTMLElement>('.attachment-card'))
+      .map((card) => ({
+        id: card.dataset.assetId || '',
+        name: card.querySelector('.attachment-name strong')?.textContent || '',
+        img: card.querySelector<HTMLImageElement>('.attachment-preview img'),
+      }))
+      .filter((a): a is { id: string; name: string; img: HTMLImageElement } => Boolean(a.id && a.img));
+    const visible = images.slice(0, maxImages);
+    const overflow = images.length > maxImages ? images.length - maxImages + 1 : 0;
+
+    const tiles = visible.map(({ id, name, img }, idx) => {
+      const isMoreTile = overflow > 0 && idx === maxImages - 1;
+      const link = document.createElement('a');
+      link.className = 'entry-image-thumb';
+      link.href = isMoreTile ? '#entry-assets-section' : `/workspace/assets/${id}/view`;
+      link.title = isMoreTile ? `${overflow} more images` : name;
+      const thumb = document.createElement('img');
+      thumb.src = img.src;
+      thumb.alt = img.alt;
+      thumb.loading = 'lazy';
+      link.appendChild(thumb);
+      if (isMoreTile) {
+        const more = document.createElement('span');
+        more.className = 'entry-image-more';
+        more.textContent = `+${overflow}`;
+        link.appendChild(more);
+      }
+      return link;
+    });
+
+    entryImagePreview.replaceChildren(...tiles);
+    entryImagePreview.dataset.count = String(visible.length);
+    entryImagePreview.hidden = images.length === 0;
+  }
+
+  if (entryImagePreview && attachedAssetsContainer) {
+    new MutationObserver(renderEntryImagePreview).observe(attachedAssetsContainer, { childList: true });
   }
 
   // Initialize existing resource attachment cards
