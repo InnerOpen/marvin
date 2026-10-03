@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.150 (2026-10-03)
+
+### Features
+
+- **ai**: Bubble agent runs live in server threads and survive navigation
+  ([`ef103f7`](https://github.com/InnerOpen/marvin/commit/ef103f72c6f140ecacd17455958e89b141096b5e))
+
+
 ## v1.0.0-rc.149 (2026-10-03)
 
 ### Bug Fixes
