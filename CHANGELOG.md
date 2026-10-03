@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.142 (2026-10-03)
+
+### Bug Fixes
+
+- **ai**: The search index holds published entries only, and skips unchanged saves
+  ([`7136ac8`](https://github.com/InnerOpen/marvin/commit/7136ac8cdb910ce7ff3467e0562678871bc66730))
+
+
 ## v1.0.0-rc.141 (2026-10-03)
 
 ### Features
