@@ -7,6 +7,14 @@
 
 mode: split
 
+# SQLite on an NFS volume: one writer at a time. Recreate stops the old backend (letting its AI runs
+# finish, up to shutdown.terminationGracePeriodSeconds) before the new one starts. The frontend keeps
+# the shared rolling update.
+split:
+  backend:
+    strategy:
+      type: Recreate
+
 image:
   repository: ghcr.io/inneropen/marvin   # backend/frontend derive as -backend / -frontend
   tag: develop

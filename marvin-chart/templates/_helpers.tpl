@@ -204,13 +204,26 @@ hooks and process exit. A run still going at the deadline is lost; the next proc
 (AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS) — only once the draining pod is surely gone, since a rolling
 update starts the new pod while the old one is still finishing its runs.
 */}}
+{{/*
+The API pod's update strategy: the split backend's own when set, else the shared `strategy`.
+*/}}
+{{- define "marvin.apiStrategy" -}}
+{{- $s := .Values.strategy -}}
+{{- if and (eq .Values.mode "split") .Values.split.backend.strategy -}}
+{{- $s = .Values.split.backend.strategy -}}
+{{- end -}}
+{{- toYaml $s -}}
+{{- end -}}
+
 {{- define "marvin.shutdownEnv" -}}
 {{- $grace := int .Values.shutdown.terminationGracePeriodSeconds -}}
 {{- $preStop := int .Values.shutdown.preStopSleepSeconds -}}
 {{- $exitMargin := 15 -}}{{/* seconds kept for lifespan shutdown + exit after the drain */}}
 {{- $sweepMargin := 60 -}}{{/* seconds past the old pod's kill deadline before sweeping its runs */}}
+{{- $strategy := include "marvin.apiStrategy" . | fromYaml -}}
 - name: GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
   value: {{ max 1 (sub $grace (add $preStop $exitMargin)) | quote }}
 - name: AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS
-  value: {{ add $grace $sweepMargin | quote }}
+  {{- /* Recreate stops the old pod before the new one starts: none of its runs can still be going. */}}
+  value: {{ if eq (toString $strategy.type) "Recreate" }}"0"{{ else }}{{ add $grace $sweepMargin | quote }}{{ end }}
 {{- end -}}
