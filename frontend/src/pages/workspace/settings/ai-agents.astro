@@ -92,6 +92,7 @@ const builtins = agents.filter((a) => a.isSystem);
             <input class="input mono" id="n-slug" name="slug" placeholder="workshop" pattern="[a-z0-9][a-z0-9-]{1,63}" required />
           </div>
         </div>
+        <p class="hint new-character-hint">A bubble character can be chosen once the agent exists: <strong>Edit</strong> → Bubble character, under Icon and Name.</p>
         <div class="form-field">
           <label class="label" for="n-desc">Description <span class="muted">(shown in pickers)</span></label>
           <textarea class="input" id="n-desc" name="description" rows="2" placeholder="What this agent is for"></textarea>
@@ -195,7 +196,6 @@ const builtins = agents.filter((a) => a.isSystem);
               <div class="agent-actions">
                 <button class="button secondary small edit-btn" type="button">Edit</button>
                 <button class="button secondary small perms-btn" type="button">Permissions</button>
-                <button class="button secondary small character-btn" type="button">Character</button>
                 <button class="button secondary small del-btn" type="button">Delete</button>
               </div>
             </div>
@@ -294,7 +294,10 @@ const builtins = agents.filter((a) => a.isSystem);
   .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
   .pill.warn { color: #a16207; border-color: rgba(234,179,8,0.45); background: rgba(234,179,8,0.1); }
   .agent-actions { display: flex; gap: 8px; }
-  .perms, .edit, .character-box { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .perms, .edit { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  /* Inside the Edit form, under Icon and Name. */
+  .character-box { margin-bottom: 16px; }
+  .new-character-hint { margin: -6px 0 16px; font-size: 12px; color: var(--muted); }
   .agent-character { height: 28px; width: auto; max-width: 56px; object-fit: contain; }
   /* Injected via innerHTML → :global */
   .matrix :global(.mx-group), .perms :global(.mx-group) { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
@@ -500,10 +503,10 @@ const builtins = agents.filter((a) => a.isSystem);
       const permsBox = card.querySelector<HTMLElement>('[data-role="perms"]');
       const editBox = card.querySelector<HTMLElement>('[data-role="edit"]');
 
+      // The bubble character lives in the Edit form, under Icon and Name. It's server-rendered (the
+      // picker mounts once), so it's moved into the form on open — and parked back on the card before
+      // the form is rebuilt, which would otherwise destroy it.
       const characterBox = card.querySelector<HTMLElement>('[data-role="character"]');
-      card.querySelector(".character-btn")?.addEventListener("click", () => {
-        if (characterBox) characterBox.hidden = !characterBox.hidden;
-      });
       // Keep the card's small preview in step with the picker.
       characterBox?.addEventListener("character-change", (ev) => {
         const idle = (ev as CustomEvent).detail?.states?.idle;
@@ -567,6 +570,7 @@ const builtins = agents.filter((a) => a.isSystem);
           .map((v) => `<option value="${v}"${v === agent.minRole ? " selected" : ""}>${["", "Viewer", "Author", "Editor", "Admin", "Owner"][v]} and above</option>`)
           .join("");
         const reg = (v: string, label: string) => `<option value="${v}"${(agent.defaultRegister ?? "") === v ? " selected" : ""}>${label}</option>`;
+        if (characterBox) card.append(characterBox);
         editBox.innerHTML = `<form class="agent-form">
           <div class="form-row icon-name">
             <div class="form-field"><label class="label">Icon</label><input class="input" name="icon" maxlength="4" value="${esc(agent.icon ?? "")}" /></div>
@@ -590,6 +594,10 @@ const builtins = agents.filter((a) => a.isSystem);
           <div class="form-actions"><button type="submit" class="button small">Save changes</button><button type="button" class="button secondary small e-cancel">Cancel</button><span class="save-status" data-role="estatus"></span></div>
         </form>`;
         const form = editBox.querySelector("form") as HTMLFormElement;
+        if (characterBox) {
+          form.querySelector(".form-row.icon-name")?.after(characterBox);
+          characterBox.hidden = false;
+        }
         const matrix = editBox.querySelector<HTMLElement>('[data-role="matrix"]')!;
         const estatus = editBox.querySelector('[data-role="estatus"]');
         renderMatrix(matrix, agent.toolPolicy ?? null, agent.allowWrites);
