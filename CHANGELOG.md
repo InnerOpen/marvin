@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.168 (2026-10-03)
+
+### Bug Fixes
+
+- **entries**: Scheduled Publish and Expiration dates save, in the viewer's time zone
+  ([`9e39a1b`](https://github.com/InnerOpen/marvin/commit/9e39a1b05936852e55c1b24047990ab7c90baeef))
+
+- **scheduler**: Scheduled publish runs once and leaves archived entries alone
+  ([`7d6aec2`](https://github.com/InnerOpen/marvin/commit/7d6aec2725a14e8f2b579737edcef0e2ecf88968))
+
+
 ## v1.0.0-rc.167 (2026-10-03)
 
 ### Features
