@@ -58,3 +58,50 @@ def test_saving_a_bad_icon_is_refused():
     with pytest.raises(HTTPException) as exc:
         AISettingsController.update_ai_settings(ctrl, WorkspaceAISettingsUpdate(assistant_icon="not an emoji at all, clearly"))
     assert exc.value.status_code == 422
+
+
+# --- the main agent carries the workspace's assistant name ------------------------------------------
+# Regression: renaming the assistant in AI settings left the Ask page's agent dropdown (and the bubble's
+# /agents list, MCP list_agents, hand-offs) saying "Marvin" — the system agent's name was a constant.
+
+
+@pytest.fixture
+def named_workspace(db_session):
+    import uuid
+
+    from marvin.db.models.groups import Groups
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    gid = uuid.uuid4()
+    g = Groups(session=db_session, name=f"nm-{gid.hex[:8]}", slug=f"nm-{gid.hex[:8]}")
+    g.id = gid
+    db_session.add(g)
+    db_session.flush()
+    db_session.add(WorkspaceAISettingsModel(session=db_session, group_id=gid, assistant_name="Ada"))
+    db_session.commit()
+    yield gid
+    db_session.query(WorkspaceAISettingsModel).filter_by(group_id=gid).delete()
+    db_session.query(Groups).filter_by(id=gid).delete()
+    db_session.commit()
+
+
+def test_the_main_agent_is_listed_under_the_workspace_name(db_session, named_workspace):
+    from marvin.services.ai.agents import list_agents, resolve_agent
+
+    names = {a.slug: a.name for a in list_agents(db_session, named_workspace)}
+    assert names["marvin"] == "Ada" and names["ask"] == "Ask"
+    assert resolve_agent(db_session, named_workspace, "marvin").name == "Ada"
+
+
+def test_without_a_name_the_main_agent_is_marvin(db_session):
+    import uuid
+
+    from marvin.services.ai.agents import resolve_agent
+
+    assert resolve_agent(db_session, uuid.uuid4(), "marvin").name == "Marvin"
+
+
+def test_the_chat_agent_points_to_the_main_agent_by_its_name():
+    from marvin.services.ai.agents import model_agent_system_prompt
+
+    assert "the Ada agent (full tools)" in model_agent_system_prompt("Ada", router_name="Ada")

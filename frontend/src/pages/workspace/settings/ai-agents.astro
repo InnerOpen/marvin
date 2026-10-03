@@ -89,12 +89,12 @@ const builtins = agents.filter((a) => a.isSystem);
           <textarea class="input" id="n-desc" name="description" rows="2" placeholder="What this agent is for"></textarea>
         </div>
         <div class="form-field">
-          <label class="label" for="n-handoff">Hand off when… <span class="muted">(one line — when Marvin should route a question here)</span></label>
+          <label class="label" for="n-handoff">Hand off when… <span class="muted">(one line — when the main assistant should route a question here)</span></label>
           <input class="input" id="n-handoff" name="handoffHint" maxlength="300" placeholder="the question is about materials, suppliers or stock" />
         </div>
         <div class="form-field">
           <label class="label" for="n-prompt">Instructions <span class="muted">(system prompt)</span></label>
-          <textarea class="input" id="n-prompt" name="systemPrompt" rows="6" placeholder="How it should behave, what it should and shouldn't do. Leave empty for Marvin's default instructions."></textarea>
+          <textarea class="input" id="n-prompt" name="systemPrompt" rows="6" placeholder="How it should behave, what it should and shouldn't do. Leave empty for the main assistant's default instructions."></textarea>
         </div>
         <div class="form-field">
           <label class="label" for="n-sugg">Suggested prompts <span class="muted">(one per line, up to 8 — shown as chips in Ask)</span></label>

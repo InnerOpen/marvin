@@ -86,15 +86,16 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
     return "\n".join(lines)
 
 
-def model_agent_system_prompt(name: str, *, gloomy: bool = False) -> str:
-    """System prompt for a `model` agent (plain conversation, no tools): says what it cannot see and where to go."""
+def model_agent_system_prompt(name: str, *, gloomy: bool = False, router_name: str = "Marvin") -> str:
+    """System prompt for a `model` agent (plain conversation, no tools): says what it cannot see and where to go.
+    `router_name` is the workspace's main agent as users know it (its assistant name)."""
     mood = " (if faintly gloomy)" if gloomy else ""
     return (
         f"You are {name}, a helpful{mood} assistant for this Marvin workspace. Answer conversationally and concisely. "
         "You have NO tools and NO access to the workspace's content here — the entries, collections, assets and "
         f"resources users may call {CONTENT_SYNONYMS}. If a question needs that content (what is in it, a summary "
         "of it, anything grounded in their entries), say you cannot see it and point them to the Ask agent "
-        "(grounded answers with citations) or the Marvin agent (full tools) instead of guessing."
+        f"(grounded answers with citations) or the {router_name} agent (full tools) instead of guessing."
     )
 
 
@@ -176,18 +177,35 @@ def spec_from_row(row) -> AgentSpec:
     )
 
 
+def _system_agent(session, group_id, spec: AgentSpec) -> AgentSpec:
+    """A system agent as this workspace knows it: the main agent (`marvin`) carries the workspace's
+    assistant name (AI settings → Persona), so the Ask page, the bubble, MCP and hand-offs all say it."""
+    if spec.slug != ROUTER_SLUG:
+        return spec
+    from dataclasses import replace
+
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+    from marvin.services.ai.persona import resolve_persona
+
+    settings = session.query(WorkspaceAISettingsModel).filter_by(group_id=group_id).first() if session is not None else None
+    name, _persona = resolve_persona(getattr(settings, "assistant_name", None), getattr(settings, "persona_prompt", None))
+    if not isinstance(name, str):
+        return spec
+    return spec if name == spec.name else replace(spec, name=name)
+
+
 def list_agents(session, group_id) -> list[AgentSpec]:
     """System agents first, then the workspace's rows by slug."""
     from marvin.db.models.groups.agents import WorkspaceAgentModel
 
     rows = session.query(WorkspaceAgentModel).filter_by(group_id=group_id).order_by(WorkspaceAgentModel.slug).all()
-    return [*SYSTEM_AGENTS.values(), *(spec_from_row(r) for r in rows)]
+    return [*(_system_agent(session, group_id, s) for s in SYSTEM_AGENTS.values()), *(spec_from_row(r) for r in rows)]
 
 
 def resolve_agent(session, group_id, slug: str) -> AgentSpec | None:
     slug = (slug or "").strip().lower()
     if slug in SYSTEM_AGENTS:
-        return SYSTEM_AGENTS[slug]
+        return _system_agent(session, group_id, SYSTEM_AGENTS[slug])
     from marvin.db.models.groups.agents import WorkspaceAgentModel
 
     row = session.query(WorkspaceAgentModel).filter_by(group_id=group_id, slug=slug).first()

@@ -837,7 +837,7 @@ class AIOperationsController(BaseUserController):
         assistant_name, persona_prompt = self._persona()
         register = self._effective_register(body.tone_register, spec)
         if spec.kind == "model":
-            system = spec.system_prompt or model_agent_system_prompt(spec.name if not spec.is_system else assistant_name)
+            system = spec.system_prompt or model_agent_system_prompt(spec.name if not spec.is_system else assistant_name, router_name=assistant_name)
             system += self._register_clause(register, persona_prompt)
             return self._run_model_agent(spec, provider, model, system, body)
 
@@ -1668,7 +1668,8 @@ class AIOperationsController(BaseUserController):
                 assistant_name, persona_prompt = self._persona()
                 register = self._effective_register(parent_body.tone_register, spec)
                 if spec.kind == "model":
-                    system = spec.system_prompt or model_agent_system_prompt(spec.name if not spec.is_system else assistant_name)
+                    agent_name = spec.name if not spec.is_system else assistant_name
+                    system = spec.system_prompt or model_agent_system_prompt(agent_name, router_name=assistant_name)
                     system += self._register_clause(register, persona_prompt)
                     res = self._run_model_agent(spec, provider, model, system, child_body, parent_thread_id=parent_id, execution_meta=meta)
                 else:
@@ -1810,7 +1811,7 @@ class AIOperationsController(BaseUserController):
 
         _app = get_app_settings()
         assistant_name, persona_prompt = self._persona()
-        system = model_agent_system_prompt(assistant_name, gloomy=assistant_name == "Marvin")
+        system = model_agent_system_prompt(assistant_name, gloomy=assistant_name == "Marvin", router_name=assistant_name)
         if persona_prompt:
             system += f"\n\nVoice and tone: {persona_prompt}"
         messages = [Message(role="system", content=system), Message(role="user", content=body.message)]

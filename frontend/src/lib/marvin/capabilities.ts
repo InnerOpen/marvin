@@ -147,7 +147,7 @@ function thumbsHtml(steps: any[], cap = 12): string {
 const agent: Capability = {
   id: "agent",
   label: "Agent",
-  hint: "Give Marvin a goal — it searches, browses, and drafts to get it done.",
+  hint: "Give me a goal — I search, browse, and draft to get it done.",
   commands: ["agent", "do"],
   isDefault: true,
   async run(arg: string): Promise<MarvinResult> {
