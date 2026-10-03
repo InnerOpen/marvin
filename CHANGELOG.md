@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.169 (2026-10-03)
+
+### Features
+
+- **collections**: A rule builder and Run Query on the smart-collection form
+  ([`07601ea`](https://github.com/InnerOpen/marvin/commit/07601ea70c3fc673d9178d5e3543c58c89c3cc45))
+
+- **collections**: Field conditions in smart rules, and a preview of unsaved rules
+  ([`62edd8c`](https://github.com/InnerOpen/marvin/commit/62edd8cca2a50ab8e133fe424e82f82b9900f9dc))
+
+
 ## v1.0.0-rc.168 (2026-10-03)
 
 ### Bug Fixes
