@@ -107,7 +107,7 @@ def view_image(ctx: ToolContext, args: dict) -> str:
     ctx.session.commit()
     start = time.monotonic()
     try:
-        res = provider.complete(messages, model, CompletionOptions(temperature=0.2, max_tokens=None))
+        res = provider.complete(messages, model, CompletionOptions(max_tokens=None))
     except Exception as e:  # noqa: BLE001 — a vision failure is data for the model, never an exception in the loop
         execution.status = "failed"
         execution.error_message = str(e)[:2000]

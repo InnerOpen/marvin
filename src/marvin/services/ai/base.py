@@ -65,7 +65,9 @@ def serialize_messages(messages: list[Message]) -> list[dict]:
             content: str | list = m.content
         else:
             content = [
-                {"type": "image", "data": part.data, "mime_type": part.mime_type} if isinstance(part, ImagePart) else {"type": "text", "text": str(part)}
+                {"type": "image", "data": part.data, "mime_type": part.mime_type}
+                if isinstance(part, ImagePart)
+                else {"type": "text", "text": str(part)}
                 for part in m.content
             ]
         d: dict = {"role": m.role, "content": content}
@@ -109,8 +111,9 @@ def deserialize_messages(data) -> list[Message]:
 @dataclass
 class CompletionOptions:
     max_tokens: int | None = None
-    temperature: float = 0.7
-    top_p: float = 1.0
+    # None = leave it to the model's default. Many models (reasoning ones) refuse anything else.
+    temperature: float | None = None
+    top_p: float | None = None
     extra: dict = field(default_factory=dict)
 
 

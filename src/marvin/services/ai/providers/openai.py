@@ -1,4 +1,8 @@
-"""OpenAI provider implementation."""
+"""OpenAI provider implementation.
+
+The official API goes through the Responses API (see openai_api); a custom base URL means an
+OpenAI-compatible server, which gets Chat Completions — most of them don't implement Responses.
+"""
 
 from ..base import (
     AIProvider,
@@ -9,7 +13,20 @@ from ..base import (
     ToolCall,
     ToolDefinition,
 )
-from .openai_params import REASONING_MODEL_PREFIXES, NeedsResponsesAPI, create_chat_completion, create_response, needs_responses
+from .openai_api import (
+    NeedsResponsesAPI,
+    create_chat_completion,
+    create_response,
+    json_schema_format,
+    needs_responses,
+    response_input,
+    response_result,
+    response_tools,
+)
+
+OFFICIAL_HOST = "api.openai.com"
+# Model families the account lists that can't hold a conversation (embeddings, speech, images, moderation…).
+NON_CHAT_MARKERS = ("embedding", "tts", "whisper", "transcribe", "dall-e", "image", "moderation", "audio", "realtime", "davinci", "babbage")
 
 
 class OpenAIProvider(AIProvider):
@@ -23,6 +40,7 @@ class OpenAIProvider(AIProvider):
     def __init__(self, api_key: str, base_url: str | None = None) -> None:
         self._api_key = api_key
         self._base_url = base_url
+        self._responses = not base_url or OFFICIAL_HOST in base_url
 
     def _client(self):
         try:
@@ -78,16 +96,9 @@ class OpenAIProvider(AIProvider):
     def complete(self, messages: list[Message], model: str, options: CompletionOptions | None = None) -> CompletionResult:
         opts = options or CompletionOptions()
         client = self._client()
-        resp = create_chat_completion(client, model, opts, include_top_p=True, messages=self._to_api_messages(messages))
-        choice = resp.choices[0]
-        return CompletionResult(
-            content=choice.message.content or "",
-            prompt_tokens=resp.usage.prompt_tokens,
-            completion_tokens=resp.usage.completion_tokens,
-            total_tokens=resp.usage.total_tokens,
-            model=resp.model,
-            raw=resp.model_dump(),
-        )
+        if self._responses:
+            return response_result(create_response(client, model, opts, input=response_input(messages)))
+        return self._chat_result(create_chat_completion(client, model, opts, messages=self._to_api_messages(messages)))
 
     def complete_with_tools(
         self,
@@ -97,25 +108,49 @@ class OpenAIProvider(AIProvider):
         options: CompletionOptions | None = None,
         tool_choice: str = "auto",
     ) -> CompletionResult:
+        opts = options or CompletionOptions()
+        client = self._client()
+        choice = {"auto": "auto", "required": "required", "none": "none"}.get(tool_choice, "auto")
+        if self._responses or needs_responses(model):
+            return self._tools_via_responses(client, messages, model, tools, opts, choice)
+        api_tools = [{"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.input_schema}} for t in tools]
+        try:
+            resp = create_chat_completion(client, model, opts, messages=self._to_api_tool_messages(messages), tools=api_tools, tool_choice=choice)
+        except NeedsResponsesAPI:
+            return self._tools_via_responses(client, messages, model, tools, opts, choice)
+        return self._chat_result(resp)
+
+    def _tools_via_responses(self, client, messages, model, tools, opts, tool_choice) -> CompletionResult:
+        return response_result(
+            create_response(client, model, opts, input=response_input(messages), tools=response_tools(tools), tool_choice=tool_choice)
+        )
+
+    def complete_structured(self, messages: list[Message], model: str, output_schema: dict, options: CompletionOptions | None = None) -> dict:
+        return self.execute_operation(messages, model, output_schema, options)[0]
+
+    def execute_operation(self, messages, model, output_schema, options=None):
         import json
 
         opts = options or CompletionOptions()
         client = self._client()
-        choice_map = {"auto": "auto", "required": "required", "none": "none"}
-        if needs_responses(model):
-            return self._complete_with_tools_responses(client, messages, model, tools, opts, choice_map.get(tool_choice, "auto"))
-        api_tools = [{"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.input_schema}} for t in tools]
-        try:
-            resp = create_chat_completion(
-                client,
-                model,
-                opts,
-                messages=self._to_api_tool_messages(messages),
-                tools=api_tools,
-                tool_choice=choice_map.get(tool_choice, "auto"),
+        if self._responses:
+            result = response_result(create_response(client, model, opts, input=response_input(messages), text=json_schema_format(output_schema)))
+        else:
+            result = self._chat_result(
+                create_chat_completion(
+                    client,
+                    model,
+                    opts,
+                    messages=self._to_api_messages(messages),
+                    response_format={"type": "json_schema", "json_schema": {"name": "output", "schema": output_schema, "strict": False}},
+                )
             )
-        except NeedsResponsesAPI:
-            return self._complete_with_tools_responses(client, messages, model, tools, opts, choice_map.get(tool_choice, "auto"))
+        return json.loads(result.content or "{}"), result
+
+    @staticmethod
+    def _chat_result(resp) -> CompletionResult:
+        import json
+
         choice = resp.choices[0]
         tool_calls: list[ToolCall] = []
         for tc in choice.message.tool_calls or []:
@@ -135,112 +170,9 @@ class OpenAIProvider(AIProvider):
             stop_reason=choice.finish_reason,
         )
 
-    # ── Responses API: tool calls for models that refuse tools on Chat Completions while reasoning ──
-
-    def _render_input_content(self, content):
-        """Agnostic content in the Responses API's input shape (str or input_text / input_image parts)."""
-        if isinstance(content, str):
-            return content
-        return [
-            {"type": "input_image", "image_url": f"data:{p.mime_type};base64,{p.data}"}
-            if isinstance(p, ImagePart)
-            else {"type": "input_text", "text": str(p)}
-            for p in content
-        ]
-
-    def _to_response_input(self, messages: list[Message]) -> list[dict]:
-        """The transcript as Responses input items: tool calls and their results are items of their own."""
-        import json
-
-        items: list[dict] = []
-        for m in messages:
-            if m.role == "tool":
-                items.append(
-                    {"type": "function_call_output", "call_id": m.tool_call_id, "output": m.content if isinstance(m.content, str) else str(m.content)}
-                )
-            elif m.role == "assistant" and m.tool_calls:
-                if isinstance(m.content, str) and m.content:
-                    items.append({"role": "assistant", "content": m.content})
-                items.extend(
-                    {"type": "function_call", "call_id": tc.id, "name": tc.name, "arguments": json.dumps(tc.arguments)} for tc in m.tool_calls
-                )
-            else:
-                items.append({"role": m.role, "content": self._render_input_content(m.content)})
-        return items
-
-    def _complete_with_tools_responses(self, client, messages, model, tools, opts, tool_choice) -> CompletionResult:
-        import json
-
-        resp = create_response(
-            client,
-            model,
-            opts,
-            input=self._to_response_input(messages),
-            tools=[{"type": "function", "name": t.name, "description": t.description, "parameters": t.input_schema, "strict": False} for t in tools],
-            tool_choice=tool_choice,
-            store=False,  # stateless, like Chat Completions: the transcript is resent each turn
-        )
-        tool_calls: list[ToolCall] = []
-        for item in resp.output or []:
-            if getattr(item, "type", None) != "function_call":
-                continue
-            try:
-                args = json.loads(item.arguments or "{}")
-            except json.JSONDecodeError:
-                args = {}
-            tool_calls.append(ToolCall(id=item.call_id, name=item.name, arguments=args))
-        incomplete = getattr(getattr(resp, "incomplete_details", None), "reason", None)
-        return CompletionResult(
-            content=resp.output_text or "",
-            prompt_tokens=resp.usage.input_tokens,
-            completion_tokens=resp.usage.output_tokens,
-            total_tokens=resp.usage.total_tokens,
-            model=resp.model,
-            raw=resp.model_dump(),
-            tool_calls=tool_calls,
-            stop_reason="tool_calls" if tool_calls else (incomplete or "stop"),
-        )
-
-    def complete_structured(self, messages: list[Message], model: str, output_schema: dict, options: CompletionOptions | None = None) -> dict:
-        import json
-
-        opts = options or CompletionOptions()
-        client = self._client()
-        resp = create_chat_completion(
-            client,
-            model,
-            opts,
-            messages=self._to_api_messages(messages),
-            response_format={"type": "json_schema", "json_schema": {"name": "output", "schema": output_schema, "strict": False}},
-        )
-        return json.loads(resp.choices[0].message.content or "{}")
-
     def list_models(self) -> list[str]:
-        client = self._client()
-        models = client.models.list()
-        return sorted(m.id for m in models.data if "gpt" in m.id or m.id.startswith(REASONING_MODEL_PREFIXES))
-
-    def execute_operation(self, messages, model, output_schema, options=None):
-        import json
-
-        opts = options or CompletionOptions()
-        client = self._client()
-        resp = create_chat_completion(
-            client,
-            model,
-            opts,
-            messages=self._to_api_messages(messages),
-            response_format={"type": "json_schema", "json_schema": {"name": "output", "schema": output_schema, "strict": False}},
-        )
-        parsed = json.loads(resp.choices[0].message.content or "{}")
-        result = CompletionResult(
-            content=resp.choices[0].message.content or "",
-            prompt_tokens=resp.usage.prompt_tokens,
-            completion_tokens=resp.usage.completion_tokens,
-            total_tokens=resp.usage.total_tokens,
-            model=resp.model,
-        )
-        return parsed, result
+        models = self._client().models.list()
+        return sorted(m.id for m in models.data if not any(marker in m.id for marker in NON_CHAT_MARKERS))
 
     def embed(self, texts: list[str], model: str) -> list[list[float]]:
         resp = self._client().embeddings.create(model=model, input=texts)

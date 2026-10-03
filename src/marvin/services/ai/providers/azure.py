@@ -9,7 +9,7 @@ from ..base import (
     ToolCall,
     ToolDefinition,
 )
-from .openai_params import create_chat_completion
+from .openai_api import NeedsResponsesAPI, create_chat_completion, create_response, needs_responses, response_input, response_result, response_tools
 
 
 class AzureOpenAIProvider(AIProvider):
@@ -86,16 +86,18 @@ class AzureOpenAIProvider(AIProvider):
         import json
 
         opts = options or CompletionOptions()
+        client = self._client()
+        choice = {"auto": "auto", "required": "required", "none": "none"}.get(tool_choice, "auto")
         api_tools = [{"type": "function", "function": {"name": t.name, "description": t.description, "parameters": t.input_schema}} for t in tools]
-        choice_map = {"auto": "auto", "required": "required", "none": "none"}
-        resp = create_chat_completion(
-            self._client(),
-            model,
-            opts,
-            messages=self._to_api_tool_messages(messages),
-            tools=api_tools,
-            tool_choice=choice_map.get(tool_choice, "auto"),
-        )
+        try:
+            if needs_responses(model):
+                raise NeedsResponsesAPI(model)
+            resp = create_chat_completion(client, model, opts, messages=self._to_api_tool_messages(messages), tools=api_tools, tool_choice=choice)
+        except NeedsResponsesAPI:
+            # A deployment that refuses tools while reasoning; needs an api_version that has the Responses API.
+            return response_result(
+                create_response(client, model, opts, input=response_input(messages), tools=response_tools(tools), tool_choice=choice)
+            )
         choice = resp.choices[0]
         tool_calls: list[ToolCall] = []
         for tc in choice.message.tool_calls or []:

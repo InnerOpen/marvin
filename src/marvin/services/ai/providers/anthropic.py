@@ -11,6 +11,11 @@ from ..base import (
 )
 
 
+def _sampling(opts: CompletionOptions) -> dict:
+    """A temperature only when one is configured; otherwise the model's default."""
+    return {"temperature": opts.temperature} if opts.temperature is not None else {}
+
+
 class AnthropicProvider(AIProvider):
     provider_type = "anthropic"
     display_name = "Anthropic"
@@ -87,7 +92,7 @@ class AnthropicProvider(AIProvider):
         opts = options or CompletionOptions()
         system, chat = self._split_messages(messages)
         client = self._client()
-        kwargs = {"model": model, "messages": chat, "max_tokens": opts.max_tokens or 4096, "temperature": opts.temperature}
+        kwargs = {"model": model, "messages": chat, "max_tokens": opts.max_tokens or 4096, **_sampling(opts)}
         if system:
             kwargs["system"] = system
         resp = client.messages.create(**kwargs)
@@ -118,7 +123,7 @@ class AnthropicProvider(AIProvider):
             "model": model,
             "messages": chat,
             "max_tokens": opts.max_tokens or 4096,
-            "temperature": opts.temperature,
+            **_sampling(opts),
             "tools": api_tools,
             "tool_choice": choice_map.get(tool_choice, {"type": "auto"}),
         }

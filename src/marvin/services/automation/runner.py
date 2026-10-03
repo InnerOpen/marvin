@@ -163,7 +163,7 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
 
         _app = get_app_settings()
         opts = CompletionOptions(
-            temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7),
+            temperature=_app.AI_DEFAULT_TEMPERATURE,
             max_tokens=budget.max_output_tokens(session, group_id),
         )
         messages = operation.build_prompt(op_input, ctx)

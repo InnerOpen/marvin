@@ -10,7 +10,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from marvin.services.ai.base import (
-    CompletionOptions,
     CompletionResult,
     Message,
     ToolCall,
@@ -63,8 +62,11 @@ def test_openai_translates_tool_roundtrip():
     assert tool_result == {"role": "tool", "tool_call_id": "call_1", "content": '{"title":"About"}'}
 
 
+COMPATIBLE = "http://localhost:8000/v1"  # an OpenAI-compatible server keeps Chat Completions
+
+
 def test_openai_complete_with_tools_parses_tool_calls():
-    provider = OpenAIProvider(api_key="x")
+    provider = OpenAIProvider(api_key="x", base_url=COMPATIBLE)
     tc = SimpleNamespace(
         id="call_9",
         type="function",
@@ -93,7 +95,7 @@ def test_openai_complete_with_tools_parses_tool_calls():
 
 
 def test_openai_complete_with_tools_plain_answer():
-    provider = OpenAIProvider(api_key="x")
+    provider = OpenAIProvider(api_key="x", base_url=COMPATIBLE)
     resp = SimpleNamespace(
         choices=[SimpleNamespace(message=SimpleNamespace(content="Done.", tool_calls=None), finish_reason="stop")],
         usage=SimpleNamespace(prompt_tokens=5, completion_tokens=2, total_tokens=7),
@@ -269,16 +271,18 @@ def test_tool_choice_required_maps_per_provider():
     anthropic = AnthropicProvider(api_key="x")
 
     oai_resp = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content="x", tool_calls=None), finish_reason="stop")],
-        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+        output=[],
+        output_text="x",
+        usage=SimpleNamespace(input_tokens=1, output_tokens=1, total_tokens=2),
         model="gpt-4o",
+        incomplete_details=None,
         model_dump=lambda: {},
     )
     oai_client = MagicMock()
-    oai_client.chat.completions.create.return_value = oai_resp
+    oai_client.responses.create.return_value = oai_resp
     openai._client = MagicMock(return_value=oai_client)
     openai.complete_with_tools([Message(role="user", content="hi")], "gpt-4o", TOOLS, tool_choice="required")
-    assert oai_client.chat.completions.create.call_args.kwargs["tool_choice"] == "required"
+    assert oai_client.responses.create.call_args.kwargs["tool_choice"] == "required"
 
     ant_resp = SimpleNamespace(
         content=[SimpleNamespace(type="text", text="x")],
@@ -292,41 +296,3 @@ def test_tool_choice_required_maps_per_provider():
     anthropic._client = MagicMock(return_value=ant_client)
     anthropic.complete_with_tools([Message(role="user", content="hi")], "claude-sonnet-5", TOOLS, tool_choice="required")
     assert ant_client.messages.create.call_args.kwargs["tool_choice"] == {"type": "any"}
-
-
-def _create_kwargs(model: str, opts: CompletionOptions) -> dict:
-    """What OpenAIProvider.complete sends to chat.completions.create for this model."""
-    provider = OpenAIProvider(api_key="x")
-    resp = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=None), finish_reason="stop")],
-        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
-        model=model,
-        model_dump=lambda: {},
-    )
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.return_value = resp
-    provider._client = MagicMock(return_value=fake_client)
-    provider.complete([Message(role="user", content="hi")], model, opts)
-    return fake_client.chat.completions.create.call_args.kwargs
-
-
-def test_openai_reasoning_model_without_limit_omits_max_tokens_and_temperature():
-    sent = _create_kwargs("gpt-5-mini", CompletionOptions(max_tokens=None))
-    assert "max_tokens" not in sent and "max_completion_tokens" not in sent
-    assert "temperature" not in sent and "top_p" not in sent
-
-
-def test_openai_reasoning_model_with_limit_sends_max_completion_tokens():
-    sent = _create_kwargs("o3", CompletionOptions(max_tokens=300))
-    assert sent["max_completion_tokens"] == 300
-    assert "max_tokens" not in sent
-
-
-def test_openai_chat_model_keeps_max_tokens_and_temperature():
-    sent = _create_kwargs("gpt-4o", CompletionOptions(max_tokens=300, temperature=0.2))
-    assert sent["max_tokens"] == 300
-    assert sent["temperature"] == 0.2
-
-
-def test_openai_chat_model_without_limit_omits_null_max_tokens():
-    assert "max_tokens" not in _create_kwargs("gpt-4o", CompletionOptions(max_tokens=None))

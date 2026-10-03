@@ -840,10 +840,10 @@ class AuthoringService:
 
     # ── Execution-record + event machinery (self-contained) ──────────────────
 
-    def _temperature(self) -> float:
+    def _temperature(self) -> float | None:
         from marvin.core.config import get_app_settings
 
-        return getattr(get_app_settings(), "AI_DEFAULT_TEMPERATURE", 0.7)
+        return get_app_settings().AI_DEFAULT_TEMPERATURE
 
     def _approval_mode(self) -> str:
         """Workspace approval policy — the same rule every AI write-back uses (services/ai/approval)."""

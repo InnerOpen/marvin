@@ -176,7 +176,7 @@ class VisionModelHandler:
 
                 op = get_operation("describe-image")
                 messages = resolve_prompt_messages(op.build_prompt({}, ctx), self.group_id, ctx.variables)
-                opts = CompletionOptions(temperature=0.2, max_tokens=400)
+                opts = CompletionOptions(max_tokens=400)
                 parsed, _ = self.provider.execute_operation(messages, self.model, op.output_schema, opts)
                 return parsed or {}
 
@@ -198,7 +198,7 @@ class VisionModelHandler:
                         ],
                     ),
                 ]
-                opts = CompletionOptions(temperature=0.0, max_tokens=200)
+                opts = CompletionOptions(max_tokens=200)
                 parsed, _ = self.provider.execute_operation(messages, self.model, _DETECT_SUBJECT_SCHEMA, opts)
                 box = _normalize_box((parsed or {}).get("box"))
                 return {"box": box} if box else {}

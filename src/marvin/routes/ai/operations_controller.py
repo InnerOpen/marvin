@@ -275,7 +275,7 @@ class AIOperationsController(BaseUserController):
 
             _app = get_app_settings()
             opts = CompletionOptions(
-                temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7),
+                temperature=_app.AI_DEFAULT_TEMPERATURE,
                 max_tokens=self._max_output_tokens(),
             )
             parsed, completion = provider.execute_operation(messages, model, operation.output_schema, opts)
@@ -1457,7 +1457,7 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai.base import CompletionOptions
 
         _app = get_app_settings()
-        return CompletionOptions(temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7), max_tokens=self._max_output_tokens())
+        return CompletionOptions(temperature=_app.AI_DEFAULT_TEMPERATURE, max_tokens=self._max_output_tokens())
 
     def _account_execution(self, execution, result, provider, model, start: float) -> None:
         """Add a loop leg's tokens and wall time to the execution row (a resumed run keeps its row)."""
@@ -1789,7 +1789,7 @@ class AIOperationsController(BaseUserController):
         self.session.commit()
         start = time.monotonic()
         try:
-            opts = CompletionOptions(temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7), max_tokens=self._max_output_tokens())
+            opts = CompletionOptions(temperature=_app.AI_DEFAULT_TEMPERATURE, max_tokens=self._max_output_tokens())
             result = provider.complete(messages, model, opts)
         except Exception as e:
             self._fail_execution(execution, str(e), start)
@@ -1881,7 +1881,7 @@ class AIOperationsController(BaseUserController):
         start = time.monotonic()
         try:
             opts = CompletionOptions(
-                temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7),
+                temperature=_app.AI_DEFAULT_TEMPERATURE,
                 max_tokens=self._max_output_tokens(),
             )
             result = provider.complete(messages, model, opts)

@@ -925,8 +925,9 @@ class AppSettings(BaseSettings):
     """Character overlap between consecutive embedded chunks."""
 
     # ── Generation defaults ──
-    AI_DEFAULT_TEMPERATURE: float = 0.7
-    """Default sampling temperature for AI operations."""
+    AI_DEFAULT_TEMPERATURE: float | None = None
+    """Sampling temperature sent with every AI call. Unset (the default) sends none, so each model uses its
+    own default — reasoning models refuse any other value. Set it only to force one for every model."""
     AI_DEFAULT_MAX_TOKENS: int | None = None
     """Default max output tokens for AI operations (None = provider default)."""
 

@@ -89,7 +89,7 @@ class OllamaProvider(AIProvider):
             payload["format"] = fmt
         if tools:
             payload["tools"] = tools
-        if options.temperature != 0.7:
+        if options.temperature is not None:
             payload.setdefault("options", {})["temperature"] = options.temperature
         resp = httpx.post(f"{self._base_url}/api/chat", json=payload, timeout=120)
         if resp.status_code >= 400:

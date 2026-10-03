@@ -45,7 +45,10 @@ class GoogleProvider(AIProvider):
         opts = options or CompletionOptions()
         genai = self._client()
         m = genai.GenerativeModel(model)
-        resp = m.generate_content(self._to_parts(messages), generation_config={"max_output_tokens": opts.max_tokens, "temperature": opts.temperature})
+        resp = m.generate_content(
+            self._to_parts(messages),
+            generation_config={"max_output_tokens": opts.max_tokens, **({"temperature": opts.temperature} if opts.temperature is not None else {})},
+        )
         usage = resp.usage_metadata
         return CompletionResult(
             content=resp.text,

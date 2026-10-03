@@ -169,7 +169,7 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
             )
 
     _app = get_app_settings()
-    opts = CompletionOptions(temperature=getattr(_app, "AI_DEFAULT_TEMPERATURE", 0.7), max_tokens=None)
+    opts = CompletionOptions(temperature=_app.AI_DEFAULT_TEMPERATURE, max_tokens=None)
     max_steps = max(1, min(int(args.get("max_steps") or 6), 12))
 
     execution = AIExecutionModel(
