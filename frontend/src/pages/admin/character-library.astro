@@ -1,0 +1,167 @@
+---
+import CharacterPicker from "@/components/CharacterPicker.astro";
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
+
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+
+interface PackUser {
+  workspaceId: string;
+  workspace: string;
+  agent?: string | null;
+}
+interface Pack {
+  id: string;
+  slug: string;
+  name: string;
+  states: Record<string, string>;
+  files: { name: string; url: string }[];
+  missing: string[];
+  usedBy: PackUser[];
+}
+
+let packs: Pack[] = [];
+let catalog: { key: string; aliases: string[] }[] = [];
+let error: string | null = null;
+try {
+  [packs, catalog] = await Promise.all([
+    fetchApi<Pack[]>("/api/admin/character-packs", {}, authToken),
+    // The file names each state picks up, for the upload hint; only a hint, so a miss is fine.
+    fetchApi<{ key: string; aliases: string[] }[]>("/api/groups/ai-settings/character/catalog", {}, authToken).catch(() => []),
+  ]);
+} catch (e) {
+  console.error("[admin/character-library] Failed to load:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agent ${u.agent})` : u.workspace)).join(", ");
+---
+
+<AdminLayout title="Character Library">
+  <div class="toolbar">
+    <div>
+      <h2>Character Library</h2>
+      <p>Animated bubble characters for every workspace. A pack added here can be picked by any workspace (AI settings → Persona) or agent (Settings → Agents); workspaces can still upload their own.</p>
+    </div>
+  </div>
+
+  {error && <div class="alert error">Could not load the library: {error}</div>}
+
+  <div class="page-container">
+    <form id="pack-form" class="settings-section">
+      <h3>Add a pack</h3>
+      <p>A .zip or GIF, WebP or PNG files named for the states — waving.gif, running.gif and so on. Files named otherwise are kept to assign by hand.</p>
+      <div class="pack-new">
+        <input class="input" name="name" placeholder="Name (defaults to the .zip's name)" maxlength="120" />
+        <input class="input" type="file" name="files" accept=".zip,image/gif,image/webp,image/png" multiple required />
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="button">Add pack</button>
+        <span id="pack-status" class="status-text" role="status"></span>
+      </div>
+    </form>
+
+    {!error && !packs.length && <p class="empty">No packs yet.</p>}
+
+    {packs.map((p) => (
+      <section class="settings-section pack" data-pack={p.id}>
+        <div class="pack-head">
+          <input class="input pack-name" value={p.name} maxlength="120" aria-label="Pack name" />
+          <button type="button" class="button secondary pack-rename">Rename</button>
+          <code class="pack-slug">{p.slug}</code>
+          <span class="status-text pack-status" role="status"></span>
+        </div>
+        <p class="pack-users">{p.usedBy.length ? `Used by ${usedBy(p)} — it can't be deleted while in use.` : "Not used by any workspace or agent."}</p>
+        <CharacterPicker
+          api={`/api/admin/character-packs/${p.id}`}
+          character={p}
+          catalog={catalog}
+          uploadLabel="Replace files…"
+          removeLabel="Delete pack"
+          removeConfirm={`Delete "${p.name}" and its files?`}
+        />
+      </section>
+    ))}
+  </div>
+</AdminLayout>
+
+<script>
+  import { fetchApi } from '@/lib/api/client';
+
+  const API = '/api/admin/character-packs';
+  const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
+
+  const form = document.getElementById('pack-form') as HTMLFormElement | null;
+  const formStatus = document.getElementById('pack-status');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (formStatus) formStatus.textContent = 'Uploading…';
+    try {
+      await fetchApi(API, { method: 'POST', body: new FormData(form) });
+      location.reload();
+    } catch (err) {
+      if (formStatus) formStatus.textContent = `Error: ${message(err)}`;
+    }
+  });
+
+  for (const card of document.querySelectorAll<HTMLElement>('.pack')) {
+    const id = card.dataset.pack!;
+    const status = card.querySelector<HTMLElement>('.pack-status')!;
+    const name = card.querySelector<HTMLInputElement>('.pack-name')!;
+    card.querySelector('.pack-rename')?.addEventListener('click', async () => {
+      status.textContent = 'Saving…';
+      try {
+        await fetchApi(`${API}/${id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name.value.trim() }),
+        });
+        status.textContent = 'Saved';
+      } catch (err) {
+        status.textContent = `Error: ${message(err)}`;
+      }
+    });
+    // The picker's "Delete pack" removed it (the server refuses one in use, and the picker says why).
+    card.addEventListener('character-change', (ev) => {
+      if ((ev as CustomEvent).detail === null) card.remove();
+    });
+  }
+</script>
+
+<style>
+  .page-container { max-width: 960px; }
+  .settings-section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .settings-section h3 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  .settings-section > p { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+  .pack-new { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .pack-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+  .pack-head .pack-name { width: auto; flex: 1 1 220px; font-weight: 600; }
+  .pack-slug { font-size: 12px; color: var(--muted); }
+  .settings-section > .pack-users { font-size: 13px; margin-bottom: 12px; }
+  .form-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  .status-text { font-size: 13px; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 14px; }
+  .alert.error {
+    padding: 12px 16px;
+    border: 1px solid #c33;
+    border-radius: var(--radius);
+    color: #c33;
+    margin-bottom: 16px;
+  }
+  @media (max-width: 700px) { .pack-new { grid-template-columns: 1fr; } }
+</style>

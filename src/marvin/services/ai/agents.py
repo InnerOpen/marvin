@@ -130,6 +130,9 @@ class AgentSpec:
     handoff_hint: str | None = None
     is_system: bool = False
     id: str | None = None
+    # The bubble's character while this agent talks, as stored (an own pack or {"library": id}); None →
+    # the workspace's. System agents have none: they're code, and `marvin` *is* the workspace's character.
+    character: dict | None = None
 
 
 SYSTEM_AGENTS: dict[str, AgentSpec] = {
@@ -184,6 +187,7 @@ def spec_from_row(row) -> AgentSpec:
         handoff_hint=getattr(row, "handoff_hint", None) or None,
         is_system=False,
         id=str(row.id),
+        character=getattr(row, "character", None) or None,
     )
 
 

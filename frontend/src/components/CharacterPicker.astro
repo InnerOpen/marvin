@@ -1,0 +1,99 @@
+---
+/**
+ * A bubble character's picker: upload a pack, pick each state's animation, remove it — and, given a
+ * `library`, choose between a library pack, an own upload and none. Logic in
+ * @/lib/marvin/characterPicker; the endpoints under `api` follow one shape (see there).
+ */
+interface LibraryOption {
+  id: string;
+  name: string;
+}
+
+interface Props {
+  /** The character's endpoint, e.g. /api/groups/ai-settings/character. */
+  api: string;
+  /** The character as the API describes it ({library?, name?, states, files}), or null. */
+  character?: unknown;
+  /** GET …/character/catalog: names the files each state picks up, for the upload hint. */
+  catalog?: { key: string; aliases: string[] }[];
+  /** Offer the platform's library (and "none"); omit for a pack edited on its own (the library admin). */
+  library?: LibraryOption[];
+  noneLabel?: string;
+  uploadLabel?: string;
+  removeLabel?: string;
+  removeConfirm?: string;
+}
+
+const {
+  api,
+  character = null,
+  catalog = [],
+  library,
+  noneLabel = "None — the icon",
+  uploadLabel = "Upload character…",
+  removeLabel = "Remove",
+  removeConfirm,
+} = Astro.props;
+const names = catalog.length ? catalog.map((c) => `${c.aliases[0]}.gif`).join(", ") : "idle, waving, review, running…";
+---
+
+<div class="character-picker" data-api={api} data-character={JSON.stringify(character)} data-remove-confirm={removeConfirm}>
+  <div class="character-head">
+    {library && (
+      <select class="input character-source" aria-label="Character">
+        <option value="">{noneLabel}</option>
+        {library.map((p) => <option value={`library:${p.id}`}>Library: {p.name}</option>)}
+        <option value="own">Own upload</option>
+      </select>
+    )}
+    <img class="character-preview" alt="" hidden />
+    <span class="character-status"></span>
+  </div>
+  <div class="character-own">
+    <small class="character-hint">
+      Upload a .zip or GIF, WebP or PNG files named for the states ({names}) — or name them anything and
+      pick each state's animation below.
+    </small>
+    <div class="character-actions">
+      <input type="file" class="character-files" accept=".zip,image/gif,image/webp,image/png" multiple hidden />
+      <button type="button" class="button secondary small character-upload">{uploadLabel}</button>
+      <button type="button" class="button secondary small character-remove" hidden>{removeLabel}</button>
+    </div>
+    <ul class="character-hint character-report" hidden></ul>
+    <div class="character-grid" hidden></div>
+    <small class="character-hint character-unassigned" hidden></small>
+  </div>
+</div>
+
+<script>
+  import { mountCharacterPickers } from '@/lib/marvin/characterPicker';
+
+  mountCharacterPickers();
+</script>
+
+<style is:global>
+  /* Global: the rows are built in the script, and pages restyle nothing here. */
+  .character-picker { display: grid; gap: 8px; }
+  .character-picker .character-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .character-picker .character-source { width: auto; min-width: 220px; }
+  .character-picker .character-preview { height: 48px; width: auto; max-width: 96px; object-fit: contain; }
+  .character-picker .character-own { display: grid; gap: 8px; }
+  .character-picker .character-hint { font-size: 12px; color: var(--muted); }
+  .character-picker .character-report { margin: 0; padding-left: 18px; }
+  .character-picker .character-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .character-picker .character-status { font-size: 13px; color: var(--muted); }
+  .character-picker .character-status.success { color: var(--accent); }
+  .character-picker .character-status.error { color: var(--color-error); }
+  .character-picker .character-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px;
+  }
+  .character-picker .character-row {
+    display: grid; grid-template-columns: 40px 1fr minmax(0, 1.4fr); align-items: center; gap: 8px;
+    padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg);
+  }
+  .character-picker .character-thumb { height: 40px; width: 40px; object-fit: contain; }
+  /* Borrowed from a fallback state: shown, but visibly not its own. */
+  .character-picker .character-thumb.borrowed { opacity: 0.35; }
+  .character-picker .character-state { font-size: 13px; }
+  .character-picker .character-row select { font-size: 12px; padding: 4px 6px; }
+</style>

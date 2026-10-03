@@ -51,6 +51,10 @@ class WorkspaceAgentModel(SqlAlchemyBase, BaseMixins):
     suggestions: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)  # starter prompts shown in chat
     # One line for the router's roster ("Hand off when: …"); falls back to the description.
     handoff_hint: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # The bubble's character while this agent is the one talking (or working a hand-off): its own pack
+    # {"states", "files"} or a library pack {"library": id} — see services/ai/character.py. Unset → the
+    # workspace's character, state by state.
+    character: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     created_by: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
 
     @auto_init()

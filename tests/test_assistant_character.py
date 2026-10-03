@@ -233,6 +233,9 @@ def ctrl(db_session, workspace, tmp_path):
     c._allow_workspace_credentials = lambda: True
     c._settings_row = lambda: AISettingsController._settings_row(c)
     c._asset_service = lambda: AssetStorageService(repos, storage)
+    c._character_store = lambda: AISettingsController._character_store(c)
+    c._effective_character = lambda row: AISettingsController._effective_character(c, row)
+    c._described = lambda row: AISettingsController._described(c, row)
     c.upload = lambda files: AISettingsController.upload_character(c, [UploadFile(io.BytesIO(d), filename=n) for n, d in files])
     c.assign = lambda state, file: AISettingsController.assign_character_state(c, ch_assign(state, file))
     c.delete = lambda: AISettingsController.delete_character(c)

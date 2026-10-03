@@ -30,11 +30,16 @@ export interface Agent {
   /** One line for the router's roster: when Marvin should hand a question to this agent. */
   handoffHint?: string | null;
   isSystem: boolean;
+  /**
+   * The bubble's character while this agent talks — its own upload, or a library pack's states — set
+   * through /api/ai/agents/{slug}/character. Null → the workspace's. Built-ins never have one.
+   */
+  character?: { library?: string | null; name?: string | null; states: Record<string, string> } | null;
 }
 
-export type AgentCreate = Omit<Agent, "id" | "isSystem" | "minRole" | "enabled" | "allowWrites"> &
+export type AgentCreate = Omit<Agent, "id" | "isSystem" | "minRole" | "enabled" | "allowWrites" | "character"> &
   Partial<Pick<Agent, "minRole" | "enabled" | "allowWrites">>;
-export type AgentUpdate = Partial<Omit<Agent, "id" | "slug" | "isSystem">>;
+export type AgentUpdate = Partial<Omit<Agent, "id" | "slug" | "isSystem" | "character">>;
 
 export interface ToolCategory {
   id: string;

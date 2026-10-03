@@ -3,7 +3,7 @@
 import time
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from pydantic import UUID4
 
 from marvin.db.models.groups.agents import WorkspaceAgentModel
@@ -22,6 +22,12 @@ from marvin.schemas.group.ai_execution import (
     AIReindexRequest,
     AIReviseEntryRequest,
     AIToolInvokeRequest,
+)
+from marvin.schemas.group.ai_settings import (
+    AssistantCharacter,
+    AssistantCharacterAssign,
+    AssistantCharacterLibraryChoice,
+    AssistantCharacterUpload,
 )
 from marvin.schemas.group.ai_thread import AIThreadDetail, AIThreadMessageRead, AIThreadRead, AIThreadResumeRequest, AIThreadUpdate
 from marvin.services.ai.agents import ROUTER_SLUG
@@ -783,7 +789,8 @@ class AIOperationsController(BaseUserController):
     def list_agents(self) -> list[AgentRead]:
         from marvin.services.ai.agents import list_agents as _list
 
-        return [self._agent_read(spec) for spec in _list(self.session, self.group_id)]
+        packs: dict = {}  # agents sharing a library pack look it up once
+        return [self._agent_read(spec, self._agent_character(spec, packs)) for spec in _list(self.session, self.group_id)]
 
     @router.get("/agents/catalog", summary="Tool catalog for the permission matrix (categories, tools, operations)")
     def agents_catalog(self) -> dict:
@@ -816,7 +823,8 @@ class AIOperationsController(BaseUserController):
 
     @router.get("/agents/{slug}", response_model=AgentRead, summary="Get an agent")
     def get_agent(self, slug: str) -> AgentRead:
-        return self._agent_read(self._agent_or_404(slug))
+        spec = self._agent_or_404(slug)
+        return self._agent_read(spec, self._agent_character(spec))
 
     @router.post("/agents", response_model=AgentRead, status_code=status.HTTP_201_CREATED, summary="Define an agent")
     def create_agent(self, data: AgentCreate) -> AgentRead:
@@ -831,7 +839,8 @@ class AIOperationsController(BaseUserController):
         self.session.add(row)
         self.session.commit()
         self.session.refresh(row)
-        return self._agent_read(spec_from_row(row))
+        spec = spec_from_row(row)
+        return self._agent_read(spec, self._agent_character(spec))
 
     @router.patch("/agents/{slug}", response_model=AgentRead, summary="Update an agent")
     def update_agent(self, slug: str, data: AgentUpdate) -> AgentRead:
@@ -844,7 +853,8 @@ class AIOperationsController(BaseUserController):
             setattr(row, k, v)
         self.session.commit()
         self.session.refresh(row)
-        return self._agent_read(spec_from_row(row))
+        spec = spec_from_row(row)
+        return self._agent_read(spec, self._agent_character(spec))
 
     @router.delete("/agents/{slug}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an agent")
     def delete_agent(self, slug: str) -> None:
@@ -852,8 +862,89 @@ class AIOperationsController(BaseUserController):
 
         self._require_role(ROLE_ADMIN, "ADMIN role or higher required to delete agents.")
         row = self._agent_row_or_404(slug)
+        character = row.character
         self.session.delete(row)
         self.session.commit()
+        if character:
+            from marvin.services.ai.character import delete_character_files
+
+            delete_character_files(self._character_store(), character)
+
+    # ── An agent's bubble character (services/ai/character.py; the workspace's is in AI settings) ──
+    # Custom agents only: system agents are code, not rows, and `marvin` plays the workspace's character.
+
+    def _character_store(self):
+        from marvin.services.ai.character import WorkspaceAssetStore
+        from marvin.services.assets.asset_storage_service import AssetStorageService
+        from marvin.services.storage.provider_factory import get_storage_provider
+
+        return WorkspaceAssetStore(AssetStorageService(self.repos, get_storage_provider()), self.group_id, self.user.id)
+
+    def _agent_character(self, spec, packs: dict | None = None) -> dict | None:
+        from marvin.services.ai.character import describe
+        from marvin.services.ai.character_library import resolve
+
+        return describe(resolve(self.session, spec.character, packs))
+
+    def _character_admin_row(self, slug: str) -> WorkspaceAgentModel:
+        from marvin.services.ai.operations.base import ROLE_ADMIN
+
+        self._require_role(ROLE_ADMIN, "ADMIN role or higher required to edit agents.")
+        return self._agent_row_or_404(slug)
+
+    def _save_agent_character(self, row: WorkspaceAgentModel, character: dict | None) -> None:
+        from marvin.services.ai.character import save_character
+
+        save_character(self.session, row, "character", character, self._character_store())
+
+    @router.post("/agents/{slug}/character", response_model=AssistantCharacterUpload, summary="Upload an agent's bubble character")
+    def upload_agent_character(self, slug: str, files: list[UploadFile] = File(...)) -> AssistantCharacterUpload:
+        """The agent's own character, from a .zip or GIF/WebP/PNG files (as the workspace's); replaces its previous one."""
+        from marvin.services.ai.character import CharacterError, describe, plan_character, read_upload_files, store_character
+
+        row = self._character_admin_row(slug)
+        try:
+            plan = plan_character(read_upload_files(files))
+        except CharacterError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        character = store_character(self._character_store(), plan)
+        self._save_agent_character(row, character)
+        return AssistantCharacterUpload(**describe(character), ignored=plan.ignored, idle_guessed=plan.idle_guessed)
+
+    @router.put("/agents/{slug}/character/states", response_model=AssistantCharacter, summary="Assign an agent's bubble character state")
+    def assign_agent_character_state(self, slug: str, data: AssistantCharacterAssign) -> AssistantCharacter:
+        from marvin.services.ai.agents import spec_from_row
+        from marvin.services.ai.character import CharacterError, assign_state
+
+        row = self._character_admin_row(slug)
+        try:
+            character = assign_state(row.character, data.state, data.file)
+        except CharacterError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        self._save_agent_character(row, character)
+        return AssistantCharacter(**self._agent_character(spec_from_row(row)))
+
+    @router.put("/agents/{slug}/character/library", response_model=AssistantCharacter, summary="Give an agent a library character")
+    def use_agent_library_character(self, slug: str, data: AssistantCharacterLibraryChoice) -> AssistantCharacter:
+        """The agent plays a library pack; its own uploaded character, if any, is deleted."""
+        from marvin.services.ai.agents import spec_from_row
+        from marvin.services.ai.character import CharacterError
+        from marvin.services.ai.character_library import library_reference
+
+        row = self._character_admin_row(slug)
+        try:
+            choice = library_reference(self.session, data.pack)
+        except CharacterError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        self._save_agent_character(row, choice)
+        return AssistantCharacter(**self._agent_character(spec_from_row(row)))
+
+    @router.delete("/agents/{slug}/character", status_code=status.HTTP_204_NO_CONTENT, summary="Remove an agent's bubble character")
+    def delete_agent_character(self, slug: str) -> None:
+        """The bubble shows the workspace's character for this agent again; its own files are deleted."""
+        row = self._character_admin_row(slug)
+        if row.character:
+            self._save_agent_character(row, None)
 
     @router.post("/agents/{slug}/run", summary="Run a named agent (built-in or workspace-defined)")
     def run_named_agent(self, slug: str, body: AIAgentRequest) -> dict:
@@ -1240,7 +1331,7 @@ class AIOperationsController(BaseUserController):
         return row
 
     @staticmethod
-    def _agent_read(spec) -> AgentRead:
+    def _agent_read(spec, character: dict | None = None) -> AgentRead:
         return AgentRead(
             id=spec.id,
             slug=spec.slug,
@@ -1260,6 +1351,7 @@ class AIOperationsController(BaseUserController):
             suggestions=list(spec.suggestions) if spec.suggestions else None,
             handoff_hint=spec.handoff_hint,
             is_system=spec.is_system,
+            character=character,
         )
 
     @staticmethod

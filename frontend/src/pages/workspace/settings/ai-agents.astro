@@ -1,7 +1,8 @@
 ---
+import CharacterPicker from "@/components/CharacterPicker.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { type Agent, type Catalog, getCatalog, listAgents } from "@/lib/api/aiAgents";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -9,18 +10,25 @@ const authToken = getAuthToken(Astro.cookies);
 let agents: Agent[] = [];
 let catalog: Catalog = { categories: [], tools: [] };
 let models: { id: string; label: string; tools: boolean }[] = [];
+// Bubble characters: the platform's library to choose from, and the file names each state picks up.
+let characterLibrary: { id: string; name: string }[] = [];
+let characterCatalog: { key: string; aliases: string[] }[] = [];
 let error: string | null = null;
 
 try {
-  const [a, c, providers] = await Promise.all([
+  const [a, c, providers, lib, states] = await Promise.all([
     listAgents(authToken),
     getCatalog(authToken),
     createSdkClient(authToken)
       .ai.providers.list()
       .catch(() => [] as any[]),
+    fetchApi<{ id: string; name: string }[]>("/api/groups/ai-settings/character/library", {}, authToken).catch(() => []),
+    fetchApi<{ key: string; aliases: string[] }[]>("/api/groups/ai-settings/character/catalog", {}, authToken).catch(() => []),
   ]);
   agents = a;
   catalog = c;
+  characterLibrary = lib;
+  characterCatalog = states;
   models = (providers as any[])
     .filter((p) => p.enabled !== false)
     .flatMap((p) =>
@@ -164,7 +172,11 @@ const builtins = agents.filter((a) => a.isSystem);
           <div class="agent" data-slug={a.slug}>
             <div class="agent-top">
               <div class="agent-id">
-                <div class="agent-name"><span class="agent-icon">{a.icon ?? "🤖"}</span><strong>{a.name}</strong> <code class="slug">{a.slug}</code></div>
+                <div class="agent-name">
+                  <span class="agent-icon">{a.icon ?? "🤖"}</span>
+                  <img class="agent-character" alt="" src={a.character?.states?.idle} hidden={!a.character?.states?.idle} />
+                  <strong>{a.name}</strong> <code class="slug">{a.slug}</code>
+                </div>
                 <div class="agent-desc">{a.description ?? ""}</div>
               </div>
               <label class="toggle-label">
@@ -183,11 +195,26 @@ const builtins = agents.filter((a) => a.isSystem);
               <div class="agent-actions">
                 <button class="button secondary small edit-btn" type="button">Edit</button>
                 <button class="button secondary small perms-btn" type="button">Permissions</button>
+                <button class="button secondary small character-btn" type="button">Character</button>
                 <button class="button secondary small del-btn" type="button">Delete</button>
               </div>
             </div>
             <div class="perms" data-role="perms" hidden></div>
             <div class="edit" data-role="edit" hidden></div>
+            <div class="character-box" data-role="character" hidden>
+              <div class="section-title">
+                <h4>Bubble character</h4>
+                <p>Shown in the Ask bubble while this agent talks (<code>/use {a.slug}</code>) or works a hand-off. A state its character lacks plays the workspace's; with none, the workspace's character shows.</p>
+              </div>
+              <CharacterPicker
+                api={`/api/ai/agents/${encodeURIComponent(a.slug)}/character`}
+                character={a.character ?? null}
+                catalog={characterCatalog}
+                library={characterLibrary}
+                noneLabel="None — the workspace's character"
+                removeConfirm="This agent's uploaded character files are deleted. Continue?"
+              />
+            </div>
             <span class="save-status" data-role="status"></span>
           </div>
         ))}
@@ -196,7 +223,7 @@ const builtins = agents.filter((a) => a.isSystem);
 
     <!-- Built-ins -->
     <div class="section-card">
-      <div class="section-title"><h3>Built-in agents</h3><p>Always present, defined in code. You can see what each can do as you, but not edit them.</p></div>
+      <div class="section-title"><h3>Built-in agents</h3><p>Always present, defined in code. You can see what each can do as you, but not edit them. They show the workspace's bubble character (AI settings → Persona).</p></div>
       {builtins.map((a) => (
         <div class="agent builtin" data-slug={a.slug}>
           <div class="agent-top">
@@ -267,7 +294,8 @@ const builtins = agents.filter((a) => a.isSystem);
   .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
   .pill.warn { color: #a16207; border-color: rgba(234,179,8,0.45); background: rgba(234,179,8,0.1); }
   .agent-actions { display: flex; gap: 8px; }
-  .perms, .edit { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .perms, .edit, .character-box { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .agent-character { height: 28px; width: auto; max-width: 56px; object-fit: contain; }
   /* Injected via innerHTML → :global */
   .matrix :global(.mx-group), .perms :global(.mx-group) { border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; overflow: hidden; }
   .matrix :global(.mx-head), .perms :global(.mx-head) { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; background: var(--panel-2); font-size: 13px; }
@@ -471,6 +499,19 @@ const builtins = agents.filter((a) => a.isSystem);
       const statusEl = card.querySelector('[data-role="status"]');
       const permsBox = card.querySelector<HTMLElement>('[data-role="perms"]');
       const editBox = card.querySelector<HTMLElement>('[data-role="edit"]');
+
+      const characterBox = card.querySelector<HTMLElement>('[data-role="character"]');
+      card.querySelector(".character-btn")?.addEventListener("click", () => {
+        if (characterBox) characterBox.hidden = !characterBox.hidden;
+      });
+      // Keep the card's small preview in step with the picker.
+      characterBox?.addEventListener("character-change", (ev) => {
+        const idle = (ev as CustomEvent).detail?.states?.idle;
+        const img = card.querySelector<HTMLImageElement>(".agent-character");
+        if (!img) return;
+        img.hidden = !idle;
+        if (idle) img.src = idle;
+      });
 
       card.querySelector(".perms-btn")?.addEventListener("click", async () => {
         if (!permsBox) return;

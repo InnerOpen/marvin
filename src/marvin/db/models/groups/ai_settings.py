@@ -54,7 +54,8 @@ class WorkspaceAISettingsModel(SqlAlchemyBase, BaseMixins):
     # The bubble's icon: an emoji, or an image URL (e.g. an asset's public URL). Unset → 🤖.
     assistant_icon: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     # The bubble's animated character, shown instead of the icon when set: {"states": {state: url},
-    # "files": [{name, assetId, url}]} — see services/ai/character.py. Unset → the icon.
+    # "files": [{name, assetId, url}]}, or a library pack {"library": id} — see services/ai/character.py.
+    # Unset → the icon.
     assistant_character: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     # Free-text voice/tone instruction appended to the system prompt.
     persona_prompt: Mapped[str | None] = mapped_column(sa.Text, nullable=True)

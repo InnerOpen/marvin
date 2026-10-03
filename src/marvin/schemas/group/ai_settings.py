@@ -28,8 +28,9 @@ class WorkspaceAISettingsCreate(_MarvinModel):
     # Per-workspace AI persona: display name, bubble icon (emoji or image URL) and a voice/tone instruction.
     assistant_name: str | None = None
     assistant_icon: str | None = None
-    # The bubble's animated character ({"states": {state: url}, "files": [...]}), shown instead of the
-    # icon. Set through POST /groups/ai-settings/character; see services/ai/character.py.
+    # The bubble's animated character ({"states": {state: url}, "files": [...]}, or a library pack's —
+    # {"library": id, "name", "states"}), shown instead of the icon. Set through
+    # POST /groups/ai-settings/character or PUT …/character/library; see services/ai/character.py.
     assistant_character: dict | None = None
     persona_prompt: str | None = None
     # Default tone register for agent runs (axis B, separate from persona). A per-call register wins.
@@ -55,7 +56,8 @@ class WorkspaceAISettingsUpdate(_MarvinModel):
     external_mcp_enabled: bool | None = None
     assistant_name: str | None = None
     assistant_icon: str | None = None
-    # Only {"states": ...} is taken (or null, to remove the character); uploads go through /character.
+    # Only {"states": ...} or {"library": pack id or slug} is taken (or null, to remove the character);
+    # uploads go through /character.
     assistant_character: dict | None = None
     persona_prompt: str | None = None
     default_register: str | None = None
@@ -69,6 +71,9 @@ class WorkspaceAISettingsRead(WorkspaceAISettingsCreate):
     # Read-only platform policy (from AppSettings), surfaced so the UI can gate the
     # "workspace" credential option. Not persisted on the workspace row.
     allow_workspace_credentials: bool = True
+    # {agent slug: states} for agents with a bubble character of their own, so the bubble can swap on
+    # `/use` and during hand-offs without another request. Not persisted on the workspace row.
+    agent_characters: dict[str, dict[str, str]] = {}
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -107,13 +112,14 @@ class AssistantCharacterFile(_MarvinModel):
     """One animation the character's upload stored, assigned to a state or not."""
 
     name: str
-    asset_id: str
+    asset_id: str | None = None  # a workspace's own character; library packs' files aren't assets
     url: str
 
 
 class AssistantCharacter(_MarvinModel):
     """The bubble's animated character — see services/ai/character.py."""
 
+    library: str | None = None  # the library pack's id, when it is one (its files aren't listed)
     name: str | None = None
     states: dict[str, str]
     files: list[AssistantCharacterFile] = []
@@ -128,6 +134,20 @@ class AssistantCharacterUpload(AssistantCharacter):
 class AssistantCharacterAssign(_MarvinModel):
     state: str
     file: str | None = None  # a file name or asset id from the character's files; null clears the state
+
+
+class AssistantCharacterLibraryChoice(_MarvinModel):
+    pack: str  # a library pack's id or slug
+
+
+class CharacterPackSummary(_MarvinModel):
+    """A library pack as a workspace member sees it, to choose from."""
+
+    id: str
+    slug: str
+    name: str
+    states: dict[str, str]
+    missing: list[str] = []
 
 
 class AssistantCharacterState(_MarvinModel):

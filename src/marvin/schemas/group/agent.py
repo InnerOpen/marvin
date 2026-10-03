@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import UUID4, ConfigDict, Field, field_validator
 
 from marvin.schemas._marvin import _MarvinModel
+from marvin.schemas.group.ai_settings import AssistantCharacter
 from marvin.services.ai.operations.base import INVOCATION_SOURCES
 
 AgentKind = Literal["persona", "model"]
@@ -125,5 +126,8 @@ class AgentRead(AgentBase):
     id: UUID4 | None = None  # system agents have no row
     slug: str
     is_system: bool = False
+    # The bubble's character while this agent talks (a library pack resolved to its states); None → the
+    # workspace's. Set through /ai/agents/{slug}/character; see services/ai/character.py.
+    character: AssistantCharacter | None = None
 
     model_config = ConfigDict(from_attributes=True)

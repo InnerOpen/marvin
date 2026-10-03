@@ -6,15 +6,18 @@ alias table below, so a pack drawn for another tool ("waving.gif", "running-left
 Files whose names match nothing are kept too, unassigned, so the settings page can assign any of them
 to any state by hand (assign_state).
 
-Every accepted file is stored as a workspace asset, and the bubble loads it by the asset's public URL
-— the same URL the admin's asset pages display, served without auth (local storage: the /assets
-static mount, proxied by the frontend; S3: the bucket URL). The stored JSON remembers which assets the
-character created, so replacing or removing it deletes exactly those.
+Where the files go is a CharacterFileStore. A workspace's own character stores each one as a workspace
+asset (WorkspaceAssetStore), and the bubble loads it by the asset's public URL — the same URL the
+admin's asset pages display, served without auth (local storage: the /assets static mount, proxied by
+the frontend; S3: the bucket URL). The platform's character library keeps its packs' files under a
+storage prefix of their own, served the same way (services/ai/character_library.py). The stored JSON
+remembers which files the character created, so replacing or removing it deletes exactly those.
 
-Stored on WorkspaceAISettingsModel.assistant_character as
+A workspace (WorkspaceAISettingsModel.assistant_character) or agent (WorkspaceAgentModel.character)
+stores either its own pack
     {"states": {state: url}, "files": [{"name": "waving.gif", "assetId": "…", "url": "…"}]}
-The state machine that plays these lives in the frontend (frontend/src/lib/marvin/character.ts); the
-canonical keys must match.
+or a reference to a library pack, {"library": "<pack id>"}. The state machine that plays these lives
+in the frontend (frontend/src/lib/marvin/character.ts); the canonical keys must match.
 
 Only GIF, WebP and PNG/APNG are accepted, recognised by their magic bytes — never by name, and never
 SVG, which is a script vector when served from the app's own origin. Zips are read in memory with
@@ -25,12 +28,13 @@ enforced again while reading; entry names are only ever used to pick a state, ne
 from __future__ import annotations
 
 import io
+import re
 import uuid
 import zipfile
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from fastapi import UploadFile
 from pydantic import UUID4
@@ -38,6 +42,8 @@ from pydantic import UUID4
 from marvin.services.ai.persona import url_problem
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
     from marvin.services.assets.asset_storage_service import AssetStorageService
 
 IDLE_STATE = "idle"
@@ -79,6 +85,8 @@ MAX_CHARACTER_TOTAL_BYTES = 20 * MEGABYTE
 MAX_CHARACTER_UPLOAD_BYTES = MAX_CHARACTER_TOTAL_BYTES
 
 ASSET_PURPOSE = "assistant-character"
+# The key under which a character points at a library pack instead of holding files of its own.
+LIBRARY_KEY = "library"
 
 _GIF_MAGIC = (b"GIF87a", b"GIF89a")
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -127,6 +135,13 @@ def _path(name: str) -> PurePosixPath:
 def normalize_stem(filename: str) -> str:
     """The part of a file name aliases match: base name without extension, lowercased, `_`/space → `-`."""
     return _path(filename).stem.strip().lower().replace("_", "-").replace(" ", "-")
+
+
+def stored_name(image: CharacterImage) -> str:
+    """The name a file is stored under: of our making, from safe characters only — the upload's own
+    name just labels it."""
+    stem = re.sub(r"[^a-z0-9-]+", "-", normalize_stem(image.name)).strip("-")
+    return f"{stem or 'frame'}.{image.extension}"
 
 
 def state_for(filename: str) -> tuple[str, int] | None:
@@ -251,20 +266,23 @@ def plan_character(uploads: list[tuple[str, bytes]]) -> CharacterPlan:
 # --- the stored character -----------------------------------------------------------------------
 
 
+def library_ref(character: dict | None) -> str | None:
+    """The id of the library pack `character` points at; None for an own pack, or no character."""
+    ref = character.get(LIBRARY_KEY) if isinstance(character, dict) else None
+    return str(ref) if ref else None
+
+
 def missing_states(character: dict | None) -> list[str]:
     """Canonical states the character has no animation for (the bubble falls back for these)."""
     states = (character or {}).get("states") or {}
     return [s for s in CHARACTER_STATES if s not in states]
 
 
-def character_asset_ids(character: dict | None) -> list[str]:
-    return [f["assetId"] for f in (character or {}).get("files") or [] if f.get("assetId")]
-
-
 def character_problem(character: dict | None) -> str | None:
     """Why `character` can't be saved as the bubble's character, or None when it can (None = remove it).
 
-    Only "states" is the caller's to set; the file list is the server's record of what it stored.
+    Only "states" is the caller's to set; the file list is the server's record of what it stored. A
+    {"library": …} reference is the caller's to check against the library.
     """
     if character is None:
         return None
@@ -284,9 +302,11 @@ def character_problem(character: dict | None) -> str | None:
 
 
 def assign_state(character: dict | None, state: str, file: str | None) -> dict:
-    """`character` with `state` playing `file` (a name or asset id from its files), or cleared when None."""
+    """`character` with `state` playing `file` (a name or stored id from its files), or cleared when None."""
     if not character:
         raise CharacterError("there's no character to change — upload one first")
+    if library_ref(character):
+        raise CharacterError("a library character is changed in the library — upload your own to pick its animations")
     if state not in CHARACTER_STATES:
         raise CharacterError(f"unknown character state: {state} — use {', '.join(CHARACTER_STATES)}")
     states = dict(character.get("states") or {})
@@ -295,60 +315,119 @@ def assign_state(character: dict | None, state: str, file: str | None) -> dict:
             raise CharacterError("idle can be changed but not cleared — every other state falls back to it")
         states.pop(state, None)
     else:
-        match = next((f for f in character.get("files") or [] if file in (f.get("name"), f.get("assetId"))), None)
+        match = next((f for f in character.get("files") or [] if file in (f.get("name"), f.get("assetId"), f.get("key"))), None)
         if match is None:
             raise CharacterError(f"{file} isn't one of this character's files")
         states[state] = match["url"]
     return {**character, "states": states}
 
 
-def store_character(asset_service: AssetStorageService, group_id: UUID4, user_id: UUID4, plan: CharacterPlan) -> dict:
-    """Store each planned image as a workspace asset; the new character JSON. All-or-nothing."""
+# --- where the files live -----------------------------------------------------------------------
+
+
+class CharacterFileStore(Protocol):
+    """Where a character's images are kept; each stored file is named in the character's file list by
+    the store's `id_field`, which is how replacing or removing the character finds it again."""
+
+    id_field: str
+
+    def put(self, image: CharacterImage, name: str, slug: str) -> dict:
+        """Store `image` as `name` (`slug` is unique to this file); {id_field: …, "url": public URL}."""
+        ...
+
+    def delete(self, file_id: str) -> None: ...
+
+
+@dataclass
+class WorkspaceAssetStore:
+    """A workspace's own character: each file a workspace asset, loaded by the asset's public URL."""
+
+    asset_service: AssetStorageService
+    group_id: UUID4
+    user_id: UUID4
+    id_field = "assetId"
+
+    def put(self, image: CharacterImage, name: str, slug: str) -> dict:
+        asset = self.asset_service.upload_asset(
+            upload_file=UploadFile(file=io.BytesIO(image.data), filename=name),
+            upload_request=_upload_request(slug, image.name),
+            group_id=self.group_id,
+            user_id=self.user_id,
+        )
+        return {"assetId": str(asset.id), "url": asset.public_url}
+
+    def delete(self, file_id: str) -> None:
+        self.asset_service.delete_asset(uuid.UUID(file_id))
+
+
+def _upload_request(slug: str, name: str):
+    from marvin.schemas.platform.assets import AssetUploadRequest
+
+    return AssetUploadRequest(slug=slug, name=f"Bubble character — {name}", alt_text="", metadata_json={"purpose": ASSET_PURPOSE})
+
+
+def character_file_ids(store: CharacterFileStore, character: dict | None) -> list[str]:
+    return [f[store.id_field] for f in (character or {}).get("files") or [] if f.get(store.id_field)]
+
+
+def store_character(store: CharacterFileStore, plan: CharacterPlan) -> dict:
+    """Store each planned image; the new character JSON. All-or-nothing."""
     batch = uuid.uuid4().hex[:8]
     files: list[dict] = []
     try:
         for index, image in enumerate(plan.images):
-            # Stored under a name of our making: the upload's own name only labels the asset.
-            stored_name = f"{normalize_stem(image.name) or 'frame'}.{image.extension}"
-            asset = asset_service.upload_asset(
-                upload_file=UploadFile(file=io.BytesIO(image.data), filename=stored_name),
-                upload_request=_upload_request(batch, index, image.name),
-                group_id=group_id,
-                user_id=user_id,
-            )
-            files.append({"name": image.name, "assetId": str(asset.id), "url": asset.public_url})
+            stored = store.put(image, stored_name(image), f"bubble-character-{batch}-{index:02d}")
+            files.append({"name": image.name, **stored})
     except Exception:
-        delete_character_assets(asset_service, {"files": files})
+        delete_character_files(store, {"files": files})
         raise
     url_by_name = {f["name"]: f["url"] for f in files}  # names are unique within a character
     states = {state: url_by_name[image.name] for state, image in plan.states.items()}
     return {**({"name": plan.name} if plan.name else {}), "states": states, "files": files}
 
 
-def _upload_request(batch: str, index: int, name: str):
-    from marvin.schemas.platform.assets import AssetUploadRequest
-
-    return AssetUploadRequest(
-        slug=f"bubble-character-{batch}-{index:02d}",
-        name=f"Bubble character — {name}",
-        alt_text="",
-        metadata_json={"purpose": ASSET_PURPOSE},
-    )
-
-
-def delete_character_assets(asset_service: AssetStorageService, character: dict | None, keep: Iterable[str] = ()) -> None:
-    """Delete the assets `character` created, except those in `keep` (still in use by its successor)."""
+def delete_character_files(store: CharacterFileStore, character: dict | None, keep: Iterable[str] = ()) -> None:
+    """Delete the files `character` created, except those in `keep` (still in use by its successor)."""
     kept = set(keep)
-    for asset_id in character_asset_ids(character):
-        if asset_id not in kept:
-            asset_service.delete_asset(uuid.UUID(asset_id))
+    for file_id in character_file_ids(store, character):
+        if file_id not in kept:
+            store.delete(file_id)
+
+
+def save_character(session: Session, row: object, attr: str, character: dict | None, store: CharacterFileStore) -> None:
+    """Make `character` row.<attr> and commit, then delete the files the previous character created that
+    this one doesn't keep — so whichever change it is (replace, reassign, switch to the library,
+    remove), exactly the files nothing uses any more go. If the commit fails, the new files go instead."""
+    previous = getattr(row, attr)
+    setattr(row, attr, character)
+    try:
+        session.commit()
+    except Exception:
+        session.rollback()
+        delete_character_files(store, character, keep=character_file_ids(store, previous))
+        raise
+    delete_character_files(store, previous, keep=character_file_ids(store, character))
+
+
+def read_upload_files(files: Iterable[UploadFile]) -> list[tuple[str, bytes]]:
+    """(name, bytes) of each uploaded file; CharacterError for one over the upload cap."""
+    uploads = []
+    for f in files:
+        # One byte past the cap tells "too big" from "exactly the cap" without reading it all.
+        data = f.file.read(MAX_CHARACTER_UPLOAD_BYTES + 1)
+        if len(data) > MAX_CHARACTER_UPLOAD_BYTES:
+            raise CharacterError(f"{f.filename} is too large")
+        uploads.append((f.filename or "upload", data))
+    return uploads
 
 
 def describe(character: dict | None) -> dict | None:
-    """The character as the API returns it: its states and files, plus which states it lacks."""
+    """The character as the API returns it: its states and files, plus which states it lacks. A library
+    reference must be resolved first (character_library.resolve) to have states to describe."""
     if not character:
         return None
     return {
+        "library": library_ref(character),
         "name": character.get("name"),
         "states": character.get("states") or {},
         "files": character.get("files") or [],

@@ -33,7 +33,8 @@
 
 <script>
   import { fetchApi } from '@/lib/api/client';
-  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress } from '@/lib/marvin/capabilities';
+  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent } from '@/lib/marvin/capabilities';
+  import { createCast, type Cast } from '@/lib/marvin/cast';
   import { createCharacter, dragDirection, type Character, type CharacterEvent, type CharacterStates } from '@/lib/marvin/character';
   import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
@@ -81,7 +82,18 @@
       toggle.title = `Ask ${name}`;
       input.placeholder = `Ask ${name}…  (try /help)`;
       sub.textContent = pick(voice.taglines);
-      if (!applyCharacter(settings?.assistantCharacter?.states, icon)) applyIcon(icon);
+      workspaceIcon = icon;
+      cast = createCast(settings?.assistantCharacter?.states, settings?.agentCharacters ?? {}, getActiveAgent());
+      showCast();
+      if (cast.hasAny) {
+        onRunProgress((progress) => {
+          if (!busy) return; // a late poll of a finished run
+          // A hand-off's delegate shows its own character while it works.
+          if (cast?.progress(progress.events)) showCast();
+          if (progress.status === 'awaiting_approval') cue('parked');
+          else if (progress.events.length) cue('progress');
+        });
+      }
     }
 
     function applyIcon(icon: string) {
@@ -97,17 +109,40 @@
       }
     }
 
-    // ── Animated character (AI settings → Persona → Bubble character) ──
+    // ── Animated character (AI settings → Persona → Bubble character; Settings → Agents) ──
     // Shown instead of the round icon: one animation per bubble state, picked by @/lib/marvin/character
-    // from what happens here (cue). With prefers-reduced-motion it's a still — each state's image
-    // drawn once to a canvas, which keeps only the first frame.
+    // from what happens here (cue). Whose character — the workspace's or the talking agent's — is
+    // @/lib/marvin/cast's call. With prefers-reduced-motion it's a still — each state's image drawn
+    // once to a canvas, which keeps only the first frame.
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let character: Character | null = null;
+    let cast: Cast | null = null;
+    let workspaceIcon = '';
 
     function cue(event: CharacterEvent) { character?.dispatch(event); }
 
+    /** The talking agent's character, or the icon when nobody involved has one. */
+    function showCast() {
+      if (!applyCharacter(cast?.states, workspaceIcon)) showIcon();
+      if (panel.classList.contains('open')) placePanel(); // a character and the icon differ in size
+    }
+
+    /** A run ended, or `/use` switched agents: the active agent is the one talking again. */
+    function finish(event: CharacterEvent) {
+      if (cast?.use(getActiveAgent())) showCast();
+      cue(event);
+    }
+
+    function showIcon() {
+      character?.stop(); character = null;
+      toggle.classList.remove('has-character');
+      document.getElementById('marvin-icon')!.textContent = '🤖';
+      applyIcon(workspaceIcon);
+    }
+
     function applyCharacter(states: CharacterStates | undefined, icon: string): boolean {
       if (!states?.idle) return false;
+      character?.stop();
       const slot = document.getElementById('marvin-icon')!;
       const view = document.createElement(reducedMotion ? 'canvas' : 'img');
       view.className = 'marvin-character';
@@ -116,7 +151,8 @@
       toggle.classList.add('has-character');
       // A file that won't load (its asset was deleted) loses the whole character, not just a state.
       const giveUp = () => {
-        character?.stop(); character = null; onRunProgress(undefined);
+        if (!slot.contains(view)) return; // a character swapped out since; its late error is moot
+        character?.stop(); character = null;
         toggle.classList.remove('has-character');
         slot.textContent = '🤖';
         applyIcon(icon);
@@ -132,11 +168,6 @@
         setTimer: (fn, ms) => window.setTimeout(fn, ms),
         clearTimer: (id) => window.clearTimeout(id as number),
         random: Math.random,
-      });
-      onRunProgress((progress) => {
-        if (!busy) return; // a late poll of a finished run
-        if (progress.status === 'awaiting_approval') cue('parked');
-        else if (progress.events.length) cue('progress');
       });
       // Warm the cache so the first switch to each state doesn't flash empty; off the critical path.
       window.setTimeout(() => { for (const src of new Set(Object.values(states))) new Image().src = src!; }, 0);
@@ -217,7 +248,7 @@
       // "Clear" must also drop the model's memory, not just the visible log: the next message opens
       // a new thread, and nothing waits on the old one any more.
       forgetConversation();
-      cue('rest');
+      finish('rest');
       try { sessionStorage.removeItem(MEM_KEY); } catch { /* ignore */ }
       log.innerHTML = '';
       clear.setAttribute('hidden', '');
@@ -246,10 +277,10 @@
         const res = await resumePendingRun(run);
         if (gen !== generation) return;
         const seen = res?.executionId && transcript.some((t) => t.executionId === res.executionId);
-        if (!res || seen) { thinking.remove(); cue('rest'); }
-        else { commitReply(thinking, res.html, res.executionId); cue(res.parked ? 'parked' : 'reply'); }
+        if (!res || seen) { thinking.remove(); finish('rest'); }
+        else { commitReply(thinking, res.html, res.executionId); finish(res.parked ? 'parked' : 'reply'); }
       } catch (err: any) {
-        if (gen === generation) { commitReply(thinking, errorHtml(err)); cue('error'); }
+        if (gen === generation) { commitReply(thinking, errorHtml(err)); finish('error'); }
       } finally {
         if (gen === generation) busy = false;
         log.scrollTop = log.scrollHeight;
@@ -404,9 +435,10 @@
       cue('send');
       try {
         const res = await cap.run(arg);
-        if (gen === generation) { commitReply(thinking, res.html, res.executionId); cue(res.parked ? 'parked' : 'reply'); }
+        // After `/use`, the agent now talking may have a character of its own.
+        if (gen === generation) { commitReply(thinking, res.html, res.executionId); finish(res.parked ? 'parked' : 'reply'); }
       } catch (err: any) {
-        if (gen === generation) { commitReply(thinking, errorHtml(err)); cue('error'); }
+        if (gen === generation) { commitReply(thinking, errorHtml(err)); finish('error'); }
       } finally {
         if (gen === generation) busy = false;
         log.scrollTop = log.scrollHeight;
