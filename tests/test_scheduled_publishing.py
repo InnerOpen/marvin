@@ -102,7 +102,7 @@ def test_publish_archived_entry_with_old_schedule_is_not_resurrected(db_session,
     summary, _ = run_task(workspace.id)
 
     assert reload(db_session, entry_id).status == "archived"
-    assert summary == "No entries due for publishing"
+    assert summary is None
 
 
 def test_publish_future_schedule_is_left_alone(db_session, workspace, make_entry):
@@ -171,3 +171,21 @@ def test_manual_publish_then_unpublish_is_not_republished_by_task(db_session, wo
 
     assert reload(db_session, entry_id).status == "draft"
 
+
+def test_system_and_workspace_publish_tasks_publish_once(db_session, workspace, make_entry):
+    """The built-in platform-wide task and a workspace's own task can both run in one tick."""
+    entry_id = make_entry(publish_at=PAST)
+
+    _, system_events = run_task(None)
+    workspace_summary, workspace_events = run_task(workspace.id)
+
+    published_here = [e for e in system_events + workspace_events if e["group_id"] == workspace.id]
+    assert (reload(db_session, entry_id).status, len(published_here), workspace_summary) == ("published", 1, None)
+
+
+def test_unpublish_with_nothing_expired_records_nothing(workspace):
+    from marvin.services.scheduled_tasks.handlers.publishing import UnpublishExpiredEntriesHandler
+
+    task = SimpleNamespace(group_id=workspace.id, task_config={})
+
+    assert UnpublishExpiredEntriesHandler().execute(task, SimpleNamespace(dispatch=lambda **_: None)) is None

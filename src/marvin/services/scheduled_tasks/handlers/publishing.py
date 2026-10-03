@@ -21,7 +21,8 @@ logger = get_logger(__name__)
 
 class PublishScheduledEntriesHandler(ScheduledTaskHandler):
     """
-    Publish entries with publish_at <= now, scoped to the task's workspace.
+    Publish entries with publish_at <= now, scoped to the task's workspace (every workspace for
+    the built-in system task).
 
     Publishing consumes the schedule (publish_at is cleared), so an entry unpublished afterwards
     stays unpublished instead of going live again on the next run. Archived entries are skipped:
@@ -33,6 +34,7 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
 
     name = "Publish Scheduled Entries"
     description = "Publish entries whose publish_at time has arrived"
+    can_run_platform_wide = True
 
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
         config = task.task_config
@@ -53,7 +55,7 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
 
             count = len(scheduled_entries)
             scope_label = str(workspace_id) if workspace_id else "all workspaces"
-            logger.info(
+            logger.debug(
                 "Found %d entries to publish in %s (dry_run=%s)",
                 count,
                 scope_label,
@@ -87,14 +89,16 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
                 published_titles.append(entry.title)
 
         if count == 0:
-            summary = "No entries due for publishing"
-        else:
-            label = "would publish" if dry_run else "published"
-            names = ", ".join(f"'{t}'" for t in published_titles[:5])
-            suffix = f" and {count - 5} more" if count > 5 else ""
-            summary = f"{count} entr{'y' if count == 1 else 'ies'} {label}: {names}{suffix}"
-            if dry_run:
-                summary += " (dry run)"
+            # Nothing to record: this runs every few minutes as a system task (see execute's contract)
+            logger.debug("Publish scheduled entries: none due in %s", scope_label)
+            return None
+
+        label = "would publish" if dry_run else "published"
+        names = ", ".join(f"'{t}'" for t in published_titles[:5])
+        suffix = f" and {count - 5} more" if count > 5 else ""
+        summary = f"{count} entr{'y' if count == 1 else 'ies'} {label}: {names}{suffix}"
+        if dry_run:
+            summary += " (dry run)"
 
         logger.info("Publish scheduled entries: %s", summary)
         return summary
@@ -102,7 +106,8 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
 
 class UnpublishExpiredEntriesHandler(ScheduledTaskHandler):
     """
-    Unpublish entries with expire_at <= now, scoped to the task's workspace.
+    Unpublish entries with expire_at <= now, scoped to the task's workspace (every workspace for
+    the built-in system task).
 
     Configuration (task_config):
     - dry_run: bool (default: False) - If true, log what would be unpublished
@@ -110,6 +115,7 @@ class UnpublishExpiredEntriesHandler(ScheduledTaskHandler):
 
     name = "Unpublish Expired Entries"
     description = "Archive entries whose expire_at time has passed"
+    can_run_platform_wide = True
 
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
         config = task.task_config
@@ -129,7 +135,7 @@ class UnpublishExpiredEntriesHandler(ScheduledTaskHandler):
             expired_entries = q.all()
 
             count = len(expired_entries)
-            logger.info(
+            logger.debug(
                 "Found %d expired entries in workspace %s (dry_run=%s)",
                 count,
                 workspace_id,
@@ -159,14 +165,15 @@ class UnpublishExpiredEntriesHandler(ScheduledTaskHandler):
                 expired_titles.append(entry.title)
 
         if count == 0:
-            summary = "No entries found past their expiry date"
-        else:
-            label = "would unpublish" if dry_run else "archived"
-            names = ", ".join(f"'{t}'" for t in expired_titles[:5])
-            suffix = f" and {count - 5} more" if count > 5 else ""
-            summary = f"{count} entr{'y' if count == 1 else 'ies'} {label}: {names}{suffix}"
-            if dry_run:
-                summary += " (dry run)"
+            logger.debug("Unpublish expired entries: none expired in workspace %s", workspace_id)
+            return None
+
+        label = "would unpublish" if dry_run else "archived"
+        names = ", ".join(f"'{t}'" for t in expired_titles[:5])
+        suffix = f" and {count - 5} more" if count > 5 else ""
+        summary = f"{count} entr{'y' if count == 1 else 'ies'} {label}: {names}{suffix}"
+        if dry_run:
+            summary += " (dry run)"
 
         logger.info("Unpublish expired entries: %s", summary)
         return summary

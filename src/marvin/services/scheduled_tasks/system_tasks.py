@@ -17,6 +17,8 @@ logger = get_logger(__name__)
 # 'interval'/'once' schedules — cron support is not yet wired (croniter isn't a
 # dependency), so a cron task would get next_run_at=None and never become due.
 _DAILY_SECONDS = 24 * 60 * 60
+# Scheduled publish/expiry granularity: an entry goes live (or expires) within this of its time.
+_PUBLISHING_INTERVAL_SECONDS = 5 * 60
 
 
 @dataclass(frozen=True)
@@ -73,6 +75,25 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         ),
         schedule_type="interval",
         schedule_config={"interval_seconds": _DAILY_SECONDS},
+    ),
+    SystemTaskDefinition(
+        slug="publish_scheduled_entries",
+        name="Publish Scheduled Entries",
+        task_type="publish_scheduled_entries",
+        description=(
+            "Publish entries whose Scheduled Publish time (publish_at) has arrived, across all workspaces; "
+            "publishing clears the schedule. Runs every 5 minutes."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _PUBLISHING_INTERVAL_SECONDS},
+    ),
+    SystemTaskDefinition(
+        slug="unpublish_expired_entries",
+        name="Unpublish Expired Entries",
+        task_type="unpublish_expired_entries",
+        description="Archive published entries whose Expiration Date (expire_at) has passed, across all workspaces. Runs every 5 minutes.",
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _PUBLISHING_INTERVAL_SECONDS},
     ),
 ]
 

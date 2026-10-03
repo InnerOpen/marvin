@@ -13,10 +13,14 @@ def test_every_system_task_has_a_handler_registered():
     assert missing == [], f"system tasks declared against unregistered handlers: {missing}"
 
 
-def test_system_tasks_are_admin_only_handlers():
+def test_system_tasks_use_handlers_that_run_platform_wide():
     # They run with group_id=NULL across every workspace; a workspace-scoped handler would refuse.
-    not_admin = [d.slug for d in SYSTEM_SCHEDULED_TASKS if not TaskHandlerRegistry.get_handler(d.task_type).admin_only]
-    assert not_admin == [], f"system tasks using non-admin handlers: {not_admin}"
+    def platform_wide(task_type):
+        handler = TaskHandlerRegistry.get_handler(task_type)
+        return handler.admin_only or handler.can_run_platform_wide
+
+    scoped = [d.slug for d in SYSTEM_SCHEDULED_TASKS if not platform_wide(d.task_type)]
+    assert scoped == [], f"system tasks using workspace-only handlers: {scoped}"
 
 
 def test_schedules_can_actually_become_due():
@@ -33,3 +37,9 @@ def test_slugs_are_unique():
 def test_the_execution_log_is_pruned():
     """It was the one log table with no pruning while event logs and AI executions both had it."""
     assert any(d.task_type == "prune_scheduled_task_executions" for d in SYSTEM_SCHEDULED_TASKS)
+
+
+def test_scheduled_publishing_runs_out_of_the_box():
+    """Scheduled Publish / Expiration did nothing unless a workspace created its own task."""
+    shipped = {d.task_type: d.schedule_config.get("interval_seconds") for d in SYSTEM_SCHEDULED_TASKS}
+    assert (shipped.get("publish_scheduled_entries"), shipped.get("unpublish_expired_entries")) == (300, 300)

@@ -28,6 +28,9 @@ class ScheduledTaskHandler(ABC):
     """JSON schema describing expected task_config fields."""
     admin_only: bool = False
     """If True, this handler can only be used by admin (system) tasks."""
+    can_run_platform_wide: bool = False
+    """If True, a workspace-usable handler also handles group_id=NULL by covering every
+    workspace, so it can back a system task (admin-only handlers are platform-wide already)."""
 
     @abstractmethod
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:

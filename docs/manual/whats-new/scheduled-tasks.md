@@ -24,8 +24,8 @@ A scheduled task is a row with a schedule and a handler:
 
 | `task_type` | Purpose | Config (defaults) |
 |---|---|---|
-| `publish_scheduled_entries` | publish entries whose `publish_at` has arrived | `dry_run` (false) |
-| `unpublish_expired_entries` | archive entries whose `expire_at` has passed | `dry_run` (false) |
+| `publish_scheduled_entries` | publish entries whose `publish_at` has arrived (all workspaces for a system task); skips archived entries and clears `publish_at` | `dry_run` (false) |
+| `unpublish_expired_entries` | archive entries whose `expire_at` has passed (all workspaces for a system task) | `dry_run` (false) |
 | `request_site_rebuild` | queue a static-site rebuild; the scheduler sends one `webhook_triggered` per workspace once requests go quiet ([Operations → Site rebuilds](../operations.md#site-rebuilds)) | `reason` (`scheduled`) |
 | `ai_reindex_embeddings` | rebuild the search index: published entries, resources and assets, in batches, skipping unchanged items (all workspaces for a system task) | `{}` |
 | `run_automation` | run a workspace automation (the schedule trigger for Workflows) | `automation_id` (required) |
@@ -40,9 +40,11 @@ A scheduled task is a row with a schedule and a handler:
 | `prune_scheduled_task_executions` (admin) | delete execution rows past retention | `retention_days` (30; `<= 0` disables) |
 | `resync_smart_collections` (admin) | reconcile smart-collection membership from rules | none |
 
-Admin-only handlers run as system tasks (`group_id = NULL`) and are hidden from the workspace task-type list. Automations may only call `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections` and `media_enrich` (`AUTOMATION_ALLOWED_HANDLERS`); `run_integration_action` is deliberately excluded because an action may have side effects.
+Admin-only handlers run as system tasks (`group_id = NULL`) and are hidden from the workspace task-type list. A workspace handler can also back a system task when it sets `can_run_platform_wide` (the two publishing handlers do). Automations may only call `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections` and `media_enrich` (`AUTOMATION_ALLOWED_HANDLERS`); `run_integration_action` is deliberately excluded because an action may have side effects.
 
-**System tasks** seeded at every startup (idempotent by slug, daily interval): `prune_event_logs`, `prune_ai_executions`, `prune_scheduled_task_executions` (`retention_days: 30`) and `resync_smart_collections`.
+**System tasks** seeded at every startup (idempotent by slug, so existing deployments pick up new ones): daily `prune_event_logs`, `prune_ai_executions`, `prune_scheduled_task_executions` (`retention_days: 30`) and `resync_smart_collections`; every 5 minutes `publish_scheduled_entries` and `unpublish_expired_entries`, so an entry's Scheduled Publish and Expiration Date work without any setup. Both return `None` when nothing is due, so they write no execution row on idle runs. A workspace that also has its own publish task is harmless: publishing clears `publish_at`, so whichever runs second finds nothing.
+
+**Scheduled Publish.** In the entry editor, Scheduled Publish and Expiration Date are entered in the viewer's local time and stored as UTC; Published is read-only, stamped on first publish and cleared on unpublish. Publishing by any route (editor, API, automation, this task) clears `publish_at`, so an entry unpublished later is not put back live by an old schedule.
 
 ### `run_integration_action`
 
@@ -115,7 +117,7 @@ Agents and MCP clients read the same data through the `list_scheduled_tasks` and
 
 ## Since
 
-`run_integration_action`: rc.78 (`49490df8`). Quiet no-op runs, manual runs always logged, prune handler: rc.96 (`c34e516f`). Prune shipped as a system task: rc.97 (`ce6b4c5f`). Coalesced `request_site_rebuild`: rc.121; leader election and the `SCHEDULER_*` settings predate these.
+`run_integration_action`: rc.78 (`49490df8`). Quiet no-op runs, manual runs always logged, prune handler: rc.96 (`c34e516f`). Prune shipped as a system task: rc.97 (`ce6b4c5f`). Coalesced `request_site_rebuild`: rc.121. Publish/expire as 5-minute system tasks, publishing clears the schedule: after rc.168. Leader election and the `SCHEDULER_*` settings predate these.
 
 ## Related
 
