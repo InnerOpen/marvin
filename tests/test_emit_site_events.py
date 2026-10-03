@@ -59,3 +59,11 @@ def test_site_events_are_offered_as_triggers_and_subscriptions():
 
     subscribable = {c.event_type for c in CATALOG if c.enabled}
     assert SITE_EVENTS <= subscribable
+
+
+def test_site_events_can_trigger_a_workflow():
+    # "deploy failed" → tell someone: the curated trigger list is a separate allowlist from the catalog.
+    from marvin.services.automation.actions.emit_event import SITE_EVENTS
+    from marvin.services.automation.triggers import TRIGGER_EVENT_NAMES_SET
+
+    assert SITE_EVENTS <= TRIGGER_EVENT_NAMES_SET

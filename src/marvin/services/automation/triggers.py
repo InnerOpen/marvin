@@ -51,6 +51,16 @@ TRIGGER_EVENT_GROUPS: dict[str, list[str]] = {
         "form_deleted",
     ],
     "Entry types": ["entry_type_created", "entry_type_updated", "entry_type_deleted"],
+    # Emitted by a workflow's Emit event step from a host's build/deploy notification, so another
+    # workflow can react ("deploy failed" → tell someone). Reaction depth keeps chains bounded.
+    "Site": [
+        "site_build_started",
+        "site_build_completed",
+        "site_build_failed",
+        "site_deployment_started",
+        "site_deployment_completed",
+        "site_deployment_failed",
+    ],
 }
 
 # Flat list (all groups) — the allowlist the listener checks and /options advertises.
