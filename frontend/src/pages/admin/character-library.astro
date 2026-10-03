@@ -72,15 +72,15 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
           <button type="button" class="button secondary pack-rename">Rename</button>
           <code class="pack-slug">{p.slug}</code>
           <span class="status-text pack-status" role="status"></span>
+          <button type="button" class="button secondary danger pack-delete" data-used-by={usedBy(p)}>Delete</button>
         </div>
-        <p class="pack-users">{p.usedBy.length ? `Used by ${usedBy(p)} — it can't be deleted while in use.` : "Not used by any workspace or agent."}</p>
+        <p class="pack-users">{p.usedBy.length ? `Used by ${usedBy(p)}.` : "Not used by any workspace or agent."}</p>
         <CharacterPicker
           api={`/api/admin/character-packs/${p.id}`}
           character={p}
           catalog={catalog}
           uploadLabel="Replace files…"
-          removeLabel="Delete pack"
-          removeConfirm={`Delete "${p.name}" and its files?`}
+          removable={false}
         />
       </section>
     ))}
@@ -123,14 +123,32 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
         status.textContent = `Error: ${message(err)}`;
       }
     });
-    // The picker's "Delete pack" removed it (the server refuses one in use, and the picker says why).
-    card.addEventListener('character-change', (ev) => {
-      if ((ev as CustomEvent).detail === null) card.remove();
+    // A pack in use is deleted only on an informed "delete anyway": its users fall back to their icon
+    // (agents to the workspace's character) — the server unlinks them first (force=true).
+    const del = card.querySelector<HTMLButtonElement>('.pack-delete')!;
+    del.addEventListener('click', async () => {
+      const users = del.dataset.usedBy ?? '';
+      const label = name.value.trim() || 'this pack';
+      const ask = users
+        ? `"${label}" is used by ${users}. Delete it anyway? They'll fall back to their icon (agents to the workspace's character).`
+        : `Delete "${label}" and its files?`;
+      if (!confirm(ask)) return;
+      status.textContent = 'Deleting…';
+      del.disabled = true;
+      try {
+        await fetchApi(`${API}/${id}${users ? '?force=true' : ''}`, { method: 'DELETE' });
+        card.remove();
+      } catch (err) {
+        status.textContent = `Error: ${message(err)}`;
+        del.disabled = false;
+      }
     });
   }
 </script>
 
 <style>
+  .button.danger { color: var(--color-error); }
+  .pack-head .pack-delete { margin-left: auto; }
   .page-container { max-width: 960px; }
   .settings-section {
     background: var(--panel);

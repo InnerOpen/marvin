@@ -6,7 +6,7 @@ A platform admin installs packs here once; workspaces only choose one (AI settin
 
 import uuid
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 
 from marvin.db.models.platform.character_packs import CharacterPackModel
 from marvin.routes._base import BaseAdminController, controller
@@ -22,7 +22,7 @@ from marvin.services.ai.character import (
     save_character,
     store_character,
 )
-from marvin.services.ai.character_library import get_pack, library_store, list_packs, pack_usage, unique_slug
+from marvin.services.ai.character_library import get_pack, library_store, list_packs, pack_usage, unique_slug, unlink_pack
 
 router = APIRouter(prefix="/character-packs")
 
@@ -122,12 +122,16 @@ class AdminCharacterPacksController(BaseAdminController):
         return CharacterPackRead(**self._read(pack))
 
     @router.delete("/{pack_ref}", status_code=status.HTTP_204_NO_CONTENT, summary="Admin: Delete a Character Pack")
-    def delete_pack(self, pack_ref: str) -> None:
+    def delete_pack(self, pack_ref: str, force: bool = Query(False)) -> None:
         """Refused while any workspace or agent uses the pack — the 409 names them — rather than quietly
-        taking their character away; once they've chosen another, the pack and its files go."""
+        taking their character away. `force=true` is the admin's informed "delete anyway": those users
+        fall back (a workspace to its icon, an agent to the workspace's character), then the pack and its
+        files go."""
         pack = self._pack_or_404(pack_ref)
         users = pack_usage(self.session, pack.id)
-        if users:
+        if users and force:
+            self.logger.info("Character pack %s: unlinked from %d user(s) before deleting", pack_ref, unlink_pack(self.session, pack.id))
+        elif users:
             who = ", ".join(f"{u['workspace']} (agent {u['agent']})" if u["agent"] else u["workspace"] for u in users)
             detail = f"{pack.name} is in use by {who} — they must choose another character first."
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)

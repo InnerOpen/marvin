@@ -105,7 +105,7 @@ def admin(db_session, workspace, storage):
     c.replace = lambda ref, *names: C.replace_pack_files(c, ref, _files(*names))
     c.rename = lambda ref, name: C.rename_pack(c, ref, _update(name))
     c.assign = lambda ref, state, file: C.assign_pack_state(c, ref, _assign(state, file))
-    c.delete = lambda ref: C.delete_pack(c, ref)
+    c.delete = lambda ref, force=False: C.delete_pack(c, ref, force=force)
     c.list = lambda: C.list_character_packs(c)
     return c
 
@@ -241,6 +241,20 @@ def test_deleting_a_pack_in_use_is_refused_naming_who_uses_it(admin, settings, a
     assert len(_stored(storage.root)) == 1  # nothing was taken away
     listed = next(p for p in admin.list() if p.id == pack.id)
     assert sorted(u.agent or "" for u in listed.used_by) == ["", "scout"]
+
+
+def test_force_deleting_a_pack_in_use_unlinks_its_users_first(admin, settings, agents, storage):
+    # The admin's informed "delete anyway": users fall back (workspace → icon, agent → workspace's character).
+    pack = admin.create("idle.gif", name="Robot")
+    settings.use_library(pack.slug)
+    agents.use_library("scout", pack.id)
+
+    admin.delete(pack.id, force=True)
+
+    assert all(p.id != pack.id for p in admin.list())
+    assert settings._settings_row().assistant_character is None
+    assert next(a for a in agents.list() if a.slug == "scout").character is None
+    assert _stored(storage.root) == set()
 
 
 def test_the_library_admin_routes_refuse_a_workspace_admin(client):

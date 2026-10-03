@@ -170,3 +170,21 @@ def pack_usage(session: Session, pack_id: str) -> list[dict]:
             users.append((row.group_id, row.slug))
     names = dict(session.query(Groups.id, Groups.name).filter(Groups.id.in_({g for g, _ in users}))) if users else {}
     return [{"workspace_id": str(g), "workspace": names.get(g) or str(g), "agent": agent} for g, agent in users]
+
+
+def unlink_pack(session: Session, pack_id: str) -> int:
+    """Take the pack away from every workspace and agent that uses it (they fall back: a workspace to its
+    icon, an agent to the workspace's character). Library references hold no files, so nothing is
+    deleted here. Returns how many were unlinked; the caller commits."""
+    from marvin.db.models.groups.agents import WorkspaceAgentModel
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    pack_id = str(pack_id)
+    unlinked = 0
+    for model, attr in ((WorkspaceAISettingsModel, "assistant_character"), (WorkspaceAgentModel, "character")):
+        column = getattr(model, attr)
+        for row in session.query(model).filter(column.isnot(None)):
+            if library_ref(getattr(row, attr)) == pack_id:
+                setattr(row, attr, None)
+                unlinked += 1
+    return unlinked

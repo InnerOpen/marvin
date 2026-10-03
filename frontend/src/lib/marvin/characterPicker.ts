@@ -167,7 +167,7 @@ export function mountCharacterPicker(root: HTMLElement): void {
     if (source) showOwnArt(root, isOwn ? idle : undefined);
     // With a library on offer, the editor is for an own upload only; without, it's always there.
     own.hidden = !!source && source.value !== SOURCE_OWN;
-    remove.hidden = !isOwn || !!source;
+    remove.hidden = !isOwn || !!source || root.dataset.removable === "false";
     grid.hidden = !isOwn;
     unassigned.hidden = true;
     if (!isOwn || !c) {

@@ -24,6 +24,8 @@ interface Props {
   uploadLabel?: string;
   removeLabel?: string;
   removeConfirm?: string;
+  /** Show the picker's own Remove button (off where the page deletes the whole thing itself). */
+  removable?: boolean;
 }
 
 const {
@@ -35,13 +37,14 @@ const {
   uploadLabel = "Upload character…",
   removeLabel = "Remove",
   removeConfirm,
+  removable = true,
 } = Astro.props;
 const names = catalog.length ? catalog.map((c) => `${c.aliases[0]}.gif`).join(", ") : "idle, waving, review, running…";
 // One radio group per picker (the Agents page has one per agent), so the name is the picker's endpoint.
 const choiceGroup = `character-source-${api.replace(/[^a-z0-9]+/gi, "-")}`;
 ---
 
-<div class="character-picker" data-api={api} data-character={JSON.stringify(character)} data-remove-confirm={removeConfirm}>
+<div class="character-picker" data-api={api} data-character={JSON.stringify(character)} data-remove-confirm={removeConfirm} data-removable={removable ? undefined : "false"}>
   {library && (
     <div class="character-choices" role="radiogroup" aria-label="Character">
       <label class="character-choice">
