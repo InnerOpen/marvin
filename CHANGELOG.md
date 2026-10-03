@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.163 (2026-10-03)
+
+### Chores
+
+- **deploy**: The backend deploys with Recreate on iwobble
+  ([`5762700`](https://github.com/InnerOpen/marvin/commit/57627009310c4fcb0eb811320a70b2332a79bb72))
+
+### Features
+
+- **ai**: The Ask page lists every agent's threads, hand-offs nested under their parent
+  ([`c216b84`](https://github.com/InnerOpen/marvin/commit/c216b84e69d39043e54922e363e11220c1364db1))
+
+
 ## v1.0.0-rc.162 (2026-10-03)
 
 ### Bug Fixes
