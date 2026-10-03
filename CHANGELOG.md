@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.153 (2026-10-03)
+
+### Features
+
+- **ai**: Animated bubble character — one animation per bubble state
+  ([`e5c3efc`](https://github.com/InnerOpen/marvin/commit/e5c3efcb8178364e1b85da39bdcab00170de8fba))
+
+
 ## v1.0.0-rc.152 (2026-10-03)
 
 ### Bug Fixes
