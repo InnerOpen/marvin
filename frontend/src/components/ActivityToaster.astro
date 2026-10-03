@@ -1,6 +1,6 @@
 ---
 // Live activity toasts (a speech bubble off the bell; newest on top): what Marvin just did in this workspace — workflows that ran or failed,
-// webhooks received, site rebuilds sent, content changed by someone else.
+// webhooks received, site rebuilds sent (with a "N changes" list of what each covers), content changed by someone else.
 //
 // Polls GET /api/platform/events/feed (the audit log, oldest first) every few seconds while the tab
 // is visible. Everything shown is already in the event log; this only surfaces it as it happens.
@@ -18,6 +18,7 @@ const { userId = null } = Astro.props;
 <div class="activity-stack" id="activity-stack" role="log" aria-live="polite" aria-label="Recent activity"></div>
 
 <script>
+  import { type ChangeList, changesLabel, dismissTimer, moreLabel, type RebuildChange, summarizeChanges } from "@/lib/activity/toast";
   import { fetchApi } from "@/lib/api/client";
 
   type FeedEvent = {
@@ -30,6 +31,8 @@ const { userId = null } = Astro.props;
     messageTitle: string;
     messageBody?: string | null;
     detail?: string | null;
+    changes?: RebuildChange[] | null;
+    requestCount?: number | null;
   };
   type Feed = { now: string; events: FeedEvent[] };
   type Mode = "all" | "failures" | "off";
@@ -144,10 +147,57 @@ const { userId = null } = Astro.props;
     setTimeout(() => el.remove(), 200);
   }
 
+  // "N changes ▾" under a site rebuild: a disclosure listing what that one build covers.
+  function changesDisclosure(eventId: string, list: ChangeList, onToggle: (open: boolean) => void): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "activity-changes";
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "activity-changes-toggle";
+    toggle.setAttribute("aria-expanded", "false");
+    const panelId = `activity-changes-${eventId}`;
+    toggle.setAttribute("aria-controls", panelId);
+    const caret = document.createElement("span");
+    caret.setAttribute("aria-hidden", "true");
+    caret.textContent = "▾";
+    toggle.append(`${changesLabel(list.total)} `, caret);
+
+    const panel = document.createElement("ul");
+    panel.id = panelId;
+    panel.hidden = true;
+    for (const item of list.items) {
+      const li = document.createElement("li");
+      const text = document.createElement(item.href ? "a" : "span");
+      if (item.href) (text as HTMLAnchorElement).href = item.href;
+      text.textContent = item.label;
+      li.append(text);
+      panel.append(li);
+    }
+    if (list.more > 0) {
+      const li = document.createElement("li");
+      li.className = "activity-changes-more";
+      li.textContent = moreLabel(list.more);
+      panel.append(li);
+    }
+
+    toggle.addEventListener("click", () => {
+      const open = toggle.getAttribute("aria-expanded") !== "true";
+      toggle.setAttribute("aria-expanded", String(open));
+      panel.hidden = !open;
+      onToggle(open);
+    });
+    wrap.append(toggle, panel);
+    return wrap;
+  }
+
   function show(e: FeedEvent, kind: Kind) {
-    const el = document.createElement(kind.href ? "a" : "div");
+    const changes = summarizeChanges(e.changes, e.requestCount);
+    // A toast with its own links inside can't itself be a link.
+    const link = kind.href && !changes ? kind.href(e) : null;
+    const el = document.createElement(link ? "a" : "div");
     el.className = `activity-toast ${kind.tone}`;
-    if (kind.href) (el as HTMLAnchorElement).href = kind.href(e);
+    if (link) (el as HTMLAnchorElement).href = link;
 
     const head = document.createElement("div");
     head.className = "activity-head";
@@ -170,6 +220,19 @@ const { userId = null } = Astro.props;
       el.append(detail);
     }
 
+    // Failures stay until dismissed — they're the ones you'd act on. Others wait while you're
+    // reading them: pointer over, focus inside, or the change list open.
+    const countdown = STICKY.has(kind.tone) ? null : dismissTimer(TOAST_MS, () => dismiss(el));
+    if (countdown) {
+      el.addEventListener("pointerenter", () => countdown.hold("pointer"));
+      el.addEventListener("pointerleave", () => countdown.release("pointer"));
+      el.addEventListener("focusin", () => countdown.hold("focus"));
+      el.addEventListener("focusout", (ev) => {
+        if (!el.contains((ev as FocusEvent).relatedTarget as Node | null)) countdown.release("focus");
+      });
+    }
+    if (changes) el.append(changesDisclosure(e.eventId, changes, (open) => (open ? countdown?.hold("open") : countdown?.release("open"))));
+
     const close = document.createElement("button");
     close.type = "button";
     close.className = "activity-close";
@@ -178,14 +241,13 @@ const { userId = null } = Astro.props;
     close.addEventListener("click", (ev) => {
       ev.preventDefault();
       ev.stopPropagation();
+      countdown?.cancel();
       dismiss(el);
     });
     el.append(close);
 
     stack.prepend(el);
     while (stack.children.length > MAX_TOASTS) stack.lastElementChild?.remove();
-    // Failures stay until dismissed — they're the ones you'd act on.
-    if (!STICKY.has(kind.tone)) setTimeout(() => dismiss(el), TOAST_MS);
   }
 
   const seen = new Set<string>();
@@ -270,6 +332,19 @@ const { userId = null } = Astro.props;
   .activity-stack :global(.activity-head time) { color: var(--muted); font-size: 11px; white-space: nowrap; }
   .activity-stack :global(.activity-body) { overflow-wrap: anywhere; }
   .activity-stack :global(.activity-detail) { margin-top: 4px; color: #dc2626; font-size: 12px; overflow-wrap: anywhere; }
+  .activity-stack :global(.activity-changes) { margin-top: 4px; }
+  .activity-stack :global(.activity-changes-toggle) {
+    border: 0; background: none; padding: 0; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer;
+  }
+  .activity-stack :global(.activity-changes-toggle:hover) { color: inherit; text-decoration: underline; }
+  .activity-stack :global(.activity-changes-toggle span) { display: inline-block; transition: transform 0.15s; }
+  .activity-stack :global(.activity-changes-toggle[aria-expanded="true"] span) { transform: rotate(180deg); }
+  .activity-stack :global(.activity-changes ul) {
+    margin: 4px 0 0; padding: 0 0 0 16px; max-height: 180px; overflow-y: auto; font-size: 12px;
+  }
+  .activity-stack :global(.activity-changes li) { margin: 2px 0; overflow-wrap: anywhere; }
+  .activity-stack :global(.activity-changes a) { color: inherit; }
+  .activity-stack :global(.activity-changes-more) { list-style: none; color: var(--muted); }
   .activity-stack :global(.activity-close) {
     position: absolute; top: 4px; right: 6px; border: 0; background: none; color: var(--muted);
     font-size: 16px; line-height: 1; cursor: pointer; padding: 2px 4px;
@@ -277,5 +352,6 @@ const { userId = null } = Astro.props;
   @keyframes activity-in { from { opacity: 0; transform: translateY(-8px); } }
   @media (prefers-reduced-motion: reduce) {
     .activity-stack :global(.activity-toast) { animation: none; transition: none; }
+    .activity-stack :global(.activity-changes-toggle span) { transition: none; }
   }
 </style>

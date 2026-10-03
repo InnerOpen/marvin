@@ -14,7 +14,7 @@ from sqlalchemy import delete, select
 
 from marvin.db.models.platform.site_rebuild_requests import SiteRebuildRequestModel
 from marvin.services import site_rebuild
-from marvin.services.site_rebuild import request_rebuild
+from marvin.services.site_rebuild import MAX_LISTED_CHANGES, rebuild_change, request_rebuild
 
 T0 = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
 QUIET_SECONDS = 60
@@ -46,10 +46,15 @@ def workspace(db_session):
 
 
 class _Sent(list):
-    """Records each dispatched rebuild as (group_id, reason)."""
+    """Records each dispatched rebuild as (group_id, reason); what each covered goes in `.covered`."""
 
-    def send(self, group_id, reason):
+    def __init__(self):
+        super().__init__()
+        self.covered: dict = {}
+
+    def send(self, group_id, reason, changes, count):
         self.append((group_id, reason))
+        self.covered[group_id] = (changes, count)
 
 
 @fixture
@@ -132,10 +137,10 @@ def test_one_failing_dispatch_does_not_block_the_others(db_session, workspace, s
     request_rebuild(db_session, workspace, "a", now=_at(0))
     request_rebuild(db_session, other, "b", now=_at(0))
 
-    def send(group_id, reason):
+    def send(group_id, reason, changes, count):
         if group_id == workspace:
             raise RuntimeError("bus down")
-        sent.send(group_id, reason)
+        sent.send(group_id, reason, changes, count)
 
     dispatch_due_rebuilds(db_session, send, now=_at(QUIET_SECONDS))
 
@@ -154,6 +159,7 @@ def test_the_handler_queues_instead_of_dispatching(db_session, workspace):
     db_session.expire_all()
     row = db_session.execute(select(SiteRebuildRequestModel).where(SiteRebuildRequestModel.group_id == workspace)).scalar_one()
     assert row.request_count == 2 and row.reason == "square listing"
+    assert row.changes == [rebuild_change("square listing")]  # the same reason twice is one line
     assert "queued" in summary and "2 requests pending" in summary
 
 
@@ -172,3 +178,82 @@ def test_max_wait_shorter_than_quiet_is_rejected():
 
     with raises(ValidationError, match="SITE_REBUILD_MAX_WAIT_SECONDS"):
         AppSettings(SECRET="x", SITE_REBUILD_QUIET_SECONDS=120, SITE_REBUILD_MAX_WAIT_SECONDS=60)
+
+
+# --- What changed: each request can say what it was for, and the rebuild lists them ---
+
+
+def _entry_change(n: int, verb: str = "published") -> dict:
+    return rebuild_change(f"Entry 'e{n}' {verb}", f"entry_{verb}", "entry", uuid.UUID(int=n))
+
+
+def _listed(db_session, workspace) -> list[dict]:
+    db_session.expire_all()
+    return db_session.execute(select(SiteRebuildRequestModel.changes).where(SiteRebuildRequestModel.group_id == workspace)).scalar_one()
+
+
+def test_each_request_records_what_changed_newest_last(db_session, workspace):
+    request_rebuild(db_session, workspace, "a", change=_entry_change(1), now=_at(0))
+    request_rebuild(db_session, workspace, "b", change=_entry_change(2), now=_at(1))
+
+    assert _listed(db_session, workspace) == [_entry_change(1), _entry_change(2)]
+
+
+def test_a_repeat_change_to_one_entry_is_listed_once_as_the_newest(db_session, workspace):
+    request_rebuild(db_session, workspace, "a", change=_entry_change(1, "updated"), now=_at(0))
+    request_rebuild(db_session, workspace, "b", change=_entry_change(2), now=_at(1))
+    request_rebuild(db_session, workspace, "c", change=_entry_change(1, "published"), now=_at(2))
+
+    assert _listed(db_session, workspace) == [_entry_change(2), _entry_change(1, "published")]
+
+
+def test_the_list_keeps_the_newest_changes_but_the_count_stays_exact(db_session, workspace):
+    total = MAX_LISTED_CHANGES + 7
+    for n in range(total):
+        count = request_rebuild(db_session, workspace, "edit", change=_entry_change(n), now=_at(n))
+
+    listed = _listed(db_session, workspace)
+    assert count == total
+    assert listed == [_entry_change(n) for n in range(total - MAX_LISTED_CHANGES, total)]
+
+
+def test_a_request_without_a_change_still_counts(db_session, workspace):
+    request_rebuild(db_session, workspace, "a", change=_entry_change(1), now=_at(0))
+    count = request_rebuild(db_session, workspace, "manual", now=_at(1))
+
+    assert count == 2 and _listed(db_session, workspace) == [_entry_change(1)]
+
+
+def test_the_dispatch_hands_over_what_the_rebuild_covers(db_session, workspace, sent):
+    request_rebuild(db_session, workspace, "a", change=_entry_change(1), now=_at(0))
+    request_rebuild(db_session, workspace, "b", change=_entry_change(1), now=_at(1))
+    request_rebuild(db_session, workspace, "c", change=_entry_change(2), now=_at(2))
+
+    dispatch_due_rebuilds(db_session, sent.send, now=_at(2 + QUIET_SECONDS))
+
+    assert sent.covered[workspace] == ([_entry_change(1), _entry_change(2)], 3)
+
+
+def test_the_rebuild_event_carries_the_changes():
+    from fastapi.encoders import jsonable_encoder
+
+    from marvin.services.event_bus_service.event_types import Event, EventBusMessage, EventSiteRebuildData, EventTypes
+    from marvin.services.scheduled_tasks.handlers.publishing import dispatch_site_rebuild
+
+    dispatched: list[dict] = []
+    gid = uuid.uuid4()
+
+    dispatch_site_rebuild(gid, "3 requests, latest: x", SimpleNamespace(dispatch=lambda **kw: dispatched.append(kw)), [_entry_change(1)], 3)
+
+    (kw,) = dispatched
+    assert kw["event_type"] == EventTypes.webhook_triggered and kw["message"] == "Site rebuild requested: 3 requests, latest: x"
+    data = kw["document_data"]
+    assert isinstance(data, EventSiteRebuildData) and data.request_count == 3 and data.workspace_id == gid
+    # What a deploy hook (or any event-driven webhook) is POSTed: the event, camelCase, changes included.
+    message = EventBusMessage.from_type(EventTypes.webhook_triggered, kw["message"])
+    event = Event(message=message, event_type=kw["event_type"], integration_id="x", document_data=data)
+    body = jsonable_encoder(event, exclude_none=True)["documentData"]
+    assert body["requestCount"] == 3
+    assert body["changes"] == [
+        {"label": "Entry 'e1' published", "event": "entry_published", "entityType": "entry", "entityId": str(uuid.UUID(int=1))}
+    ]

@@ -8,7 +8,7 @@ from pytest import fixture
 
 from marvin.db.models.platform.event_log import EventLogModel
 from marvin.repos.platform.event_log import EventLogRepository
-from marvin.routes.platform.events_controller import FEED_FIRST_LOOK, FEED_LIMIT, FEED_OVERLAP, build_feed
+from marvin.routes.platform.events_controller import FEED_FIRST_LOOK, FEED_LIMIT, FEED_MAX_CHANGES, FEED_OVERLAP, build_feed
 
 NOW = datetime(2026, 10, 2, 20, 0, tzinfo=UTC)
 
@@ -104,3 +104,39 @@ def test_a_burst_returns_the_newest_events_up_to_the_limit(db_session, workspace
     events = _feed(db_session, workspace, since=NOW - timedelta(seconds=60)).events
 
     assert len(events) == FEED_LIMIT and events[-1].message_body == f"e{FEED_LIMIT + 4}"
+
+
+def _change(n: int) -> dict:
+    """A listed change as the event log stores it (the event's camelCase JSON)."""
+    return {"label": f"Entry 'e{n}' published", "event": "entry_published", "entityType": "entry", "entityId": str(uuid.UUID(int=n))}
+
+
+def test_a_site_rebuild_lists_what_changed(db_session, workspace):
+    _event(db_session, workspace, 1, event_type="webhook_triggered", document={"requestCount": 3, "changes": [_change(1), _change(2)]})
+
+    (event,) = _feed(db_session, workspace, since=NOW - timedelta(seconds=5)).events
+
+    assert event.request_count == 3
+    assert [(c.label, c.entity_type, c.entity_id) for c in event.changes] == [
+        ("Entry 'e1' published", "entry", str(uuid.UUID(int=1))),
+        ("Entry 'e2' published", "entry", str(uuid.UUID(int=2))),
+    ]
+    assert event.model_dump(by_alias=True)["changes"][0]["entityId"] == str(uuid.UUID(int=1))
+
+
+def test_the_feed_keeps_only_the_newest_changes(db_session, workspace):
+    total = FEED_MAX_CHANGES + 5
+    _event(db_session, workspace, 1, event_type="webhook_triggered", document={"requestCount": total, "changes": [_change(n) for n in range(total)]})
+
+    (event,) = _feed(db_session, workspace, since=NOW - timedelta(seconds=5)).events
+
+    assert len(event.changes) == FEED_MAX_CHANGES and event.changes[-1].label == f"Entry 'e{total - 1}' published"
+    assert event.request_count == total
+
+
+def test_other_events_carry_no_change_list(db_session, workspace):
+    _event(db_session, workspace, 1)
+
+    (event,) = _feed(db_session, workspace, since=NOW - timedelta(seconds=5)).events
+
+    assert event.changes is None and event.request_count is None

@@ -944,6 +944,32 @@ class EventDeploymentData(EventDocumentDataBase):
     """Error message if deployment failed."""
 
 
+class SiteRebuildChange(_MarvinModel):
+    """One content change a coalesced site rebuild covers (marvin.services.site_rebuild)."""
+
+    label: str
+    """What changed, worded like the event log (e.g. "Entry 'Summer menu' published")."""
+    event: str | None = None
+    """The event type name that queued it (e.g. entry_published); None for a manual/workflow request."""
+    entity_type: str | None = None
+    """What kind of thing changed (entry, collection, asset, resource, workspace), when known."""
+    entity_id: str | None = None
+    """Its id, when known — the admin links an entry change to the entry."""
+
+
+class EventSiteRebuildData(EventDocumentDataBase):
+    """Data payload for the `webhook_triggered` event a coalesced site rebuild sends."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.deployment
+    operation: EventOperationBase = EventOperation.info
+    workspace_id: UUID4
+    """The workspace whose site is being rebuilt."""
+    request_count: int
+    """How many rebuild requests this one build covers — can exceed len(changes)."""
+    changes: list[SiteRebuildChange] = []
+    """The changes it covers, newest last, capped (repeat edits of one thing collapse to one line)."""
+
+
 class EventAPIClientData(EventDocumentDataBase):
     """Data payload for API client events."""
 
@@ -1337,3 +1363,35 @@ class Event(_MarvinModel):
             self.event_id = uuid.uuid4()
         if self.timestamp is None:  # Should not be None due to default_factory
             self.timestamp = datetime.now(UTC)
+
+
+def event_entity(event: Any) -> tuple[str | None, Any]:
+    """The (entity_type, entity_id) an event is about, as the event log records it.
+
+    Read from the document data's id field, overridden by the event's own entity_type/entity_id when
+    set. Shared so everything that points back at the changed thing (the audit log, the site-rebuild
+    change list) agrees on what that thing is.
+    """
+    entity_type: str | None = None
+    entity_id: Any = None
+    data = getattr(event, "document_data", None)
+    if data:
+        if hasattr(data, "entry_id"):
+            entity_type, entity_id = "entry", data.entry_id
+        elif hasattr(data, "collection_id"):
+            entity_type, entity_id = "collection", data.collection_id
+        elif hasattr(data, "asset_id"):
+            entity_type, entity_id = "asset", data.asset_id
+        elif hasattr(data, "workspace_id") and hasattr(data, "document_type"):
+            if data.document_type.value == "workspace":
+                entity_type, entity_id = "workspace", data.workspace_id
+        elif hasattr(data, "api_client_id"):
+            entity_type, entity_id = "api_client", data.api_client_id
+        elif hasattr(data, "user_id") and hasattr(data, "document_type"):
+            if data.document_type.value == "member":
+                entity_type, entity_id = "member", data.user_id
+    if getattr(event, "entity_id", None):
+        entity_id = event.entity_id
+    if getattr(event, "entity_type", None):
+        entity_type = event.entity_type
+    return entity_type, entity_id

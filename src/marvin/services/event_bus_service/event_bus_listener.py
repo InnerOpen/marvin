@@ -49,6 +49,7 @@ from .event_types import (  # Core event system types
     EventOperation,
     EventTypes,
     EventWebhookData,
+    event_entity,
 )
 from .publisher import ApprisePublisher, PublisherLike, WebhookPublisher  # Publisher implementations
 
@@ -1018,6 +1019,10 @@ class SiteRebuildReactionListener(EventListenerBase):
     )
     # Leaving 'published' is visible even though the entry no longer is.
     LEAVING_EVENTS = frozenset({EventTypes.entry_unpublished, EventTypes.entry_archived})
+    # Document-data fields that name the changed thing, for a change line whose message doesn't.
+    TITLE_FIELDS = ("entry_title", "collection_name", "resource_name", "name")
+    # EventBusMessage stores an empty body as "generic" (Apprise needs one) — not a description.
+    EMPTY_BODY = "generic"
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher
@@ -1034,9 +1039,29 @@ class SiteRebuildReactionListener(EventListenerBase):
                     return
                 from marvin.services.site_rebuild import request_rebuild
 
-                request_rebuild(session, self.group_id, f"content change: {event.message.body if event.message else event.event_type.name}"[:200])
+                request_rebuild(
+                    session,
+                    self.group_id,
+                    f"content change: {event.message.body if event.message else event.event_type.name}"[:200],
+                    change=self._change(event),
+                )
         except Exception as e:
             self.logger.warning(f"SiteRebuildReactionListener: could not queue a rebuild: {e}")
+
+    @classmethod
+    def _change(cls, event: Event) -> dict:
+        """The line this event adds to the rebuild's "what changed" list, worded like the event log."""
+        from marvin.services.site_rebuild import rebuild_change
+
+        message = getattr(event, "message", None)
+        body = getattr(message, "body", None)
+        label = body if body and body != cls.EMPTY_BODY else getattr(message, "title", None) or event.event_type.name.replace("_", " ").capitalize()
+        names = (getattr(event.document_data, field, None) for field in cls.TITLE_FIELDS)
+        title = next((n for n in names if isinstance(n, str) and n), None)
+        if title and title not in label:
+            label = f"{label} — {title}"
+        entity_type, entity_id = event_entity(event)
+        return rebuild_change(label, event.event_type.name, entity_type, entity_id)
 
     def _enabled(self, session: Session) -> bool:
         from marvin.db.models.groups.preferences import GroupPreferencesModel

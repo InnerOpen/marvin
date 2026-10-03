@@ -355,6 +355,17 @@ def get_payload_example(event_type: str) -> dict:
             "threshold": 50,
             "windowMinutes": 10,
         },
+        # --- Site rebuild (one coalesced request, sent once edits go quiet; a deploy hook ignores the body) ---
+        "webhook_triggered": {
+            "documentType": "deployment",
+            "operation": "info",
+            "workspaceId": "<workspace-uuid>",
+            "requestCount": 3,
+            "changes": [
+                {"label": "Collection 'Venues' updated", "event": "collection_updated", "entityType": "collection", "entityId": "<collection-uuid>"},
+                {"label": "Entry 'Summer menu' published", "event": "entry_published", "entityType": "entry", "entityId": "<entry-uuid>"},
+            ],
+        },
         # --- Site build / deploy events (emitted by a workflow's Emit event step) ---
         "site_build_started": {
             "documentType": "deployment",

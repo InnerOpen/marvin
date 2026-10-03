@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import UUID4, ConfigDict
 
 from marvin.schemas._marvin import _MarvinModel
+from marvin.services.event_bus_service.event_types import SiteRebuildChange
 
 
 class EventLogRead(_MarvinModel):
@@ -53,6 +54,10 @@ class EventFeedItem(EventLogSummary):
 
     detail: str | None = None
     """Why it failed, when the event carries a reason (e.g. a failed workflow's error)."""
+    changes: list[SiteRebuildChange] | None = None
+    """What a site rebuild covers, newest last (capped) — None for any other event."""
+    request_count: int | None = None
+    """How many requests that rebuild covers; more than len(changes) when repeats collapsed or the list was capped."""
 
 
 class EventFeed(_MarvinModel):

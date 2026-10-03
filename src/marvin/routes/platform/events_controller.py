@@ -8,11 +8,12 @@ Events can be filtered by type, entity, user, and date range.
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import UUID4
+from pydantic import UUID4, ValidationError
 
 from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.controller import controller
 from marvin.schemas.platform.event_log import EventFeed, EventFeedItem, EventLogRead, EventLogSummary
+from marvin.services.event_bus_service.event_types import SiteRebuildChange
 
 router = APIRouter(prefix="/events", tags=["Events (Platform)"])
 
@@ -23,12 +24,46 @@ FEED_LIMIT = 50
 FEED_OVERLAP = timedelta(seconds=10)
 # A fresh page asks with no cursor; it gets only the last few seconds, not the backlog.
 FEED_FIRST_LOOK = timedelta(seconds=5)
+# A site rebuild's "what changed" list, as polled every few seconds: the newest this many.
+FEED_MAX_CHANGES = 20
+
+
+def _document(event_data: dict) -> dict:
+    doc = event_data.get("documentData") or event_data.get("document_data") or {}
+    return doc if isinstance(doc, dict) else {}
 
 
 def _detail(event_data: dict) -> str | None:
-    doc = event_data.get("documentData") or event_data.get("document_data") or {}
-    reason = (doc.get("error") or doc.get("errorMessage") or doc.get("error_message")) if isinstance(doc, dict) else None
+    doc = _document(event_data)
+    reason = doc.get("error") or doc.get("errorMessage") or doc.get("error_message")
     return str(reason)[:500] if reason else None
+
+
+def _changes(event_data: dict) -> tuple[list[SiteRebuildChange] | None, int | None]:
+    """A site rebuild's listed changes (newest last, capped) and its request count; (None, None) otherwise."""
+    doc = _document(event_data)
+    listed = doc.get("changes")
+    if not isinstance(listed, list):
+        return None, None
+    changes = []
+    for item in listed[-FEED_MAX_CHANGES:]:
+        try:
+            changes.append(SiteRebuildChange.model_validate(item))
+        except ValidationError:
+            continue  # one malformed line shouldn't hide the rest
+    count = doc.get("requestCount", doc.get("request_count"))
+    return changes, count if isinstance(count, int) else None
+
+
+def _feed_item(event) -> EventFeedItem:
+    event_data = event.event_data or {}
+    changes, request_count = _changes(event_data)
+    return EventFeedItem(
+        **EventLogSummary.model_validate(event).model_dump(),
+        detail=_detail(event_data),
+        changes=changes,
+        request_count=request_count,
+    )
 
 
 def build_feed(event_log_repo, workspace_id, since: datetime | None, now: datetime | None = None) -> EventFeed:
@@ -38,7 +73,7 @@ def build_feed(event_log_repo, workspace_id, since: datetime | None, now: dateti
     else:
         start = (since.astimezone(UTC) if since.tzinfo else since.replace(tzinfo=UTC)) - FEED_OVERLAP
     events = event_log_repo.get_by_workspace(workspace_id=workspace_id, start_date=start, limit=FEED_LIMIT)
-    items = [EventFeedItem(**EventLogSummary.model_validate(e).model_dump(), detail=_detail(e.event_data or {})) for e in reversed(events)]
+    items = [_feed_item(e) for e in reversed(events)]
     return EventFeed(now=now, events=items)
 
 

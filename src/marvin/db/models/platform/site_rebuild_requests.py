@@ -34,10 +34,14 @@ class SiteRebuildRequestModel(SqlAlchemyBase, BaseMixins):
     """The newest request; the build goes out once this is old enough (requests have gone quiet)."""
 
     request_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=1, server_default="1")
-    """How many requests this one rebuild covers — for the log line."""
+    """How many requests this one rebuild covers — for the log line and the toast's "N changes"."""
 
     reason: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     """The most recent request's reason."""
+
+    changes: Mapped[list[dict] | None] = mapped_column(sa.JSON, nullable=True)
+    """What this rebuild covers, newest last: one {label, event, entity_type, entity_id} per changed
+    thing (a repeat edit moves it to the end), capped — `request_count` stays the exact total."""
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

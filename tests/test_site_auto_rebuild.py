@@ -101,3 +101,32 @@ def test_the_workspace_can_turn_it_off(db_session, site):
     db_session.commit()
     _fire(site.gid, _event(EventTypes.entry_published, site.live))
     assert _queued(db_session, site.gid) == 0
+
+
+# --- What changed: the rebuild lists each change so the admin's toast can show (and link) it ---
+
+
+def _entry_event(event_type, entry_id, gid, body):
+    from marvin.services.event_bus_service.event_types import Event, EventBusMessage, EventEntryData, EventOperation
+
+    data = EventEntryData(operation=EventOperation.update, entry_id=entry_id, entry_title="Live", workspace_id=gid)
+    return Event(message=EventBusMessage.from_type(event_type, body), event_type=event_type, integration_id="test", document_data=data)
+
+
+def _listed(db_session, gid) -> list[dict]:
+    db_session.expire_all()
+    return db_session.query(SiteRebuildRequestModel).filter_by(group_id=gid).one().changes
+
+
+def test_an_entry_change_is_listed_with_the_entry_to_link_to(db_session, site):
+    _fire(site.gid, _entry_event(EventTypes.entry_published, site.live, site.gid, "Entry 'Live' published"))
+
+    assert _listed(db_session, site.gid) == [
+        {"label": "Entry 'Live' published", "event": "entry_published", "entity_type": "entry", "entity_id": str(site.live)}
+    ]
+
+
+def test_a_message_that_does_not_name_the_entry_gets_its_title(db_session, site):
+    _fire(site.gid, _entry_event(EventTypes.entry_tag_attached, site.live, site.gid, "Tag 'summer' attached"))
+
+    assert _listed(db_session, site.gid)[0]["label"] == "Tag 'summer' attached — Live"

@@ -16,7 +16,10 @@ def dispatch_site_rebuilds() -> None:
     try:
         event_bus = EventBusService(bg_tasks=None)
         with session_context() as session:
-            sent = dispatch_due_rebuilds(session, lambda group_id, reason: dispatch_site_rebuild(group_id, reason, event_bus))
+            sent = dispatch_due_rebuilds(
+                session,
+                lambda group_id, summary, changes, count: dispatch_site_rebuild(group_id, summary, event_bus, changes=changes, request_count=count),
+            )
         if sent:
             logger.info("dispatched %d coalesced site rebuild(s)", sent)
     except Exception as e:  # noqa: BLE001 — a scheduler tick must never take the process down

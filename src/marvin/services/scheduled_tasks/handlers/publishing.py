@@ -12,7 +12,7 @@ from marvin.db.db_setup import session_context
 from marvin.db.models.platform.entries import Entries
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 from marvin.services.event_bus_service.event_bus_service import EventBusService
-from marvin.services.event_bus_service.event_types import EventTypes
+from marvin.services.event_bus_service.event_types import EventSiteRebuildData, EventTypes, SiteRebuildChange
 
 from . import ScheduledTaskHandler, TaskHandlerRegistry
 
@@ -183,7 +183,7 @@ class RequestSiteRebuildHandler(ScheduledTaskHandler):
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
         from marvin.core.config import get_app_settings
         from marvin.db.models.groups.groups import Groups
-        from marvin.services.site_rebuild import request_rebuild
+        from marvin.services.site_rebuild import rebuild_change, request_rebuild
 
         reason = task.task_config.get("reason", "scheduled")
 
@@ -193,7 +193,7 @@ class RequestSiteRebuildHandler(ScheduledTaskHandler):
             else:
                 # Admin system task — rebuild every workspace
                 workspace_ids = [row[0] for row in session.query(Groups.id).all()]
-            counts = [request_rebuild(session, wid, reason) for wid in workspace_ids]
+            counts = [request_rebuild(session, wid, reason, change=rebuild_change(reason)) for wid in workspace_ids]
 
         scope = "this workspace" if task.group_id else f"all {len(workspace_ids)} workspaces"
         pending = f", {counts[0]} requests pending" if task.group_id and counts[0] > 1 else ""
@@ -203,13 +203,28 @@ class RequestSiteRebuildHandler(ScheduledTaskHandler):
         return summary
 
 
-def dispatch_site_rebuild(group_id: UUID, reason: str, event_bus: EventBusService | None = None) -> None:
-    """Send the `webhook_triggered` event that the workspace's deploy-hook webhooks listen for."""
+def dispatch_site_rebuild(
+    group_id: UUID,
+    reason: str,
+    event_bus: EventBusService | None = None,
+    changes: list[dict] | None = None,
+    request_count: int | None = None,
+) -> None:
+    """Send the `webhook_triggered` event that the workspace's deploy-hook webhooks listen for.
+
+    It carries what the rebuild covers (`changes`, newest last) so the admin can show what's building;
+    a deploy hook ignores the body.
+    """
+    changes = changes or []
     (event_bus or EventBusService(bg_tasks=None)).dispatch(
         integration_id="scheduled_tasks",
         group_id=group_id,
         event_type=EventTypes.webhook_triggered,
-        document_data=None,
+        document_data=EventSiteRebuildData(
+            workspace_id=group_id,
+            request_count=request_count if request_count is not None else len(changes) or 1,
+            changes=[SiteRebuildChange.model_validate(c) for c in changes],
+        ),
         message=f"Site rebuild requested: {reason}",
     )
 

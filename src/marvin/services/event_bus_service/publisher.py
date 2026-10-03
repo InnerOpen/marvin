@@ -22,7 +22,7 @@ from marvin.db.db_setup import session_context
 from marvin.db.models._model_utils.guid import GUID
 from marvin.db.models.groups.notification_execution_logs import NotificationExecutionLogModel
 from marvin.db.models.groups.webhook_execution_logs import WebhookExecutionLogModel
-from marvin.services.event_bus_service.event_types import Event  # Core Event model
+from marvin.services.event_bus_service.event_types import Event, event_entity  # Core Event model
 
 # from marvin.db.models.groups import Method # Method enum was imported but not used directly by string comparison in WebhookPublisher.
 # If strict enum usage is desired, this import would be necessary.
@@ -399,44 +399,10 @@ class AuditLogPublisher:
             from marvin.db.models.platform.event_log import EventLogModel
             from marvin.repos.repository_factory import AllRepositories
 
-            # Extract entity information from document_data
-            entity_id = None
-            entity_type = None
+            entity_type, entity_id = event_entity(event)
             operation = None
-
-            if event.document_data:
-                # Extract entity_id from document_data if available
-                if hasattr(event.document_data, "entry_id"):
-                    entity_id = event.document_data.entry_id
-                    entity_type = "entry"
-                elif hasattr(event.document_data, "collection_id"):
-                    entity_id = event.document_data.collection_id
-                    entity_type = "collection"
-                elif hasattr(event.document_data, "asset_id"):
-                    entity_id = event.document_data.asset_id
-                    entity_type = "asset"
-                elif hasattr(event.document_data, "workspace_id") and hasattr(event.document_data, "document_type"):
-                    # For workspace-level events
-                    if event.document_data.document_type.value == "workspace":
-                        entity_id = event.document_data.workspace_id
-                        entity_type = "workspace"
-                elif hasattr(event.document_data, "api_client_id"):
-                    entity_id = event.document_data.api_client_id
-                    entity_type = "api_client"
-                elif hasattr(event.document_data, "user_id") and hasattr(event.document_data, "document_type"):
-                    if event.document_data.document_type.value == "member":
-                        entity_id = event.document_data.user_id
-                        entity_type = "member"
-
-                # Extract operation if available
-                if hasattr(event.document_data, "operation"):
-                    operation = event.document_data.operation.value
-
-            # Override with event-level entity_id and entity_type if set
-            if event.entity_id:
-                entity_id = event.entity_id
-            if event.entity_type:
-                entity_type = event.entity_type
+            if event.document_data and hasattr(event.document_data, "operation"):
+                operation = event.document_data.operation.value
 
             with session_context() as session:
                 AllRepositories(session=session, group_id=event.workspace_id)
