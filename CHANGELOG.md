@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.155 (2026-10-03)
+
+### Bug Fixes
+
+- **events**: Webhook_triggered's catalog entry describes what it carries
+  ([`b2d7ac9`](https://github.com/InnerOpen/marvin/commit/b2d7ac9f871fbce0ad2e07011c0f270bc81084e8))
+
+
 ## v1.0.0-rc.154 (2026-10-03)
 
 ### Features
