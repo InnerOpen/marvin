@@ -7,10 +7,13 @@ These handlers manage scheduled publishing, unpublishing, and site rebuild trigg
 from datetime import UTC, datetime
 from uuid import UUID
 
+from fastapi import HTTPException
+
 from marvin.core.root_logger import get_logger
 from marvin.db.db_setup import session_context
 from marvin.db.models.platform.entries import Entries
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+from marvin.services.entries import EntryService
 from marvin.services.event_bus_service.event_bus_service import EventBusService
 from marvin.services.event_bus_service.event_types import EventSiteRebuildData, EventTypes, SiteRebuildChange
 
@@ -18,15 +21,69 @@ from . import ScheduledTaskHandler, TaskHandlerRegistry
 
 logger = get_logger(__name__)
 
+# Source tag on the entry events a scheduled publish/expiry emits.
+INTEGRATION_ID = "scheduled_tasks"
+# Entries named in a run summary before it says "and N more".
+SUMMARY_NAME_LIMIT = 5
+# What EntryService's publish gate raises for an entry missing required fields/assets/tags.
+INCOMPLETE_STATUS_CODE = 422
+
+
+class _StatusChanger:
+    """Change an entry's status the way a manual status change does: through EntryService, so the
+    run emits the same events (entry_updated, then entry_published / entry_unpublished /
+    entry_archived, carrying the entry's id and type) and gets the same repository side effects.
+    Smart collections, workflows, site rebuilds and indexing all key on those events.
+
+    A platform-wide run spans workspaces, so there's one service per entry's workspace and each
+    event carries that entry's group_id. No actor: the system made the change.
+    """
+
+    def __init__(self, session, event_bus: EventBusService) -> None:
+        self._session = session
+        self._event_bus = event_bus
+        self._services: dict[UUID, EntryService] = {}
+
+    def set_status(self, entry: Entries, status: str) -> None:
+        service = self._services.get(entry.group_id)
+        if service is None:
+            service = EntryService(self._session, entry.group_id, event_bus=self._event_bus, integration_id=INTEGRATION_ID)
+            self._services[entry.group_id] = service
+        service.set_status(entry.id, status)
+
+
+def _entries(n: int) -> str:
+    return f"{n} entr{'y' if n == 1 else 'ies'}"
+
+
+def _limited(items: list[str], sep: str = ", ") -> str:
+    shown = sep.join(items[:SUMMARY_NAME_LIMIT])
+    extra = len(items) - SUMMARY_NAME_LIMIT
+    return f"{shown} and {extra} more" if extra > 0 else shown
+
+
+def _titles(titles: list[str]) -> str:
+    return _limited([f"'{t}'" for t in titles])
+
+
+def _incomplete_reason(error: HTTPException) -> str:
+    detail = error.detail if isinstance(error.detail, dict) else {}
+    return ", ".join(detail.get("issues") or []) or str(detail.get("message") or error.detail)
+
 
 class PublishScheduledEntriesHandler(ScheduledTaskHandler):
     """
     Publish entries with publish_at <= now, scoped to the task's workspace (every workspace for
     the built-in system task).
 
-    Publishing consumes the schedule (publish_at is cleared), so an entry unpublished afterwards
-    stays unpublished instead of going live again on the next run. Archived entries are skipped:
-    an old schedule must not resurrect them.
+    Each entry is published as a manual status change would publish it (EntryService), so the
+    same events fire and the same rules apply:
+    - publishing consumes the schedule (publish_at is cleared), so an entry unpublished afterwards
+      stays unpublished instead of going live again on the next run;
+    - a published_at already set (a backdated import) is kept;
+    - an entry that fails its type's completeness check is skipped and keeps its schedule, so it
+      shows as overdue and goes out on the first run after it's completed. The others still publish.
+    Archived entries are skipped: an old schedule must not resurrect them.
 
     Configuration (task_config):
     - dry_run: bool (default: False) - If true, log what would be published
@@ -37,77 +94,70 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
     can_run_platform_wide = True
 
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
-        config = task.task_config
-        dry_run = config.get("dry_run", False)
+        dry_run = task.task_config.get("dry_run", False)
         workspace_id = UUID(str(task.group_id)) if task.group_id else None
+        scope_label = str(workspace_id) if workspace_id else "all workspaces"
 
+        published: list[str] = []
+        skipped: list[str] = []
         with session_context() as session:
-            now = datetime.now(UTC)
-
             q = session.query(Entries).filter(
-                Entries.publish_at <= now,
+                Entries.publish_at <= datetime.now(UTC),
                 Entries.status.notin_(("published", "archived")),
             )
             if workspace_id:
                 q = q.filter(Entries.group_id == workspace_id)
+            due = q.all()
+            logger.debug("Found %d entries to publish in %s (dry_run=%s)", len(due), scope_label, dry_run)
 
-            scheduled_entries = q.all()
+            changer = _StatusChanger(session, event_bus)
+            for entry in due:
+                entry_id, title = entry.id, entry.title
+                if dry_run:
+                    logger.info("Would publish: %s (id=%s, publish_at=%s)", title, entry_id, entry.publish_at)
+                    published.append(title)
+                    continue
+                try:
+                    changer.set_status(entry, "published")
+                except HTTPException as e:
+                    if e.status_code != INCOMPLETE_STATUS_CODE:
+                        raise
+                    reason = _incomplete_reason(e)
+                    logger.warning("Scheduled publish skipped incomplete entry '%s' (id=%s): %s", title, entry_id, reason)
+                    skipped.append(f"'{title}' — {reason}")
+                    continue
+                logger.info("Published entry '%s' (id=%s)", title, entry_id)
+                published.append(title)
 
-            count = len(scheduled_entries)
-            scope_label = str(workspace_id) if workspace_id else "all workspaces"
-            logger.debug(
-                "Found %d entries to publish in %s (dry_run=%s)",
-                count,
-                scope_label,
-                dry_run,
-            )
-
-            published_titles = []
-            for entry in scheduled_entries:
-                if not dry_run:
-                    entry.status = "published"
-                    # Keep a published_at set through the API (a backdated import), as a manual
-                    # first publish does (EntriesRepository.update).
-                    entry.published_at = entry.published_at or now
-                    entry.publish_at = None
-                    session.commit()
-                    logger.info("Published entry '%s' (id=%s)", entry.title, entry.id)
-                    event_bus.dispatch(
-                        integration_id="scheduled_tasks",
-                        group_id=entry.group_id,
-                        event_type=EventTypes.entry_published,
-                        document_data=None,
-                        message=f"Entry '{entry.title}' published via scheduled task",
-                    )
-                else:
-                    logger.info(
-                        "Would publish: %s (id=%s, publish_at=%s)",
-                        entry.title,
-                        entry.id,
-                        entry.publish_at,
-                    )
-                published_titles.append(entry.title)
-
-        if count == 0:
+        if not due:
             # Nothing to record: this runs every few minutes as a system task (see execute's contract)
             logger.debug("Publish scheduled entries: none due in %s", scope_label)
             return None
 
-        label = "would publish" if dry_run else "published"
-        names = ", ".join(f"'{t}'" for t in published_titles[:5])
-        suffix = f" and {count - 5} more" if count > 5 else ""
-        summary = f"{count} entr{'y' if count == 1 else 'ies'} {label}: {names}{suffix}"
-        if dry_run:
-            summary += " (dry run)"
-
+        summary = self._summary(published, skipped, dry_run)
         logger.info("Publish scheduled entries: %s", summary)
         return summary
+
+    @staticmethod
+    def _summary(published: list[str], skipped: list[str], dry_run: bool) -> str:
+        parts = []
+        if published:
+            label = "would publish" if dry_run else "published"
+            parts.append(f"{_entries(len(published))} {label}: {_titles(published)}")
+        if skipped:
+            count = f"{len(skipped)}" if published else _entries(len(skipped))
+            parts.append(f"{count} skipped (incomplete: {_limited(skipped, '; ')})")
+        summary = "; ".join(parts)
+        return f"{summary} (dry run)" if dry_run else summary
 
 
 class UnpublishExpiredEntriesHandler(ScheduledTaskHandler):
     """
-    Unpublish entries with expire_at <= now, scoped to the task's workspace (every workspace for
-    the built-in system task).
+    Archive published entries with expire_at <= now, scoped to the task's workspace (every
+    workspace for the built-in system task).
+
+    Each entry is archived as a manual status change would archive it (EntryService), so the same
+    events fire: entry_updated, entry_unpublished and entry_archived.
 
     Configuration (task_config):
     - dry_run: bool (default: False) - If true, log what would be unpublished
@@ -118,60 +168,37 @@ class UnpublishExpiredEntriesHandler(ScheduledTaskHandler):
     can_run_platform_wide = True
 
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
-        config = task.task_config
-        dry_run = config.get("dry_run", False)
+        dry_run = task.task_config.get("dry_run", False)
         workspace_id = UUID(str(task.group_id)) if task.group_id else None
+        scope_label = str(workspace_id) if workspace_id else "all workspaces"
 
+        archived: list[str] = []
         with session_context() as session:
-            now = datetime.now(UTC)
-
             q = session.query(Entries).filter(
-                Entries.expire_at <= now,
+                Entries.expire_at <= datetime.now(UTC),
                 Entries.status == "published",
             )
             if workspace_id:
                 q = q.filter(Entries.group_id == workspace_id)
+            expired = q.all()
+            logger.debug("Found %d expired entries in %s (dry_run=%s)", len(expired), scope_label, dry_run)
 
-            expired_entries = q.all()
-
-            count = len(expired_entries)
-            logger.debug(
-                "Found %d expired entries in workspace %s (dry_run=%s)",
-                count,
-                workspace_id,
-                dry_run,
-            )
-
-            expired_titles = []
-            for entry in expired_entries:
-                if not dry_run:
-                    entry.status = "archived"
-                    session.commit()
-                    logger.info("Unpublished expired entry '%s' (id=%s)", entry.title, entry.id)
-                    event_bus.dispatch(
-                        integration_id="scheduled_tasks",
-                        group_id=entry.group_id,
-                        event_type=EventTypes.entry_unpublished,
-                        document_data=None,
-                        message=f"Entry '{entry.title}' unpublished (expired)",
-                    )
+            changer = _StatusChanger(session, event_bus)
+            for entry in expired:
+                entry_id, title = entry.id, entry.title
+                if dry_run:
+                    logger.info("Would unpublish: %s (id=%s, expire_at=%s)", title, entry_id, entry.expire_at)
                 else:
-                    logger.info(
-                        "Would unpublish: %s (id=%s, expire_at=%s)",
-                        entry.title,
-                        entry.id,
-                        entry.expire_at,
-                    )
-                expired_titles.append(entry.title)
+                    changer.set_status(entry, "archived")
+                    logger.info("Unpublished expired entry '%s' (id=%s)", title, entry_id)
+                archived.append(title)
 
-        if count == 0:
-            logger.debug("Unpublish expired entries: none expired in workspace %s", workspace_id)
+        if not archived:
+            logger.debug("Unpublish expired entries: none expired in %s", scope_label)
             return None
 
         label = "would unpublish" if dry_run else "archived"
-        names = ", ".join(f"'{t}'" for t in expired_titles[:5])
-        suffix = f" and {count - 5} more" if count > 5 else ""
-        summary = f"{count} entr{'y' if count == 1 else 'ies'} {label}: {names}{suffix}"
+        summary = f"{_entries(len(archived))} {label}: {_titles(archived)}"
         if dry_run:
             summary += " (dry run)"
 
