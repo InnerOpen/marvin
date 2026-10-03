@@ -49,3 +49,13 @@ def test_the_feed_shows_a_deploy_failure_reason():
     from marvin.routes.platform.events_controller import _detail
 
     assert _detail({"documentData": {"errorMessage": "Build exited 1"}}) == "Build exited 1"
+
+
+def test_site_events_are_offered_as_triggers_and_subscriptions():
+    # They were gated as "no emitter" because emit_event matched them by prefix, so "site deployed"
+    # could not start a workflow or a notification.
+    from marvin.services.automation.actions.emit_event import SITE_EVENTS
+    from marvin.services.events.event_catalog import CATALOG
+
+    subscribable = {c.event_type for c in CATALOG if c.enabled}
+    assert SITE_EVENTS <= subscribable

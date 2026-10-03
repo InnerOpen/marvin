@@ -1326,12 +1326,8 @@ _NO_EMITTER: frozenset[str] = frozenset(
         "login_failed_multiple_times",
         "mention_created",
         "scheduled_task_cancelled",
-        "site_build_completed",
-        "site_build_failed",
-        "site_build_started",
-        "site_deployment_completed",
-        "site_deployment_failed",
-        "site_deployment_started",
+        # site_build_* / site_deployment_* now have an emitter (the workflow emit_event step, e.g. from a
+        # host's deploy notification) — no longer dead.
         "site_published",
         "storage_quota_exceeded",
         "storage_quota_warning",
