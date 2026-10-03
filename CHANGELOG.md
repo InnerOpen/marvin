@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.165 (2026-10-03)
+
+### Features
+
+- **activity**: Queued-rebuild and running-workflow toasts that update in place
+  ([`4bb6ed6`](https://github.com/InnerOpen/marvin/commit/4bb6ed6d3da2b5dcc698cd56cc4252f235fa7977))
+
+
 ## v1.0.0-rc.164 (2026-10-03)
 
 ### Bug Fixes
