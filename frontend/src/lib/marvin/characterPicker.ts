@@ -56,9 +56,42 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
   return node;
 }
 
+/** The picker's source choice — a radio group of cards (none, each library pack, own upload) — or null
+ * where no library is offered (a library pack's own editor). */
+function sourceChoice(root: HTMLElement) {
+  const options = [...root.querySelectorAll<HTMLInputElement>(".character-source-option")];
+  if (!options.length) return null;
+  return {
+    get value(): string {
+      return options.find((o) => o.checked)?.value ?? SOURCE_NONE;
+    },
+    set value(v: string) {
+      for (const o of options) o.checked = o.value === v;
+    },
+    addEventListener(_type: "change", listener: () => void) {
+      for (const o of options) o.addEventListener("change", listener);
+    },
+  };
+}
+
 function sourceOf(c: StoredCharacter | null): string {
   if (!c) return SOURCE_NONE;
   return c.library ? `${LIBRARY_PREFIX}${c.library}` : SOURCE_OWN;
+}
+
+/** The "Own upload" card shows the uploaded idle animation once there is one. */
+function showOwnArt(root: HTMLElement, idle: string | undefined): void {
+  const art = root.querySelector<HTMLElement>(".character-own-art");
+  if (!art) return;
+  const img = idle ? Object.assign(document.createElement("img"), { src: idle, alt: "" }) : null;
+  if (img) {
+    img.className = art.className;
+    art.replaceWith(img);
+  } else if (art.tagName === "IMG") {
+    const glyph = Object.assign(document.createElement("span"), { textContent: "⬆", className: art.className });
+    glyph.setAttribute("aria-hidden", "true");
+    art.replaceWith(glyph);
+  }
 }
 
 /** Wire up one picker; its markup comes from CharacterPicker.astro. */
@@ -66,7 +99,7 @@ export function mountCharacterPicker(root: HTMLElement): void {
   const api = root.dataset.api!;
   const removeConfirm = root.dataset.removeConfirm || "Remove this character? Its uploaded files are deleted.";
   const q = <T extends HTMLElement>(cls: string) => root.querySelector<T>(`.${cls}`)!;
-  const source = root.querySelector<HTMLSelectElement>(".character-source");
+  const source = sourceChoice(root);
   const preview = q<HTMLImageElement>("character-preview");
   const own = q<HTMLElement>("character-own");
   const grid = q<HTMLElement>("character-grid");
@@ -127,9 +160,11 @@ export function mountCharacterPicker(root: HTMLElement): void {
     current = c;
     if (source && !keepSource) source.value = sourceOf(c);
     const idle = c?.states.idle;
-    preview.hidden = !idle;
-    if (idle) preview.src = idle;
     const isOwn = !!c && !c.library;
+    // With choice cards the cards preview each option; the separate preview is for a pack's own editor.
+    preview.hidden = !idle || !!source;
+    if (idle) preview.src = idle;
+    if (source) showOwnArt(root, isOwn ? idle : undefined);
     // With a library on offer, the editor is for an own upload only; without, it's always there.
     own.hidden = !!source && source.value !== SOURCE_OWN;
     remove.hidden = !isOwn || !!source;
@@ -153,7 +188,9 @@ export function mountCharacterPicker(root: HTMLElement): void {
     const lines: string[] = [];
     if (res.idleGuessed) {
       const idle = res.files.find((f) => f.url === res.states.idle);
-      lines.push(`No file was named for Idle, so ${idle?.name ?? "the first image"} plays as Idle — pick another below.`);
+      lines.push(
+        `No file was named for Idle, so ${idle?.name ?? "the first image"} plays as Idle — pick another below.`,
+      );
     }
     const missing = (res.missing ?? []).map((k) => STATE_LABELS[k as CharacterState] ?? k);
     if (missing.length) lines.push(`No animation for: ${missing.join(", ")} — these fall back.`);

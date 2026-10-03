@@ -11,7 +11,7 @@ let agents: Agent[] = [];
 let catalog: Catalog = { categories: [], tools: [] };
 let models: { id: string; label: string; tools: boolean }[] = [];
 // Bubble characters: the platform's library to choose from, and the file names each state picks up.
-let characterLibrary: { id: string; name: string }[] = [];
+let characterLibrary: { id: string; name: string; states?: Record<string, string> }[] = [];
 let characterCatalog: { key: string; aliases: string[] }[] = [];
 let error: string | null = null;
 

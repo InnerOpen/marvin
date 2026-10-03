@@ -11,7 +11,7 @@ let settings: any = null;
 let secrets: any[] = [];
 let sources: any[] = [];
 let characterCatalog: any[] = [];
-let characterLibrary: { id: string; name: string }[] = [];
+let characterLibrary: { id: string; name: string; states?: Record<string, string> }[] = [];
 let error: string | null = null;
 
 try {

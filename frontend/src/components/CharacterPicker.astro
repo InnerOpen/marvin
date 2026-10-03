@@ -7,6 +7,8 @@
 interface LibraryOption {
   id: string;
   name: string;
+  /** The pack's animations by state — its idle one previews it on the choice card. */
+  states?: Record<string, string>;
 }
 
 interface Props {
@@ -35,17 +37,37 @@ const {
   removeConfirm,
 } = Astro.props;
 const names = catalog.length ? catalog.map((c) => `${c.aliases[0]}.gif`).join(", ") : "idle, waving, review, running…";
+// One radio group per picker (the Agents page has one per agent), so the name is the picker's endpoint.
+const choiceGroup = `character-source-${api.replace(/[^a-z0-9]+/gi, "-")}`;
 ---
 
 <div class="character-picker" data-api={api} data-character={JSON.stringify(character)} data-remove-confirm={removeConfirm}>
+  {library && (
+    <div class="character-choices" role="radiogroup" aria-label="Character">
+      <label class="character-choice">
+        <input type="radio" class="character-source-option" name={choiceGroup} value="" />
+        <span class="character-choice-art" aria-hidden="true">∅</span>
+        <span class="character-choice-name">{noneLabel}</span>
+      </label>
+      {library.map((p) => (
+        <label class="character-choice">
+          <input type="radio" class="character-source-option" name={choiceGroup} value={`library:${p.id}`} />
+          {p.states?.idle ? (
+            <img class="character-choice-art" src={p.states.idle} alt="" loading="lazy" />
+          ) : (
+            <span class="character-choice-art" aria-hidden="true">?</span>
+          )}
+          <span class="character-choice-name">{p.name}</span>
+        </label>
+      ))}
+      <label class="character-choice">
+        <input type="radio" class="character-source-option" name={choiceGroup} value="own" />
+        <span class="character-choice-art character-own-art" aria-hidden="true">⬆</span>
+        <span class="character-choice-name">Own upload</span>
+      </label>
+    </div>
+  )}
   <div class="character-head">
-    {library && (
-      <select class="input character-source" aria-label="Character">
-        <option value="">{noneLabel}</option>
-        {library.map((p) => <option value={`library:${p.id}`}>Library: {p.name}</option>)}
-        <option value="own">Own upload</option>
-      </select>
-    )}
     <img class="character-preview" alt="" hidden />
     <span class="character-status"></span>
   </div>
@@ -75,7 +97,26 @@ const names = catalog.length ? catalog.map((c) => `${c.aliases[0]}.gif`).join(",
   /* Global: the rows are built in the script, and pages restyle nothing here. */
   .character-picker { display: grid; gap: 8px; }
   .character-picker .character-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-  .character-picker .character-source { width: auto; min-width: 220px; }
+  .character-picker .character-choices {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px;
+  }
+  .character-picker .character-choice {
+    position: relative; display: grid; justify-items: center; gap: 6px; padding: 10px 8px;
+    border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg);
+    cursor: pointer; text-align: center;
+  }
+  .character-picker .character-choice:hover { border-color: var(--ink); }
+  .character-picker .character-choice:has(input:checked) {
+    border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  .character-picker .character-choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* The radio stays in the accessibility tree and keyboard order; the card is its visible face. */
+  .character-picker .character-choice input { position: absolute; opacity: 0; pointer-events: none; }
+  .character-picker .character-choice-art {
+    height: 72px; width: 72px; object-fit: contain; display: grid; place-items: center;
+    font-size: 28px; color: var(--muted);
+  }
+  .character-picker .character-choice-name { font-size: 13px; line-height: 1.2; overflow-wrap: anywhere; }
   .character-picker .character-preview { height: 48px; width: auto; max-width: 96px; object-fit: contain; }
   .character-picker .character-own { display: grid; gap: 8px; }
   .character-picker .character-hint { font-size: 12px; color: var(--muted); }
