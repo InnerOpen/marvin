@@ -159,6 +159,13 @@ if (Astro.request.method === "POST" && id && authToken) {
       resource_attachments: resourceAttachments,
     };
     if (tagIds !== undefined) updateData.tag_ids = tagIds;
+    // Schedule fields come from hidden inputs the page script fills with UTC ISO strings (the
+    // datetime-local pickers carry no zone). Sent whenever present, so clearing one clears it.
+    // published_at is never sent: the API stamps it on first publish and clears it on unpublish,
+    // and sending it — even as null — would override that.
+    for (const key of ["publish_at", "expire_at"]) {
+      if (formData.has(key)) updateData[key] = (formData.get(key) as string) || null;
+    }
 
     await updateEntry(id, updateData, authToken);
     return Astro.redirect("/workspace/entries");
@@ -218,6 +225,14 @@ const visiblePreviewImages = previewImages.slice(0, MAX_PREVIEW_IMAGES);
 // On overflow the last tile becomes a dimmed "+N" link to the Assets section, so N counts it too.
 const previewOverflow = previewImages.length > MAX_PREVIEW_IMAGES ? previewImages.length - MAX_PREVIEW_IMAGES + 1 : 0;
 const attachedResourceIds = new Set(attachedResources.map((r: any) => r.id));
+
+// API timestamps as UTC ISO ("…Z") for the date fields; the page script shows them in the
+// viewer's zone. Empty when unset or unparseable.
+function toUtcIso(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString();
+}
 
 // entry.tags is a list of slugs (see EntryRead); resolve each to the full tag (id + display
 // name) via the workspace tag list so the chips can render names and post the right tag_ids.
@@ -543,39 +558,31 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
             </div>
 
             <div class="form-group">
-              <label for="published_at">Published Date</label>
-              <input
-                type="datetime-local"
-                id="published_at"
-                name="published_at"
-                value={entry.publishedAt ? new Date(entry.publishedAt).toISOString().slice(0, 16) : ""}
-                form="entry-form"
-              />
-              <p class="form-help">Actual date/time this entry was published</p>
+              <label for="published-at-display">Published</label>
+              <output
+                id="published-at-display"
+                class="readonly-datetime"
+                data-local-datetime={toUtcIso(entry.publishedAt)}
+              >{entry.publishedAt ? `${toUtcIso(entry.publishedAt).slice(0, 16).replace("T", " ")} UTC` : "Not published"}</output>
+              <p class="form-help">Set automatically when the entry is published</p>
             </div>
 
             <div class="form-group">
               <label for="publish_at">Scheduled Publish</label>
-              <input
-                type="datetime-local"
-                id="publish_at"
-                name="publish_at"
-                value={entry.publishAt ? new Date(entry.publishAt).toISOString().slice(0, 16) : ""}
-                form="entry-form"
-              />
-              <p class="form-help">Schedule when this entry should be published</p>
+              <input type="datetime-local" id="publish_at" data-utc-input="publish_at_utc" form="entry-form" />
+              <input type="hidden" id="publish_at_utc" name="publish_at" value={toUtcIso(entry.publishAt)} form="entry-form" />
+              <p class="form-help" data-schedule-note="publish_at" data-note-prefix="Will publish">
+                Schedule when this entry should be published
+              </p>
             </div>
 
             <div class="form-group">
               <label for="expire_at">Expiration Date</label>
-              <input
-                type="datetime-local"
-                id="expire_at"
-                name="expire_at"
-                value={entry.expireAt ? new Date(entry.expireAt).toISOString().slice(0, 16) : ""}
-                form="entry-form"
-              />
-              <p class="form-help">When this entry should expire and be hidden</p>
+              <input type="datetime-local" id="expire_at" data-utc-input="expire_at_utc" form="entry-form" />
+              <input type="hidden" id="expire_at_utc" name="expire_at" value={toUtcIso(entry.expireAt)} form="entry-form" />
+              <p class="form-help" data-schedule-note="expire_at" data-note-prefix="Will expire">
+                When this entry should expire and be hidden
+              </p>
             </div>
           </div>
 
@@ -919,6 +926,11 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     margin: -0.25rem 0 0.25rem;
     font-size: 0.8125rem;
     color: var(--muted);
+  }
+
+  .readonly-datetime {
+    font-size: 0.875rem;
+    color: var(--ink);
   }
 
   label {
@@ -1784,6 +1796,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
 </style>
 
 <script>
+  import { formatLocalDateTime, fromDatetimeLocalValue, toDatetimeLocalValue } from '@/lib/localDatetime';
   import { createSdkClient } from '@/lib/sdk';
 
   const sdk = createSdkClient();
@@ -2217,6 +2230,34 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
       form.requestSubmit(saveButton);
     });
   }
+
+  // Dates in the viewer's zone. The server renders UTC; the read-only Published date is
+  // reformatted locally, and each schedule picker is filled from (and writes back to) a hidden
+  // input holding the UTC ISO value that the form actually posts.
+  document.querySelectorAll<HTMLElement>('[data-local-datetime]').forEach((el) => {
+    const formatted = formatLocalDateTime(el.dataset.localDatetime);
+    if (formatted) el.textContent = formatted;
+  });
+
+  document.querySelectorAll<HTMLInputElement>('input[data-utc-input]').forEach((picker) => {
+    const hidden = document.getElementById(picker.dataset.utcInput || '') as HTMLInputElement | null;
+    if (!hidden) return;
+    const note = document.querySelector<HTMLElement>(`[data-schedule-note="${picker.id}"]`);
+    const defaultNote = note?.textContent?.trim() ?? '';
+    const renderNote = () => {
+      if (!note) return;
+      const when = formatLocalDateTime(hidden.value);
+      note.textContent = when ? `${note.dataset.notePrefix} ${when}` : defaultNote;
+    };
+    picker.value = toDatetimeLocalValue(hidden.value);
+    const sync = () => {
+      hidden.value = fromDatetimeLocalValue(picker.value);
+      renderNote();
+    };
+    picker.addEventListener('input', sync);
+    picker.addEventListener('change', sync);
+    renderNote();
+  });
 
   // Data JSON editor - sync between JSON and form fields
   const dataJsonEditor = document.getElementById('data_json_editor') as HTMLTextAreaElement;
