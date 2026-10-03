@@ -115,7 +115,8 @@ const agentsJson = JSON.stringify(agents);
     <div class="reindex-card">
       <div class="reindex-info">
         <strong>Search index</strong>
-        <span>Rebuild embeddings so grounded answers reflect the latest entries and resources. Runs on demand; a scheduled task can keep it fresh automatically.</span>
+        <span>Rebuild embeddings so grounded answers reflect the latest entries, images and resources. Runs in the background and only re-embeds what changed; a scheduled task can keep it fresh automatically.</span>
+        <span id="index-status" class="index-status muted"></span>
       </div>
       <div class="reindex-action">
         <button id="reindex-btn" class="button secondary">Reindex now</button>
@@ -147,6 +148,7 @@ const agentsJson = JSON.stringify(agents);
     type Source,
     type Thread,
   } from "@/lib/api/aiAgents";
+  import { fetchApi } from "@/lib/api/client";
   import { renderMarkdown } from "@/lib/marvin/capabilities";
   import { createSdkClient } from "@/lib/sdk";
 
@@ -749,25 +751,59 @@ const agentsJson = JSON.stringify(agents);
     });
 
     // ── Reindex (kept from the RAG page) ──
+    // The index card: what the index holds, and a run in progress (it runs in the background — a
+    // whole workspace takes longer than a request may last). Polls only while a run is going.
+    const indexStatus = document.getElementById("index-status");
+    let pollTimer: number | undefined;
+    async function refreshIndexStatus(): Promise<boolean> {
+      try {
+        const st: any = await fetchApi("/api/ai/embeddings/status");
+        const running = st?.running;
+        if (indexStatus) {
+          const held = `${st.chunks} chunks · ${st.itemsIndexed ?? st.items_indexed} of ${st.indexable} items indexed`;
+          const last = st.lastRun ?? st.last_run;
+          const lastText = last ? ` · last run ${new Date(last.at).toLocaleString()}: ${last.summary}` : "";
+          indexStatus.textContent = running ? `${held} · reindexing ${running.done}/${running.total || "…"}` : held + lastText;
+        }
+        if (reindexBtn) reindexBtn.disabled = !!running;
+        return !!running;
+      } catch {
+        return false;
+      }
+    }
+    function pollWhileRunning() {
+      if (pollTimer) window.clearInterval(pollTimer);
+      pollTimer = window.setInterval(async () => {
+        if (!(await refreshIndexStatus())) {
+          window.clearInterval(pollTimer);
+          pollTimer = undefined;
+          if (reindexStatus) {
+            reindexStatus.textContent = "Done.";
+            reindexStatus.className = "status success";
+          }
+        }
+      }, 3000);
+    }
+    refreshIndexStatus().then((running) => running && pollWhileRunning());
+
     reindexBtn?.addEventListener("click", async () => {
       reindexBtn.disabled = true;
       if (reindexStatus) {
-        reindexStatus.textContent = "Reindexing…";
+        reindexStatus.textContent = "Starting…";
         reindexStatus.className = "status";
       }
       try {
-        const res: any = await createSdkClient().ai.operations.reindex({ scope: "workspace" });
-        if (reindexStatus) {
-          reindexStatus.textContent = `Indexed ${res?.entities_indexed ?? 0} items (${res?.chunks_indexed ?? 0} chunks).`;
-          reindexStatus.className = "status success";
-        }
+        await createSdkClient().ai.operations.reindex({ scope: "workspace" });
+        if (reindexStatus) reindexStatus.textContent = "Reindexing in the background — you can leave this page.";
+        pollWhileRunning();
       } catch (err: any) {
+        const running = (err?.statusCode ?? err?.status) === 409;
         if (reindexStatus) {
-          reindexStatus.textContent = `Error: ${err.message}`;
-          reindexStatus.className = "status error";
+          reindexStatus.textContent = running ? "A reindex is already running." : `Error: ${err.message}`;
+          reindexStatus.className = running ? "status" : "status error";
         }
-      } finally {
-        reindexBtn.disabled = false;
+        if (running) pollWhileRunning();
+        else reindexBtn.disabled = false;
       }
     });
   }
@@ -880,6 +916,7 @@ const agentsJson = JSON.stringify(agents);
   .reindex-card { display: flex; justify-content: space-between; align-items: center; gap: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; flex-wrap: wrap; }
   .reindex-info { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
   .reindex-info strong { color: var(--ink); font-size: 14px; }
+  .index-status { font-size: 12px; }
   .reindex-action { display: flex; align-items: center; gap: 12px; }
   @media (max-width: 720px) { .transcript :global(.turn.user), .transcript :global(.turn.assistant) { margin: 0; } }
 </style>

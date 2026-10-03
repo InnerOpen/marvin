@@ -34,7 +34,7 @@ class ReindexEmbeddingsHandler(ScheduledTaskHandler):
         from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
 
         done = 0
-        total_entities = total_chunks = 0
+        total_entities = total_chunks = total_failed = 0
         with session_context() as session:
             if task.group_id:
                 groups = session.query(Groups).filter(Groups.id == task.group_id).all()
@@ -55,36 +55,21 @@ class ReindexEmbeddingsHandler(ScheduledTaskHandler):
                 if not model:
                     continue
 
-                entities, chunks = reindex_workspace(session, g.id, provider, model)
-                total_entities += entities
-                total_chunks += chunks
+                result = reindex_workspace(session, g.id, provider, model)
+                total_entities += result.entities
+                total_chunks += result.chunks
+                total_failed += result.failed
                 done += 1
-                self._emit(event_bus, g, model, entities, chunks)
+                from marvin.services.ai.reindex_jobs import emit
+
+                emit(g.id, model, result, source="ai_scheduled")
 
         scope = "this workspace" if task.group_id else "all workspaces"
-        summary = f"Reindexed {done} workspace(s) ({scope}): {total_entities} entities, {total_chunks} chunks"
+        summary = f"Reindexed {done} workspace(s) ({scope}): {total_entities} items, {total_chunks} chunks"
+        if total_failed:
+            summary += f", {total_failed} failed (see the ai_embeddings_reindexed events)"
         logger.info("AI embeddings reindex: %s", summary)
         return summary
-
-    def _emit(self, event_bus: EventBusService, group, model: str, entities: int, chunks: int) -> None:
-        from marvin.services.event_bus_service.event_types import EventAIEmbeddingsData, EventTypes
-
-        try:
-            event_bus.dispatch(
-                integration_id="ai_scheduled",
-                group_id=group.id,
-                event_type=EventTypes.ai_embeddings_reindexed,
-                document_data=EventAIEmbeddingsData(
-                    model_id=model,
-                    entities_indexed=entities,
-                    chunks_indexed=chunks,
-                    workspace_id=group.id,
-                    workspace_name=group.name,
-                ),
-                message=f"Scheduled reindex: {entities} entities ({chunks} chunks)",
-            )
-        except Exception as ex:
-            logger.warning("reindex: failed to emit event for %s: %s", group.id, ex)
 
 
 TaskHandlerRegistry.register("ai_reindex_embeddings", ReindexEmbeddingsHandler)

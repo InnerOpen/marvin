@@ -1158,6 +1158,12 @@ class EventAIEmbeddingsData(EventDocumentDataBase):
     """Number of entities embedded."""
     chunks_indexed: int
     """Number of chunks embedded."""
+    skipped: int = 0
+    """Items unchanged since their last embedding (not re-embedded)."""
+    failed: int = 0
+    """Items that could not be embedded."""
+    error: str | None = None
+    """The first failure message, when any failed."""
     workspace_id: UUID4
     """The workspace reindexed."""
     workspace_name: str | None = None

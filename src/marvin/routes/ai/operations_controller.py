@@ -402,6 +402,15 @@ class AIOperationsController(BaseUserController):
                 detail="No default embedding model for this provider.",
             )
 
+        if body.scope == "workspace":
+            # A whole workspace takes minutes — longer than a request may last behind the tunnel — so
+            # it runs in the background and reports through ai_embeddings_reindexed (toast + event log).
+            from marvin.services.ai import reindex_jobs
+
+            if not reindex_jobs.start(self.group_id, self.user.id if self.user else None, force=bool(body.force)):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A reindex is already running for this workspace.")
+            return {"status": "started", "model": model}
+
         entities = chunks = 0
         for entity_type, entity_id, text in self._reindex_targets(body):
             try:
@@ -411,6 +420,36 @@ class AIOperationsController(BaseUserController):
                 self.logger.warning("reindex failed for %s %s: %s", entity_type, entity_id, e)
         self._emit_reindex_event(model, entities, chunks)
         return {"model": model, "entities_indexed": entities, "chunks_indexed": chunks}
+
+    @router.get("/embeddings/status", summary="Search index status for this workspace")
+    def embeddings_status(self) -> dict:
+        """What the search index holds (chunks, items, models), the run in progress if any, and the last run."""
+        from sqlalchemy import func
+
+        from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
+        from marvin.db.models.platform.event_log import EventLogModel
+        from marvin.services.ai import reindex_jobs
+        from marvin.services.ai.embeddings_registry import REGISTRY
+
+        base = self.session.query(AIEmbeddingModel).filter(AIEmbeddingModel.group_id == self.group_id)
+        chunks = base.count()
+        items = base.with_entities(AIEmbeddingModel.entity_type, AIEmbeddingModel.entity_id).distinct().count()
+        models = [m for (m,) in base.with_entities(AIEmbeddingModel.model_id).distinct().all()]
+        indexable = sum(self.session.query(func.count(d.model.id)).filter(d.model.group_id == self.group_id).scalar() or 0 for d in REGISTRY.values())
+        last = (
+            self.session.query(EventLogModel)
+            .filter(EventLogModel.workspace_id == self.group_id, EventLogModel.event_type == "ai_embeddings_reindexed")
+            .order_by(EventLogModel.occurred_at.desc())
+            .first()
+        )
+        return {
+            "chunks": chunks,
+            "items_indexed": items,
+            "indexable": indexable,
+            "models": models,
+            "running": reindex_jobs.status(self.group_id),
+            "last_run": {"at": last.occurred_at.isoformat(), "summary": last.message_body} if last else None,
+        }
 
     # ── Compose (schema-driven draft generation) ───────────────────────
 
@@ -2083,12 +2122,9 @@ class AIOperationsController(BaseUserController):
         # by workspace reindex and single-entity reindex with no change here.
         from marvin.services.ai.embeddings_registry import REGISTRY
 
+        # Single-entity reindex only; a workspace reindex runs in the background (services/ai/reindex_jobs).
         targets: list[tuple[str, object, str]] = []
-        if body.scope == "workspace":
-            for reg_desc in REGISTRY.values():
-                for obj in self.session.query(reg_desc.model).filter_by(group_id=self.group_id).all():
-                    targets.append((reg_desc.entity_type, obj.id, reg_desc.text(obj)))
-        elif body.entity_type and body.entity_id:
+        if body.entity_type and body.entity_id:
             desc = REGISTRY.get(body.entity_type)
             if desc:
                 obj = self.session.get(desc.model, body.entity_id)

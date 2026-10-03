@@ -53,7 +53,8 @@ class AIReindexRequest(_MarvinModel):
 
     entity_type: str | None = None  # entry | resource
     entity_id: UUID4 | None = None
-    scope: str | None = None  # "workspace" → reindex all entries + resources
+    scope: str | None = None  # "workspace" → reindex everything indexable, in the background
+    force: bool = False  # re-embed items whose text hasn't changed (a model change, a suspected bad index)
 
     model_config = ConfigDict(from_attributes=True)
 

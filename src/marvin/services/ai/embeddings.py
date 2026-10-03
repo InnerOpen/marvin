@@ -6,8 +6,15 @@ similarity is computed in Python (numpy). This is O(n) over a workspace's chunks
 fine at hobby scale; migrate to pgvector on Postgres if it ever needs to scale.
 """
 
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
 from pydantic import UUID4
 from sqlalchemy.orm import Session
+
+from marvin.core.root_logger import get_logger
+
+logger = get_logger(__name__)
 
 # Sensible default embedding model per provider (overridable by callers).
 DEFAULT_EMBEDDING_MODELS: dict[str, str] = {
@@ -80,23 +87,7 @@ def index_entity(
         return 0
 
     vectors = provider.embed(chunks, model)
-    dims = len(vectors[0]) if vectors else 0
-
-    session.query(AIEmbeddingModel).filter_by(group_id=group_id, entity_type=entity_type, entity_id=entity_id, model_id=model).delete()
-    for i, (chunk, vec) in enumerate(zip(chunks, vectors, strict=False)):
-        session.add(
-            AIEmbeddingModel(
-                session=session,
-                group_id=group_id,
-                entity_type=entity_type,
-                entity_id=entity_id,
-                chunk_index=i,
-                chunk_text=chunk,
-                embedding=list(vec),
-                model_id=model,
-                dimensions=dims,
-            )
-        )
+    _store_chunks(session, group_id, entity_type, entity_id, model, chunks, vectors)
     session.commit()
     return len(chunks)
 
@@ -143,25 +134,154 @@ def index_entry(session: Session, group_id: UUID4, entry, provider, model: str) 
     return index_entity(session, group_id, "entry", entry.id, _entry_text(entry), provider, model)
 
 
-def reindex_workspace(session: Session, group_id: UUID4, provider, model: str) -> tuple[int, int]:
-    """(Re)index every indexable entity in a workspace. Returns (entities, chunks).
+EMBED_BATCH_CHUNKS = 64
+"""Chunks sent per embedding call. One call per item made a workspace reindex take minutes (one round
+trip each); batching makes it a handful of calls. Kept well under providers' per-request input limits."""
 
-    Iterates the indexable-type registry, so a newly registered type is included automatically.
+MAX_REPORTED_ERRORS = 3
+
+
+@dataclass
+class ReindexResult:
+    entities: int = 0
+    """Items (re)embedded this run."""
+    chunks: int = 0
+    """Chunks written this run."""
+    skipped: int = 0
+    """Items whose text hadn't changed since they were last embedded (nothing to do)."""
+    purged: int = 0
+    """Items too thin to index whose old chunks were dropped."""
+    failed: int = 0
+    errors: list[str] = field(default_factory=list)
+    """The first few distinct failure messages — so a run that embeds nothing says why."""
+
+    @property
+    def summary(self) -> str:
+        text = f"Reindexed {self.entities} items ({self.chunks} chunks)"
+        if self.skipped:
+            text += f", {self.skipped} unchanged"
+        if self.failed:
+            text += f", {self.failed} failed: {self.errors[0] if self.errors else 'unknown error'}"
+        return text
+
+
+def _existing_chunks(session: Session, group_id, entity_type: str, entity_id, model: str) -> list[str]:
+    from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
+
+    rows = (
+        session.query(AIEmbeddingModel.chunk_text)
+        .filter_by(group_id=group_id, entity_type=entity_type, entity_id=entity_id, model_id=model)
+        .order_by(AIEmbeddingModel.chunk_index)
+        .all()
+    )
+    return [r[0] for r in rows]
+
+
+def _store_chunks(session: Session, group_id, entity_type: str, entity_id, model: str, chunks: list[str], vectors) -> None:
+    from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
+
+    dims = len(vectors[0]) if vectors else 0
+    session.query(AIEmbeddingModel).filter_by(group_id=group_id, entity_type=entity_type, entity_id=entity_id, model_id=model).delete()
+    for i, (chunk, vec) in enumerate(zip(chunks, vectors, strict=False)):
+        session.add(
+            AIEmbeddingModel(
+                session=session,
+                group_id=group_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                chunk_index=i,
+                chunk_text=chunk,
+                embedding=list(vec),
+                model_id=model,
+                dimensions=dims,
+            )
+        )
+
+
+def reindex_workspace(
+    session: Session,
+    group_id: UUID4,
+    provider,
+    model: str,
+    *,
+    force: bool = False,
+    progress: Callable[[int, int], None] | None = None,
+) -> ReindexResult:
+    """(Re)index every indexable entity in a workspace — the one path the Reindex button and the
+    scheduled task share.
+
+    Items whose chunks are unchanged since their last embedding are skipped (unless `force`), the rest
+    are embedded in batches of EMBED_BATCH_CHUNKS, and a failing batch is counted with its error rather
+    than swallowed. `progress(done, total)` is called as items are handled.
     """
+    from marvin.core.config import get_app_settings
     from marvin.services.ai.embeddings_registry import REGISTRY
 
-    entities = chunks = 0
-    for desc in REGISTRY.values():
-        for obj in session.query(desc.model).filter_by(group_id=group_id).all():
-            try:
-                if not desc.content_ok(obj):
-                    purge_embeddings(session, group_id, desc.entity_type, obj.id, model)  # drop if it went thin
-                    continue
-                chunks += index_entity(session, group_id, desc.entity_type, obj.id, desc.text(obj), provider, model)
-                entities += 1
-            except Exception:
-                continue  # skip a failing entity rather than aborting the whole workspace
-    return entities, chunks
+    app = get_app_settings()
+    size, overlap = getattr(app, "AI_EMBED_CHUNK_SIZE", 1500), getattr(app, "AI_EMBED_CHUNK_OVERLAP", 150)
+    result = ReindexResult()
+    targets = [(desc, obj) for desc in REGISTRY.values() for obj in session.query(desc.model).filter_by(group_id=group_id).all()]
+    total, done = len(targets), 0
+    pending: list[tuple[str, object, list[str]]] = []
+
+    def note_error(message: str) -> None:
+        if message not in result.errors and len(result.errors) < MAX_REPORTED_ERRORS:
+            result.errors.append(message)
+
+    def flush() -> None:
+        nonlocal done
+        if not pending:
+            return
+        texts = [chunk for _, _, chunks in pending for chunk in chunks]
+        try:
+            vectors = provider.embed(texts, model)
+            if len(vectors) != len(texts):
+                raise ValueError(f"provider returned {len(vectors)} vectors for {len(texts)} chunks")
+            at = 0
+            for entity_type, entity_id, chunks in pending:
+                _store_chunks(session, group_id, entity_type, entity_id, model, chunks, vectors[at : at + len(chunks)])
+                at += len(chunks)
+                result.entities += 1
+                result.chunks += len(chunks)
+            session.commit()
+        except Exception as e:  # noqa: BLE001 — counted and reported, never silently dropped
+            session.rollback()
+            result.failed += len(pending)
+            note_error(f"{type(e).__name__}: {str(e)[:300]}")
+            logger.warning("reindex: embedding batch of %d items failed for %s: %s", len(pending), group_id, e)
+        done += len(pending)
+        pending.clear()
+        if progress:
+            progress(done, total)
+
+    for desc, obj in targets:
+        try:
+            if not desc.content_ok(obj):
+                if purge_embeddings(session, group_id, desc.entity_type, obj.id, model):
+                    result.purged += 1
+                done += 1
+                continue
+            chunks = chunk_text(desc.text(obj), max_chars=size, overlap=overlap)
+            if not chunks:
+                purge_embeddings(session, group_id, desc.entity_type, obj.id, model)
+                done += 1
+                continue
+            if not force and _existing_chunks(session, group_id, desc.entity_type, obj.id, model) == chunks:
+                result.skipped += 1
+                done += 1
+                continue
+        except Exception as e:  # noqa: BLE001 — one unreadable item must not stop the run
+            result.failed += 1
+            note_error(f"{type(e).__name__}: {str(e)[:300]}")
+            done += 1
+            continue
+        pending.append((desc.entity_type, obj.id, chunks))
+        if sum(len(c) for _, _, c in pending) >= EMBED_BATCH_CHUNKS:
+            flush()
+    flush()
+    if progress:
+        progress(total, total)
+    return result
 
 
 def search_embeddings(

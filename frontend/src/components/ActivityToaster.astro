@@ -57,6 +57,7 @@ const { userId = null } = Astro.props;
     site_deployment_failed: { tone: "err", label: "Site deploy failed" },
     scheduled_task_failed: { tone: "err", label: "Scheduled task failed", href: () => "/workspace/scheduled-tasks" },
     ai_operation_failed: { tone: "err", label: "AI operation failed" },
+    ai_embeddings_reindexed: { tone: "info", label: "Search index", href: () => "/workspace/settings/ai-ask" },
     form_submission_received: { tone: "info", label: "Form submission", href: entryHref },
     entry_published: { tone: "info", label: "Published", href: entryHref, othersOnly: true },
     entry_unpublished: { tone: "info", label: "Unpublished", href: entryHref, othersOnly: true },
