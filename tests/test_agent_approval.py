@@ -139,6 +139,21 @@ def _run(ctl, thread_id="new", message="tag it", tools=None, max_steps=6, client
     )
 
 
+def test_run_names_its_thread_on_the_execution_before_the_loop(ctl, monkeypatch):
+    # A run a restart kills never reaches the end, so the thread must be on the row from the start
+    # for the next process to close it (services/ai/interrupted_runs.py).
+    seen = {}
+
+    def loop(provider, model, messages, tools, options=None, max_steps=6, on_event=None, resume=None):
+        row = ctl.session.query(AIExecutionModel).filter_by(group_id=ctl.user.group_id, status="running").one()
+        seen.update(row.metadata_json or {})
+        return _done()
+
+    monkeypatch.setattr(loop_mod, "run_agent_loop", loop)
+    res = _run(ctl)
+    assert seen["thread_id"] == res["threadId"]
+
+
 def _park(ctl, calls=None, **kw):
     calls = calls or [PendingCall(id="c2", tool="attach_tag", arguments={"tag": "foo"})]
     ctl.loop.results.append(_awaiting(*calls, steps=[AgentStep(tool="search_content", arguments={"q": "x"}, result='{"results": []}')]))
@@ -171,6 +186,20 @@ def test_bind_never_parks_in_a_delegated_child_run(ctl):
     child, _ = ctl._bind_agent_tools(provider, agent=WRITER, role=ROLE_AUTHOR, depth=1, park_allowed=True)
     assert any(t.requires_approval for t in parent) and "compose_entry" in {t.name for t in parent}
     assert not any(t.requires_approval for t in child) and "compose_entry" not in {t.name for t in child}
+
+
+def test_bind_gates_big_bulk_writes_even_where_the_router_allows_links(ctl):
+    from marvin.services.ai.agents import SYSTEM_AGENTS
+
+    provider = SimpleNamespace(provider_type="fake")
+    router = SYSTEM_AGENTS["marvin"]  # links: allow — no "ask first" from the matrix
+    parked = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_AUTHOR, park_allowed=True)[0]}
+    threadless = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_AUTHOR, park_allowed=False)[0]}
+    child = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_AUTHOR, depth=1, park_allowed=True)[0]}
+    assert not parked["attach_tag"].requires_approval and parked["attach_tag"].approval_check is not None
+    # No thread to park on: the tool stays bound but its run() refuses a big call (no per-call check).
+    assert threadless["attach_tag"].approval_check is None and child["attach_tag"].approval_check is None
+    assert parked["search_content"].approval_check is None
 
 
 def test_delegate_binds_the_child_without_park_allowed(ctl, monkeypatch):

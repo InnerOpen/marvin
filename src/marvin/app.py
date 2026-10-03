@@ -7,6 +7,7 @@ initialization and scheduler startup), registers API routes, and provides a `mai
 function to run the application using Uvicorn, primarily for development purposes.
 """
 
+import asyncio  # Delayed startup sweep of interrupted AI runs
 import copy  # Deep-copy Uvicorn's logging config before customizing it
 import logging  # Access-log filtering (silence health probes)
 from collections.abc import AsyncGenerator  # For async generator type hint
@@ -69,6 +70,11 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
     """
     # --- Startup ---
     logger.info("------ SYSTEM STARTUP INITIATED ------")
+    # No request of this process has run yet: any AI run still `running` from before now belongs to
+    # an older process (see _sweep_interrupted_runs).
+    from marvin.db.models._model_utils.datetime import get_utc_now
+
+    process_started_at = get_utc_now()
 
     logger.info("Starting: Database initialization...")
     import marvin.db.init_db as init_db  # Local import to avoid premature DB calls if app is imported elsewhere
@@ -116,6 +122,8 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
     except Exception as e:
         logger.exception(f"System collections seeder failed: {e}")
 
+    sweep_task = _start_interrupted_run_sweep(process_started_at)
+
     if settings.SCHEDULER_ENABLED:
         logger.info("Starting: Scheduler service...")
         try:
@@ -140,6 +148,9 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
 
     # --- Shutdown ---
     logger.info("------ SYSTEM SHUTDOWN INITIATED ------")
+
+    if sweep_task is not None:
+        sweep_task.cancel()
 
     if settings.SCHEDULER_ENABLED:
         # Drop the scheduler lease so a surviving replica picks the work up on its next tick
@@ -227,6 +238,36 @@ if not settings.PRODUCTION:
 
     app.add_middleware(RequestLoggingMiddleware)
     logger.info("Request logging middleware enabled for development.")
+
+
+def _sweep_interrupted_runs(process_started_at) -> None:
+    """Mark AI runs a previous process left `running` (killed mid-run) as failed. Best-effort."""
+    try:
+        from marvin.db.db_setup import session_context
+        from marvin.services.ai.interrupted_runs import mark_interrupted_runs
+
+        with session_context() as session:
+            count = mark_interrupted_runs(session, process_started_at)
+        if count:
+            logger.info(f"Interrupted AI runs: marked {count} run(s) left running by a previous process as failed.")
+    except Exception as e:
+        logger.exception(f"Interrupted AI run sweep failed: {e}")
+
+
+async def _sweep_interrupted_runs_later(process_started_at, delay_seconds: int) -> None:
+    await asyncio.sleep(delay_seconds)
+    await asyncio.to_thread(_sweep_interrupted_runs, process_started_at)
+
+
+def _start_interrupted_run_sweep(process_started_at) -> "asyncio.Task | None":
+    """Sweep now, or — when a draining predecessor may still own those runs (rolling update) — after
+    AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS. Returns the delayed task so shutdown can cancel it."""
+    delay = settings.AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS
+    if delay <= 0:
+        _sweep_interrupted_runs(process_started_at)
+        return None
+    logger.info(f"Interrupted AI run sweep scheduled in {delay}s.")
+    return asyncio.create_task(_sweep_interrupted_runs_later(process_started_at, delay))
 
 
 async def start_scheduler() -> None:
@@ -359,6 +400,8 @@ def main() -> None:
         log_config=_uvicorn_log_config(),  # Uvicorn defaults + a filter that drops health-probe lines
         workers=1,  # Number of worker processes (typically 1 for dev, more for prod)
         forwarded_allow_ips="*",  # Trust X-Forwarded-For headers from any IP (specific IPs better for prod)
+        # On SIGTERM: stop accepting, let in-flight requests (agent runs) finish for this long, then shut down.
+        timeout_graceful_shutdown=settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
     )
 
 

@@ -50,6 +50,9 @@ class AgentTool:
     # "Ask first": the loop does not run this tool — it pends the call for the user's decision and
     # the run resumes (approved → run; denied → the model is told) via ResumeState.
     requires_approval: bool = False
+    # Per call: a preview dict when *this* call must be approved whatever the policy (a big bulk
+    # write, see tools/bulk_writes.py), else None. Set only on runs that can park.
+    approval_check: Callable[[dict], dict | None] | None = None
 
 
 @dataclass
@@ -68,6 +71,8 @@ class PendingCall:
     id: str
     tool: str
     arguments: dict
+    # What the approval card shows beyond the arguments (a bulk write's targets × items), if any.
+    preview: dict | None = None
 
 
 @dataclass
@@ -102,7 +107,13 @@ DECLINED_RESULT = json.dumps({"error": "the user declined this action; do not re
 
 
 def serialize_pending(calls: list[PendingCall]) -> list[dict]:
-    return [{"id": c.id, "tool": c.tool, "arguments": dict(c.arguments or {})} for c in calls]
+    out = []
+    for c in calls:
+        d = {"id": c.id, "tool": c.tool, "arguments": dict(c.arguments or {})}
+        if c.preview:
+            d["preview"] = dict(c.preview)
+        out.append(d)
+    return out
 
 
 def deserialize_pending(data) -> list[PendingCall]:
@@ -110,7 +121,8 @@ def deserialize_pending(data) -> list[PendingCall]:
     for d in data or []:
         if not isinstance(d, dict) or not d.get("id") or not d.get("tool"):
             continue
-        out.append(PendingCall(id=str(d["id"]), tool=str(d["tool"]), arguments=dict(d.get("arguments") or {})))
+        preview = d.get("preview") if isinstance(d.get("preview"), dict) else None
+        out.append(PendingCall(id=str(d["id"]), tool=str(d["tool"]), arguments=dict(d.get("arguments") or {}), preview=preview))
     return out
 
 
@@ -141,6 +153,20 @@ def _notify(on_event: EventListener | None, event: dict) -> None:
         pass
 
 
+def _approval_needed(tool: AgentTool | None, arguments: dict) -> tuple[bool, dict | None]:
+    """(pend?, preview) for one call: an "ask first" tool always pends; any tool pends a call its
+    `approval_check` flags. A check that raises never pends — the tool reports the bad input itself."""
+    if tool is None:
+        return False, None
+    preview = None
+    if tool.approval_check is not None:
+        try:
+            preview = tool.approval_check(arguments)
+        except Exception:  # noqa: BLE001
+            preview = None
+    return (tool.requires_approval or preview is not None), preview
+
+
 def run_agent_loop(
     provider: AIProvider,
     model: str,
@@ -157,7 +183,7 @@ def run_agent_loop(
     call, `{"type": "tool_call", "tool", "arguments"}` / `{"type": "tool_result", "tool", "ok"}`
     around each tool — the feed behind a live step timeline.
 
-    Tools flagged `requires_approval` are not run: within one completion the other calls run as
+    Tools flagged `requires_approval`, and calls a tool's `approval_check` flags, are not run: within one completion the other calls run as
     usual and the flagged ones pend; the loop returns with `stopped_reason="awaiting_approval"`,
     `pending_calls` and the transcript (`convo`). Call again with `resume` (the transcript, the
     pending calls and the user's decisions) and a fresh step budget: approved calls run, denied
@@ -217,11 +243,12 @@ def run_agent_loop(
         convo.append(Message(role="assistant", content=completion.content or "", tool_calls=completion.tool_calls))
         pending: list[PendingCall] = []
         for call in completion.tool_calls:
-            tool = by_name.get(call.name)
-            if tool is not None and tool.requires_approval:
-                pending.append(PendingCall(id=call.id, tool=call.name, arguments=dict(call.arguments or {})))
+            arguments = dict(call.arguments or {})
+            pend, preview = _approval_needed(by_name.get(call.name), arguments)
+            if pend:
+                pending.append(PendingCall(id=call.id, tool=call.name, arguments=arguments, preview=preview))
                 continue
-            dispatch(call.id, call.name, dict(call.arguments or {}))
+            dispatch(call.id, call.name, arguments)
         if pending:
             _notify(on_event, {"type": "awaiting_approval", "calls": [{"id": c.id, "tool": c.tool} for c in pending]})
             result.pending_calls = pending

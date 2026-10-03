@@ -195,3 +195,85 @@ def test_bulk_tag_materializes_smart_collection(db_session, ws):
     assert r["collections_resynced"] == 3
     # every image/svg asset is now a materialized member
     assert db_session.query(CollectionAssets).filter_by(collection_id=col.id).count() == 3
+
+
+# ── big bulk writes ask first (tools/bulk_writes.py) ──────────────────────────
+# 4 assets × 6 tags = 24 links: over both thresholds. 2 assets × 3 tags stays direct.
+_SIX_TAGS = ["red", "blue", "green", "portrait", "landscape", "large-format"]
+_ALL_ASSETS = {"entity_type": "asset", "filter": {"asset_types": ["image", "svg", "document"]}}
+
+
+def _links(db_session, ids):
+    return db_session.query(AssetTags).filter(AssetTags.asset_id.in_(list(ids.values()))).count()
+
+
+def _loop(db_session, gid, args, *, can_park, resume=None):
+    from marvin.services.ai.agent import AgentTool, run_agent_loop
+    from marvin.services.ai.base import CompletionResult, ToolCall
+    from marvin.services.ai.tools import bulk_writes
+
+    spec = get_tool("attach_tag")
+    run, check = bulk_writes.bind(spec, _ctx(db_session, gid), can_park=can_park)
+    tool = AgentTool(name="attach_tag", description="", input_schema={}, run=run, category="links", approval_check=check)
+
+    def result(content="", calls=None):
+        return CompletionResult(content=content, prompt_tokens=1, completion_tokens=1, total_tokens=2, model="m", tool_calls=calls or [])
+
+    class Provider:
+        def __init__(self):
+            self.results = (
+                [result(content="done")] if resume else [result(calls=[ToolCall(id="c1", name="attach_tag", arguments=args)]), result("done")]
+            )
+
+        def complete_with_tools(self, messages, model, tools, options=None, tool_choice="auto"):
+            return self.results.pop(0)
+
+    return run_agent_loop(Provider(), "m", [], [tool], resume=resume)
+
+
+def test_big_bulk_attach_parks_for_approval_with_the_targets_listed(db_session, ws):
+    gid, ids = ws
+    res = _loop(db_session, gid, {**_ALL_ASSETS, "tags": _SIX_TAGS}, can_park=True)
+    assert res.stopped_reason == "awaiting_approval"
+    preview = res.pending_calls[0].preview
+    assert preview["summary"] == "Attach 6 tags to 4 assets (24 links)"
+    assert {"Photo One", "Photo Two", "Logo", "Spec"} == set(preview["targets"])
+    assert _links(db_session, ids) == 0
+
+
+def test_big_bulk_attach_runs_once_the_user_approves(db_session, ws):
+    from marvin.services.ai.agent import ResumeState
+
+    gid, ids = ws
+    parked = _loop(db_session, gid, {**_ALL_ASSETS, "tags": _SIX_TAGS}, can_park=True)
+    resume = ResumeState(convo=parked.convo, pending=parked.pending_calls, decisions={"c1": "approve"})
+    _loop(db_session, gid, None, can_park=True, resume=resume)
+    assert _links(db_session, ids) == 24
+
+
+def test_big_bulk_attach_is_refused_where_the_run_cannot_park(db_session, ws):
+    gid, ids = ws
+    res = _loop(db_session, gid, {**_ALL_ASSETS, "tags": _SIX_TAGS}, can_park=False)
+    assert res.stopped_reason == "complete"
+    assert "smaller steps" in json.loads(res.steps[0].result)["error"]
+    assert _links(db_session, ids) == 0
+
+
+def test_small_bulk_attach_runs_directly(db_session, ws):
+    gid, ids = ws
+    res = _loop(db_session, gid, {"entity_type": "asset", "entities": ["img-1", "img-2"], "tags": ["red", "blue", "denim"]}, can_park=True)
+    assert res.stopped_reason == "complete"
+    assert _links(db_session, ids) == 6
+
+
+def test_big_bulk_detach_asks_too(db_session, ws):
+    from marvin.services.ai.tools import bulk_writes
+
+    gid, _ = ws
+    _, check = bulk_writes.bind(get_tool("detach_tag"), _ctx(db_session, gid), can_park=True)
+    assert check({**_ALL_ASSETS, "tags": _SIX_TAGS})["summary"] == "Detach 6 tags from 4 assets (24 links)"
+
+
+def test_attach_tag_description_steers_per_target_tagging():
+    desc = get_tool("attach_tag").description
+    assert "PER TARGET" in desc and "generate_tags" in desc and "wholesale" in desc

@@ -61,3 +61,31 @@ def test_generate_tags_writes_back_to_real_tags():
 def test_generate_tags_passes_existing_tags_into_the_prompt():
     body = _user_msg("generate-tags", {"existing_tags": ["denim", "workwear"]})
     assert "denim" in body and "workwear" in body
+
+
+def test_generate_tags_on_an_image_asset_sends_the_image():
+    # An asset has no entry in context: the prompt used to be an empty title/content, so the tags
+    # were guessed from nothing. Now the asset's own fields go in, and the pixels when loaded.
+    from marvin.services.ai.base import ImagePart
+
+    ctx = OperationContext(
+        assets=[{"name": "IMG_0042", "alt_text": "a waxed jacket", "mime_type": "image/jpeg", "image_data": "aGk="}], workspace_name="W"
+    )
+    content = get_operation("generate-tags").build_prompt({}, ctx)[-1].content
+    assert isinstance(content, list) and isinstance(content[1], ImagePart)
+    assert "IMG_0042" in content[0] and "a waxed jacket" in content[0] and "what the image actually shows" in content[0]
+
+
+def test_generate_tags_on_an_asset_without_pixels_uses_its_fields():
+    ctx = OperationContext(assets=[{"name": "IMG_0042", "description": "brass buckle close-up"}], workspace_name="W")
+    content = get_operation("generate-tags").build_prompt({}, ctx)[-1].content
+    assert isinstance(content, str) and "brass buckle close-up" in content
+
+
+def test_generate_tags_reuses_vocabulary_only_where_it_fits():
+    body = _user_msg("generate-tags", {"vocabulary": ["red", "portrait"]})
+    assert "red, portrait" in body and "never the whole list" in body
+
+
+def test_generate_tags_looks_at_image_assets():
+    assert get_operation("generate-tags").sees_asset_image is True

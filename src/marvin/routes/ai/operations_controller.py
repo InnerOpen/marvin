@@ -228,8 +228,11 @@ class AIOperationsController(BaseUserController):
             builder.with_resource(entity_id)
         elif body.entity_type == "form_submission" and entity_id:
             builder.with_form_submission(entity_id)
-        # Vision operations need the raw image bytes loaded into context.
-        if operation.requires_vision:
+        # Vision operations need the raw image bytes loaded into context; an op that merely benefits
+        # from seeing an image asset (generate-tags) gets them when the model can see.
+        if operation.requires_vision or (
+            body.entity_type == "asset" and getattr(operation, "sees_asset_image", False) and self._model_sees_images(model)
+        ):
             builder.with_asset_images()
         # RAG operations retrieve semantically-similar workspace chunks for the question.
         if getattr(operation, "requires_retrieval", False):
@@ -1389,7 +1392,7 @@ class AIOperationsController(BaseUserController):
             "semantic, so it surfaces items that merely mention a word and must not be used to enumerate a "
             "vocabulary (asking it 'what tags exist' returns content, not tags). Before proposing or attaching "
             "tags, resources, or assets, first discover what already exists — call list_tags (then search_content "
-            "for related content) — and REUSE matches; only create something new when nothing fits. To author, "
+            "for related content) — and REUSE the matches that fit each item; only create something new when nothing fits. To author, "
             "use compose_entry for a NEW entry and revise_entry to "
             "change an EXISTING one (never recreate). Authoring creates a DRAFT for human review — never claim "
             "anything is published. When a request could reasonably map to two different tools or readings — "
@@ -1517,7 +1520,7 @@ class AIOperationsController(BaseUserController):
             entity_type=body.entity_type,
             entity_id=entity_id,
             input_json={"message": body.message} if log_inputs else None,
-            metadata_json=execution_meta,
+            metadata_json=self._run_meta(execution_meta, thread),
         )
         execution.started_at = datetime.now(UTC)
         self.session.add(execution)
@@ -1561,6 +1564,14 @@ class AIOperationsController(BaseUserController):
         if result.stopped_reason == STOPPED_AWAITING_APPROVAL:
             return self._park_agent_run(max_steps=max_steps, entity_id=entity_id, **common)
         return self._finish_agent_run(parent_thread_id=parent_thread_id, **common)
+
+    @staticmethod
+    def _run_meta(execution_meta: dict | None, thread) -> dict | None:
+        """A run's execution metadata, naming its thread from the start rather than only when it ends,
+        so a run a restart kills is closed on its thread by the next process (services/ai/interrupted_runs.py)."""
+        if thread is None:
+            return execution_meta
+        return {**(execution_meta or {}), "thread_id": str(thread.id)}
 
     def _completion_opts(self):
         from marvin.core.config import get_app_settings
@@ -1901,7 +1912,7 @@ class AIOperationsController(BaseUserController):
             triggered_by=self.user.id,
             trigger_type=body.source,
             input_json={"message": body.message} if log_inputs else None,
-            metadata_json=execution_meta,
+            metadata_json=self._run_meta(execution_meta, thread),
         )
         execution.started_at = datetime.now(UTC)
         self.session.add(execution)
@@ -2075,10 +2086,9 @@ class AIOperationsController(BaseUserController):
         prompt + write-back), not a direct handler. Finally, allowlisted external MCP tools.
         """
         import json
-        from collections.abc import Callable
 
         from marvin.services.ai.agent import AgentTool
-        from marvin.services.ai.tools import ToolContext, ToolSpec, list_tools
+        from marvin.services.ai.tools import ToolContext, bulk_writes, list_tools
         from marvin.services.ai.tools.categories import category_of
 
         ctx = ToolContext(
@@ -2091,21 +2101,25 @@ class AIOperationsController(BaseUserController):
             source="agent",
         )
         role = self._user_role()
+        can_park = park_allowed and depth == 0
 
-        def _bind(s: ToolSpec) -> Callable[[dict], str]:
-            return lambda args: s.handler(ctx, args)
-
-        tools: list = [
-            AgentTool(
-                name=spec.name,
-                description=spec.description,
-                input_schema=spec.input_schema,
-                run=_bind(spec),
-                category=category_of(spec.name, read_only=spec.read_only),
+        tools: list = []
+        for spec in list_tools():
+            if "agent" not in spec.sources or role < spec.min_role or (depth > 0 and spec.name == "run_agent"):
+                continue
+            # A big bulk write asks first even where the policy allows it outright — or, with no
+            # thread to park on, is refused (tools/bulk_writes.py).
+            run, approval_check = bulk_writes.bind(spec, ctx, can_park=can_park)
+            tools.append(
+                AgentTool(
+                    name=spec.name,
+                    description=spec.description,
+                    input_schema=spec.input_schema,
+                    run=run,
+                    category=category_of(spec.name, read_only=spec.read_only),
+                    approval_check=approval_check,
+                )
             )
-            for spec in list_tools()
-            if "agent" in spec.sources and role >= spec.min_role and not (depth > 0 and spec.name == "run_agent")
-        ]
 
         # compose_entry / revise_entry now come from the registry (builtins_authoring, shared
         # AuthoringService) and are bound by the loop above — no hand-wiring here.
@@ -2166,7 +2180,7 @@ class AIOperationsController(BaseUserController):
         tools.extend(self._external_mcp_tools())
         if agent is None:
             return tools, ctx
-        return self._restrict_tools(tools, agent, role if role is not None else self._user_role(), park_allowed=park_allowed and depth == 0), ctx
+        return self._restrict_tools(tools, agent, role if role is not None else self._user_role(), park_allowed=can_park), ctx
 
     def _external_mcp_tools(self) -> list:
         """Load allowlisted tools from the workspace's ENABLED external MCP servers as AgentTools.
@@ -2632,14 +2646,18 @@ class AIOperationsController(BaseUserController):
         """
         if not getattr(operation, "requires_vision", False):
             return
-        from marvin.db.models.groups.ai_providers import AIModelModel
-
-        row = self.session.query(AIModelModel).filter_by(group_id=self.group_id, model_id=model).first()
-        if row and not row.supports_vision:
+        if not self._model_sees_images(model):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Operation '{operation.slug}' requires a vision-capable model; '{model}' does not support vision.",
             )
+
+    def _model_sees_images(self, model: str) -> bool:
+        """False only when the model's `ai_models` row says it has no vision; no row → assume it can."""
+        from marvin.db.models.groups.ai_providers import AIModelModel
+
+        row = self.session.query(AIModelModel).filter_by(group_id=self.group_id, model_id=model).first()
+        return not (row and not row.supports_vision)
 
     def _default_model(self) -> str | None:
         settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()

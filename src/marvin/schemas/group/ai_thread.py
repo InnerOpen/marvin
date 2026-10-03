@@ -39,7 +39,8 @@ class AIThreadRead(_MarvinModel):
 
 class AIThreadDetail(AIThreadRead):
     messages: list[AIThreadMessageRead] = []
-    # Calls waiting for the user's decision (ask-first): [{id, tool, arguments}]
+    # Calls waiting for the user's decision (ask-first): [{id, tool, arguments, preview?}] — `preview` lists a
+    # big bulk write's targets × items (services/ai/tools/bulk_writes.py)
     pending: list[dict] = []
 
 

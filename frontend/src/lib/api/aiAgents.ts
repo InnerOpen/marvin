@@ -100,10 +100,23 @@ export interface Referral {
   reason?: string | null;
 }
 /** A tool call waiting for the user's decision (an "ask first" tool). */
+/** A big bulk write's approval card: what it would link (see services/ai/tools/bulk_writes.py). */
+export interface BulkWritePreview {
+  summary: string;
+  action: "attach" | "detach";
+  links: number;
+  targetType: string;
+  targetCount: number;
+  /** Target names, capped; `targetCount` is the real total. */
+  targets: string[];
+  itemKind: string;
+  items: string[];
+}
 export interface PendingCall {
   id: string;
   tool: string;
   arguments: unknown;
+  preview?: BulkWritePreview;
 }
 export interface AgentRunResult {
   answer: string;

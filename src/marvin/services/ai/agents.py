@@ -46,6 +46,15 @@ LINKS_RULE = (
     "placeholder (no 'https://yourworkspaceurl/'), even if an earlier turn in this conversation did."
 )
 
+# An agent asked to "generate tags for the untagged images" once attached the whole tag vocabulary —
+# every colour, portrait and landscape — to each of 19 assets without looking at one. Tags describe
+# the item they sit on, so they are chosen per item, from that item.
+TAGGING_RULE = (
+    "Tagging: choose each item's tags from what THAT item is — never apply the tag vocabulary or a list of "
+    "options wholesale, and never give one item contradictory tags. For images, look first: run generate_tags "
+    "on each asset (it sees the image) or view_image, then attach only what fits that asset."
+)
+
 
 def external_servers(tool_names: Iterable[str]) -> dict[str, int]:
     """`{server_prefix: tool_count}` from bound `mcp__<server>__<tool>` names."""
@@ -87,6 +96,8 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
         )
     elif names:
         lines.append(SOURCE_HONESTY_RULE)
+    if "attach_tag" in names:
+        lines.append(TAGGING_RULE)
     if names:
         lines.append(
             "Act, don't announce: when a question needs a tool, call it in this same turn. Never reply with "

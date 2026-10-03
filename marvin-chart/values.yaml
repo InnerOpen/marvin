@@ -48,6 +48,18 @@ strategy:
     maxUnavailable: 0
     maxSurge: 1
 
+# Graceful shutdown of the API (combined container / split backend). A deploy lets in-flight
+# requests — agent runs are synchronous and can take minutes — finish for up to the grace period
+# before the pod is killed; the server's drain timeout is derived from it (see _helpers.tpl).
+# Trade-off: a pod with a long run in flight takes that long to go away. Under RollingUpdate the new
+# pod already serves while the old one drains, so with SQLite on a shared volume the two processes
+# overlap as writers for up to this long — use strategy Recreate to rule that out (at the price of
+# downtime while the old pod drains), or a server database.
+shutdown:
+  terminationGracePeriodSeconds: 300
+  # Sleep before SIGTERM so the Service/Route stop routing here first (0 disables the hook).
+  preStopSleepSeconds: 5
+
 # Service Account
 serviceAccount:
   # Specifies whether a service account should be created

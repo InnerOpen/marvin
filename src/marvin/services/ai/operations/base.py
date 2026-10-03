@@ -99,6 +99,9 @@ class AIOperation(ABC):
     min_role: int = ROLE_AUTHOR
     entity_types: list[str] = []  # which entity types this operation supports
     requires_vision: bool = False
+    # Look at an image asset target when the model can see (unlike requires_vision, works without:
+    # the prompt falls back to the asset's name/alt text/description).
+    sees_asset_image: bool = False
     requires_retrieval: bool = False  # RAG: retrieve workspace chunks before prompting
     # Surfaces this operation may be invoked from (default: all). Intersected with the
     # workspace's invocation_sources policy at execute time.

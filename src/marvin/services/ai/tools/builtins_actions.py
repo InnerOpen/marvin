@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from ..entity_resolve import resolve_entity_id
 from ..operations.base import ROLE_AUTHOR
 from .base import ToolContext, register_tool
+from .bulk_writes import BulkWrite
 
 _ENTRY_ARG = {"type": "string", "description": "the entry by slug or id"}
 
@@ -85,7 +86,10 @@ _TAG_SCHEMA = {
         "entities": {"type": "array", "items": {"type": "string"}, "description": "several targets by slug or id (bulk)"},
         "filter": {
             "type": "object",
-            "description": "select targets in bulk instead of naming them (dimensions mirror smart-collection rules)",
+            "description": (
+                "select targets in bulk instead of naming them (dimensions mirror smart-collection rules). Every "
+                "selected target gets EVERY tag, so only filter when the same tags truly fit all of them"
+            ),
             "properties": {
                 "entry_types": {"type": "array", "items": {"type": "string"}, "description": "entry type slugs — entries only"},
                 "statuses": {
@@ -116,7 +120,11 @@ _TAG_SCHEMA = {
             },
         },
         "tag": {"type": "string", "description": "a tag name or slug"},
-        "tags": {"type": "array", "items": {"type": "string"}, "description": "several tags (each applied to every target)"},
+        "tags": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "several tags (each applied to every target) — only tags that fit every target, never a vocabulary or list of options",
+        },
     },
 }
 
@@ -202,6 +210,42 @@ def _resync_collections(ctx: ToolContext, entity_type: str, ids) -> int:
     return changed
 
 
+def _requested_tags(args: dict) -> list[str]:
+    return [str(t).strip() for t in (([args["tag"]] if args.get("tag") else []) + list(args.get("tags") or [])) if str(t).strip()]
+
+
+def _target_labels(ctx: ToolContext, entity_type: str, ids: list) -> list[str]:
+    """Human names for target ids (entry title / asset or resource name), in the ids' order."""
+    from marvin.db.models.platform.assets import Assets
+    from marvin.db.models.platform.entries import Entries
+    from marvin.db.models.platform.resources import Resources
+
+    model, col = {"entry": (Entries, Entries.title), "asset": (Assets, Assets.name), "resource": (Resources, Resources.name)}[entity_type]
+    names = dict(ctx.session.query(model.id, col).filter(model.group_id == ctx.group_id, model.id.in_(ids)).all()) if ids else {}
+    return [names.get(i) or str(i) for i in ids]
+
+
+def _tag_bulk_write(ctx: ToolContext, args: dict, *, attach: bool) -> BulkWrite | None:
+    """Size an attach/detach_tag call (targets × tags) without writing; None when the input is bad."""
+    from marvin.services.tagging import TAGGABLE
+
+    entity_type = str(args.get("entity_type") or "entry").lower()
+    tags = _requested_tags(args)
+    if entity_type not in TAGGABLE or not tags:
+        return None
+    ids, err = _resolve_targets(ctx, entity_type, args)
+    if err or not ids:
+        return None
+    return BulkWrite(
+        action="attach" if attach else "detach",
+        item_kind="tag",
+        items=tags,
+        target_type=entity_type,
+        target_ids=ids,
+        label_targets=lambda shown: _target_labels(ctx, entity_type, shown),
+    )
+
+
 def _tag_link(ctx: ToolContext, args: dict, *, attach: bool) -> str:
     from marvin.services.tagging import TAGGABLE, link_tag
 
@@ -209,7 +253,7 @@ def _tag_link(ctx: ToolContext, args: dict, *, attach: bool) -> str:
     if entity_type not in TAGGABLE:
         return json.dumps({"error": f"entity_type must be one of {list(TAGGABLE)}"})
 
-    tags = [str(t).strip() for t in (([args["tag"]] if args.get("tag") else []) + list(args.get("tags") or [])) if str(t).strip()]
+    tags = _requested_tags(args)
     if not tags:
         return json.dumps({"error": "provide a tag (or tags[]) to apply"})
 
@@ -258,11 +302,17 @@ def _tag_link(ctx: ToolContext, args: dict, *, attach: bool) -> str:
         "shared workspace vocabulary, links it, and updates smart collections. Idempotent. SINGLE or BULK: "
         "name one target with `entity`, several with `entities`, or select in bulk with `filter` (entries by "
         "entry_types/statuses, assets by asset_types, resources by resource_types, ALL by tags/query — so you "
-        "can re-tag everything already carrying a tag); apply one `tag` or many `tags`. One call tags the set."
+        "can re-tag everything already carrying a tag); apply one `tag` or many `tags`. One call tags the set. "
+        "Choose tags PER TARGET from what that target actually is — never apply the tag vocabulary or a list of "
+        "options wholesale, and never give one item contradictory tags. To tag images/assets by their content, "
+        "run generate_tags on each asset (entity_type 'asset'; pass the existing tag names as input.vocabulary) — "
+        "it looks at the image and keeps only what fits — or look with view_image first, then attach only what "
+        "fits that asset. Big bulk writes (many targets × tags) ask the user first."
     ),
     input_schema=_TAG_SCHEMA,
     min_role=ROLE_AUTHOR,
     read_only=False,
+    bulk_write=lambda ctx, args: _tag_bulk_write(ctx, args, attach=True),
 )
 def attach_tag(ctx: ToolContext, args: dict) -> str:
     return _tag_link(ctx, args, attach=True)
@@ -272,11 +322,13 @@ def attach_tag(ctx: ToolContext, args: dict) -> str:
     name="detach_tag",
     description=(
         "Detach a tag from entries/assets/resources (set entity_type). Idempotent (the tag stays in the "
-        "vocabulary). SINGLE or BULK: `entity`, `entities`, or `filter`; one `tag` or many `tags`."
+        "vocabulary). SINGLE or BULK: `entity`, `entities`, or `filter`; one `tag` or many `tags`. Big bulk "
+        "removals (many targets × tags) ask the user first."
     ),
     input_schema=_TAG_SCHEMA,
     min_role=ROLE_AUTHOR,
     read_only=False,
+    bulk_write=lambda ctx, args: _tag_bulk_write(ctx, args, attach=False),
 )
 def detach_tag(ctx: ToolContext, args: dict) -> str:
     return _tag_link(ctx, args, attach=False)
@@ -439,6 +491,27 @@ def _ingest_one_image(ctx: ToolContext, spec: dict):
     return asset, None
 
 
+def _import_bulk_write(ctx: ToolContext, args: dict) -> BulkWrite | None:
+    """Size an import_asset call that attaches its images to an entry: one link per image."""
+    import uuid as _uuid
+
+    specs = args.get("images")
+    if not (args.get("attach_to") and isinstance(specs, list) and specs):
+        return None  # a single image, or no attach — never bulk
+    entry_id = resolve_entity_id(ctx.session, ctx.group_id, "entry", args["attach_to"])
+    if not isinstance(entry_id, _uuid.UUID):
+        return None
+    names = [str((s or {}).get("name") or (s or {}).get("filename") or (s or {}).get("url") or f"image {i + 1}") for i, s in enumerate(specs)]
+    return BulkWrite(
+        action="attach",
+        item_kind="image",
+        items=names,
+        target_type="entry",
+        target_ids=[entry_id],
+        label_targets=lambda shown: _target_labels(ctx, "entry", shown),
+    )
+
+
 @register_tool(
     name="import_asset",
     description=(
@@ -480,6 +553,7 @@ def _ingest_one_image(ctx: ToolContext, spec: dict):
     },
     min_role=ROLE_AUTHOR,
     read_only=False,
+    bulk_write=_import_bulk_write,
 )
 def import_asset(ctx: ToolContext, args: dict) -> str:
     if getattr(ctx.user, "id", None) is None:

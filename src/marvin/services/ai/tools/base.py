@@ -62,6 +62,9 @@ class ToolSpec:
     # invocation_sources policy at execute time, à la AIOperation.invocation_sources.
     sources: tuple[str, ...] = INVOCATION_SOURCES
     read_only: bool = True
+    # Bulk-write tools: size one call without writing (`bulk_writes.BulkWrite`), so a big call asks
+    # the user first instead of running — see tools/bulk_writes.py. None = never bulk.
+    bulk_write: Callable[[ToolContext, dict], Any] | None = None
 
     def info(self) -> dict:
         return {
@@ -85,6 +88,7 @@ def register_tool(
     min_role: int = ROLE_VIEWER,
     sources: tuple[str, ...] = INVOCATION_SOURCES,
     read_only: bool = True,
+    bulk_write: Callable[[ToolContext, dict], Any] | None = None,
 ):
     """Decorator: register the decorated ``handler(ctx, args) -> str`` as a :class:`ToolSpec`."""
 
@@ -97,6 +101,7 @@ def register_tool(
             min_role=min_role,
             sources=sources,
             read_only=read_only,
+            bulk_write=bulk_write,
         )
         return handler
 

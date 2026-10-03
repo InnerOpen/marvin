@@ -194,3 +194,23 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
       name: {{ include "marvin.fullname" . }}
       key: jwtSecret
 {{- end -}}
+
+{{/*
+Graceful shutdown of the API container (combined, or the split backend). An agent run is one
+synchronous request that can take minutes; on a deploy the pod is told to stop (SIGTERM) and killed
+outright terminationGracePeriodSeconds later. Kubernetes counts the preStop sleep inside that grace,
+so the server's own drain window is what is left after it, less a margin for the app's shutdown
+hooks and process exit. A run still going at the deadline is lost; the next process marks it failed
+(AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS) — only once the draining pod is surely gone, since a rolling
+update starts the new pod while the old one is still finishing its runs.
+*/}}
+{{- define "marvin.shutdownEnv" -}}
+{{- $grace := int .Values.shutdown.terminationGracePeriodSeconds -}}
+{{- $preStop := int .Values.shutdown.preStopSleepSeconds -}}
+{{- $exitMargin := 15 -}}{{/* seconds kept for lifespan shutdown + exit after the drain */}}
+{{- $sweepMargin := 60 -}}{{/* seconds past the old pod's kill deadline before sweeping its runs */}}
+- name: GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+  value: {{ max 1 (sub $grace (add $preStop $exitMargin)) | quote }}
+- name: AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS
+  value: {{ add $grace $sweepMargin | quote }}
+{{- end -}}

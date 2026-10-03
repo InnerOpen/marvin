@@ -548,3 +548,11 @@ def test_run_agent_and_suggest_agent_are_bound_for_the_agent_source_but_not_chai
     assert get_tool("suggest_agent").read_only is True
     assert category_of("suggest_agent") == "agents_read" and category_of("run_agent") == "agents_run"
     assert CATEGORY_BY_ID["agents_run"].writes is False
+
+
+def test_preamble_has_the_tagging_rule_only_when_tags_can_be_attached():
+    from marvin.services.ai.agents import TAGGING_RULE, workspace_preamble
+
+    assert TAGGING_RULE in workspace_preamble("W", ["attach_tag", "list_tags"])
+    assert TAGGING_RULE not in workspace_preamble("W", ["search_content"])
+    assert "never apply the tag vocabulary" in TAGGING_RULE

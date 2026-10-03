@@ -127,6 +127,8 @@ class ContextBuilder:
             "storage_provider": a.storage_provider,
             "width": a.width,
             "height": a.height,
+            "alt_text": a.alt_text or "",
+            "description": a.description or "",
         }
 
     def with_asset(self, asset_id: UUID4) -> "ContextBuilder":

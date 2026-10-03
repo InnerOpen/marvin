@@ -265,6 +265,23 @@ class AppSettings(BaseSettings):
 
     API_PORT: int = 8080
 
+    GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = None
+    """
+    On SIGTERM the server stops accepting connections and waits this long for in-flight requests —
+    an agent run is one synchronous request that can take minutes — before cancelling them and
+    running shutdown. Unset waits indefinitely (until the orchestrator's SIGKILL). Under Kubernetes
+    keep it a little below the pod's terminationGracePeriodSeconds so shutdown still gets to run;
+    the Helm chart derives it from that value.
+    """
+
+    AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS: int = 0
+    """
+    How long after startup to mark AI runs left `running` by a previous process as failed
+    (services/ai/interrupted_runs.py). 0 sweeps at startup. Under a rolling update the old pod is
+    still draining its runs when the new one starts, so the sweep must wait until the old pod is
+    surely gone — the Helm chart sets terminationGracePeriodSeconds plus a margin.
+    """
+
     # JWT token lifetime in hours
     # Security vs. UX trade-off considerations:
     #   - Shorter lifetime (1-8 hours): More secure, users must re-login more often
