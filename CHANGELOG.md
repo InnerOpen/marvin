@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.147 (2026-10-03)
+
+### Bug Fixes
+
+- **ai**: Learn which length/sampling parameters a model accepts
+  ([`7d217ce`](https://github.com/InnerOpen/marvin/commit/7d217cec79f33c83ff933c954de070e7039221a3))
+
+
 ## v1.0.0-rc.146 (2026-10-03)
 
 ### Chores
