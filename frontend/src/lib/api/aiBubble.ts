@@ -21,14 +21,24 @@ export async function askWorkspace(question: string) {
 }
 
 /**
+ * Where a bubble agent run lives: its server thread (`threadId`, or NEW_THREAD to open one — the
+ * server replays the thread as the agent's memory) and the run id the client minted to follow it
+ * (see @/lib/marvin/pending).
+ */
+export interface BubbleRunRef {
+  threadId: string;
+  clientRunId: string;
+}
+
+/**
  * Agent loop — Marvin picks and chains tools to reach a goal.
  * `context` grounds the run in whatever the current page declared (see @/lib/marvin/context);
  * omit it for an unscoped, workspace-wide ask.
  */
 export async function runAgent(
   message: string,
-  context?: { entityType?: string; entityId?: string } | null,
-  history?: { role: "user" | "assistant"; content: string }[],
+  context: { entityType?: string; entityId?: string } | null | undefined,
+  ref: BubbleRunRef,
   register?: "auto" | "professional" | "playful",
 ) {
   return createSdkClient().ai.agent({
@@ -36,7 +46,8 @@ export async function runAgent(
     source: "agent",
     ...(register ? { register } : {}),
     ...(context?.entityType && context.entityId ? { entityType: context.entityType, entityId: context.entityId } : {}),
-    ...(history?.length ? { history } : {}),
+    // Spread rather than listed: the SDK's request type predates threads; the server reads them all the same.
+    ...ref,
   });
 }
 
@@ -81,8 +92,8 @@ export function listAgents() {
 export function runAgentAs(
   slug: string,
   message: string,
-  context?: { entityType?: string; entityId?: string } | null,
-  history?: { role: "user" | "assistant"; content: string }[],
+  context: { entityType?: string; entityId?: string } | null | undefined,
+  ref: BubbleRunRef,
   register?: "auto" | "professional" | "playful",
 ) {
   return api<any>(`/api/ai/agents/${encodeURIComponent(slug)}/run`, {
@@ -94,7 +105,7 @@ export function runAgentAs(
       ...(context?.entityType && context.entityId
         ? { entityType: context.entityType, entityId: context.entityId }
         : {}),
-      ...(history?.length ? { history } : {}),
+      ...ref,
     }),
   });
 }

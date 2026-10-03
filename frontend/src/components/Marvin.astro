@@ -33,10 +33,10 @@
 
 <script>
   import { fetchApi } from '@/lib/api/client';
-  import { resolveCapability, helpHtml, esc, setPendingRegister } from '@/lib/marvin/capabilities';
+  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun } from '@/lib/marvin/capabilities';
   import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
-  import { setHistory, clearHistory } from '@/lib/marvin/history';
+  import { forgetConversation, loadPending } from '@/lib/marvin/pending';
 
   const root = document.getElementById('marvin-root');
   if (root) {
@@ -49,7 +49,9 @@
         root.removeAttribute('hidden');
       } catch {
         root.remove(); // no auth / no AI / error → no bubble
+        return;
       }
+      void resumeIfPending();
     })();
 
     const toggle = document.getElementById('marvin-toggle')!;
@@ -62,6 +64,8 @@
     const clear = document.getElementById('marvin-clear')!;
     let greeted = false;
     let busy = false;
+    // Bumped by "Clear": a reply that resolves after it belongs to the conversation that was cleared.
+    let generation = 0;
     let taglineTimer: number | undefined;
     let voice = MARVIN_VOICE;
 
@@ -91,12 +95,13 @@
     // ── Session memory: keep the transcript across page navigations (per-tab) ──
     // sessionStorage, so the conversation follows you as you move around the workspace but doesn't
     // linger forever or leak between tabs. Only committed turns are stored — never the transient
-    // "thinking…" placeholder, which is replaced in place by the final answer.
+    // "thinking…" placeholder, which is replaced in place by the final answer. This is a display
+    // cache: agent conversations themselves live in server threads (@/lib/marvin/pending), which is
+    // where the agent's memory comes from; /chat, /tools, /help, /agents and /use stay local-only.
     const MEM_KEY = 'marvin.transcript';
     const MEM_CAP = 60; // keep the last N turns; guards both quota and scrollback bloat
-    // `text` is the plain-text form replayed to the model as memory (see @/lib/marvin/history).
-    // It's optional so transcripts saved before this existed still rehydrate.
-    type Turn = { who: 'user' | 'marvin'; html: string; text?: string };
+    // `executionId` marks an agent reply, so one recovered from the server isn't appended twice.
+    type Turn = { who: 'user' | 'marvin'; html: string; executionId?: string };
     let transcript: Turn[] = [];
     try {
       const saved = JSON.parse(sessionStorage.getItem(MEM_KEY) || '[]');
@@ -122,30 +127,34 @@
 
     // Add a message to the log. Committed turns persist; pass persist=false for the transient
     // "thinking…" placeholder (its final answer is committed via commitReply once it resolves).
-    function addMsg(who: 'user' | 'marvin', html: string, persist = true, text?: string): HTMLElement {
+    function addMsg(who: 'user' | 'marvin', html: string, persist = true): HTMLElement {
       const div = appendNode(who, html);
-      if (persist) { transcript.push({ who, html, text: text ?? div.textContent ?? '' }); saveTranscript(); }
+      if (persist) { transcript.push({ who, html }); saveTranscript(); }
       return div;
     }
 
     // Commit a marvin reply that replaced a "thinking…" node in place.
-    function commitReply(node: HTMLElement, html: string, text?: string) {
+    function commitReply(node: HTMLElement, html: string, executionId?: string) {
       node.innerHTML = html;
-      transcript.push({ who: 'marvin', html, text: text ?? node.textContent ?? '' });
+      transcript.push({ who: 'marvin', html, ...(executionId ? { executionId } : {}) });
       saveTranscript();
     }
 
-    /** Plain-text view of the conversation so far, for replay as agent memory. */
-    function historySnapshot() {
-      return transcript
-        .map((t) => ({ role: (t.who === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-                       content: (t.text ?? '').trim() }))
-        .filter((t) => t.content);
+    function thinkingHtml() {
+      return `<span class="mv-thinking">${esc(pick(voice.emotes) + ' ' + pick(voice.thinking))}</span>`;
+    }
+
+    function errorHtml(err: any) {
+      return `<span class="mv-error">${esc(pick(voice.errors))} (${esc(err?.message || 'error')})</span>`;
     }
 
     function clearTranscript() {
       transcript = [];
-      clearHistory(); // "Clear" must also drop the model's memory, not just the visible log
+      generation += 1;
+      busy = false; // a run still in flight no longer holds the input; its reply is dropped
+      // "Clear" must also drop the model's memory, not just the visible log: the next message opens
+      // a new thread, and nothing waits on the old one any more.
+      forgetConversation();
       try { sessionStorage.removeItem(MEM_KEY); } catch { /* ignore */ }
       log.innerHTML = '';
       clear.setAttribute('hidden', '');
@@ -158,6 +167,29 @@
       for (const t of transcript) appendNode(t.who, t.html);
       greeted = true; // don't greet over a restored conversation
       clear.removeAttribute('hidden');
+    }
+
+    // An agent run the previous page sent but didn't live to see answered: the server kept going,
+    // so show the thinking placeholder and fetch the answer from the run's thread.
+    async function resumeIfPending() {
+      const run = loadPending();
+      if (!run || busy) return;
+      busy = true;
+      greeted = true;
+      const gen = generation;
+      const thinking = addMsg('marvin', thinkingHtml(), false);
+      try {
+        const res = await resumePendingRun(run);
+        if (gen !== generation) return;
+        const seen = res?.executionId && transcript.some((t) => t.executionId === res.executionId);
+        if (!res || seen) thinking.remove();
+        else commitReply(thinking, res.html, res.executionId);
+      } catch (err: any) {
+        if (gen === generation) commitReply(thinking, errorHtml(err));
+      } finally {
+        if (gen === generation) busy = false;
+        log.scrollTop = log.scrollHeight;
+      }
     }
 
     // ── Page context chip: show what Marvin is grounded in, and let it be dismissed ──
@@ -284,10 +316,7 @@
       e.preventDefault();
       const text = input.value.trim();
       if (!text || busy) return;
-      // Snapshot the conversation BEFORE appending this turn, so `history` is exactly
-      // "what came before this message" — otherwise the question would be sent twice.
-      setHistory(historySnapshot());
-      addMsg('user', esc(text), true, text);
+      addMsg('user', esc(text));
       input.value = '';
 
       const { cap, arg, help } = resolveCapability(text);
@@ -299,14 +328,15 @@
       if (!arg && !cap.noArg) { addMsg('marvin', "You'll have to give me something to work with."); return; }
 
       busy = true;
-      const thinking = addMsg('marvin', `<span class="mv-thinking">${esc(pick(voice.emotes) + ' ' + pick(voice.thinking))}</span>`, false);
+      const gen = generation;
+      const thinking = addMsg('marvin', thinkingHtml(), false);
       try {
         const res = await cap.run(arg);
-        commitReply(thinking, res.html, res.text);
+        if (gen === generation) commitReply(thinking, res.html, res.executionId);
       } catch (err: any) {
-        commitReply(thinking, `<span class="mv-error">${esc(pick(voice.errors))} (${esc(err?.message || 'error')})</span>`);
+        if (gen === generation) commitReply(thinking, errorHtml(err));
       } finally {
-        busy = false;
+        if (gen === generation) busy = false;
         log.scrollTop = log.scrollHeight;
       }
     });

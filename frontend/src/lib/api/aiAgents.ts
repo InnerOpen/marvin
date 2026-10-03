@@ -166,6 +166,11 @@ export interface RunProgress {
   id: string;
   status: "running" | "completed" | "failed" | "awaiting_approval";
   events: RunEvent[];
+  /** The run's thread and execution, set as soon as they exist — how a client that lost the response finds the answer. */
+  threadId?: string | null;
+  executionId?: string | null;
+  /** Why a failed run failed. */
+  error?: string | null;
 }
 
 const json = (body: unknown): RequestInit => ({

@@ -72,3 +72,15 @@ def test_prune_drops_expired_finished_runs_and_caps_the_registry(monkeypatch):
     live = [rid for rid in ids if rp.get(rid, owner) is not None]
     assert len(live) <= 3
     assert ids[-1] in live  # newest finished survive, oldest go
+
+
+def test_a_run_names_its_thread_and_execution_and_a_failure_says_why():
+    rid = str(uuid.uuid4())
+    owner = ("g", "u")
+    thread_id, execution_id = uuid.uuid4(), uuid.uuid4()
+    rp.start(rid, owner, thread_id=thread_id, execution_id=execution_id)
+    live = rp.get(rid, owner).to_dict()
+    assert live["threadId"] == str(thread_id) and live["executionId"] == str(execution_id) and live["error"] is None
+
+    rp.finish(rid, "failed", "Agent failed: provider down")
+    assert rp.get(rid, owner).to_dict()["error"] == "Agent failed: provider down"

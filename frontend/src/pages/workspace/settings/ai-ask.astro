@@ -750,6 +750,11 @@ const agentsJson = JSON.stringify(agents);
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") send();
     });
 
+    // `?thread=<id>` opens that conversation — how the Marvin bubble links here (e.g. to approve a
+    // paused run, or to follow one it stopped waiting for).
+    const linkedThread = new URLSearchParams(location.search).get("thread");
+    if (linkedThread) void openThread(linkedThread);
+
     // ── Reindex (kept from the RAG page) ──
     // The index card: what the index holds, and a run in progress (it runs in the background — a
     // whole workspace takes longer than a request may last). Polls only while a run is going.

@@ -11,20 +11,34 @@
 
 import DOMPurify from "dompurify";
 import { marked } from "marked";
+import { getRunProgress, getThread, NEW_THREAD } from "@/lib/api/aiAgents";
 import { askWorkspace, listAgents, runAgent, runAgentAs, sendChat } from "@/lib/api/aiBubble";
 import { listAgentTools } from "@/lib/api/aiTools";
 import { getActiveContext } from "@/lib/marvin/context";
-import { getHistory } from "@/lib/marvin/history";
+import {
+  askThreadHref,
+  clearPending,
+  learnWhileInFlight,
+  loadPending,
+  newRunId,
+  ownsPending,
+  PENDING_RUN_TIMEOUT_MS,
+  type PendingRun,
+  type RecoveryDeps,
+  recoverPendingRun,
+  rememberThread,
+  savePending,
+  threadFor,
+} from "@/lib/marvin/pending";
 
 export interface MarvinResult {
   /** Safe HTML for Marvin's reply. Escape ALL dynamic content with esc(). */
   html: string;
   /**
-   * Plain-text form of the reply, for conversation memory. Rendered HTML is useless to a model,
-   * so skills that produce a model answer should supply it. When omitted the bubble falls back
-   * to the node's textContent, which is lossier but works.
+   * The server execution behind an agent reply. The bubble keeps it with the turn so a reply that
+   * is recovered after a navigation is never shown twice.
    */
-  text?: string;
+  executionId?: string;
 }
 
 export interface Capability {
@@ -144,6 +158,9 @@ function thumbsHtml(steps: any[], cap = 12): string {
 // ── Built-in skill: Agent (tool-calling loop) ────────────────────────────────
 // The default free-text handler. Give Marvin a goal; it decides which of its tools to use
 // (search, browse, list types, compose a draft), chaining as many as needed, then answers.
+// The conversation is a server thread per agent (the Ask page lists the same threads): the server
+// replays it as the agent's memory, and the answer is stored there even if this page is gone by
+// the time it arrives (see @/lib/marvin/pending).
 const agent: Capability = {
   id: "agent",
   label: "Agent",
@@ -151,59 +168,166 @@ const agent: Capability = {
   commands: ["agent", "do"],
   isDefault: true,
   async run(arg: string): Promise<MarvinResult> {
-    let res: any;
+    return runBubbleAgent(getActiveAgent(), arg, takeRegister());
+  },
+};
+
+/** The server's answer when a message names a thread that no longer exists (deleted on the Ask page). */
+const THREAD_GONE = /^No thread '/;
+
+async function runBubbleAgent(
+  slug: string,
+  arg: string,
+  register: MarvinRegister | undefined,
+  retried = false,
+): Promise<MarvinResult> {
+  // Pending until the answer is in hand: if this page goes away mid-run, the next one picks the
+  // answer up from the server (resumePendingRun).
+  const run: PendingRun = {
+    clientRunId: newRunId(),
+    agent: slug,
+    message: arg,
+    sentAt: Date.now(),
+    threadId: threadFor(slug),
+  };
+  savePending(run);
+  const stopLearning = learnWhileInFlight(run, pendingDeps(run));
+  const ref = { threadId: run.threadId ?? NEW_THREAD, clientRunId: run.clientRunId };
+  let res: any;
+  try {
     // Ground the run in whatever the current page declared (see @/lib/marvin/context), so
     // "review and suggest" works without naming the entity. Null when the page declared no
     // context or the user dismissed it — then this is a plain, unscoped ask.
+    res =
+      slug === "marvin"
+        ? await runAgent(arg, getActiveContext(), ref, register)
+        : await runAgentAs(slug, arg, getActiveContext(), ref, register);
+  } catch (err: any) {
+    stopLearning();
+    // The call can fail while the run carries on server-side (the SDK stops waiting after two
+    // minutes; a proxy may drop a long request) — then wait for the answer instead of reporting
+    // an error that isn't one.
+    if (ownsPending(run) && (await serverStillHas(run))) {
+      const recovered = await resumePendingRun(loadPending() ?? run);
+      if (recovered) return recovered;
+    }
+    if (ownsPending(run)) clearPending();
+    const msg = String(err?.message || err);
+    if (run.threadId && !retried && THREAD_GONE.test(msg)) {
+      rememberThread(slug, null);
+      return runBubbleAgent(slug, arg, register, true);
+    }
+    // The agent needs a tool-capable provider; degrade to a helpful hint rather than snark.
+    if (/tool.?call|tool-capable|does not support/i.test(msg)) {
+      return {
+        html: `<div class="mv-answer">This workspace's AI provider can't run the full agent (no tool-calling). Try <code>/ask</code> for a quick answer from your content instead.</div>`,
+      };
+    }
+    throw err; // let the bubble show its standard error
+  }
+  stopLearning();
+  // A "Clear" pressed meanwhile already started a new conversation: don't re-attach this thread.
+  if (ownsPending(run)) {
+    clearPending();
+    if (res?.threadId) rememberThread(slug, res.threadId);
+  }
+  if (res?.stoppedReason === "awaiting_approval") {
+    return {
+      html: parkedHtml(
+        res.threadId,
+        (res.pending ?? []).map((c: any) => c.tool),
+      ),
+    };
+  }
+  return {
+    html: agentReplyHtml(res?.answer ?? "(no answer — the void stares back)", res?.steps ?? []),
+    executionId: res?.executionId,
+  };
+}
+
+async function serverStillHas(run: PendingRun): Promise<boolean> {
+  try {
+    return (await getRunProgress(run.clientRunId)).status !== "failed";
+  } catch {
+    return false; // unknown to the server: the request never got there, or it already said why
+  }
+}
+
+function pendingDeps(run: PendingRun): RecoveryDeps {
+  return {
+    getRunProgress: (id) => getRunProgress(id),
+    getThread: (id) => getThread(id),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: () => Date.now(),
+    onUpdate: (next) => {
+      if (ownsPending(next)) savePending(next);
+    },
+    isCancelled: () => !ownsPending(run),
+  };
+}
+
+/**
+ * Recover the answer to an agent run whose response this page never got — it was sent from a
+ * previous page, or the call failed while the server carried on. Null when "Clear" abandoned it
+ * meanwhile; throws when the run failed, so the bubble shows its usual error.
+ */
+export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | null> {
+  const outcome = await recoverPendingRun(run, pendingDeps(run));
+  if (outcome.kind === "cancelled" || outcome.kind === "wait" || !ownsPending(run)) return null;
+  clearPending();
+  if (outcome.kind === "failed") throw new Error(outcome.error);
+  if (outcome.threadId) rememberThread(run.agent, outcome.threadId);
+  if (outcome.kind === "reply") {
+    const m = outcome.message;
+    return { html: agentReplyHtml(m.content, m.stepsJson ?? []), executionId: m.executionId ?? undefined };
+  }
+  if (outcome.kind === "parked") return { html: parkedHtml(outcome.threadId, outcome.tools) };
+  const where = `<a href="${esc(askThreadHref(outcome.threadId))}">${outcome.threadId ? "the conversation on the Ask page" : "the Ask page"}</a>`;
+  return {
+    html: outcome.timedOut
+      ? `<div class="mv-answer">Still no answer after ${PENDING_RUN_TIMEOUT_MS / 60_000} minutes, so I've stopped waiting. It may yet finish — check ${where}.</div>`
+      : `<div class="mv-answer">I lost track of that request — the server no longer knows about it (restarted, or it never got there). Check ${where}, or ask again.</div>`,
+  };
+}
+
+/**
+ * An "ask first" tool paused the run. Approving happens on the Ask page, where the thread shows
+ * the pending calls; the bubble just says so instead of waiting on a decision it can't take.
+ */
+function parkedHtml(threadId: string, tools: string[]): string {
+  const what = [...new Set(tools)].map((t) => `<code>${esc(t)}</code>`).join(", ");
+  return `<div class="mv-answer">I need your go-ahead first${what ? ` (${what})` : ""}. <a href="${esc(askThreadHref(threadId))}">Approve or deny it on the Ask page</a> — the answer will be in that conversation.</div>`;
+}
+
+/** An agent answer as bubble HTML: the answer, image thumbnails, drafts it composed, tools it used. */
+function agentReplyHtml(answer: string, steps: any[]): string {
+  let html = `<div class="mv-answer">${renderMarkdown(answer)}</div>`;
+
+  // Deterministic thumbnail strip from the tool results' image assets (real urls, not guessed).
+  html += thumbsHtml(steps);
+
+  // Surface any drafts the agent composed as clickable links.
+  const drafts: string[] = [];
+  for (const s of steps) {
+    if (s.tool !== "compose_entry") continue;
     try {
-      const slug = getActiveAgent();
-      res =
-        slug === "marvin"
-          ? await runAgent(arg, getActiveContext(), getHistory(), takeRegister())
-          : await runAgentAs(slug, arg, getActiveContext(), getHistory(), takeRegister());
-    } catch (err: any) {
-      const msg = String(err?.message || err);
-      // The agent needs a tool-capable provider; degrade to a helpful hint rather than snark.
-      if (/tool.?call|tool-capable|does not support/i.test(msg)) {
-        return {
-          html: `<div class="mv-answer">This workspace's AI provider can't run the full agent (no tool-calling). Try <code>/ask</code> for a quick answer from your content instead.</div>`,
-        };
-      }
-      throw err; // let the bubble show its standard error
+      const r = typeof s.result === "string" ? JSON.parse(s.result) : s.result;
+      if (r?.editUrl) drafts.push(`<a href="${esc(r.editUrl)}">${esc(r.title || "New draft")}</a>`);
+    } catch {
+      /* ignore unparseable tool result (a thread stores results truncated) */
     }
+  }
+  if (drafts.length) {
+    html += `<div class="mv-sources"><span>Drafts:</span> ${drafts.join(" · ")}</div>`;
+  }
 
-    const answer = res?.answer ?? "(no answer — the void stares back)";
-    let html = `<div class="mv-answer">${renderMarkdown(answer)}</div>`;
-
-    const steps: any[] = res?.steps ?? [];
-
-    // Deterministic thumbnail strip from the tool results' image assets (real urls, not guessed).
-    html += thumbsHtml(steps);
-
-    // Surface any drafts the agent composed as clickable links.
-    const drafts: string[] = [];
-    for (const s of steps) {
-      if (s.tool !== "compose_entry") continue;
-      try {
-        const r = typeof s.result === "string" ? JSON.parse(s.result) : s.result;
-        if (r?.editUrl) drafts.push(`<a href="${esc(r.editUrl)}">${esc(r.title || "New draft")}</a>`);
-      } catch {
-        /* ignore unparseable tool result */
-      }
-    }
-    if (drafts.length) {
-      html += `<div class="mv-sources"><span>Drafts:</span> ${drafts.join(" · ")}</div>`;
-    }
-
-    // Show which tools were used, as a subtle trace of the agent's work.
-    if (steps.length) {
-      const tools = [...new Set(steps.map((s) => s.tool))];
-      html += `<div class="mv-sources"><span>Used:</span> ${tools.map((t) => `<code>${esc(t)}</code>`).join(" ")}</div>`;
-    }
-    // `text` (not html) is what gets replayed as memory next turn.
-    return { html, text: String(answer) };
-  },
-};
+  // Show which tools were used, as a subtle trace of the agent's work.
+  if (steps.length) {
+    const tools = [...new Set(steps.map((s) => s.tool))];
+    html += `<div class="mv-sources"><span>Used:</span> ${tools.map((t) => `<code>${esc(t)}</code>`).join(" ")}</div>`;
+  }
+  return html;
+}
 
 // ── Built-in skill: Ask (RAG) ────────────────────────────────────────────────
 const ask: Capability = {

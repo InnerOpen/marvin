@@ -1017,7 +1017,7 @@ class AIOperationsController(BaseUserController):
         _, log_outputs = self._logging_policy()
         ctx.execution_id = str(execution.id)
         start = time.monotonic()
-        run_id, on_event = self._start_progress(body)
+        run_id, on_event = self._start_progress(body, thread, execution)
         if "run_agent" in {t.name for t in tools}:
             ctx.delegate = self._delegate_runner(parent_thread=thread, parent_body=body, parent_execution=execution, on_event=on_event)
         try:
@@ -1031,11 +1031,11 @@ class AIOperationsController(BaseUserController):
                 on_event=on_event,
                 resume=ResumeState(convo=deserialize_messages(pending.get("convo")), pending=calls, decisions=decisions),
             )
-        except HTTPException:
-            self._finish_progress(run_id, "failed")
+        except HTTPException as e:
+            self._finish_progress(run_id, "failed", self._http_error_text(e))
             raise
         except Exception as e:
-            self._finish_progress(run_id, "failed")
+            self._finish_progress(run_id, "failed", f"Agent failed: {e}")
             self._fail_execution(execution, str(e), start)
             self._emit_ai_event(execution, "failed", str(e))
             self._maybe_emit_quota(execution, str(e))
@@ -1166,22 +1166,37 @@ class AIOperationsController(BaseUserController):
 
     # ── Agent helpers ──────────────────────────────────────────────────
 
-    def _start_progress(self, body: AIAgentRequest):
-        """(run_id, on_event) for a run the client wants to watch, or (None, None)."""
+    def _start_progress(self, body: AIAgentRequest, thread=None, execution=None):
+        """(run_id, on_event) for a run the client wants to watch, or (None, None).
+
+        The run's thread and execution are recorded with it, so a client that lost the response
+        (navigated away mid-run) can still find the answer.
+        """
         from marvin.services.ai import run_progress
 
         run_id = run_progress.normalize_run_id(body.client_run_id)
         if run_id is None:
             return None, None
-        run_progress.start(run_id, (self.group_id, self.user.id))
+        run_progress.start(
+            run_id,
+            (self.group_id, self.user.id),
+            thread_id=thread.id if thread is not None else None,
+            execution_id=execution.id if execution is not None else None,
+        )
         return run_id, lambda event: run_progress.push(run_id, event)
 
     @staticmethod
-    def _finish_progress(run_id: str | None, status_: str) -> None:
+    def _finish_progress(run_id: str | None, status_: str, error: str | None = None) -> None:
         from marvin.services.ai import run_progress
 
         if run_id is not None:
-            run_progress.finish(run_id, status_)
+            run_progress.finish(run_id, status_, error)
+
+    @staticmethod
+    def _http_error_text(e: HTTPException) -> str:
+        import json
+
+        return e.detail if isinstance(e.detail, str) else json.dumps(e.detail)
 
     def _require_role(self, min_role: int, detail: str) -> None:
         if self._user_role() < min_role:
@@ -1387,11 +1402,14 @@ class AIOperationsController(BaseUserController):
             Message(role="user", content=user_msg),
         ]
 
-        # A router opens its thread before the loop: a hand-off's child thread needs the parent row to
-        # exist. Any other run opens its thread after a successful turn, as before.
+        # A new thread is opened before the loop: a router's hand-offs hang their child threads off it,
+        # and its id is known while the run is in flight, so a client that navigates away mid-run (the
+        # bubble) can find the answer there afterwards. A failed run drops it again.
         opened_here = False
-        if thread is None and body.thread_id == NEW_THREAD and depth == 0 and "run_agent" in names:
-            thread = create_thread(self.session, self.group_id, self.user.id, agent_slug, body.message, body.entity_type, entity_id)
+        if thread is None and body.thread_id == NEW_THREAD:
+            thread = create_thread(
+                self.session, self.group_id, self.user.id, agent_slug, body.message, body.entity_type, entity_id, parent_thread_id=parent_thread_id
+            )
             opened_here = True
 
         log_inputs, log_outputs = self._logging_policy()
@@ -1416,18 +1434,18 @@ class AIOperationsController(BaseUserController):
             ctx.execution_id = str(execution.id)  # tools spawning executions link them back here
 
         start = time.monotonic()
-        run_id, local_on_event = self._start_progress(body)
+        run_id, local_on_event = self._start_progress(body, thread, execution)
         on_event = local_on_event or on_event
         if ctx is not None and depth == 0 and "run_agent" in names:
             ctx.delegate = self._delegate_runner(parent_thread=thread, parent_body=body, parent_execution=execution, on_event=on_event)
         try:
             result = run_agent_loop(provider, model, messages, tools, self._completion_opts(), max_steps=max_steps, on_event=on_event)
-        except HTTPException:
-            self._finish_progress(run_id, "failed")
+        except HTTPException as e:
+            self._finish_progress(run_id, "failed", self._http_error_text(e))
             self._discard_empty_thread(thread if opened_here else None)
             raise
         except Exception as e:
-            self._finish_progress(run_id, "failed")
+            self._finish_progress(run_id, "failed", f"Agent failed: {e}")
             self._fail_execution(execution, str(e), start)
             self._discard_empty_thread(thread if opened_here else None)
             self._emit_ai_event(execution, "failed", str(e))
@@ -1499,7 +1517,6 @@ class AIOperationsController(BaseUserController):
 
         from marvin.services.ai.threads import extract_handoffs, extract_sources
 
-        self._finish_progress(run_id, "completed")
         execution.status = "completed"
         execution.completed_at = datetime.now(UTC)
         self._account_execution(execution, result, provider, model, start)
@@ -1524,6 +1541,8 @@ class AIOperationsController(BaseUserController):
             record_user=record_user,
         )
         self.session.commit()
+        # Only once the turn is committed: a poller that sees "completed" must find the answer in the thread.
+        self._finish_progress(run_id, "completed")
         self.session.refresh(execution)
         self._emit_ai_event(execution, "completed", None)
         self._emit_budget_thresholds(execution)
@@ -1763,6 +1782,7 @@ class AIOperationsController(BaseUserController):
         from marvin.core.config import get_app_settings
         from marvin.services.ai.base import CompletionOptions, Message
         from marvin.services.ai.pricing import estimate_cost
+        from marvin.services.ai.threads import create_thread
 
         _app = get_app_settings()
         thread = self._thread_for_run(body, spec.slug)
@@ -1771,6 +1791,13 @@ class AIOperationsController(BaseUserController):
             *self._run_history(body, thread),
             Message(role="user", content=body.message),
         ]
+        # Opened before the completion for the same reason as in _run_agent_core: the id is known mid-run.
+        opened_here = False
+        if thread is None and body.thread_id == NEW_THREAD:
+            thread = create_thread(
+                self.session, self.group_id, self.user.id, spec.slug, body.message, body.entity_type, parent_thread_id=parent_thread_id
+            )
+            opened_here = True
         log_inputs, log_outputs = self._logging_policy()
         execution = AIExecutionModel(
             session=self.session,
@@ -1788,11 +1815,14 @@ class AIOperationsController(BaseUserController):
         self.session.add(execution)
         self.session.commit()
         start = time.monotonic()
+        run_id, _ = self._start_progress(body, thread, execution)
         try:
             opts = CompletionOptions(temperature=_app.AI_DEFAULT_TEMPERATURE, max_tokens=self._max_output_tokens())
             result = provider.complete(messages, model, opts)
         except Exception as e:
+            self._finish_progress(run_id, "failed", f"Agent failed: {e}")
             self._fail_execution(execution, str(e), start)
+            self._discard_empty_thread(thread if opened_here else None)
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Agent failed: {e}") from e
         execution.status = "completed"
         execution.completed_at = datetime.now(UTC)
@@ -1806,6 +1836,7 @@ class AIOperationsController(BaseUserController):
             thread, body, spec.slug, execution, result.content, [], [], result.total_tokens, parent_thread_id=parent_thread_id
         )
         self.session.commit()
+        self._finish_progress(run_id, "completed")
         self.session.refresh(execution)
         self._emit_ai_event(execution, "completed", None)
         self._emit_budget_thresholds(execution)

@@ -9,6 +9,10 @@ provider-level change.
 
 The client mints the run id (a UUID it sends as `client_run_id`) so it can start polling while the
 POST is still in flight. Entries are owned by (group, user): a guessed id from another user is a 404.
+
+A run also names its thread and execution as soon as they exist: the run outlives the request that
+started it, so a client that navigated away mid-run (the Marvin bubble) finds its way back to the
+answer through these ids rather than through a response it never received.
 """
 
 from __future__ import annotations
@@ -16,7 +20,7 @@ from __future__ import annotations
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 _LOCK = threading.Lock()
 _RUNS: dict[str, RunProgress] = {}
@@ -32,13 +36,23 @@ class RunProgress:
     events: list[dict] = field(default_factory=list)
     started_at: float = field(default_factory=time.monotonic)
     finished_at: float | None = None
+    thread_id: str | None = None
+    execution_id: str | None = None
+    error: str | None = None  # why a failed run failed
 
     @property
     def done(self) -> bool:
         return self.finished_at is not None
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "status": self.status, "events": list(self.events)}
+        return {
+            "id": self.id,
+            "status": self.status,
+            "events": list(self.events),
+            "threadId": self.thread_id,
+            "executionId": self.execution_id,
+            "error": self.error,
+        }
 
 
 def normalize_run_id(value: str | None) -> str | None:
@@ -51,8 +65,13 @@ def normalize_run_id(value: str | None) -> str | None:
         return None
 
 
-def start(run_id: str, owner: tuple) -> RunProgress:
-    run = RunProgress(id=run_id, owner=(str(owner[0]), str(owner[1])))
+def start(run_id: str, owner: tuple, *, thread_id=None, execution_id=None) -> RunProgress:
+    run = RunProgress(
+        id=run_id,
+        owner=(str(owner[0]), str(owner[1])),
+        thread_id=str(thread_id) if thread_id else None,
+        execution_id=str(execution_id) if execution_id else None,
+    )
     with _LOCK:
         _RUNS[run_id] = run
         _prune_locked()
@@ -66,11 +85,12 @@ def push(run_id: str, event: dict) -> None:
             run.events.append({**event, "at": time.time()})
 
 
-def finish(run_id: str, status: str) -> None:
+def finish(run_id: str, status: str, error: str | None = None) -> None:
     with _LOCK:
         run = _RUNS.get(run_id)
         if run is not None:
             run.status = status
+            run.error = error
             run.finished_at = time.monotonic()
 
 
@@ -82,9 +102,7 @@ def get(run_id: str, owner: tuple) -> RunProgress | None:
         run = _RUNS.get(run_id)
         if run is None or run.owner != key:
             return None
-        return RunProgress(
-            id=run.id, owner=run.owner, status=run.status, events=list(run.events), started_at=run.started_at, finished_at=run.finished_at
-        )
+        return replace(run, events=list(run.events))
 
 
 def _prune_locked() -> None:
