@@ -23,6 +23,10 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
     """
     Publish entries with publish_at <= now, scoped to the task's workspace.
 
+    Publishing consumes the schedule (publish_at is cleared), so an entry unpublished afterwards
+    stays unpublished instead of going live again on the next run. Archived entries are skipped:
+    an old schedule must not resurrect them.
+
     Configuration (task_config):
     - dry_run: bool (default: False) - If true, log what would be published
     """
@@ -40,7 +44,7 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
 
             q = session.query(Entries).filter(
                 Entries.publish_at <= now,
-                Entries.status != "published",
+                Entries.status.notin_(("published", "archived")),
             )
             if workspace_id:
                 q = q.filter(Entries.group_id == workspace_id)
@@ -60,7 +64,10 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
             for entry in scheduled_entries:
                 if not dry_run:
                     entry.status = "published"
-                    entry.published_at = now
+                    # Keep a published_at set through the API (a backdated import), as a manual
+                    # first publish does (EntriesRepository.update).
+                    entry.published_at = entry.published_at or now
+                    entry.publish_at = None
                     session.commit()
                     logger.info("Published entry '%s' (id=%s)", entry.title, entry.id)
                     event_bus.dispatch(
