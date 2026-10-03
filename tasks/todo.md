@@ -362,6 +362,7 @@ shipping inside Marvin's release. Providers become plugins so a vendor fix is a 
   (Helm init container / admin, never a workspace). Workspaces only *configure*: an installed integration
   can be connected by any workspace; an installed AI provider can be chosen in any workspace's AI settings.
 - Own plugin type — not an "integration": entry-point group `marvin.ai_providers`, its own SDK contract.
+- **One package per vendor** (Jared, 2026-10-03).
 
 ## Plan
 - [ ] SDK: move the provider contract (`AIProvider`, `Message`, `ToolCall`, `ToolDefinition`,
@@ -369,7 +370,7 @@ shipping inside Marvin's release. Providers become plugins so a vendor fix is a 
 - [ ] Core: discover providers from `marvin.ai_providers`; factory, credential modes and capability flags read
       the registry; AI Settings' provider list and model picker come from it (nothing hard-coded).
 - [ ] Prices live with the provider (see Pricing below), not in core's `pricing.py`.
-- [ ] Packages (decide: one per vendor, leaning yes): openai (+ azure, shares `openai_api`), anthropic,
+- [ ] Packages, one per vendor: openai (+ azure, shares `openai_api`), anthropic,
       google (move to the `google-genai` SDK — `google-generativeai` is deprecated), ollama.
 - [ ] Baseline (decide: leaning no built-in; the chart installs openai by default). Tests use a fake provider.
 - [ ] Helm: tarballs in the same init container as integrations; admin page lists installed providers + versions.
@@ -378,9 +379,16 @@ shipping inside Marvin's release. Providers become plugins so a vendor fix is a 
 ## Pricing — no hard-coded model list (part of the same work)
 Today `pricing.py` is a table of exact model names: a new model shows cost "—", and its runs add $0 to the
 monthly budget, so a cost limit silently stops counting for it.
-- [ ] Prices are data: each provider plugin ships its known prices; platform admins can add/override a price
-      per provider+model (site-wide — prices don't vary by workspace).
-- [ ] Optional price feed (e.g. LiteLLM's maintained model-price JSON), refreshed daily, below admin overrides.
+No vendor publishes a per-token price API for its own models, so prices come from layered sources, highest wins:
+1. Admin override per provider+model (site-wide — prices don't vary by workspace).
+2. The provider plugin: a shipped price table, plus `fetch_prices()` where the vendor has a machine-readable list
+   (Azure: the public Retail Prices API).
+3. A price feed, refreshed daily: OpenRouter's public models API (per-token prices across vendors) or LiteLLM's
+   maintained price JSON — a core pricing source, not per provider.
+- [ ] Implement the layered lookup (cache the feed; never block a run on it).
+- [ ] Reconcile with real spend where the vendor reports it: a provider capability `billed_costs(since)` using
+      OpenAI's organization Costs API and Anthropic's cost report (both need an *admin* key, separate from the
+      inference key; daily granularity). Show estimate vs billed on the usage card; the budget can use billed.
 - [ ] Unpriced runs are visible, never silent: the Usage card shows "N runs this month have no price" with a
       link to set one; the budget warns that it can't count them; setting a price backfills `estimated_cost_usd`
       from the stored token counts.
