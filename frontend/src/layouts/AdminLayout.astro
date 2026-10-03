@@ -1,4 +1,5 @@
 ---
+import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import UpdateBanner from "@/components/UpdateBanner.astro";
@@ -92,6 +93,7 @@ function isActive(item: AdminNavItem, currentPath: string): boolean {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Marvin platform admin" />
     <title>{title} | Marvin Admin</title>

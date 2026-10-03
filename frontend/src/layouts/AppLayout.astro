@@ -1,4 +1,5 @@
 ---
+import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
 import ActivityToaster from "@/components/ActivityToaster.astro";
 import Marvin from "@/components/Marvin.astro";
@@ -133,6 +134,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Marvin platform admin frontend" />
     <title>{title} | Marvin</title>

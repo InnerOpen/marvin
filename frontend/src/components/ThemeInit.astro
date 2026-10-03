@@ -1,0 +1,25 @@
+---
+/**
+ * Sets the colour theme before the first paint. The ThemeSwitcher's own script runs after the page has
+ * been drawn, so dark mode used to arrive a frame late — a white flash on every load, longest on heavy
+ * pages like Entries. This tiny blocking script goes first in <head>: the stored choice, else the
+ * system preference (the same rule ThemeSwitcher applies).
+ */
+---
+
+<script is:inline>
+  (function () {
+    var theme;
+    try {
+      theme = localStorage.getItem("theme");
+    } catch (e) {
+      theme = null;
+    }
+    if (theme !== "light" && theme !== "dark") {
+      theme = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    }
+    document.documentElement.setAttribute("data-theme", theme);
+    // The browser's blank canvas (shown before any CSS loads) follows this too.
+    document.documentElement.style.colorScheme = theme;
+  })();
+</script>

@@ -1,4 +1,5 @@
 ---
+import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import type { UserRegistration } from "@/lib/api/auth";
@@ -58,6 +59,7 @@ if (Astro.request.method === "POST") {
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Register | Marvin</title>
     <RuntimeConfig />
