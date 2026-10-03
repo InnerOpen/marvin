@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.154 (2026-10-03)
+
+### Features
+
+- **publishing**: Site rebuild toast lists what changed
+  ([`317c509`](https://github.com/InnerOpen/marvin/commit/317c50970b487d690fe81e5a1c2c7caedc9109d1))
+
+
 ## v1.0.0-rc.153 (2026-10-03)
 
 ### Features
