@@ -350,3 +350,37 @@ cannot create a workflow / entry type / collection / scheduled task, and has no 
 - Phase 2: the same draft-and-ask tools for **entry types, collections (incl. smart rules), scheduled tasks** and
   integration blueprints (closes the 2026-09-24 Brain task).
 - Phase 3: embeddings for docs search if keyword ranking falls short; per-workspace "house recipes".
+
+# AI provider plugins — model vendors as site-wide plugins (2026-10-03, Jared: "make a backlog item")
+
+Why: one new model (gpt-6.1-sol) needed three core releases in a day (max_tokens renamed, tools refused while
+reasoning, no price). The Responses API switch removed the per-model rules; what is left is vendor churn
+shipping inside Marvin's release. Providers become plugins so a vendor fix is a plugin release.
+
+## Decisions (Jared, 2026-10-03)
+- **Every plugin is installed site-wide, by a platform admin only** — AI providers and integrations alike
+  (Helm init container / admin, never a workspace). Workspaces only *configure*: an installed integration
+  can be connected by any workspace; an installed AI provider can be chosen in any workspace's AI settings.
+- Own plugin type — not an "integration": entry-point group `marvin.ai_providers`, its own SDK contract.
+
+## Plan
+- [ ] SDK: move the provider contract (`AIProvider`, `Message`, `ToolCall`, `ToolDefinition`,
+      `CompletionOptions`, `CompletionResult`, `ImagePart`) into the plugin SDK; core re-exports for compatibility.
+- [ ] Core: discover providers from `marvin.ai_providers`; factory, credential modes and capability flags read
+      the registry; AI Settings' provider list and model picker come from it (nothing hard-coded).
+- [ ] Prices live with the provider (see Pricing below), not in core's `pricing.py`.
+- [ ] Packages (decide: one per vendor, leaning yes): openai (+ azure, shares `openai_api`), anthropic,
+      google (move to the `google-genai` SDK — `google-generativeai` is deprecated), ollama.
+- [ ] Baseline (decide: leaning no built-in; the chart installs openai by default). Tests use a fake provider.
+- [ ] Helm: tarballs in the same init container as integrations; admin page lists installed providers + versions.
+- [ ] Docs: provider plugin authoring guide next to the integration one.
+
+## Pricing — no hard-coded model list (part of the same work)
+Today `pricing.py` is a table of exact model names: a new model shows cost "—", and its runs add $0 to the
+monthly budget, so a cost limit silently stops counting for it.
+- [ ] Prices are data: each provider plugin ships its known prices; platform admins can add/override a price
+      per provider+model (site-wide — prices don't vary by workspace).
+- [ ] Optional price feed (e.g. LiteLLM's maintained model-price JSON), refreshed daily, below admin overrides.
+- [ ] Unpriced runs are visible, never silent: the Usage card shows "N runs this month have no price" with a
+      link to set one; the budget warns that it can't count them; setting a price backfills `estimated_cost_usd`
+      from the stored token counts.
