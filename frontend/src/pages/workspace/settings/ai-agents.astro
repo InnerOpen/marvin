@@ -196,6 +196,7 @@ const builtins = agents.filter((a) => a.isSystem);
               <div class="agent-actions">
                 <button class="button secondary small edit-btn" type="button">Edit</button>
                 <button class="button secondary small perms-btn" type="button">Permissions</button>
+                <button class="button secondary small character-btn" type="button">Character</button>
                 <button class="button secondary small del-btn" type="button">Delete</button>
               </div>
             </div>
@@ -295,8 +296,9 @@ const builtins = agents.filter((a) => a.isSystem);
   .pill.warn { color: #a16207; border-color: rgba(234,179,8,0.45); background: rgba(234,179,8,0.1); }
   .agent-actions { display: flex; gap: 8px; }
   .perms, .edit { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
-  /* Inside the Edit form, under Icon and Name. */
-  .character-box { margin-bottom: 16px; }
+  /* On the card (Character button) it's a section of its own; inside the Edit form it sits under Icon and Name. */
+  .character-box { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .edit .character-box { margin: 0 0 16px; padding-top: 0; border-top: 0; }
   .new-character-hint { margin: -6px 0 16px; font-size: 12px; color: var(--muted); }
   .agent-character { height: 28px; width: auto; max-width: 56px; object-fit: contain; }
   /* Injected via innerHTML → :global */
@@ -503,10 +505,20 @@ const builtins = agents.filter((a) => a.isSystem);
       const permsBox = card.querySelector<HTMLElement>('[data-role="perms"]');
       const editBox = card.querySelector<HTMLElement>('[data-role="edit"]');
 
-      // The bubble character lives in the Edit form, under Icon and Name. It's server-rendered (the
-      // picker mounts once), so it's moved into the form on open — and parked back on the card before
-      // the form is rebuilt, which would otherwise destroy it.
+      // The bubble character has two homes: under Icon and Name in the Edit form, or on its own from the
+      // card's Character button (no need to open Edit). It's server-rendered (the picker mounts once), so
+      // it's moved between them — and parked on the card before the Edit form is rebuilt, which would
+      // otherwise destroy it.
       const characterBox = card.querySelector<HTMLElement>('[data-role="character"]');
+      card.querySelector(".character-btn")?.addEventListener("click", () => {
+        if (!characterBox) return;
+        if (editBox && !editBox.hidden && editBox.contains(characterBox)) {
+          characterBox.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          return;
+        }
+        editBox?.after(characterBox);
+        characterBox.hidden = !characterBox.hidden;
+      });
       // Keep the card's small preview in step with the picker.
       characterBox?.addEventListener("character-change", (ev) => {
         const idle = (ev as CustomEvent).detail?.states?.idle;
