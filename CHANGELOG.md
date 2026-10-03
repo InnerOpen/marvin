@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.140 (2026-10-03)
+
+### Bug Fixes
+
+- **ai**: The main agent carries the workspace's assistant name
+  ([`8489865`](https://github.com/InnerOpen/marvin/commit/84898654f79b8b701d9471a0a99d52ffd2792a5d))
+
+
 ## v1.0.0-rc.139 (2026-10-03)
 
 ### Bug Fixes
