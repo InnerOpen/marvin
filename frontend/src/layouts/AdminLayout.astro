@@ -1,6 +1,7 @@
 ---
 import "../styles/global.css";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
+import UpdateBanner from "@/components/UpdateBanner.astro";
 import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
 
 interface Props {
@@ -140,6 +141,7 @@ function isActive(item: AdminNavItem, currentPath: string): boolean {
       </main>
       <ThemeSwitcher />
     </div>
+    <UpdateBanner />
   </body>
 </html>
 

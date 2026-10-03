@@ -1,0 +1,216 @@
+---
+// "A new version of Marvin is available": detects a deploy (the page's rendered versions vs the live
+// /version.json), offers Reload / Later, and a "What's new" list of the changes in between. Shared by
+// the workspace and the admin layouts so a deploy is announced wherever the admin happens to be.
+---
+
+<div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden>
+  <div class="update-banner-row">
+    <span>A new version of Marvin is available.</span>
+    <span class="update-banner-detail" data-detail></span>
+    <button type="button" class="button secondary" data-act="changes" aria-expanded="false" aria-controls="update-banner-changes">
+      What's new <span aria-hidden="true" class="update-banner-caret">▾</span>
+    </button>
+    <button type="button" class="button" data-act="reload">Reload</button>
+    <button type="button" class="button secondary" data-act="later" title="Hide until the next deploy">Later</button>
+  </div>
+  <!-- Not announced: the banner is a live region, and reading a whole release list aloud on open would drown out the notice. -->
+  <div id="update-banner-changes" class="update-banner-changes" aria-live="off" hidden></div>
+</div>
+<script>
+  import { getApiBaseUrl } from "@/lib/api/config";
+  import { changesUrl, prepareReleases, releaseLabel, type WhatsNewRelease } from "@/lib/whatsNew";
+
+  // Deploy detection. The page carries the versions it was rendered with (RuntimeConfig);
+  // /version.json reports the live pair. Poll once a minute and whenever the tab regains
+  // focus; on a change, offer a reload rather than forcing one — a forced reload would lose
+  // whatever the user is typing. "Later" hides the bar for that specific version pair only.
+  const runtime = (window as any).__MARVIN_RUNTIME__ ?? {};
+  const rendered = runtime.appVersion as { frontend: string; backend: string } | undefined;
+  const banner = document.getElementById("update-banner");
+  const POLL_MS = 60_000;
+  const DISMISS_KEY = "marvin.update-dismissed";
+  const key = (v: { frontend: string; backend: string }) => `${v.frontend}|${v.backend}`;
+
+  async function check() {
+    if (!rendered || !banner || document.visibilityState === "hidden") return;
+    let live: { frontend: string; backend: string };
+    try {
+      const res = await fetch("/version.json", { cache: "no-store" });
+      if (!res.ok) return;
+      live = await res.json();
+    } catch {
+      return; // transient — try again next tick
+    }
+    const changed: string[] = [];
+    if (live.frontend !== "unknown" && rendered.frontend !== "unknown" && live.frontend !== rendered.frontend) changed.push(`admin ${rendered.frontend} → ${live.frontend}`);
+    if (live.backend !== "unknown" && rendered.backend !== "unknown" && live.backend !== rendered.backend) changed.push(`backend ${rendered.backend} → ${live.backend}`);
+    if (changed.length === 0) return;
+    let dismissed = "";
+    try { dismissed = sessionStorage.getItem(DISMISS_KEY) ?? ""; } catch {}
+    if (dismissed === key(live)) return;
+    // A second deploy while the bar is up: the loaded notes no longer cover the gap.
+    if (changesFor && changesFor !== key(live)) resetChanges();
+    liveKey = key(live);
+    (banner.querySelector("[data-detail]") as HTMLElement).textContent = changed.join(" · ");
+    banner.hidden = false;
+  }
+
+  // "What's new": release notes between the rendered versions and the live ones, from the live
+  // backend (same-origin through the proxy, so the session cookie authenticates it). Fetched on
+  // first open only; a failed load retries on the next open.
+  const changesToggle = banner?.querySelector<HTMLButtonElement>('[data-act="changes"]');
+  const changesPanel = document.getElementById("update-banner-changes");
+  let liveKey = "";
+  let changesFor = "";
+  let changesState: "idle" | "loading" | "loaded" = "idle";
+
+  function resetChanges() {
+    changesState = "idle";
+    changesFor = "";
+    setChangesOpen(false);
+  }
+
+  function setChangesOpen(open: boolean) {
+    if (!changesToggle || !changesPanel) return;
+    changesToggle.setAttribute("aria-expanded", String(open));
+    changesPanel.hidden = !open;
+  }
+
+  function panelMessage(text: string) {
+    const p = document.createElement("p");
+    p.className = "update-banner-note";
+    p.textContent = text;
+    changesPanel?.replaceChildren(p);
+  }
+
+  // Built with textContent rather than innerHTML: the notes are commit messages, not markup.
+  function renderReleases(releases: WhatsNewRelease[]) {
+    if (!changesPanel) return;
+    if (releases.length === 0) {
+      panelMessage("No release notes for this update yet.");
+      return;
+    }
+    changesPanel.replaceChildren(
+      ...releases.map((release) => {
+        const block = document.createElement("section");
+        const heading = document.createElement("h3");
+        heading.textContent = releaseLabel(release.version);
+        if (release.date) {
+          const date = document.createElement("span");
+          date.className = "update-banner-date";
+          date.textContent = release.date;
+          heading.append(" ", date);
+        }
+        block.append(heading);
+        for (const section of release.sections) {
+          const title = document.createElement("h4");
+          title.textContent = section.title;
+          const list = document.createElement("ul");
+          for (const item of section.items) {
+            const li = document.createElement("li");
+            if (item.scope) {
+              const scope = document.createElement("strong");
+              scope.className = "update-banner-scope";
+              scope.textContent = `${item.scope}:`;
+              li.append(scope, " ");
+            }
+            li.append(item.summary);
+            if (item.shortCommit && item.commitUrl) {
+              const link = document.createElement("a");
+              link.className = "update-banner-commit";
+              link.href = item.commitUrl;
+              link.target = "_blank";
+              link.rel = "noopener noreferrer";
+              link.textContent = item.shortCommit;
+              li.append(" ", link);
+            }
+            list.append(li);
+          }
+          block.append(title, list);
+        }
+        return block;
+      }),
+    );
+  }
+
+  async function loadChanges() {
+    changesState = "loading";
+    changesFor = liveKey;
+    panelMessage("Loading changes…");
+    try {
+      const res = await fetch(changesUrl(rendered, getApiBaseUrl()), { credentials: "include", cache: "no-store" });
+      if (!res.ok) throw new Error(String(res.status));
+      renderReleases(prepareReleases(await res.json()));
+      changesState = "loaded";
+    } catch {
+      panelMessage("Couldn't load the list of changes.");
+      changesState = "idle";
+    }
+  }
+
+  banner?.addEventListener("click", (ev) => {
+    const act = (ev.target as HTMLElement).closest("[data-act]")?.getAttribute("data-act");
+    if (act === "changes") {
+      const open = changesToggle?.getAttribute("aria-expanded") !== "true";
+      setChangesOpen(open);
+      if (open && changesState === "idle") loadChanges();
+    }
+    if (act === "reload") location.reload();
+    if (act === "later") {
+      fetch("/version.json", { cache: "no-store" }).then((r) => r.json()).then((live) => {
+        try { sessionStorage.setItem(DISMISS_KEY, key(live)); } catch {}
+      }).catch(() => {});
+      banner.hidden = true;
+    }
+  });
+
+  setInterval(check, POLL_MS);
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+</script>
+<style>
+  .update-banner {
+    position: fixed;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: calc(100vw - 32px);
+    padding: 8px 14px;
+    border: 1px solid var(--line, #444);
+    border-top: 0;
+    border-radius: 0 0 var(--radius, 8px) var(--radius, 8px);
+    background: var(--bg-elevated, var(--bg, #1c1c1c));
+    color: var(--ink, inherit);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+    font-size: 14px;
+  }
+  /* Astro scopes this sheet, so `.update-banner { display: flex }` outranks the browser's
+     [hidden] rule; restate it or the bar never hides. */
+  .update-banner[hidden] { display: none; }
+  .update-banner-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .update-banner-detail { opacity: 0.7; font-size: 12px; }
+  .update-banner .button { padding: 5px 10px; font-size: 13px; }
+  .update-banner-caret { display: inline-block; transition: transform 0.15s; }
+  [aria-expanded="true"] > .update-banner-caret { transform: rotate(180deg); }
+  .update-banner-changes {
+    max-height: min(320px, 50vh);
+    overflow-y: auto;
+    padding: 8px 4px 2px;
+    border-top: 1px solid var(--line, #444);
+    font-size: 13px;
+  }
+  .update-banner-changes[hidden] { display: none; }
+  .update-banner-changes section + section { margin-top: 12px; }
+  .update-banner-changes h3 { margin: 0 0 4px; font-size: 14px; }
+  .update-banner-changes h4 { margin: 6px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.7; }
+  .update-banner-changes ul { margin: 0; padding-left: 18px; }
+  .update-banner-changes li { margin: 2px 0; }
+  .update-banner-date, .update-banner-note { font-weight: normal; opacity: 0.7; }
+  .update-banner-note { margin: 0; }
+  .update-banner-scope { font-weight: 600; opacity: 0.75; }
+  .update-banner-commit { font-family: var(--font-mono, monospace); font-size: 11px; opacity: 0.7; }
+</style>
