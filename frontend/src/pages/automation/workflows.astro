@@ -334,6 +334,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
   const KIND_ORDER = ["operation", "entry", "handler", "webhook", "integration", "emit_event"];
+  const SITE_EVENTS = [
+    "site_build_started", "site_build_completed", "site_build_failed",
+    "site_deployment_started", "site_deployment_completed", "site_deployment_failed",
+  ];
   const orderedKinds = (): string[] => {
     const avail = OPTIONS.actionKinds || [];
     return KIND_ORDER.filter((k) => avail.includes(k)).concat(avail.filter((k: string) => !KIND_ORDER.includes(k)));
@@ -491,8 +495,21 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         wrap.querySelector(".a-target-hint")!.innerHTML = TARGET_MODE_HINTS[modeSel.value];
       });
     } else if (kind === "emit_event") {
-      const evs = (OPTIONS.triggers || []).map((t: string) => `<option value="${esc(t)}" ${a.event === t ? "selected" : ""}>${esc(prettyEvent(t))}</option>`).join("");
-      wrap.innerHTML = `<select class="input a-event">${evs}</select><span class="hint small">Re-emits this event so other workflows can react.</span>`;
+      // What a step may emit (services/automation/actions/emit_event.py): entry lifecycle events, and site
+      // build/deploy events — e.g. a host's "deploy failed" notification turned into Marvin's own event.
+      const emittable = [...(OPTIONS.triggers || []).filter((t: string) => t.startsWith("entry_")), ...SITE_EVENTS];
+      if (a.event && !emittable.includes(a.event)) emittable.unshift(a.event);
+      const evs = emittable.map((t: string) => `<option value="${esc(t)}" ${a.event === t ? "selected" : ""}>${esc(prettyEvent(t))}</option>`).join("");
+      wrap.innerHTML = `<select class="input a-event">${evs}</select>
+        <div class="a-site-wrap" ${String(a.event ?? emittable[0]).startsWith("site_") ? "" : "hidden"}>
+          <input class="input a-site-message" placeholder="Message, e.g. \${event.payload.text}" value="${esc(a.message ?? "")}" />
+          <input class="input a-site-error" placeholder="Failure reason (failed events), e.g. \${event.payload.data.reason}" value="${esc(a.error ?? "")}" />
+          <input class="input a-site-url" placeholder="Site URL (optional)" value="${esc(a.site_url ?? "")}" />
+        </div>
+        <span class="hint small">Entry events re-emit so other workflows can react; site events show as activity toasts (failures stay until dismissed).</span>`;
+      wrap.querySelector(".a-event")!.addEventListener("change", (ev) => {
+        wrap.querySelector(".a-site-wrap")!.toggleAttribute("hidden", !(ev.target as HTMLSelectElement).value.startsWith("site_"));
+      });
     } else if (kind === "integration") {
       wrap.innerHTML = `
         <input class="input a-integration" placeholder="integration slug, e.g. square" value="${esc(a.integration ?? "")}" />
@@ -565,7 +582,16 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         setOrDrop("data", DATA_OPS.has(op) && Object.keys(data).length ? data : null);
         return step;
       }
-      if (kind === "emit_event") { step.event = field(".a-event")!.value; return step; }
+      if (kind === "emit_event") {
+        step.event = field(".a-event")!.value;
+        if (step.event.startsWith("site_")) {
+          for (const [key, cls] of [["message", ".a-site-message"], ["error", ".a-site-error"], ["site_url", ".a-site-url"]]) {
+            const value = field(cls)?.value.trim();
+            if (value) step[key] = value;
+          }
+        }
+        return step;
+      }
       if (kind === "handler") {
         const task = field(".a-task")!.value.trim();
         if (!task) return null;

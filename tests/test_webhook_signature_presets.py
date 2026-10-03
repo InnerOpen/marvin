@@ -182,3 +182,41 @@ def test_receiver_with_a_stripe_webhook(monkeypatch):
         signature_config=None,
     )
     _check_signature(webhook, BODY, SimpleNamespace(headers={"Stripe-Signature": header}))  # no raise
+
+
+# --- static tokens (Cloudflare notifications, GitLab): the header carries the secret itself -------
+
+
+def test_static_token_matches_the_secret_in_a_chosen_header():
+    spec = PRESETS["static_token"]
+    assert verify_request(spec, BODY, {"cf-webhook-auth": KEY}, KEY, header_override="cf-webhook-auth")
+
+
+def test_static_token_rejects_a_wrong_or_missing_token():
+    spec = PRESETS["static_token"]
+    assert not verify_request(spec, BODY, {"cf-webhook-auth": "nope"}, KEY, header_override="cf-webhook-auth")
+    assert not verify_request(spec, BODY, {}, KEY, header_override="cf-webhook-auth")
+
+
+def test_a_custom_token_scheme_needs_only_a_header():
+    assert spec_for("custom", {"mode": "token", "header": "X-Gitlab-Token"}) is not None
+    assert spec_for("custom", {"mode": "token", "header": ""}) is None
+
+
+def test_a_rejected_static_token_is_never_echoed_in_the_log(monkeypatch, caplog):
+    import marvin.services.secrets.resolver as resolver
+    from marvin.routes.hooks.hooks_controller import _check_signature
+
+    monkeypatch.setattr(resolver, "resolve_secret", lambda ref, gid: "the-real-token")
+    webhook = SimpleNamespace(
+        slug="cf",
+        signing_secret_ref="CF_TOKEN",
+        signature_header="cf-webhook-auth",
+        group_id="G",
+        signature_scheme="static_token",
+        signature_url=None,
+        signature_config=None,
+    )
+    with pytest.raises(HTTPException):
+        _check_signature(webhook, BODY, SimpleNamespace(headers={"cf-webhook-auth": "the-wrong-token"}))
+    assert "the-wr" not in caplog.text

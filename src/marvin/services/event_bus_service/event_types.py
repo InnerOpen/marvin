@@ -934,8 +934,8 @@ class EventDeploymentData(EventDocumentDataBase):
     """The unique identifier of the deployment."""
     site_url: str | None = None
     """The URL of the deployed site."""
-    triggered_by: UUID4
-    """The user who triggered the deployment."""
+    triggered_by: UUID4 | None = None
+    """The user who triggered the deployment — None when a host reported it (a deploy notification webhook)."""
     triggered_by_name: str | None = None
     """The full name of the user who triggered the deployment."""
     status: str | None = None

@@ -27,7 +27,7 @@ FEED_FIRST_LOOK = timedelta(seconds=5)
 
 def _detail(event_data: dict) -> str | None:
     doc = event_data.get("documentData") or event_data.get("document_data") or {}
-    reason = doc.get("error") if isinstance(doc, dict) else None
+    reason = (doc.get("error") or doc.get("errorMessage") or doc.get("error_message")) if isinstance(doc, dict) else None
     return str(reason)[:500] if reason else None
 
 

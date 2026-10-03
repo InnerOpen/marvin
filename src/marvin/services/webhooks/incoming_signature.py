@@ -11,6 +11,9 @@ The message is a template over the raw request: `{body}` (the exact bytes receiv
 re-serialized JSON), `{url}` (the public URL the sender was given — behind a tunnel the backend
 sees another one), `{header:Name}`, and `{t}` (the timestamp parsed from a Stripe-style header).
 
+Some senders don't sign at all but send a fixed shared token in a header (Cloudflare notifications,
+GitLab): `mode="token"` compares that header with the secret instead of computing an HMAC.
+
 Comparison is constant-time. Anything missing — key, header, a URL the template needs, a parseable
 timestamp — fails closed.
 """
@@ -31,6 +34,9 @@ ALGORITHMS = {"sha1": hashlib.sha1, "sha256": hashlib.sha256, "sha512": hashlib.
 @dataclass(frozen=True)
 class SignatureSpec:
     """How one sender signs. Every field has a sensible default, so a preset only states what differs."""
+
+    mode: str = "hmac"
+    """hmac (an HMAC of a message built from the request) | token (the header carries the secret itself)."""
 
     algorithm: str = "sha256"
     """sha1 | sha256 | sha512."""
@@ -95,12 +101,20 @@ PRESETS: dict[str, SignatureSpec] = {
         tolerance_seconds=300,
         notes="Standard Webhooks (Svix, Resend, Clerk, …): v1,<base64> of {id}.{timestamp}.{body}",
     ),
+    # Not a signature: the sender puts the shared secret itself in a header. Set the header per webhook
+    # (e.g. cf-webhook-auth for Cloudflare notifications, X-Gitlab-Token for GitLab).
+    "static_token": SignatureSpec(
+        mode="token",
+        header="X-Webhook-Token",
+        notes="A fixed shared token in a header (Cloudflare: cf-webhook-auth, GitLab: X-Gitlab-Token) — set the header",
+    ),
 }
 
 DEFAULT_SCHEME = "hmac_sha256_hex"
 CUSTOM_SCHEME = "custom"
 
 SPEC_FIELDS = (
+    "mode",
     "algorithm",
     "encoding",
     "message",
@@ -170,6 +184,10 @@ def spec_for(scheme: str | None, config: dict | None = None) -> SignatureSpec | 
 def spec_problems(spec: SignatureSpec) -> list[str]:
     """Why a custom spec can't be used — empty when it can."""
     problems = []
+    if spec.mode not in ("hmac", "token"):
+        problems.append("mode must be hmac or token")
+    if spec.mode == "token":
+        return problems + ([] if spec.header else ["header is required"])
     if spec.algorithm not in ALGORITHMS:
         problems.append(f"algorithm must be one of {', '.join(ALGORITHMS)}")
     if spec.encoding not in ("hex", "base64"):
@@ -279,6 +297,11 @@ def verify_request(
     header_value = _header(headers, header_override or spec.header)
     if not header_value:
         return False
+    if spec.mode == "token":
+        presented = header_value.strip()
+        if spec.prefix and presented.lower().startswith(spec.prefix.lower()):
+            presented = presented[len(spec.prefix) :].strip()
+        return hmac.compare_digest(presented.encode("utf-8"), key.encode("utf-8"))
     candidates, t = _presented(spec, header_value)
     if not candidates or not _fresh(spec, headers, t, time.time() if now is None else now):
         return False

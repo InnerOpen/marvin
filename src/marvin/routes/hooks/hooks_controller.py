@@ -50,7 +50,9 @@ def _check_signature(webhook: WorkspaceIncomingWebhookModel, raw: bytes, request
     if not verify_request(spec, raw, request.headers, key, url=webhook.signature_url, header_override=webhook.signature_header):
         # Say what arrived without leaking it: the header's shape is enough to tell a wrong key from a
         # wrong header name or an unexpected encoding (base64 vs hex, missing prefix).
-        shape = "absent" if presented is None else f"len={len(presented)} prefix={presented[:7]!r}"
+        # A static token IS the secret, so never echo any of it — length only.
+        is_token = bool(spec and spec.mode == "token")
+        shape = "absent" if presented is None else (f"len={len(presented)}" if is_token else f"len={len(presented)} prefix={presented[:7]!r}")
         logger.warning(
             "incoming webhook %s: signature rejected (scheme %s; header %s %s; key %s; url %s; body %d bytes; signature headers seen: %s)",
             webhook.slug,

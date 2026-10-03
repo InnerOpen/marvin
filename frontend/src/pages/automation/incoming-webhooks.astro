@@ -163,7 +163,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
       </div>
       <div class="signing-edit" hidden>
         <input class="input" data-signing-ref placeholder="Secret slug, e.g. WEBHOOK_SIGNING_KEY" value="${esc(w.signingSecretRef || "")}" />
-        <input class="input" data-signing-header placeholder="Header (default X-Signature-256)" value="${esc(w.signatureHeader || "")}" />
+        <input class="input" data-signing-header placeholder="Header (blank = the scheme's own)" value="${esc(w.signatureHeader || "")}" />
         <select class="input" data-signing-scheme title="How the sender signs">
           ${schemes.map((s) => `<option value="${esc(s.name)}" title="${esc(s.notes || "")}" ${(w.signatureScheme || "hmac_sha256_hex") === s.name ? "selected" : ""}>${esc(schemeLabel(s.name))}${s.notes ? ` — ${esc(s.notes)}` : ""}</option>`).join("")}
         </select>
@@ -184,7 +184,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         <span>·</span>
         <span>last: ${esc(fmtWhen(w.lastReceivedAt))}</span>
         ${!w.enabled ? `<span class="pill">disabled</span>` : ""}
-        ${w.signingSecretRef ? `<span class="pill" title="Requests must be HMAC-signed with secret ${esc(w.signingSecretRef)} (header ${esc(w.signatureHeader || "X-Signature-256")})">signed</span>` : ""}
+        ${w.signingSecretRef ? `<span class="pill" title="Requests are verified (${esc(schemeLabel(w.signatureScheme || "hmac_sha256_hex"))}) with secret ${esc(w.signingSecretRef)}${w.signatureHeader ? ` in header ${esc(w.signatureHeader)}` : ""}">verified</span>` : ""}
       </div>
     </div>`;
   }
