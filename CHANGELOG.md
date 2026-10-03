@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.171 (2026-10-03)
+
+### Bug Fixes
+
+- **scheduler**: Scheduled publish and expiry fire the same entry events as a manual change
+  ([`d593ea9`](https://github.com/InnerOpen/marvin/commit/d593ea980b25c0dd3826390a552c71f963c6e9e5))
+
+
 ## v1.0.0-rc.170 (2026-10-03)
 
 ### Bug Fixes
