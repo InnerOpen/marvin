@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.148 (2026-10-03)
+
+### Bug Fixes
+
+- **ai**: Send tool calls through the Responses API when a model asks
+  ([`f5a7a5e`](https://github.com/InnerOpen/marvin/commit/f5a7a5ed6aba64c4a11c76aa1c30088f099b256e))
+
+
 ## v1.0.0-rc.147 (2026-10-03)
 
 ### Bug Fixes
