@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.160 (2026-10-03)
+
+### Features
+
+- **admin**: "What's new" list on the update banner
+  ([`b9c022c`](https://github.com/InnerOpen/marvin/commit/b9c022c884c4c48a65e86b0df5abd3161a1f1eaf))
+
+- **admin**: List the image's unreleased commits in "What's new"
+  ([`315e0ce`](https://github.com/InnerOpen/marvin/commit/315e0ce99069e70ad013ee9fb48688879cb96cef))
+
+- **ui**: An agent's bubble character sits in its Edit form, under Icon and Name
+  ([`7e02d7c`](https://github.com/InnerOpen/marvin/commit/7e02d7c6e9c3091515a2bf5da0d737ac9e878b04))
+
+
 ## v1.0.0-rc.159 (2026-10-03)
 
 ### Bug Fixes
