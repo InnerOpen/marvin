@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.167 (2026-10-03)
+
+### Features
+
+- **frontend**: Attached images preview at the top of Entry Details
+  ([`d9aec37`](https://github.com/InnerOpen/marvin/commit/d9aec3775e9ada0e858bcf74499cfd52c4b60689))
+
+
 ## v1.0.0-rc.166 (2026-10-03)
 
 ### Features
