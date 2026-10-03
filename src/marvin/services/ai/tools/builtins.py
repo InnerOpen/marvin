@@ -792,6 +792,11 @@ def run_workflow(ctx: ToolContext, args: dict) -> str:
     if not auto.enabled:
         return json.dumps({"error": f"workflow '{auto.slug}' is disabled"})
 
+    from marvin.services.automation.recorder import ExecutionRecorder
+
     user_id = ctx.user.id if ctx.user else None
-    res = run_automation_now(ctx.session, ctx.group_id, auto, user_id=user_id, logger=ctx.logger)
+    # Recorded like the Run button, so a run started from chat or MCP shows under the workflow's Runs.
+    res = run_automation_now(
+        ctx.session, ctx.group_id, auto, user_id=user_id, logger=ctx.logger, recorder=ExecutionRecorder(ctx.session, ctx.group_id)
+    )
     return json.dumps({"workflow": auto.slug, "ok": res.get("ok"), "result": res.get("result")})

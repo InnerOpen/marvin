@@ -46,7 +46,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     {!aiActionsAvailable && (
       <div class="banner info">
         AI actions aren’t available — <a href="/workspace/settings/ai-workflow">enable AI</a> (and allow the
-        <code>automation</code> source) to add steps like “generate summary”. Event, task, and webhook steps work regardless.
+        <strong>Workflows</strong> invocation source) to add steps like “generate summary”. Event, task, and webhook steps work regardless.
       </div>
     )}
 
@@ -444,7 +444,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       if (!ops.length) {
         // Empty when AI is off OR the `automation` invocation source is disabled for this workspace.
         wrap.innerHTML = `<p class="muted small">AI operations aren't available here — AI is off, or the
-          <strong>Automations</strong> AI source is turned off. Turn it on in
+          <strong>Workflows</strong> invocation source is turned off. Turn it on in
           <a href="/workspace/settings/ai-workflow">AI Settings</a>.</p>`;
         return wrap;
       }
@@ -462,7 +462,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       wrap.innerHTML = `
         <select class="input a-op">${opList}</select>
         <div class="a-meta-wrap tf" ${METADATA_OPS.has(a.op) ? "" : "hidden"}><span>Metadata to set <span class="muted">(merged into the entry's metadata)</span></span></div>
-        <div class="a-data-wrap tf" ${DATA_OPS.has(a.op) ? "" : "hidden"}><span>Fields to set <span class="muted">(the entry type's fields, e.g. status = sold — validated)</span></span></div>
+        <div class="a-data-wrap tf" ${DATA_OPS.has(a.op) ? "" : "hidden"}><span>Fields to set <span class="muted">(field keys of the entry type and their new values — validated; checkbox and number values may be typed as text)</span></span></div>
         <label class="a-collection-wrap tf" ${COLLECTION_OPS.has(a.op) ? "" : "hidden"}><span>Collection</span>
           <input class="input a-collection" placeholder="slug or name — e.g. featured" value="${esc(a.collection_slug ?? "")}" /></label>
         <div class="a-target-wrap tf"><span>Target entry</span>

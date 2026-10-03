@@ -224,7 +224,11 @@ def run(session, group_id, spec: dict | None, *, limit: int | None = None, offse
 
     where = [w for w in (spec.get("where") or []) if isinstance(w, dict) and w.get("field")]
     unknown_ops = sorted({str(w.get("op")) for w in where if (w.get("op") or "eq") not in WHERE_OPS})
-    where = [w for w in where if (w.get("op") or "eq") in WHERE_OPS]
+    if unknown_ops:
+        # Fail closed: ignoring a condition would WIDEN the match — a workflow could act on entries
+        # the author meant to exclude.
+        note = f"unknown where op(s): {', '.join(unknown_ops)}. Valid: {', '.join(WHERE_OPS)}."
+        return EntryQueryResult(rows=[], total=0, note=note, unknown_ops=unknown_ops)
     sort = spec.get("sort") if isinstance(spec.get("sort"), dict) else ({"by": spec["sort"]} if spec.get("sort") else None)
     sort_by = str((sort or {}).get("by") or "").strip()
     descending = str((sort or {}).get("direction") or "asc").lower() == "desc"

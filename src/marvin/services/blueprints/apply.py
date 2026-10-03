@@ -202,7 +202,8 @@ def apply_many(session, group_id, blueprints, params: dict | None = None, integr
     order = {"entry_type": 0, "entry_fields": 1, "collection": 2, "scheduled_task": 3, "incoming_webhook": 4, "workflow": 5}
     by_slug = params or {}
     return [
-        apply_blueprint(session, group_id, b, by_slug.get(b.slug), actor_id=actor_id) for b in sorted(blueprints, key=lambda b: order.get(b.kind, 99))
+        apply_blueprint(session, group_id, b, by_slug.get(b.slug), integration_id=integration_id, actor_id=actor_id)
+        for b in sorted(blueprints, key=lambda b: order.get(b.kind, 99))
     ]
 
 

@@ -123,9 +123,17 @@ def test_a_field_value_as_publish_status_returns_a_note(db_session, shop):
     assert result.total == 0 and "not a publish status" in result.note
 
 
-def test_an_unknown_op_is_reported_not_silently_matched(db_session, shop):
+def test_an_unknown_op_fails_closed_instead_of_widening_the_match(db_session, shop):
+    # Ignoring the condition would act on entries the author meant to exclude (e.g. a workflow target).
     result = run(db_session, shop, {"entry_type": "work", "where": [{"field": "price", "op": "approximately", "value": 1}]})
-    assert result.unknown_ops == ["approximately"] and result.total == 6
+    assert result.total == 0 and result.unknown_ops == ["approximately"] and "unknown where op" in result.note
+
+
+def test_a_workflow_target_with_an_unknown_op_selects_nothing(db_session, shop):
+    from marvin.services.automation.selector import resolve_target_entities
+
+    entities, total = resolve_target_entities(db_session, shop, {"query": {"entry_type": "work", "where": [{"field": "price", "op": "about"}]}}, {})
+    assert (entities, total) == ([], 0)
 
 
 def test_entry_type_accepts_either_spelling_and_lists(db_session, shop):

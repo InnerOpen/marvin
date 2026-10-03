@@ -71,7 +71,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
           <input class="input" id="iw-sig-header" placeholder="e.g. X-Hub-Signature-256" />
         </label>
       </div>
-      <p class="hint">With a signing secret set, every request must carry <code>sha256=&lt;hex HMAC-SHA256 of the raw body&gt;</code> in that header, or it is rejected.</p>
+      <p class="hint">With a signing secret set, every request must be signed or it is rejected — by default <code>sha256=&lt;hex HMAC-SHA256 of the raw body&gt;</code> in that header. After creating, pick another scheme under <strong>Signing</strong> (Stripe, Slack, Shopify, Standard Webhooks, an integration's own, or custom).</p>
       <div class="create-actions">
         <button id="iw-create-btn" class="button">Create</button>
         <button id="iw-cancel" class="button ghost" type="button">Cancel</button>
@@ -96,6 +96,13 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   const hookBase = (document.querySelector(".iw-page") as HTMLElement).dataset.hookBase || "";
   let webhooks: any[] = JSON.parse($("iw-list-data").textContent || "[]");
   const schemes: any[] = JSON.parse($("iw-schemes-data").textContent || "[]");
+  // What the sender must do, in the selected scheme's own words (its notes), so the hint never
+  // describes a different scheme than the one picked.
+  const signingHint = (name: string) => {
+    if (name === "custom") return "The sender signs as described in the JSON below.";
+    const notes = schemes.find((x) => x.name === name)?.notes;
+    return notes ? `The sender must sign: ${notes}.` : "The sender must sign each request with this scheme.";
+  };
   const schemeLabel = (name) => {
     const s = schemes.find((x) => x.name === name);
     return s ? `${name}${s.source !== "core" ? ` (from ${s.source})` : ""}` : name;
@@ -165,7 +172,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         <button class="button sm" data-act="save-signing">Save</button>
         <button class="button ghost sm" data-act="gen-signing" title="Create a random key, store it as that secret, and show it once so you can paste it into the sender">Generate key</button>
         <button class="button ghost sm" data-act="cancel-signing">Cancel</button>
-        <span class="hint">Leave the secret blank to turn verification off. The sender must put <code>sha256=&lt;hex HMAC of the raw body&gt;</code> in that header.</span>
+        <span class="hint">Leave the secret blank to turn verification off. <span data-signing-hint>${esc(signingHint(w.signatureScheme || "hmac_sha256_hex"))}</span></span>
         <div class="signing-reveal" hidden>
           <input class="input url" readonly data-signing-value />
           <button class="button ghost sm" data-act="copy-signing">Copy</button>
@@ -221,7 +228,11 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   $("iw-list").addEventListener("change", (ev: Event) => {
     const sel = ev.target as HTMLElement;
     if (!sel.matches?.("[data-signing-scheme]")) return;
-    sel.closest(".signing-edit")?.querySelector("[data-signing-config]")?.toggleAttribute("hidden", (sel as HTMLSelectElement).value !== "custom");
+    const box = sel.closest(".signing-edit");
+    const picked = (sel as HTMLSelectElement).value;
+    box?.querySelector("[data-signing-config]")?.toggleAttribute("hidden", picked !== "custom");
+    const hint = box?.querySelector("[data-signing-hint]");
+    if (hint) hint.textContent = signingHint(picked);
   });
 
   // ── Per-card actions (event delegation) ─────────────────────────────────────
