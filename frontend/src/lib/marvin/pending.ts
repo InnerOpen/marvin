@@ -18,6 +18,21 @@ const PENDING_KEY = "marvin.pending";
 const THREADS_KEY = "marvin.threads";
 const ASK_PAGE_PATH = "/workspace/settings/ai-ask";
 
+// Threads, pending runs and the transcript belong to one workspace. One tab can switch workspaces, and a
+// thread id from the other workspace is "No thread" here (a 404 on every message), so keys carry the
+// workspace the page was rendered for.
+let scope = "";
+
+/** Scope the bubble's session storage to this workspace (set once per page, before any read). */
+export function setStorageScope(workspaceId: string | null | undefined): void {
+  scope = workspaceId ? `:${workspaceId}` : "";
+}
+
+/** A session-storage key for the current workspace. */
+export function scoped(key: string): string {
+  return key + scope;
+}
+
 export const PENDING_POLL_MS = 1500;
 /** Past this, stop waiting: agent runs are capped at a dozen tool steps, so this is far beyond normal. */
 export const PENDING_RUN_TIMEOUT_MS = 10 * 60_000;
@@ -74,27 +89,27 @@ function remove(store: KV, key: string): void {
 }
 
 export function threadFor(agent: string, store: KV = sessionStorage): string | undefined {
-  return readJson<Record<string, string>>(store, THREADS_KEY)?.[agent] || undefined;
+  return readJson<Record<string, string>>(store, scoped(THREADS_KEY))?.[agent] || undefined;
 }
 
 export function rememberThread(agent: string, threadId: string | null | undefined, store: KV = sessionStorage): void {
-  const threads = readJson<Record<string, string>>(store, THREADS_KEY) ?? {};
+  const threads = readJson<Record<string, string>>(store, scoped(THREADS_KEY)) ?? {};
   if (threadId) threads[agent] = threadId;
   else delete threads[agent];
-  writeJson(store, THREADS_KEY, threads);
+  writeJson(store, scoped(THREADS_KEY), threads);
 }
 
 export function loadPending(store: KV = sessionStorage): PendingRun | null {
-  const run = readJson<PendingRun>(store, PENDING_KEY);
+  const run = readJson<PendingRun>(store, scoped(PENDING_KEY));
   return run?.clientRunId && run.agent ? run : null;
 }
 
 export function savePending(run: PendingRun, store: KV = sessionStorage): void {
-  writeJson(store, PENDING_KEY, run);
+  writeJson(store, scoped(PENDING_KEY), run);
 }
 
 export function clearPending(store: KV = sessionStorage): void {
-  remove(store, PENDING_KEY);
+  remove(store, scoped(PENDING_KEY));
 }
 
 /** Whether `run` is still the tab's pending run — false once "Clear" (or a newer run) replaced it. */
@@ -104,8 +119,8 @@ export function ownsPending(run: PendingRun, store: KV = sessionStorage): boolea
 
 /** "Clear": the next message opens a new thread, and nothing waits on the old one. */
 export function forgetConversation(store: KV = sessionStorage): void {
-  remove(store, THREADS_KEY);
-  remove(store, PENDING_KEY);
+  remove(store, scoped(THREADS_KEY));
+  remove(store, scoped(PENDING_KEY));
 }
 
 /** A v4 UUID for `clientRunId` (the server only tracks runs keyed by a real UUID). */

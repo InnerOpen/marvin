@@ -19,6 +19,7 @@ import {
   recoverPendingRun,
   rememberThread,
   savePending,
+  setStorageScope,
   threadFor,
   withProgress,
 } from "./pending.ts";
@@ -284,4 +285,17 @@ test("test_new_run_id_is_a_v4_uuid", () => {
 test("test_ask_thread_href_opens_the_thread_when_known", () => {
   assert.equal(askThreadHref("th 1"), "/workspace/settings/ai-ask?thread=th%201");
   assert.equal(askThreadHref(), "/workspace/settings/ai-ask");
+});
+
+test("test_threads_are_remembered_per_workspace", () => {
+  // One tab switching workspaces must not send the other workspace's thread (the server 404s it).
+  const store = memoryStore();
+  setStorageScope("ws-a");
+  rememberThread("marvin", "thread-a", store);
+  setStorageScope("ws-b");
+  assert.equal(threadFor("marvin", store), undefined);
+  rememberThread("marvin", "thread-b", store);
+  setStorageScope("ws-a");
+  assert.equal(threadFor("marvin", store), "thread-a");
+  setStorageScope(null);
 });

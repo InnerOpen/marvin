@@ -28,6 +28,7 @@ import {
   recoverPendingRun,
   rememberThread,
   savePending,
+  scoped,
   threadFor,
 } from "@/lib/marvin/pending";
 
@@ -176,6 +177,7 @@ const agent: Capability = {
 
 /** The server's answer when a message names a thread that no longer exists (deleted on the Ask page). */
 const THREAD_GONE = /^No thread '/;
+const HTTP_NOT_FOUND = 404;
 
 async function runBubbleAgent(
   slug: string,
@@ -215,7 +217,9 @@ async function runBubbleAgent(
     }
     if (ownsPending(run)) clearPending();
     const msg = String(err?.message || err);
-    if (run.threadId && !retried && THREAD_GONE.test(msg)) {
+    // The SDK reports a 404 as "Resource not found: <path>", hiding the server's "No thread" detail.
+    const threadGone = THREAD_GONE.test(msg) || err?.statusCode === HTTP_NOT_FOUND;
+    if (run.threadId && !retried && threadGone) {
       rememberThread(slug, null);
       return runBubbleAgent(slug, arg, register, true);
     }
@@ -435,7 +439,7 @@ const AGENT_KEY = "marvin.agent";
 
 export function getActiveAgent(): string {
   try {
-    return sessionStorage.getItem(AGENT_KEY) || "marvin";
+    return sessionStorage.getItem(scoped(AGENT_KEY)) || "marvin";
   } catch {
     return "marvin";
   }
@@ -443,8 +447,8 @@ export function getActiveAgent(): string {
 
 export function setActiveAgent(slug: string): void {
   try {
-    if (slug === "marvin") sessionStorage.removeItem(AGENT_KEY);
-    else sessionStorage.setItem(AGENT_KEY, slug);
+    if (slug === "marvin") sessionStorage.removeItem(scoped(AGENT_KEY));
+    else sessionStorage.setItem(scoped(AGENT_KEY), slug);
   } catch {
     /* storage unavailable — the switch lasts for this page only */
   }

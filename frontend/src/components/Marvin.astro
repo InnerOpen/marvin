@@ -2,9 +2,20 @@
 // Marvin — the (pluggable) workspace assistant bubble.
 // Renders hidden; the client script reveals it only when AI is enabled for the workspace.
 // Capabilities live in @/lib/marvin/capabilities — adding a skill needs no change here.
+import { getAuthToken } from "@/lib/api/client";
+import { getCurrentWorkspace } from "@/lib/api/workspaces";
+
+// The workspace this page was rendered for: the bubble keeps its threads and transcript per workspace.
+let workspaceId = "";
+const authToken = getAuthToken(Astro.cookies);
+try {
+  if (authToken) workspaceId = (await getCurrentWorkspace(authToken))?.id ?? "";
+} catch {
+  // Unscoped storage still works for a single workspace; it only risks a stale thread after a switch.
+}
 ---
 
-<div id="marvin-root" class="marvin" hidden>
+<div id="marvin-root" class="marvin" data-workspace={workspaceId} hidden>
   <button id="marvin-toggle" class="marvin-toggle" aria-label="Ask Marvin" title="Ask Marvin"><span id="marvin-icon">🤖</span></button>
 
   <div id="marvin-panel" class="marvin-panel" role="dialog" aria-label="Ask Marvin">
@@ -38,9 +49,10 @@
   import { createCharacter, dragDirection, type Character, type CharacterEvent, type CharacterStates } from '@/lib/marvin/character';
   import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
-  import { forgetConversation, loadPending } from '@/lib/marvin/pending';
+  import { forgetConversation, loadPending, scoped, setStorageScope } from '@/lib/marvin/pending';
 
   const root = document.getElementById('marvin-root');
+  setStorageScope(root?.dataset.workspace);
   if (root) {
     // Gate: stay hidden until we confirm AI is enabled for this workspace.
     (async () => {
@@ -191,7 +203,7 @@
     // "thinking…" placeholder, which is replaced in place by the final answer. This is a display
     // cache: agent conversations themselves live in server threads (@/lib/marvin/pending), which is
     // where the agent's memory comes from; /chat, /tools, /help, /agents and /use stay local-only.
-    const MEM_KEY = 'marvin.transcript';
+    const MEM_KEY = scoped('marvin.transcript');
     const MEM_CAP = 60; // keep the last N turns; guards both quota and scrollback bloat
     // `executionId` marks an agent reply, so one recovered from the server isn't appended twice.
     type Turn = { who: 'user' | 'marvin'; html: string; executionId?: string };
