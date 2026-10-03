@@ -1,0 +1,142 @@
+---
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import { listPlugins, type PluginKind, type PluginRead } from "@/lib/api/admin/plugins";
+import { getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
+
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+
+const KIND_LABELS: Record<PluginKind, string> = {
+  integration: "Integration",
+  ai_provider: "AI provider",
+};
+
+let plugins: PluginRead[] = [];
+let error: string | null = null;
+try {
+  plugins = await listPlugins(authToken);
+} catch (e) {
+  console.error("[admin/plugins] Failed to load:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+---
+
+<AdminLayout title="Plugins">
+  <div class="toolbar">
+    <div>
+      <h2>Plugins</h2>
+      <p>Packages installed on this platform and what they add.</p>
+    </div>
+  </div>
+
+  {error && (
+    <div class="alert alert-error"><strong>Error:</strong> {error}</div>
+  )}
+
+  <div class="page-container">
+    <p class="note">
+      Plugins are installed by the platform operator — baked into the container image or added by the Helm
+      chart's init container — not from this page, because installing a plugin runs its code. Once installed, a
+      plugin is available to every workspace, and each workspace connects it under its own
+      <strong>Settings → Integrations</strong>.
+    </p>
+
+    {!error && plugins.length === 0 ? (
+      <div class="empty-state">
+        <div class="empty-icon">🧩</div>
+        <p class="empty-title">No plugins installed</p>
+        <p class="empty-description">Integration packages (such as <code>marvin-integration-slack</code>) appear here once installed.</p>
+      </div>
+    ) : (
+      <div class="plugin-list">
+        {plugins.map((plugin) => (
+          <section class:list={["card", { failed: !plugin.ok }]}>
+            <header class="plugin-head">
+              <div>
+                <strong>{plugin.package ?? plugin.name}</strong>
+                {plugin.version && <span class="version">v{plugin.version}</span>}
+              </div>
+              <div class="badges">
+                <span class="badge">{KIND_LABELS[plugin.kind] ?? plugin.kind}</span>
+                <span class:list={["badge", plugin.ok ? "ok" : "error"]}>{plugin.ok ? "Loaded" : "Failed to load"}</span>
+              </div>
+            </header>
+
+            {plugin.error && <p class="plugin-error">{plugin.error}</p>}
+
+            {plugin.providers.length > 0 && (
+              <div class="table-scroll">
+                <table class="providers">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Actions</th>
+                      <th>Blueprints</th>
+                      <th>Connected workspaces</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plugin.providers.map((provider) => (
+                      <tr>
+                        <td class="name-col">
+                          {provider.name}
+                          <code>{provider.slug}</code>
+                        </td>
+                        <td>{provider.actions}</td>
+                        <td>{provider.blueprints}</td>
+                        <td>{provider.workspaces}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {plugin.ok && plugin.providers.length === 0 && (
+              <p class="muted">Registers no providers.</p>
+            )}
+          </section>
+        ))}
+      </div>
+    )}
+  </div>
+</AdminLayout>
+
+<style>
+  .toolbar { margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+  .toolbar h2 { margin: 0; font-size: 24px; font-weight: 600; }
+  .toolbar p { margin: 8px 0 0; color: var(--muted); font-size: 14px; }
+
+  .alert { padding: 16px; margin-bottom: 24px; border-radius: var(--radius); }
+  .alert-error { background: var(--color-error-bg); color: var(--color-error); border: 1px solid var(--color-error); }
+
+  .page-container { max-width: 900px; }
+  .note { margin: 0 0 24px; font-size: 14px; color: var(--muted); max-width: 70ch; }
+  .muted { margin: 12px 0 0; font-size: 13px; color: var(--muted); }
+
+  .empty-state { padding: 64px 24px; text-align: center; }
+  .empty-icon { font-size: 56px; margin-bottom: 16px; opacity: 0.3; }
+  .empty-title { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+  .empty-description { margin: 0; color: var(--muted); font-size: 14px; }
+
+  .plugin-list { display: grid; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+  .card.failed { border-color: var(--color-error); }
+
+  .plugin-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .plugin-head strong { font-size: 15px; font-weight: 600; }
+  .version { margin-left: 8px; font-size: 13px; color: var(--muted); }
+  .badges { display: flex; gap: 6px; }
+  .badge { padding: 2px 10px; border-radius: 999px; font-size: 12px; background: var(--panel-2); color: var(--muted); }
+  .badge.ok { color: var(--accent); }
+  .badge.error { background: var(--color-error-bg); color: var(--color-error); }
+  .plugin-error { margin: 12px 0 0; font-size: 13px; color: var(--color-error); font-family: ui-monospace, monospace; }
+
+  .table-scroll { overflow-x: auto; margin-top: 16px; }
+  .providers { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .providers th, .providers td { padding: 10px 12px; text-align: right; border-bottom: 1px solid var(--line); }
+  .providers thead th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .providers .name-col, .providers th:first-child { text-align: left; }
+  .name-col code { margin-left: 8px; font-size: 12px; color: var(--muted); }
+</style>

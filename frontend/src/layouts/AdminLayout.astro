@@ -11,43 +11,79 @@ interface Props {
 const { title, eyebrow = "Admin" } = Astro.props;
 const path = Astro.url.pathname;
 
-// Admin-specific navigation
-const adminNavGroups = [
+interface AdminNavItem {
+  href: string;
+  label: string;
+  icon: string;
+  /** Other path prefixes that belong to this item, so its sub-pages keep it highlighted. */
+  alsoMatches?: string[];
+}
+
+interface AdminNavGroup {
+  label: string | null;
+  /** Names an unlabelled group's <nav> for screen readers. */
+  ariaLabel?: string;
+  items: AdminNavItem[];
+}
+
+const OVERVIEW_PATH = "/admin";
+
+// Grouped by what an operator is doing, so new areas (more plugin kinds) have an obvious home.
+const adminNavGroups: AdminNavGroup[] = [
   {
     label: null,
-    items: [{ href: "/admin", label: "Dashboard", icon: "⌂" }],
+    items: [{ href: OVERVIEW_PATH, label: "Overview", icon: "⌂" }],
   },
   {
-    label: "Platform Management",
+    label: "People & access",
     items: [
       { href: "/admin/users", label: "Users", icon: "👥" },
-      { href: "/admin/workspaces", label: "Workspaces", icon: "◫" },
-      { href: "/admin/system", label: "System", icon: "📊" },
+      // A workspace's detail page still lives under its legacy /admin/groups/{id} path.
+      { href: "/admin/workspaces", label: "Workspaces", icon: "◫", alsoMatches: ["/admin/groups"] },
+      { href: "/admin/roles", label: "Roles", icon: "🔑" },
     ],
   },
   {
-    label: "Configuration",
+    label: "Settings",
     items: [
       { href: "/admin/site-settings", label: "Site Settings", icon: "⚙" },
-      { href: "/admin/email-settings", label: "Email Settings", icon: "📧" },
+      { href: "/admin/email-settings", label: "Email", icon: "📧" },
       { href: "/admin/submission-protection", label: "Submission Protection", icon: "🛡" },
+    ],
+  },
+  {
+    label: "Extensions",
+    items: [
+      { href: "/admin/plugins", label: "Plugins", icon: "🧩" },
       { href: "/admin/character-library", label: "Character Library", icon: "🎭" },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { href: "/admin/system", label: "System", icon: "📊" },
+      { href: "/admin/scheduled-tasks", label: "Scheduled Tasks", icon: "⏱" },
       { href: "/admin/backups", label: "Backups", icon: "💾" },
       { href: "/admin/maintenance", label: "Maintenance", icon: "🔧" },
     ],
   },
   {
-    label: "Back to User",
-    items: [{ href: "/", label: "User Settings", icon: "◄" }],
+    label: null,
+    ariaLabel: "Leave admin",
+    items: [{ href: "/", label: "Back to workspace", icon: "◄" }],
   },
 ];
 
-// Helper to check if path is active
-function isActive(itemPath: string, currentPath: string): boolean {
-  if (itemPath === "/admin") {
-    return currentPath === "/admin";
+function isUnder(prefix: string, currentPath: string): boolean {
+  return currentPath === prefix || currentPath.startsWith(`${prefix}/`);
+}
+
+// The overview only matches itself; every other item also owns its sub-pages (/admin/users/123).
+function isActive(item: AdminNavItem, currentPath: string): boolean {
+  if (item.href === OVERVIEW_PATH) {
+    return currentPath === OVERVIEW_PATH || currentPath === `${OVERVIEW_PATH}/`;
   }
-  return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`);
+  return [item.href, ...(item.alsoMatches ?? [])].some((prefix) => isUnder(prefix, currentPath));
 }
 ---
 
@@ -72,9 +108,9 @@ function isActive(itemPath: string, currentPath: string): boolean {
             {group.label && (
               <div class="nav-group-label">{group.label}</div>
             )}
-            <nav class="nav" aria-label={group.label || "Primary"}>
+            <nav class="nav" aria-label={group.label ?? group.ariaLabel ?? "Primary"}>
               {group.items.map((item) => (
-                <a href={item.href} aria-current={isActive(item.href, path) ? "page" : undefined}>
+                <a href={item.href} aria-current={isActive(item, path) ? "page" : undefined}>
                   <span aria-hidden="true">{item.icon}</span>
                   <span>{item.label}</span>
                 </a>
@@ -92,7 +128,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
             </div>
           </div>
           <div class="topbar-actions">
-            <a class="button secondary" href="/">Back to User View</a>
+            <a class="button secondary" href="/">Back to workspace</a>
             <form method="POST" action="/api/auth/logout" style="display:inline;">
               <button type="submit" class="button secondary">Logout</button>
             </form>

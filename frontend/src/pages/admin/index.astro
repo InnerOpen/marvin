@@ -1,273 +1,226 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
+import { BACKUP_STALE_DAYS, formatAge, summarizeBackups, summarizeTasks } from "@/lib/admin/overview";
+import { listPlugins } from "@/lib/api/admin/plugins";
+import { listAllTasks } from "@/lib/api/admin/scheduledTasks";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { getApiUrl } from "@/lib/api/config";
 import { requireAdmin } from "@/lib/auth";
 
 await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
 
-let currentTab = Astro.url.searchParams.get("tab") || "general";
-// Users and Workspaces are one tab now; keep old ?tab= links working.
-if (currentTab === "users" || currentTab === "workspaces") currentTab = "accounts";
+const READINESS_TIMEOUT_MS = 3000;
+const MAX_FAILING_TASKS_SHOWN = 3;
+const NO_DATA = "—";
 
-const tabs = [
-  { id: "general", label: "General", icon: "⚙" },
-  { id: "accounts", label: "Users & Workspaces", icon: "👥" },
-  { id: "email", label: "Email", icon: "📧" },
-  { id: "backups", label: "Backups", icon: "💾" },
-  { id: "maintenance", label: "Maintenance", icon: "🔧" },
-];
+interface AboutInfo {
+  version: string;
+  versionLatest: string;
+  dbType: string;
+}
+interface Statistics {
+  totalUsers: number;
+  totalGroups: number;
+}
+interface Backup {
+  created_at: string;
+}
+
+// Each card is best-effort: one endpoint failing blanks its card, never the page.
+async function attempt<T>(label: string, load: () => Promise<T>): Promise<T | null> {
+  try {
+    return await load();
+  } catch (e) {
+    console.error(`[admin/overview] Failed to load ${label}:`, e);
+    return null;
+  }
+}
+
+// Probed directly rather than via fetchApi, which retries 5xx — a not-ready 503 is the answer here.
+async function checkReadiness(): Promise<boolean | null> {
+  try {
+    const response = await fetch(getApiUrl("/readyz"), { signal: AbortSignal.timeout(READINESS_TIMEOUT_MS) });
+    return response.ok;
+  } catch {
+    return null;
+  }
+}
+
+const [about, ready, stats, backups, tasks, plugins] = await Promise.all([
+  attempt("about", () => fetchApi<AboutInfo>("/api/admin/about", {}, authToken)),
+  checkReadiness(),
+  attempt("statistics", () => fetchApi<Statistics>("/api/admin/about/statistics", {}, authToken)),
+  attempt("backups", () => fetchApi<Backup[]>("/api/admin/backups", {}, authToken)),
+  attempt("scheduled tasks", () => listAllTasks(authToken)),
+  attempt("plugins", () => listPlugins(authToken)),
+]);
+
+// The release check reports failures as text ("error fetching version"), so only a version-looking
+// tag counts as a newer release.
+const VERSION_TAG = /^v?\d/;
+const stripV = (v: string) => v.replace(/^v/, "");
+const updateAvailable =
+  about !== null && VERSION_TAG.test(about.versionLatest) && stripV(about.versionLatest) !== stripV(about.version);
+
+const backupSummary = backups ? summarizeBackups(backups) : null;
+const taskSummary = tasks ? summarizeTasks(tasks) : null;
+const failedPlugins = plugins ? plugins.filter((p) => !p.ok).length : 0;
+const providerCount = plugins ? plugins.reduce((sum, p) => sum + p.providers.length, 0) : 0;
+
+const readinessLabel = ready === null ? NO_DATA : ready ? "Ready" : "Unavailable";
+const fmtDate = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 ---
 
-<AdminLayout title="Administration">
-  <div class="settings-container">
-    <div class="settings-header">
-      <div>
-        <h1>Administration</h1>
-        <p>Manage platform settings, users, and workspaces</p>
-      </div>
+<AdminLayout title="Overview">
+  <div class="toolbar">
+    <div>
+      <h2>Platform overview</h2>
+      <p>What needs attention across the platform. Each card opens its page.</p>
     </div>
+  </div>
 
-    <nav class="tabs">
-      {tabs.map(tab => (
-        <a
-          href={`/admin?tab=${tab.id}`}
-          class:list={['tab', { active: currentTab === tab.id }]}
-        >
-          <span class="tab-icon">{tab.icon}</span>
-          <span class="tab-label">{tab.label}</span>
-        </a>
-      ))}
-    </nav>
+  <div class="page-container">
+    <div class="status-grid">
+      <a href="/admin/system" class:list={["status-card", { warn: updateAvailable || ready === false }]}>
+        <h3>Version &amp; health</h3>
+        <div class="status-value">{about?.version ?? NO_DATA}</div>
+        <ul class="status-details">
+          {about && <li>{updateAvailable ? `Update available: ${about.versionLatest}` : "Up to date"}</li>}
+          <li>Database{about ? ` (${about.dbType})` : ""}: {readinessLabel}</li>
+        </ul>
+      </a>
 
-    <div class="tab-content">
-      {currentTab === 'general' && (
-        <div class="content-section">
-          <h2>General Settings</h2>
-          <p class="section-description">Platform-wide configuration</p>
+      <a href="/admin/users" class="status-card">
+        <h3>People</h3>
+        <div class="status-value">{stats ? plural(stats.totalUsers, "user") : NO_DATA}</div>
+        <ul class="status-details">
+          <li>{stats ? plural(stats.totalGroups, "workspace") : NO_DATA}</li>
+        </ul>
+      </a>
 
-          <div class="quick-links">
-            <a href="/admin/site-settings" class="link-card">
-              <strong>Site Settings</strong>
-              <p>Configure platform name, branding, and defaults</p>
-            </a>
-            <a href="/admin/system" class="link-card">
-              <strong>System Information</strong>
-              <p>View version, database, and environment details</p>
-            </a>
-          </div>
+      <a href="/admin/plugins" class:list={["status-card", { warn: failedPlugins > 0 }]}>
+        <h3>Plugins</h3>
+        <div class="status-value">{plugins ? `${plugins.length} installed` : NO_DATA}</div>
+        <ul class="status-details">
+          {plugins && <li>{plural(providerCount, "provider")}</li>}
+          {failedPlugins > 0 && <li>{failedPlugins} failed to load</li>}
+        </ul>
+      </a>
+
+      <a href="/admin/backups" class:list={["status-card", { warn: backupSummary !== null && backupSummary.state !== "fresh" }]}>
+        <h3>Last backup</h3>
+        <div class="status-value">
+          {backupSummary === null ? NO_DATA : backupSummary.latestAt ? formatAge(backupSummary.latestAt) : "None yet"}
         </div>
-      )}
+        <ul class="status-details">
+          {backupSummary?.latestAt && <li>{fmtDate(backupSummary.latestAt)}</li>}
+          {backupSummary && backupSummary.state !== "fresh" && (
+            <li>{backupSummary.state === "none" ? "No backup has been taken" : `Older than ${BACKUP_STALE_DAYS} days`}</li>
+          )}
+          {backups && <li>{plural(backups.length, "backup")} on disk</li>}
+        </ul>
+      </a>
 
-      {currentTab === 'accounts' && (
-        <div class="content-section">
-          <h2>Users &amp; Workspaces</h2>
-          <p class="section-description">Manage user accounts and workspaces</p>
-
-          <div class="quick-links">
-            <a href="/admin/users" class="link-card">
-              <strong>All Users</strong>
-              <p>View and manage all platform users</p>
-            </a>
-            <a href="/admin/workspaces" class="link-card">
-              <strong>All Workspaces</strong>
-              <p>View and manage all workspaces</p>
-            </a>
-            <a href="/admin/roles" class="link-card">
-              <strong>Roles &amp; Permissions</strong>
-              <p>Reference: what each workspace role can do</p>
-            </a>
-          </div>
-        </div>
-      )}
-
-      {currentTab === 'email' && (
-        <div class="content-section">
-          <h2>Email Configuration</h2>
-          <p class="section-description">SMTP settings and email templates</p>
-
-          <div class="quick-links">
-            <a href="/admin/email-settings" class="link-card">
-              <strong>SMTP Configuration</strong>
-              <p>Configure email server and test delivery</p>
-            </a>
-            <div class="link-card disabled">
-              <strong>Email Logs</strong>
-              <p>View sent email history (Coming soon)</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {currentTab === 'backups' && (
-        <div class="content-section">
-          <h2>Backup & Restore</h2>
-          <p class="section-description">Protect your data with backups</p>
-
-          <div class="quick-links">
-            <a href="/admin/backups" class="link-card">
-              <strong>Database Backups</strong>
-              <p>Create and restore database backups</p>
-            </a>
-            <div class="link-card disabled">
-              <strong>Scheduled Backups</strong>
-              <p>Automatic backup configuration (Coming soon)</p>
-            </div>
-            <div class="link-card disabled">
-              <strong>Asset Backups</strong>
-              <p>Backup uploaded files and media (Coming soon)</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {currentTab === 'maintenance' && (
-        <div class="content-section">
-          <h2>Maintenance & Tools</h2>
-          <p class="section-description">System cleanup and utilities</p>
-
-          <div class="quick-links">
-            <a href="/admin/maintenance" class="link-card">
-              <strong>System Maintenance</strong>
-              <p>Run cleanup tasks and view statistics</p>
-            </a>
-            <a href="/admin/scheduled-tasks" class="link-card">
-              <strong>Scheduler</strong>
-              <p>Manage system and workspace scheduled tasks</p>
-            </a>
-            <div class="link-card disabled">
-              <strong>Database Tools</strong>
-              <p>Optimize and repair database (Coming soon)</p>
-            </div>
-            <div class="link-card disabled">
-              <strong>Logs</strong>
-              <p>View application logs (Coming soon)</p>
-            </div>
-          </div>
-        </div>
-      )}
+      <a href="/admin/scheduled-tasks" class:list={["status-card", { warn: (taskSummary?.failing.length ?? 0) > 0 }]}>
+        <h3>Scheduled tasks</h3>
+        <div class="status-value">{taskSummary ? `${taskSummary.failing.length} failing` : NO_DATA}</div>
+        <ul class="status-details">
+          {taskSummary?.failing.slice(0, MAX_FAILING_TASKS_SHOWN).map((t) => <li class="failing">{t.name}</li>)}
+          {taskSummary && taskSummary.failing.length > MAX_FAILING_TASKS_SHOWN && (
+            <li>and {taskSummary.failing.length - MAX_FAILING_TASKS_SHOWN} more</li>
+          )}
+          {taskSummary && <li>{taskSummary.enabled} of {taskSummary.total} enabled</li>}
+          {taskSummary?.lastRunAt && <li>Last run {formatAge(taskSummary.lastRunAt)}</li>}
+        </ul>
+      </a>
     </div>
   </div>
 </AdminLayout>
 
 <style>
-  .settings-container {
-    max-width: 1200px;
-  }
-
-  .settings-header {
+  .toolbar {
     margin-bottom: 32px;
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
 
-  .settings-header h1 {
-    margin: 0 0 8px;
-    font-size: 28px;
-    font-weight: 600;
-  }
-
-  .settings-header p {
+  .toolbar h2 {
     margin: 0;
-    color: var(--muted);
-    font-size: 16px;
-  }
-
-  .tabs {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 32px;
-    padding: 4px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    overflow-x: auto;
-  }
-
-  .tab {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    background: transparent;
-    border: none;
-    border-radius: calc(var(--radius) - 2px);
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--muted);
-    text-decoration: none;
-    white-space: nowrap;
-    transition: all 0.2s;
-    cursor: pointer;
-  }
-
-  .tab:hover {
-    background: var(--panel-2);
-    color: inherit;
-  }
-
-  .tab.active {
-    background: var(--bg);
-    color: var(--ink);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  }
-
-  .tab-icon {
-    font-size: 16px;
-  }
-
-  .tab-content {
-    min-height: 400px;
-  }
-
-  .content-section h2 {
-    margin: 0 0 8px;
-    font-size: 22px;
+    font-size: 24px;
     font-weight: 600;
   }
 
-  .section-description {
-    margin: 0 0 24px;
+  .toolbar p {
+    margin: 8px 0 0;
     color: var(--muted);
-    font-size: 15px;
+    font-size: 14px;
   }
 
-  .quick-links {
+  .page-container {
+    max-width: 1200px;
+  }
+
+  .status-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   }
 
-  .link-card {
+  .status-card {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
     padding: 20px;
     background: var(--panel);
     border: 1px solid var(--line);
+    border-left: 4px solid var(--line);
     border-radius: var(--radius);
-    text-decoration: none;
     color: inherit;
-    transition: all 0.2s;
+    text-decoration: none;
+    transition: border-color 0.2s;
   }
 
-  .link-card:not(.disabled):hover {
+  .status-card:hover {
     border-color: var(--accent);
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   }
 
-  .link-card.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
+  /* A warning keeps its colour on hover so it doesn't read as resolved. */
+  .status-card.warn,
+  .status-card.warn:hover {
+    border-left-color: var(--warn);
   }
 
-  .link-card strong {
-    font-size: 15px;
-    font-weight: 600;
-  }
-
-  .link-card p {
+  .status-card h3 {
     margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+
+  .status-value {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+
+  .status-card.warn .status-value {
+    color: var(--warn);
+  }
+
+  .status-details {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     font-size: 13px;
     color: var(--muted);
+  }
+
+  .status-details .failing {
+    color: var(--warn);
   }
 </style>

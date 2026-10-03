@@ -3,6 +3,7 @@ from .about import AdminAboutInfo, AppInfo, AppStartupInfo, AppStatistics, Check
 from .debug import DebugResponse
 from .email import EmailReady, EmailSuccess, EmailTest
 from .maintenance import MaintenanceLogs, MaintenanceStorageDetails, MaintenanceSummary
+from .plugins import PluginProviderRead, PluginRead
 from .settings import CustomPageBase, CustomPageOut
 
 __all__ = [
@@ -10,6 +11,8 @@ __all__ = [
     "MaintenanceLogs",
     "MaintenanceStorageDetails",
     "MaintenanceSummary",
+    "PluginProviderRead",
+    "PluginRead",
     "EmailReady",
     "EmailSuccess",
     "EmailTest",
