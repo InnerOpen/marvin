@@ -7,7 +7,7 @@
 *.temp
 
 # frontend/.env.development
-docs/site/
+docs/manual/openapi.json
 *temp/*
 .secret
 

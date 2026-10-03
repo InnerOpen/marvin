@@ -1,16 +1,15 @@
 name: Documentation
 
-# Build and publish documentation
-
 on:
   push:
-    branches:
-      - main
+    branches: [develop]
     paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - 'src/marvin/**'
-      - '.github/workflows/docs.yml'
+      - "docs/manual/**"
+      - "docs/overrides/**"
+      - "mkdocs.yml"
+      - "src/marvin/**"
+      - "uv.lock"
+      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 concurrency:
@@ -18,280 +17,95 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write  # For GitHub Pages deployment
+  contents: read
   pages: write
   id-token: write
 
+env:
+  SITE: ${{ github.workspace }}/site
+  DOCS_BASE_URL: https://inneropen.github.io/marvin
+
 jobs:
-  build-docs:
-    name: Build Documentation
+  build:
+    name: Build documentation
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout main repo
+      - name: Checkout marvin
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: marvin
 
-      - name: Checkout SDK repo
+      - name: Checkout marvin-sdk
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: InnerOpen/marvin-sdk
+          ref: develop
           path: marvin-sdk
-          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Checkout CLI repo
+      - name: Checkout marvin-cli
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: InnerOpen/marvin-cli
+          ref: develop
           path: marvin-cli
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - name: Setup uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
-          node-version: '22'
+          enable-cache: true
+          cache-dependency-glob: marvin/uv.lock
 
-      # ====== Backend Documentation ======
-      - name: Install system dependencies (OpenLDAP headers for python-ldap)
-        run: sudo apt-get update && sudo apt-get install -y libldap2-dev libsasl2-dev
-
-      - name: Install Marvin dependencies
+      # The default `dev` group carries mkdocs + mkdocs-material. LDAP is imported lazily and
+      # DB_ENGINE defaults to sqlite, so nothing else is needed to import the app.
+      - name: Install dependencies
         working-directory: marvin
-        run: pip install -e ".[dev]"
+        run: uv sync
 
-      - name: Build MkDocs site
+      - name: Export OpenAPI spec
         working-directory: marvin
-        run: |
-          mkdocs build --strict --site-dir /tmp/docs-site/
+        env:
+          DB_ENGINE: sqlite
+        run: uv run python -c "import json; from marvin.app import app; json.dump(app.openapi(), open('docs/manual/openapi.json', 'w'), indent=2)"
 
-      - name: Generate OpenAPI spec
+      - name: Build core site
         working-directory: marvin
-        run: |
-          python -c "
-          from marvin.app import app
-          import json
-          import yaml
+        run: uv run mkdocs build --strict --site-dir "$SITE"
 
-          spec = app.openapi()
-
-          # Save as JSON
-          with open('/tmp/docs-site/openapi.json', 'w') as f:
-              json.dump(spec, f, indent=2)
-
-          # Save as YAML
-          with open('/tmp/docs-site/openapi.yaml', 'w') as f:
-              yaml.dump(spec, f, sort_keys=False)
-
-          print('✅ OpenAPI spec generated')
-          "
-
-      - name: Generate API documentation (ReDoc)
-        run: |
-          mkdir -p /tmp/docs-site/api
-          cat > /tmp/docs-site/api/index.html <<EOF
-          <!DOCTYPE html>
-          <html>
-            <head>
-              <title>Marvin API Documentation</title>
-              <meta charset="utf-8"/>
-              <meta name="viewport" content="width=device-width, initial-scale=1">
-              <link href="https://fonts.googleapis.com/css?family=Montserrat:300,400,700|Roboto:300,400,700" rel="stylesheet">
-              <style>
-                body { margin: 0; padding: 0; }
-              </style>
-            </head>
-            <body>
-              <redoc spec-url='../openapi.json'></redoc>
-              <script src="https://cdn.jsdelivr.net/npm/redoc@latest/bundles/redoc.standalone.js"></script>
-            </body>
-          </html>
-          EOF
-
-      # ====== SDK Documentation ======
-      - name: Install SDK dependencies
-        working-directory: marvin-sdk
-        run: npm ci
-
-      - name: Build SDK
-        working-directory: marvin-sdk
-        run: npm run build
-
-      - name: Generate SDK documentation (TypeDoc)
+      # The SDK and CLI keep their own mkdocs.yml; only site_url is swapped so canonical URLs
+      # and sitemaps point at their mount inside this site.
+      - name: Build SDK site
         working-directory: marvin-sdk
         run: |
-          npx typedoc src/index.ts \
-            --out /tmp/docs-site/sdk \
-            --name "Marvin SDK" \
-            --excludePrivate \
-            --excludeProtected || echo "⚠️ TypeDoc failed, skipping SDK docs"
-        continue-on-error: true
+          sed "s#^site_url:.*#site_url: $DOCS_BASE_URL/sdk/#" mkdocs.yml > mkdocs.pages.yml
+          ../marvin/.venv/bin/mkdocs build --strict -f mkdocs.pages.yml --site-dir "$SITE/sdk"
 
-      - name: Copy SDK README
-        run: |
-          mkdir -p /tmp/docs-site/sdk
-          cp marvin-sdk/README.md /tmp/docs-site/sdk/ || echo "⚠️ SDK README not found"
-
-      # ====== CLI Documentation ======
-      - name: Install CLI dependencies
-        working-directory: marvin-cli
-        run: npm ci
-
-      - name: Build CLI
-        working-directory: marvin-cli
-        run: npm run build
-
-      - name: Generate CLI documentation
+      - name: Build CLI site
         working-directory: marvin-cli
         run: |
-          npx typedoc src/index.ts \
-            --out /tmp/docs-site/cli \
-            --name "Marvin CLI" \
-            --excludePrivate \
-            --excludeProtected || echo "⚠️ TypeDoc failed, skipping CLI docs"
-        continue-on-error: true
+          sed "s#^site_url:.*#site_url: $DOCS_BASE_URL/cli/#" mkdocs.yml > mkdocs.pages.yml
+          ../marvin/.venv/bin/mkdocs build --strict -f mkdocs.pages.yml --site-dir "$SITE/cli"
 
-      - name: Generate CLI command reference
-        working-directory: marvin-cli
-        run: |
-          mkdir -p /tmp/docs-site/cli
-          node dist/index.js --help > /tmp/docs-site/cli/commands.txt 2>&1 || \
-          echo "# CLI Command Reference\n\nCLI command documentation coming soon." > /tmp/docs-site/cli/commands.md
-
-      - name: Copy CLI README
-        run: |
-          mkdir -p /tmp/docs-site/cli
-          cp marvin-cli/README.md /tmp/docs-site/cli/ || echo "⚠️ CLI README not found"
-
-      # ====== Create Documentation Index ======
-      - name: Create documentation index
-        run: |
-          cat > /tmp/docs-site/index.html <<EOF
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-              <meta charset="UTF-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Marvin Documentation</title>
-              <style>
-                  body {
-                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-                      max-width: 800px;
-                      margin: 50px auto;
-                      padding: 20px;
-                      line-height: 1.6;
-                  }
-                  h1 { color: #333; }
-                  .docs-grid {
-                      display: grid;
-                      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-                      gap: 20px;
-                      margin-top: 30px;
-                  }
-                  .doc-card {
-                      border: 1px solid #ddd;
-                      border-radius: 8px;
-                      padding: 20px;
-                      text-decoration: none;
-                      color: inherit;
-                      transition: box-shadow 0.2s;
-                  }
-                  .doc-card:hover {
-                      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-                  }
-                  .doc-card h2 {
-                      margin-top: 0;
-                      color: #0066cc;
-                  }
-              </style>
-          </head>
-          <body>
-              <h1>📚 Marvin Documentation</h1>
-              <p>Welcome to the Marvin CMS documentation portal.</p>
-
-              <div class="docs-grid">
-                  <a href="/site/" class="doc-card">
-                      <h2>📖 Main Documentation</h2>
-                      <p>User guides, architecture, and deployment</p>
-                  </a>
-
-                  <a href="/api/" class="doc-card">
-                      <h2>🔌 API Reference</h2>
-                      <p>REST API endpoints and schemas</p>
-                  </a>
-
-                  <a href="/sdk/" class="doc-card">
-                      <h2>📦 SDK Documentation</h2>
-                      <p>TypeScript SDK reference</p>
-                  </a>
-
-                  <a href="/cli/" class="doc-card">
-                      <h2>⚡ CLI Documentation</h2>
-                      <p>Command-line tool reference</p>
-                  </a>
-              </div>
-
-              <hr style="margin: 40px 0;">
-
-              <h3>📥 Downloads</h3>
-              <ul>
-                  <li><a href="/openapi.json">OpenAPI Spec (JSON)</a></li>
-                  <li><a href="/openapi.yaml">OpenAPI Spec (YAML)</a></li>
-              </ul>
-          </body>
-          </html>
-          EOF
-
-      # ====== Upload Documentation ======
-      - name: Upload documentation artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          name: documentation
-          path: /tmp/docs-site/
+          path: ${{ env.SITE }}
 
-      - name: Generate documentation summary
-        run: |
-          echo "## 📚 Documentation Built Successfully" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Components:**" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Main Documentation (MkDocs)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ API Reference (ReDoc)" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ OpenAPI Specification" >> $GITHUB_STEP_SUMMARY
-          if [ -d /tmp/docs-site/sdk ]; then
-            echo "- ✅ SDK Documentation (TypeDoc)" >> $GITHUB_STEP_SUMMARY
-          fi
-          if [ -d /tmp/docs-site/cli ]; then
-            echo "- ✅ CLI Documentation (TypeDoc)" >> $GITHUB_STEP_SUMMARY
-          fi
-
-  # Deploy to GitHub Pages (optional)
-  deploy-pages:
+  deploy:
     name: Deploy to GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
-    needs: build-docs
-    if: github.ref == 'refs/heads/main'
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Download documentation
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: documentation
-          path: ./docs-site
-
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-
-      - name: Upload artifact for Pages
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: ./docs-site
-
-      - name: Deploy to GitHub Pages
+      - name: Deploy
         id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

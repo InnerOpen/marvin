@@ -1,0 +1,72 @@
+# What's new
+
+Since 1.0.0-rc.39 (30 July 2026). This page covers releases rc.40 through rc.156 (3 October 2026). Version numbers name the `chore(release)` that first shipped each change; commit hashes are in [`CHANGELOG.md`](https://github.com/InnerOpen/marvin/blob/develop/CHANGELOG.md).
+
+!!! note
+    The last release cut in July was rc.39. rc.47 (4 September) only fixed an agent 500; the first feature after July is rc.40.
+
+## Forms and submission protection
+
+A submittable entry type is now a form: the public submit resolves the slug to the entry type, validates against its field schema and creates a `status=inbox` entry that emits `form_submission_received` (rc.42; the legacy Forms path stays as a fallback). The publishing `GET` serves the submittable schema (rc.44). Opt-in per-type rate limiting and CAPTCHA run before validation (rc.45). Platform-wide submission protection with per-workspace overrides adds review-not-reject mode, domain block/allow lists, disposable and personal-domain presets, exempt IPs, client capture and surge detection (rc.67). Details: [Forms and submission protection](forms-and-submission-protection.md).
+
+## Workflows
+
+The webhook step accepts `auth_scheme` (`Token` as well as `Bearer`, rc.50), resolves `{{SECRET}}` refs in configured headers (rc.53), fails on a non-2xx response (rc.54), takes a method on raw URLs and templates in stored URLs (rc.61), and returns the response `body` to later steps. `form_submission_received` can trigger a workflow (rc.51). The entry context carries `summary` and schema fields (rc.52). The entry step gained `set_metadata`, metadata targeting for external ids (rc.59) and `entity_query` (rc.60). A **Set fields** step (`set_data`) writes an entry's schema fields, a **Run integration** step runs a provider action and keeps its result, entry metadata joins the context and template paths take list indexes (rc.111). `${entry.image}` gives the featured image URL (rc.119). "Run on a query of entries" gives each row the full entry, so `entry.data.*` conditions work, and the query gained a **Fields equal** filter (rc.129). Typed values in Set fields and conditions convert to the field's type (rc.131). Workflow targets, `entity_query`, the agent's `find_entries` and bulk agent actions now share one entry query with `where` operators, date filters and sorting (rc.138); an unknown `where` operator matches nothing instead of being ignored, and runs started by the agent's `run_workflow` are recorded under **Runs** (rc.139). **Emit event** can emit `site_build_*` and `site_deployment_*` events with a message, failure reason and site URL, so a host's deploy notification becomes a Marvin event (rc.144); those events can be subscribed to for notifications (rc.151) and trigger other workflows from a new **Site** trigger group (rc.152). A **Run integration** step resolves `{{SECRET}}` references in its args (rc.145), and AI-operation steps respect the workspace's AI limits and token cap (rc.146). Details: [Workflows](workflows.md).
+
+## Incoming webhooks
+
+An incoming webhook can name a workspace secret (`signing_secret_ref`) and a header (`signature_header`, default `X-Signature-256`); requests must then carry `sha256=<hex HMAC-SHA256 of the raw body>` or get 401 (rc.55). The admin card edits signing and can generate a key stored as a secret and shown once (rc.56). Rejected signatures log their shape (rc.57) and accepted payloads log their key structure, keys only (rc.58). Signature schemes followed: core presets, presets contributed by integrations and a custom scheme (rc.111, rc.113). A `static_token` scheme, and token mode for integration and custom schemes, accept senders that send a fixed shared secret in a header instead of signing (rc.144). Details: [Incoming webhooks](incoming-webhooks.md).
+
+## Outgoing webhooks
+
+A new `workflow` webhook type never fires from the event bus; only a workflow's "Call webhook" step calls it, and those calls now write delivery-log rows (rc.63). Details: [Outgoing webhooks](outgoing-webhooks.md).
+
+## Agents and Ask
+
+Workspace agents are definable persona or model agents with a run endpoint and MCP tools (rc.70). A per-tool permission matrix, an Agents settings page and Ask as the agent chat followed (rc.71), then a read-only `view_image` tool with sticky attachments (rc.72), a `workspace_overview` tool (rc.73) and a preamble that lists connected MCP servers (rc.74). Ask threads are stored server-side (rc.76) and live run steps can be polled while a run is in flight (rc.77). The built-in `marvin` agent became a router that hands off to and refers users to other agents (rc.98–rc.100), and the `ask` tool policy became **Ask first**: the run pauses on its thread until the user approves (rc.107). Agents got a workspace inventory and a forgiving workflow lookup (rc.108); unpriced models show an unknown cost instead of "Free" (rc.110). A blank persona means Marvin's default voice (rc.133). Approval mode now covers every AI write-back, the bubble and Ask send the `agent` invocation source, and the unused forms/actions/scheduled source toggles are gone (rc.134). The bubble uses the workspace's assistant name and icon (rc.135), and `find_entries` can filter on an entry type's own fields (rc.136). The main agent is listed under the assistant name everywhere (rc.140). **Reindex now** runs in the background, batched and incremental, with status on the Ask page (rc.141), and the search index holds published entries only (rc.142). AI Settings gained a **Usage & Limits** card with a monthly cost limit and budget toasts; agents answer about a connected MCP source themselves and say when they cannot reach one; executions name agent runs `agent:<name>` (rc.146). The official OpenAI API moved to the Responses API, a refused parameter is learned per model, and no temperature is sent unless `AI_DEFAULT_TEMPERATURE` is set (rc.147–rc.149). Bubble conversations live in server threads, survive navigating away mid-run and appear on the Ask page (rc.150). The bubble can show an animated character instead of its icon, one GIF, WebP or PNG animation per state, uploaded under AI Settings → **Persona → Bubble character** (rc.153). Platform admins keep a **Character Library** that any workspace or agent can pick from, custom agents get characters of their own that the bubble shows after `/use` and while a hand-off works, and the bubble keeps its threads per workspace, so a tab that switches workspaces no longer sends the other workspace's thread (rc.156). Details: [Agents and Ask](agents-and-ask.md).
+
+## Marvin as an MCP server
+
+External MCP tools are placed by their own `readOnlyHint` / `destructiveHint` into `mcp_read`, `mcp` and `mcp_destructive` rows of the matrix, and discovered tools appear in the catalog and permissions endpoints (rc.75). Ask-first tools are not offered to MCP callers, which have no thread to pause on (rc.107). Details: [Marvin as an MCP server](marvin-as-mcp-server.md).
+
+## Scheduled tasks
+
+`run_integration_action` calls one provider action for one integration on a schedule, feeding entries in and persisting returned records as entries (rc.78). A handler may return `None` for a routine no-op and the automatic run is not logged; manual runs always are (rc.96). `prune_scheduled_task_executions` ships as a system task with 30-day retention (rc.97). Details: [Scheduled tasks](scheduled-tasks.md).
+
+## Integrations
+
+Provider-declared content is ingested as blueprints (rc.87). The connected-integration card lists what the integration needs and applies it there (rc.90), separates "needed to work" from "optional" (rc.93), supports event-subscription blueprints and a provider icon (rc.92), and shows each action's description, arguments, capability, approval and cost badges and emitted events (rc.94). Smart collections for Instagram rules and sent replies arrived in rc.80. The provider HTTP helper gained `put` and `delete` (rc.111). The card applies parameterised content, shows action results and accepts `{{SECRET}}` credentials (rc.114); a connected integration can be edited (rc.115). Provider HTTP sends a named User-Agent (rc.119) and downloads are capped by `INTEGRATION_HTTP_MAX_BYTES` (rc.123). Integrations can contribute token signature schemes (rc.144), and action arguments accept `{{SECRET}}` references on the card and in workflows (rc.145). A Cloudflare Pages provider package reports deploys back as site deployment events. Details: [Integrations](integrations.md).
+
+## Blueprints
+
+A blueprint declares a collection, entry type, scheduled task or event subscription without creating it; applying creates only what is missing and never overwrites (rc.84). A workspace API browses and applies them (rc.85), parameters and a content-neutral core catalog followed (rc.86). Integrations can declare `entry_fields`, `incoming_webhook` and `workflow` blueprints, and applying needs ADMIN or OWNER (rc.111). Parameters are picked from dropdowns (rc.116), an integration parameter defaults to the workspace's own connection (rc.117), and an applied workflow can be updated to its integration's current version (rc.118). The connected-integration card is where blueprints are applied. Details: [Blueprints](blueprints.md).
+
+## Publishing API
+
+`PublishedEntryListItem` carries `data` and `description`, so a site renders a collection from one request (rc.48). Entries of non-publishable types are never served (rc.62). Site rebuild requests are coalesced per workspace (rc.121), with the wait windows as settings (rc.122). Published content changes queue a rebuild on their own, behind **Rebuild the site automatically** in Settings → General (rc.143), and a host's build and deploy notifications can come back as Marvin events and toasts (rc.144). A rebuild records the changes it covers: `webhook_triggered` carries `requestCount` and `changes`, and the **Site rebuild** toast lists them under "N changes ▾" (rc.154); the event catalog describes those variables (rc.155). Details: [Publishing API](publishing-api.md).
+
+## Collections
+
+Smart rules gained rolling `published_within_days` and `created_within_days` windows that fail closed; the nightly `resync_smart_collections` task evicts aged-out items (rc.82). Workspaces no longer ship a manual "Recent" collection (rc.83). Details: [Collections](collections.md).
+
+## Auth and tokens
+
+No new token type this period. Secrets are now resolved in webhook headers (rc.53), incoming-webhook signing keys are stored as workspace secrets (rc.55, rc.56), CAPTCHA secrets come from the workspace store via `{{SLUG}}` refs (rc.45) and integration action arguments can reference secrets (rc.145). See [Auth and tokens](../auth-and-tokens.md).
+
+## Operations
+
+The admin shows a "new version available" banner from `/version.json` (rc.64) backed by the public `/api/app/about/version` (rc.65). New settings: `STORAGE_LOCAL_PUBLIC_BASE_URL` (rc.40), `SITE_REBUILD_QUIET_SECONDS` and `SITE_REBUILD_MAX_WAIT_SECONDS` (rc.122), `INTEGRATION_HTTP_MAX_BYTES` (rc.123), `MCP_TOOL_TIMEOUT_SECONDS` and `MCP_TOOL_RESULT_MAX_CHARS` (rc.146). `AI_DEFAULT_TEMPERATURE` is unset by default since rc.149 (it was `0.7`), so each model uses its own temperature; set it to force one. The admin shows live activity toasts from a bell in the top bar (rc.124–rc.128). New system task: `prune_scheduled_task_executions` (rc.97). Character-library packs are stored by the asset storage provider under `_platform/character-packs/`, outside any workspace (rc.156). See [Operations](../operations.md).
+
+## Smaller changes
+
+- Admin update banner (rc.64) and the public `/api/app/about/version` endpoint it polls through `/version.json` (rc.65); the banner's "Later" fix landed in rc.66.
+- `STORAGE_LOCAL_PUBLIC_BASE_URL`: absolute local-asset URLs for a CDN, tunnel host or decoupled frontend (rc.40).
+- Crop and grade keep transparency instead of flattening onto black (`bc21db31`, rc.46).
+- Unresolved email template variables are no longer mailed as the unresolved sentinel (`b1c775b0`, rc.69).
+- `httpx` is a runtime dependency, not an optional extra (`90fb7aff`, rc.49).
+- The entry-type editor no longer drops `capabilities.submission` on save (rc.68).
+- The sidebar shows an inbox count badge on the Entries row (rc.103, rc.105).
+- Review links in AI answers are absolute when `FRONTEND_URL` is configured (rc.104).
+- Applying several blueprints at once keeps the chosen integration connection (rc.139).
+- The dashboard's **Needs Attention** panel counts inbox entries and drafts separately, each linking to its own filter (rc.149).
+- Activity toasts that fade wait while the pointer or focus is on them (rc.154).

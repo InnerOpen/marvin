@@ -1,3 +1,5 @@
+> **Superseded (2026-09-25):** this page predates the current API. See the manual — https://inneropen.github.io/marvin/whats-new/publishing-api/ — which follows the code.
+
 # Publishing API
 
 The Publishing API is a read-only interface for external sites to consume published content from Marvin workspaces. It is authenticated via site client tokens and scoped to one workspace.

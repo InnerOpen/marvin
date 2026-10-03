@@ -1,3 +1,5 @@
+> **Superseded (2026-09-25):** this page predates the current API. See the manual — https://inneropen.github.io/marvin/whats-new/publishing-api/ — which follows the code.
+
 # Site Clients and Publishing API
 
 Site clients are read-only API identities for external sites.

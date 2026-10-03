@@ -1,0 +1,70 @@
+site_name: Marvin
+site_description: Marvin CMS — core manual, SDK, CLI and API reference
+site_url: https://inneropen.github.io/marvin/
+repo_name: InnerOpen/marvin
+repo_url: https://github.com/InnerOpen/marvin
+edit_uri: edit/develop/docs/manual/
+docs_dir: docs/manual
+site_dir: site
+use_directory_urls: true
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle: { icon: material/brightness-7, name: Switch to dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle: { icon: material/brightness-4, name: Switch to light mode }
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+  icon: { repo: fontawesome/brands/github }
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight: { anchor_linenums: true }
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed: { alternate_style: true }
+
+plugins:
+  - search
+
+nav:
+  - Home: index.md
+  - What's new:
+      - Overview: whats-new/index.md
+      - Forms & submission protection: whats-new/forms-and-submission-protection.md
+      - Workflows: whats-new/workflows.md
+      - Incoming webhooks: whats-new/incoming-webhooks.md
+      - Outgoing webhooks: whats-new/outgoing-webhooks.md
+      - Agents & Ask: whats-new/agents-and-ask.md
+      - Marvin as an MCP server: whats-new/marvin-as-mcp-server.md
+      - Scheduled tasks: whats-new/scheduled-tasks.md
+      - Integrations: whats-new/integrations.md
+      - Blueprints: whats-new/blueprints.md
+      - Publishing API: whats-new/publishing-api.md
+      - Collections: whats-new/collections.md
+  - Auth & tokens: auth-and-tokens.md
+  - Operations: operations.md
+  - Glossary: glossary.md
+  - API Reference: api/index.md
+  - SDK: https://inneropen.github.io/marvin/sdk/
+  - CLI: https://inneropen.github.io/marvin/cli/

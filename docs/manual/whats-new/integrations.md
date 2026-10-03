@@ -1,0 +1,128 @@
+# Integrations
+
+Connect a workspace to an external service through an installable provider package, then run its actions by hand, from a workflow, on a schedule, or whenever an event fires.
+
+## What it does
+
+An **integration** is a credentialed connection from one workspace to one external service. The code that knows how to talk to that service is a **provider**, and providers are not part of Marvin core: each one is a separate Python package that registers itself through the `marvin.integrations` entry-point group. Core ships no providers. With no provider installed the SDK is absent, `INTEGRATIONS_AVAILABLE` is `False`, and the whole integrations surface stays dormant (the API returns 404 and the Integrations page says so).
+
+On startup `src/marvin/services/integrations/loader.py` reads every entry point in the group, imports it and registers its provider. A package that fails to import is logged and skipped; it never blocks the others or crashes startup. Its load report (distribution, version, error) is what the **Installed plugins** panel shows.
+
+A provider is a manifest plus handlers, defined against `marvin_integration_sdk` (`src/marvin_integration_sdk/base.py`):
+
+- `slug`, `name`, `description`, `category` (`source`, `destination`, `capability`, `notify`) and an optional emoji `icon`;
+- `credentials` (the core stores one credential per integration, in the secret backend, and never reads it back), and a JSON-schema `config_schema` for non-secret settings;
+- `actions`, each with a key, label, description, `input_schema` and optional capability, approval and cost metadata; `emits`, the events it can raise;
+- `content`, the [blueprints](blueprints.md) it declares, and `signature_schemes`, presets it adds to [incoming webhook](incoming-webhooks.md#signature-schemes) verification;
+- a `check(ctx)` health probe returning `(status, error)`, and `run_action(key, args, ctx)`.
+
+The provider receives only `config`, the resolved `secret`, a logger and an HTTP helper. It never touches the database or the event bus; core owns persistence and dispatch. The HTTP helper offers `get`, `post`, `put` and `delete`; it refuses private, loopback, link-local and reserved hosts (re-checked on every redirect), sends a `marvin-cms/integrations` User-Agent, defaults to a 15 s timeout, and refuses a response larger than `INTEGRATION_HTTP_MAX_BYTES` (default 5,000,000 bytes). See the SDK README at `https://github.com/InnerOpen/marvin-integration-sdk`.
+
+Providers published so far, all under `https://github.com/InnerOpen/marvin-integration-*`:
+
+| Package | Slug | Category | Actions |
+| --- | --- | --- | --- |
+| `marvin-integration-slack` | `slack` | notify | `send_message`; declares an "Announce published entries" event subscription |
+| `marvin-integration-apprise` | `apprise` | notify | `notify` (capability `notify`) |
+| `marvin-integration-openai-images` | `openai_images` | capability | `generate` (capability `image.generate`) |
+| `marvin-integration-instagram` | `instagram` | destination | `list_recent_comments`, `send_private_reply` (DM a comment's author), `auto_reply` (keyword rules, dry-run by default), `refresh_token`; declares its own entry types, collections and scheduled tasks |
+| `marvin-integration-square` | `square` | destination | `list_locations`, `create_listing`, `close_listing` (sell one-of-a-kind items through a Square checkout link); declares fields on an item type, an incoming webhook with its own `square` signature scheme, and workflows |
+| `marvin-integration-cloudflare-pages` | `cloudflare_pages` | destination | `list_deployments`, `build_log` (the likely failure line from a deployment's build log), `connect_notifications` (sets up Cloudflare's deploy notifications to post to Marvin), `deploy`; contributes a `cloudflare` token signature scheme and declares an incoming webhook plus workflows that turn deploy started / succeeded / failed notifications into site deployment events, with the build-log reason on failure |
+| `marvin-integration-template` | `example` | destination | `ping`; the starting point for a new provider |
+
+## Where
+
+- **Settings → Integrations**: `/workspace/settings/integrations`.
+- **Per-event wiring**: `/automation/events/[type]`, "Integrations" section.
+- **Workflows**: the **Run integration** step (`kind: "integration"`); see [Workflows](workflows.md).
+- **Scheduled runs**: a "Run Integration Action" scheduled task (`run_integration_action`).
+- **Install**: the backend image, or an init container in the Helm chart.
+
+## How to use
+
+### Install a provider
+
+Installing a provider is a `pip install` into the backend's Python environment plus a restart; there is no upload or marketplace. Either bake it into a derived image, or install it at pod start into a shared volume that is put on `PYTHONPATH`:
+
+```yaml
+initContainers:
+  - name: install-integrations
+    image: python:3.12-slim
+    command: ["sh", "-c"]
+    args:
+      - pip install --target=/plugins https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
+```
+
+The SDK tarball on the same line satisfies each plugin's `marvin-integration-sdk` dependency. The volume, mount and `PYTHONPATH` wiring are in the worked example in [`marvin-chart/README.md`](https://github.com/InnerOpen/marvin/blob/develop/marvin-chart/README.md#integration-plugins). Uninstall a package and its integrations show as **unavailable** rather than pretending to work; you can still rename, disable or delete them.
+
+### Connect one
+
+1. On the Integrations page, find the provider under **Add an integration** and press **Configure**. Each catalog card shows the provider's icon, name and category.
+2. In **Configure integration**, give it a name and fill the credential and any config fields from its `config_schema`. For the credential, paste the value or type `{{SECRET_NAME}}` to use an existing workspace secret. Required config keys are checked on save.
+3. Press **Add integration**. A pasted credential is stored in the secret backend under `INTEGRATION_<SLUG>`; a `{{SECRET_NAME}}` reference must name an existing secret (`422` otherwise) and is read from there, so rotating that secret rotates the integration. Marvin runs `check()` immediately and the card lands with a real status: `ok`, `unconfigured`, `error` or `unavailable`.
+
+### Edit one
+
+Press ✎ (**Edit integration**) on the card. The panel opens as **Edit <name>** with the current name and config; leave the credential blank to keep it, or enter a new value or `{{SECRET_NAME}}`. **Save changes** re-runs the health check. Deleting an integration removes its own stored credential but never a workspace secret it referenced.
+
+### Read the card
+
+Each connected card has a status badge, an enable toggle, the last error, "Credential: workspace secret `{{SLUG}}`" when the credential is a reference, and up to two expandable sections:
+
+- **Content**, split into **Needed to work** (content an action reads or writes; missing items get a warning badge and an **Add N missing items** button) and **Optional — set these up if you want them**. Each row has its own **Add** button and, where the blueprint asks for parameters, dropdowns prefilled with defaults; an applied workflow with a newer version shows **Update**. Both come from the provider's declared [blueprints](blueprints.md). Nothing is applied on install; applying creates only what is missing.
+- **What you can do with this**: every action with its description, the arguments it takes, and badges for capability routing (for example `image.generate`), `needs approval` and cost hint, followed by **Events it can raise**.
+
+The footer shows the integration's slug (what workflows reference), one button per action, ✎ edit, ↻ **Run health check** and ✕ **Delete integration**. An action with inputs opens **Run action** to collect them; one without fires at once. What the action returns opens in a **Result** panel (**Copy**, **Done**).
+
+**Secrets in arguments.** An action that must hand a secret to its provider (for example a webhook's shared token when setting up the other side) can take `{{SECRET_NAME}}` as an argument, in **Run action** or a workflow's **Run integration** step. Only a top-level string argument that is exactly a reference is resolved, from this workspace's secrets, and the value goes to the provider call only. A reference to a secret that does not exist is refused: `422` from **Run action**, a step error in a workflow. Event-subscription args do not resolve secrets.
+
+### Wire an action to an event
+
+On `/automation/events/[type]` choose **+ Connect an integration action**, pick the integration and action, and give it args. String args accept `{{field}}` placeholders, filled from the event's document data plus `event_type`, `entity_id`, `entity_type` and `message`; an unknown placeholder is left as-is. `IntegrationEventListener` runs every enabled subscription for the event, each in its own try block, so one failing action does not stop the others. A subscription created from a blueprint starts **disabled**.
+
+### Run an action from a workflow
+
+A workflow's **Run integration** step calls one action of one integration (by its slug) with templated args and hands the result to later steps as `$steps.<id>.output`. See [Workflows](workflows.md).
+
+### Capability routing
+
+An action that declares a `capability` (currently `image.generate`, `image.edit`, `image.describe`, `image.search`, `image.upscale`) is discoverable by kind rather than by provider. `integrations_providing(kind, group_id)` returns pre-authorised handlers from every enabled integration in the workspace, highest `priority` first; `src/marvin/services/ai/media/capability.py` consumes it. Each invocation is logged as an `ai_executions` row and an `ai_operation_executed` (or `ai_operation_failed`) event, so paid capability spend shows in the event log.
+
+## API
+
+All routes are workspace-scoped under `/api/groups/integrations` and mounted only when the SDK is installed.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/providers` | Provider catalog (`slug`, `name`, `description`, `category`, `icon`, `config_schema`, `credentials`, `actions`, `emits`) |
+| GET | `/plugins` | Load reports per entry point: distribution, version, `ok`, `error` |
+| GET / POST | `` | List / create; `credential` is write-only and may be `{{SECRET_NAME}}`. Reads return `has_credential` and `credential_secret` (the referenced secret's slug, if any) |
+| PATCH / DELETE | `/{integration_id}` | Rename, enable, change config, replace the credential / delete with its own stored secret |
+| POST | `/{integration_id}/check` | Run `check()` and persist `status`, `last_error`, `last_checked_at` |
+| POST | `/{integration_id}/actions/{action_key}` | Run an action; body is the args dict, where a top-level `{{SECRET_NAME}}` value is resolved for the call. Returns `{ok, result}`. 409 if disabled or the provider is not installed, 422 for a missing secret, 502 on a provider `ValueError` |
+| GET / POST | `/subscriptions?event_type=` | List / create `event_type → action + args` |
+| PATCH / DELETE | `/subscriptions/{sub_id}` | Toggle `enabled` or replace `args` / remove |
+
+Blueprints are applied through `/api/groups/blueprints`; see [Blueprints](blueprints.md). Full reference: [API reference](../api/index.md).
+
+## Settings
+
+No setting switches integrations on; presence of an installed provider does. Credentials go through whichever secret backend the instance is configured with.
+
+| Setting | Default | Effect |
+| --- | --- | --- |
+| `INTEGRATION_HTTP_MAX_BYTES` | `5000000` | Largest response a provider may download through the HTTP helper; a bigger one is refused. Raise it for providers that move files. Must be at least 1. |
+
+## Since
+
+Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145.
+
+Note: `docs/INTEGRATIONS_DESIGN.md` and the plugin architecture doc predate the implementation and describe polling that nothing calls; the SDK package is the contract.
+
+## Related
+
+- [Blueprints](blueprints.md) — the content a provider declares.
+- [Incoming webhooks](incoming-webhooks.md) — where integration signature presets appear.
+- [Collections](collections.md) — the smart collections Instagram declares.
+- Design: [INTEGRATIONS_PLUGIN_ARCHITECTURE.md](https://github.com/InnerOpen/marvin/blob/develop/docs/INTEGRATIONS_PLUGIN_ARCHITECTURE.md)
+- [Glossary](../glossary.md)

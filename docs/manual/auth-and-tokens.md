@@ -1,0 +1,78 @@
+# Auth and tokens
+
+Marvin has three credentials: a session for people using the admin, personal API tokens that act as a user, and API clients that a site or MCP client uses against one workspace. Secrets and variables cover the credentials your automations send to other systems.
+
+## Signing in
+
+`POST /api/auth/token` takes a username/password form, returns `{"access_token": …}` and also sets it as an HttpOnly cookie named by `AUTH_COOKIE_NAME` (default `marvin.access_token`). The admin frontend uses the cookie; `get_current_user` accepts either the cookie or `Authorization: Bearer <jwt>`. A session JWT lives `TOKEN_TIME` hours (default 48) and is signed with the server secret from `DATA_DIR/.secret` (generated on first production start). After `SECURITY_MAX_LOGIN_ATTEMPTS` failures (default 5) the user is locked out for `SECURITY_USER_LOCKOUT_TIME` hours (default 24).
+
+Two external providers can replace the password check:
+
+| Provider | Routes | Settings |
+|---|---|---|
+| OIDC | `GET /api/auth/oauth` starts the login, `GET /api/auth/oauth/callback` finishes it | `OIDC_AUTH_ENABLED`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_CONFIGURATION_URL`, `OIDC_SIGNUP_ENABLED`, `OIDC_USER_GROUP`, `OIDC_ADMIN_GROUP`, `OIDC_AUTO_REDIRECT`, `OIDC_PROVIDER_NAME`, `OIDC_REMEMBER_ME`, `OIDC_USER_CLAIM`, `OIDC_NAME_CLAIM`, `OIDC_GROUPS_CLAIM`, `OIDC_SCOPES_OVERRIDE`, `OIDC_TLS_CACERTFILE` |
+| LDAP | the same `POST /api/auth/token` form, handled by the LDAP provider | `LDAP_AUTH_ENABLED`, `LDAP_SERVER_URL`, `LDAP_TLS_INSECURE`, `LDAP_TLS_CACERTFILE`, `LDAP_ENABLE_STARTTLS`, `LDAP_BASE_DN`, `LDAP_QUERY_BIND`, `LDAP_QUERY_PASSWORD`, `LDAP_USER_FILTER`, `LDAP_ADMIN_FILTER`, `LDAP_ID_ATTRIBUTE`, `LDAP_MAIL_ATTRIBUTE`, `LDAP_NAME_ATTRIBUTE` |
+
+Self-registration is off unless `ALLOW_SIGNUP=true` (OIDC has its own `OIDC_SIGNUP_ENABLED`, default on).
+
+## Roles
+
+A user has one platform role, `NONE` or `SUPER_ADMIN`, and one workspace role per membership. Super admins pass every workspace-role check by default (`require_workspace_role(…, allow_platform_admin=True)`).
+
+| Workspace role | Rank | Can (from `roles.py` helpers) |
+|---|---|---|
+| `OWNER` | 5 | everything an admin can |
+| `ADMIN` | 4 | manage settings, members, publishing (API clients), entry types, collections; edit all entries |
+| `EDITOR` | 3 | create entries, edit all entries, manage assets and collections |
+| `AUTHOR` | 2 | create entries, edit own entries, upload assets |
+| `VIEWER` | 1 | read |
+
+The route dependencies are `require_workspace_owner`, `require_workspace_admin`, `require_workspace_editor`, `require_workspace_author`, `require_workspace_viewer` and `require_workspace_member`.
+
+## Personal API tokens (`marvin_tk_`)
+
+Create them from **Profile → Manage Tokens** (`/user/api-tokens`) or with `POST /api/users/self/api-tokens`; the same prefix offers list, get, `PATCH`, `DELETE` and `POST …/{token_id}/revoke`. Send it in the `Authorization: Bearer <token>` header. `get_current_user` detects the `SECURITY_TOKEN_PREFIX_USER` prefix, verifies the bcrypt hash and updates `last_used_at`; the token then **is the user**. There are no scopes: a personal token can do exactly what its owner can do in each workspace, as decided by the workspace role above. Only the hash is stored, so the plaintext is available once, at creation.
+
+## API clients (`marvin_sk_`)
+
+An API client is a per-workspace credential for sites, `marvin-astro`, `marvin-mcp` and other readers of the publishing API. Manage them at **Settings → Publishing → Site Clients** (the **API Clients** page, `/publishing/clients`; the old `/site-clients` page redirects there) or with `/api/platform/api-clients` (`GET`, `POST`, `GET /{id}`, `PATCH /{id}`, `DELETE /{id}`, `POST /{id}/rotate-token`, `GET /{id}/preview`). The token is returned by create and rotate only. The role helper `workspace_role_can_manage_publishing` grants `OWNER` and `ADMIN`. A platform-wide admin controller exists at `src/marvin/routes/admin/platform/site_clients_controller.py`, but the admin router does not mount it, so it is not reachable.
+
+Permissions are a JSON map of key to boolean checked by `PermissionChecker` (`src/marvin/core/permissions.py`):
+
+| Key | Grants | Default on create |
+|---|---|---|
+| `read:published_entries` | published entries | `true` |
+| `read:collections` | collections | `true` |
+| `read:assets` | assets and asset files | `true` |
+| `read:draft_entries` | entries in non-published statuses | `false` |
+| `read:all_entries` | every entry regardless of status | `false` |
+| `read:resources` | resources | `false` |
+| `write:public_entries` | public submit to a submittable entry type | `false` |
+| `read:forms`, `write:forms` | legacy forms | `false` |
+| `read:form_submissions`, `write:form_submissions` | legacy form submissions; submit also accepts `write:form_submissions` | `false` |
+
+## Secrets and variables
+
+Workspace **secrets** (`/api/groups/secrets`) are write-only; **variables** (`/api/groups/variables`) are readable plain text. Both are managed under **Settings → General → Environment** (`/workspace/settings/environment`). Both are referenced as `{{SLUG}}` in outgoing-webhook headers and bodies, workflow webhook steps, incoming-webhook `signing_secret_ref`, CAPTCHA settings, an integration's credential field and email templates. `services/secrets/resolver.py` resolves a secret first, then a variable. An unresolved slug is left as `{{SLUG}}` when `PRODUCTION=false` and replaced with a sentinel that drops the containing header when `PRODUCTION=true`.
+
+`SECRET_BACKEND` selects where secret values live: `database` (default), `disk` (`SECRETS_DIR`, default `DATA_DIR/secrets/`), `env`, `vault` (`VAULT_ADDR`, `VAULT_TOKEN`, `VAULT_MOUNT`, `VAULT_PATH_PREFIX`) or `bitwarden` (`BITWARDEN_ACCESS_TOKEN`, `BITWARDEN_PROJECT_ID`, `BITWARDEN_API_URL`, `BITWARDEN_IDENTITY_URL`).
+
+## Token security settings
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `SECURITY_TOKEN_PREFIX_USER` | `marvin_tk_` | prefix of personal tokens; also how the server tells a token from a JWT |
+| `SECURITY_TOKEN_PREFIX_CLIENT` | `marvin_sk_` | prefix of API client tokens |
+| `SECURITY_TOKEN_RANDOM_BYTES` | `32` | entropy; 32 bytes is a 43-character base64url body |
+| `SECURITY_BCRYPT_ROUNDS` | `12` | bcrypt cost for passwords, personal tokens and client tokens |
+| `SECURITY_MAX_LOGIN_ATTEMPTS` | `5` | failures before lockout |
+| `SECURITY_USER_LOCKOUT_TIME` | `24` | lockout length in hours |
+| `TOKEN_TIME` | `48` | session JWT lifetime in hours |
+| `AUTH_COOKIE_NAME` | `marvin.access_token` | session cookie |
+
+!!! warning "`/openapi.json` stays public"
+    `API_DOCS=false` sets `DOCS_URL` and `REDOC_URL` to `None`, which removes Swagger UI and ReDoc. `app.py` does not pass `openapi_url`, so FastAPI keeps serving the schema at `/openapi.json`.
+
+## MCP and OAuth
+
+Marvin has no OAuth authorization server. `marvin-mcp` authenticates with `MARVIN_SITE_CLIENT_TOKEN`, an API client token, plus `MARVIN_API_URL` and `MARVIN_WORKSPACE_SLUG`; MCP clients that call the platform API as a person use a personal token. OIDC is only a way to sign people into the admin. See [Marvin as an MCP server](whats-new/marvin-as-mcp-server.md).

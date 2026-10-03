@@ -86,15 +86,25 @@ tasks:
       - docker compose -f docker-compose.yml -p marvin up -d --build
 
   docs:
-    desc: serve the documentation site
-    dir: docs
+    desc: serve the manual at http://127.0.0.1:8000/marvin/
+    deps: [docs:openapi]
     cmds:
-      - uv run python -m mkdocs serve
+      - uv run mkdocs serve
 
-  docs:gen:
-    desc: generate the OpenAPI documentation
+  docs:openapi:
+    desc: export the OpenAPI spec into docs/manual/openapi.json (no server needed)
+    env:
+      DB_ENGINE: sqlite
     cmds:
-      - uv run src/dev/code_generation/gen_docs_api.py
+      - uv run python -c "import json; from marvin.app import app; json.dump(app.openapi(), open('docs/manual/openapi.json', 'w'), indent=2)"
+
+  docs:build:
+    desc: build core + SDK + CLI sites into ./site (expects ../MarvinSDK and ../MarvinCLI checkouts)
+    deps: [docs:openapi]
+    cmds:
+      - uv run mkdocs build --strict
+      - uv run mkdocs build --strict -f ../MarvinSDK/mkdocs.yml --site-dir "{{.ROOT_DIR}}/site/sdk"
+      - uv run mkdocs build --strict -f ../MarvinCLI/mkdocs.yml --site-dir "{{.ROOT_DIR}}/site/cli"
 
   frontend:
     desc: run the Astro frontend dev server
