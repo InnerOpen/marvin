@@ -43,7 +43,15 @@ def workspace(db_session):
     db_session.flush()
     for i in range(EMBED_BATCH_CHUNKS + 6):  # more than one batch
         db_session.add(
-            Entries(session=db_session, group_id=gid, entry_type_id=et.id, title=f"Note {i}", slug=f"n{i}-{gid.hex[:6]}", summary=f"About thing {i}")
+            Entries(
+                session=db_session,
+                group_id=gid,
+                entry_type_id=et.id,
+                title=f"Note {i}",
+                slug=f"n{i}-{gid.hex[:6]}",
+                summary=f"About thing {i}",
+                status="published",
+            )
         )
     db_session.commit()
     yield gid
@@ -138,3 +146,40 @@ def test_embeddings_module_keeps_single_entity_indexing(db_session, workspace):
 
     entry = db_session.query(Entries).filter_by(group_id=workspace).first()
     assert embeddings.index_entity(db_session, workspace, "entry", entry.id, "Some text to embed", _Provider(), "m") == 1
+
+
+# --- only published entries are searchable ----------------------------------------------------------
+
+
+def test_the_full_reindex_leaves_out_and_purges_unpublished_entries(db_session, workspace):
+    from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
+    from marvin.db.models.platform import Entries
+
+    reindex_workspace(db_session, workspace, _Provider(), "m")
+    archived = db_session.query(Entries).filter_by(group_id=workspace).first()
+    archived.status = "archived"
+    db_session.commit()
+
+    result = reindex_workspace(db_session, workspace, _Provider(), "m")
+
+    assert result.purged == 1
+    assert db_session.query(AIEmbeddingModel).filter_by(group_id=workspace, entity_id=archived.id).count() == 0
+
+
+def test_unpublishing_or_archiving_takes_an_entry_out_of_the_index():
+    from marvin.services.ai.embeddings_registry import delete_descriptor_for
+    from marvin.services.event_bus_service.event_types import EventTypes
+
+    for event in (EventTypes.entry_deleted, EventTypes.entry_unpublished, EventTypes.entry_archived):
+        assert delete_descriptor_for(event).entity_type == "entry"
+
+
+def test_an_unchanged_save_needs_no_new_embedding(db_session, workspace):
+    from marvin.db.models.platform import Entries
+    from marvin.services.ai.embeddings import chunks_unchanged, entity_chunks
+
+    entry = db_session.query(Entries).filter_by(group_id=workspace).first()
+    embeddings.index_entity(db_session, workspace, "entry", entry.id, "The same text", _Provider(), "m")
+
+    assert chunks_unchanged(db_session, workspace, "entry", entry.id, "m", entity_chunks("The same text"))
+    assert not chunks_unchanged(db_session, workspace, "entry", entry.id, "m", entity_chunks("Different text"))

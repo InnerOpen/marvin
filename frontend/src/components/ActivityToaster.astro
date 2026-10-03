@@ -33,7 +33,13 @@ const { userId = null } = Astro.props;
   };
   type Feed = { now: string; events: FeedEvent[] };
   type Mode = "all" | "failures" | "off";
-  type Kind = { tone: "ok" | "info" | "err"; label: string; href?: (e: FeedEvent) => string; othersOnly?: boolean };
+  type Kind = {
+    tone: "ok" | "info" | "err";
+    label: string;
+    href?: (e: FeedEvent) => string;
+    othersOnly?: boolean;
+    skip?: (e: FeedEvent) => boolean;
+  };
 
   const POLL_MS = 5000;
   const TOAST_MS = 6000;
@@ -57,7 +63,13 @@ const { userId = null } = Astro.props;
     site_deployment_failed: { tone: "err", label: "Site deploy failed" },
     scheduled_task_failed: { tone: "err", label: "Scheduled task failed", href: () => "/workspace/scheduled-tasks" },
     ai_operation_failed: { tone: "err", label: "AI operation failed" },
-    ai_embeddings_reindexed: { tone: "info", label: "Search index", href: () => "/workspace/settings/ai-ask" },
+    // Full reindex runs only — every publish/edit also auto-indexes that one item, which isn't news.
+    ai_embeddings_reindexed: {
+      tone: "info",
+      label: "Search index",
+      href: () => "/workspace/settings/ai-ask",
+      skip: (e) => (e.messageBody || "").startsWith("Auto-indexed"),
+    },
     form_submission_received: { tone: "info", label: "Form submission", href: entryHref },
     entry_published: { tone: "info", label: "Published", href: entryHref, othersOnly: true },
     entry_unpublished: { tone: "info", label: "Unpublished", href: entryHref, othersOnly: true },
@@ -115,6 +127,7 @@ const { userId = null } = Astro.props;
     if (!kind || mode === "off") return false;
     if (mode === "failures" && kind.tone !== "err") return false;
     if (kind.othersOnly && me && e.userId === me) return false;
+    if (kind.skip?.(e)) return false;
     return true;
   }
 

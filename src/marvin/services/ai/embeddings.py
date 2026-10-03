@@ -165,6 +165,19 @@ class ReindexResult:
         return text
 
 
+def entity_chunks(text: str) -> list[str]:
+    """`text` split the way the index stores it (AI_EMBED_CHUNK_SIZE / _OVERLAP)."""
+    from marvin.core.config import get_app_settings
+
+    app = get_app_settings()
+    return chunk_text(text, max_chars=getattr(app, "AI_EMBED_CHUNK_SIZE", 1500), overlap=getattr(app, "AI_EMBED_CHUNK_OVERLAP", 150))
+
+
+def chunks_unchanged(session: Session, group_id, entity_type: str, entity_id, model: str, chunks: list[str]) -> bool:
+    """True when the entity's stored chunks for this model are exactly these — nothing to re-embed."""
+    return bool(chunks) and _existing_chunks(session, group_id, entity_type, entity_id, model) == chunks
+
+
 def _existing_chunks(session: Session, group_id, entity_type: str, entity_id, model: str) -> list[str]:
     from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
 
@@ -214,11 +227,8 @@ def reindex_workspace(
     are embedded in batches of EMBED_BATCH_CHUNKS, and a failing batch is counted with its error rather
     than swallowed. `progress(done, total)` is called as items are handled.
     """
-    from marvin.core.config import get_app_settings
     from marvin.services.ai.embeddings_registry import REGISTRY
 
-    app = get_app_settings()
-    size, overlap = getattr(app, "AI_EMBED_CHUNK_SIZE", 1500), getattr(app, "AI_EMBED_CHUNK_OVERLAP", 150)
     result = ReindexResult()
     targets = [(desc, obj) for desc in REGISTRY.values() for obj in session.query(desc.model).filter_by(group_id=group_id).all()]
     total, done = len(targets), 0
@@ -261,7 +271,7 @@ def reindex_workspace(
                     result.purged += 1
                 done += 1
                 continue
-            chunks = chunk_text(desc.text(obj), max_chars=size, overlap=overlap)
+            chunks = entity_chunks(desc.text(obj))
             if not chunks:
                 purge_embeddings(session, group_id, desc.entity_type, obj.id, model)
                 done += 1

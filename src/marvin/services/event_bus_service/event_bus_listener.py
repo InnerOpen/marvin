@@ -866,8 +866,15 @@ class IndexingReactionListener(EventListenerBase):
                     session.commit()
                 return
 
+            from marvin.services.ai.embeddings import chunks_unchanged, entity_chunks
+
+            text = idx_desc.text(obj)
+            # Most saves of a published item don't change what's indexed (a workflow writing metadata,
+            # a status flag): skip the embedding call — and the event — when the chunks are identical.
+            if chunks_unchanged(session, self.group_id, idx_desc.entity_type, obj.id, model, entity_chunks(text)):
+                return
             try:
-                chunks = index_entity(session, self.group_id, idx_desc.entity_type, obj.id, idx_desc.text(obj), provider, model)
+                chunks = index_entity(session, self.group_id, idx_desc.entity_type, obj.id, text, provider, model)
             except Exception as e:
                 self.logger.warning(f"IndexingReactionListener: embed failed for {idx_desc.entity_type} {entity_id}: {e}")
                 return

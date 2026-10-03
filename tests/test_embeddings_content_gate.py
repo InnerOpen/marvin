@@ -22,7 +22,10 @@ def test_thin_asset_excluded_rich_asset_kept():
 
 
 def test_asset_descriptor_wires_the_gate():
-    # the registry's asset type carries the content gate; entries/resources default to always-index
+    # assets carry the content gate; entries are searchable only while published; resources always index
+    from types import SimpleNamespace
+
     assert REGISTRY["asset"].content_ok is _asset_content_ok
-    assert REGISTRY["entry"].content_ok(_asset()) is True
+    assert REGISTRY["entry"].content_ok(SimpleNamespace(status="published")) is True
+    assert REGISTRY["entry"].content_ok(SimpleNamespace(status="draft")) is False
     assert REGISTRY["resource"].content_ok(_asset()) is True
