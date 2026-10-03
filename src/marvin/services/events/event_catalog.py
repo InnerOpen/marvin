@@ -738,12 +738,13 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         event_type="webhook_triggered",
         name="Webhook Triggered",
-        description="A webhook was triggered by an event.",
+        # Its one emitter is the coalesced site rebuild: deploy-hook webhooks subscribe to it.
+        description="A site rebuild was sent: the workspace's deploy-hook webhooks fire, carrying the changes it covers.",
         category="Connect",
         variables=COMMON_VARS
         + [
-            EventVariable("webhook_url", "URL the webhook posted to", "https://...", type="url"),
-            EventVariable("event_type", "Event that triggered the webhook", "entry_published"),
+            EventVariable("request_count", "Rebuild requests this build covers", "3", type="number"),
+            EventVariable("changes", "The changes it covers (label, event, entity), newest last", "[...]"),
         ],
     ),
     CatalogEntry(
