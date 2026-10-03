@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.141 (2026-10-03)
+
+### Features
+
+- **ai**: Workspace reindex runs in the background, batched and incremental
+  ([`33d3b7f`](https://github.com/InnerOpen/marvin/commit/33d3b7f5438cd98a606e2a67cb17c86f66262f1c))
+
+
 ## v1.0.0-rc.140 (2026-10-03)
 
 ### Bug Fixes
