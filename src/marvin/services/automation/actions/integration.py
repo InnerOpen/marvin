@@ -59,6 +59,12 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
         raise AutomationActionError("integration action `args` must be an object")
     if dry_run:
         return {"dry_run": True, "kind": "integration", "integration": slug, "action": key, "args": args}
+    from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets
+
+    try:
+        args = resolve_arg_secrets(args, group_id)  # {{SLUG}} → the secret, for this call only
+    except MissingSecretError as e:
+        raise AutomationActionError(str(e)) from e
 
     secret = resolve_secret(row.secret_ref, group_id) if row.secret_ref else None
     ctx = IntegrationContext(config=row.config or {}, secret=secret, logger=_logger(), http=build_http())

@@ -351,8 +351,14 @@ class IntegrationsController(BaseUserController):
         if provider.get_action(action_key) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No action '{action_key}' on this provider.")
 
+        from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets
+
         try:
-            result = provider.run_action(action_key, args or {}, self._context(row))
+            resolved = resolve_arg_secrets(args, self.group_id)
+        except MissingSecretError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+        try:
+            result = provider.run_action(action_key, resolved, self._context(row))
         except NotImplementedError as e:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No action '{action_key}' on this provider.") from e
         except ValueError as e:
