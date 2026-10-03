@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.139 (2026-10-03)
+
+### Bug Fixes
+
+- Bugs the manual review found — fail-closed where ops, apply_many connection, recorded chat runs,
+  stale UI copy
+  ([`f08d0c2`](https://github.com/InnerOpen/marvin/commit/f08d0c2495a75c9c8fe5ea13ec4a6b4f8f39a9d3))
+
+
 ## v1.0.0-rc.138 (2026-10-02)
 
 ### Features
