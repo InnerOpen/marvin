@@ -289,42 +289,24 @@ def _handle_failure(session, group_id, error, *, automation, context, step_index
         summary = f"{error.provider_name}: admins notified"
         return Handling(summary=summary, record=_record(error, policy, ["notify"], summary, mode), handled=False)
 
-    applied: list[str]
-    if row is not None and row.code == error.code:
-        # The same failure again on a retry: the chain moves on. Review/succeed happened when it
-        # started; only the alert counts the failure again.
-        handle = row.handle or policy
-        applied = []
-        if handle.get("notify"):
-            _notify_for(session, group_id, error, **alert_args)
-            applied.append("notify")
-        _refresh(row, error, context, execution_id)
-        if row.attempt < row.max_attempts:
-            _arm(session, row, handle["retry"], error)
-            applied.append("parked" if row.status == "parked" else "retry")
-        else:
-            _finish(row, "exhausted", error=error.detail)
-            applied.append("exhausted")
-            then = handle.get("then")
-            if then:
-                then_applied, row = _apply(
-                    session,
-                    group_id,
-                    error,
-                    then,
-                    row=row,
-                    automation=automation,
-                    context=context,
-                    step_index=step_index,
-                    run=run,
-                    execution_id=execution_id,
-                    user_id=user_id,
-                )
-                applied += then_applied
-        session.commit()
-    else:
-        # A new failure (or a retry that failed differently): the policy's immediate effects, and a retry chain if it asks.
+    if row is None:
+        # A new failure: the policy's immediate effects, and a retry chain if it asks (taking over a
+        # chain that is already live for this step, budget and all).
         applied, row = _apply(
+            session,
+            group_id,
+            error,
+            policy,
+            row=None,
+            automation=automation,
+            context=context,
+            step_index=step_index,
+            run=run,
+            execution_id=execution_id,
+            user_id=user_id,
+        )
+    else:
+        applied, row = _continue_chain(
             session,
             group_id,
             error,
@@ -337,7 +319,7 @@ def _handle_failure(session, group_id, error, *, automation, context, step_index
             execution_id=execution_id,
             user_id=user_id,
         )
-        session.commit()
+    session.commit()
 
     if not applied:  # Handle() — "fail as usual", e.g. to override a broader "*" entry
         return None
@@ -345,10 +327,8 @@ def _handle_failure(session, group_id, error, *, automation, context, step_index
     return Handling(summary=summary, record=_record(error, policy, applied, summary, mode, row), handled=bool(applied), succeed="succeed" in applied)
 
 
-def _apply(
-    session, group_id, error, handle: dict, *, row, automation, context, step_index, run, execution_id, user_id
-) -> tuple[list[str], IntegrationRetryModel | None]:
-    """A Handle's immediate effects (notify, review, succeed) plus starting its retry chain."""
+def _effects(session, group_id, error, handle: dict, *, automation, context, user_id) -> list[str]:
+    """A Handle's immediate effects: notify, review (a live entry is flagged and alerted instead), succeed."""
     applied: list[str] = []
     entry_id = _entry_id(context)
     alert_args = {"entry_id": entry_id, "automation_slug": getattr(automation, "slug", None), "source": "workflow"}
@@ -365,7 +345,31 @@ def _apply(
             applied.append("notify")
     if handle.get("succeed"):
         applied.append("succeed")
+    return applied
+
+
+_warned_succeed_retry: set[tuple[str, str]] = set()
+
+
+def _retry_of(handle: dict, error) -> dict | None:
+    """The Handle's retry — ignored alongside `succeed`: the pipeline already carried on past the step,
+    so a retry would resume it and run the later steps a second time."""
     retry = handle.get("retry")
+    if retry and handle.get("succeed"):
+        key = (error.provider, error.code)
+        if key not in _warned_succeed_retry:
+            _warned_succeed_retry.add(key)
+            logger.warning("%s's error policy for %r both succeeds and retries; the retry is ignored", error.provider, error.code)
+        return None
+    return retry
+
+
+def _apply(
+    session, group_id, error, handle: dict, *, row, automation, context, step_index, run, execution_id, user_id
+) -> tuple[list[str], IntegrationRetryModel | None]:
+    """A Handle's immediate effects plus starting its retry chain (or keeping the partial progress)."""
+    applied = _effects(session, group_id, error, handle, automation=automation, context=context, user_id=user_id)
+    retry = _retry_of(handle, error)
     if retry:
         row = _start_chain(
             session,
@@ -380,12 +384,12 @@ def _apply(
             execution_id=execution_id,
         )
         if row is not None:
-            applied.append("parked" if row.status == "parked" else "retry")
+            applied.append(_chain_step(row))
     elif row is not None:
-        if row.status in RETRY_LIVE:  # a retry that failed differently, and this code isn't retried
+        if row.status in RETRY_LIVE:  # a chain whose latest failure isn't retried: it ends here
             _refresh(row, error, context, execution_id)
             _finish(row, "failed", error=error.detail)
-    elif error.partial and entry_id:
+    elif error.partial and _entry_id(context):
         # No retry, but progress worth keeping: the next run of this action for this entry resumes it.
         row = _start_chain(
             session,
@@ -399,6 +403,69 @@ def _apply(
             run=run,
             execution_id=execution_id,
         )
+    return applied, row
+
+
+FALLBACK_THEN = {"review": True, "notify": True, "succeed": False, "retry": None, "then": None, "summary": "send to review, notify admins"}
+"""What ends a chain that mixed codes or ran out its time when the current code declares no `then`."""
+
+MAX_CHAIN_AGE = timedelta(hours=24)
+MIN_RETRY_DELAY = 60.0  # seconds between attempts, whatever the backoff says (the sweep ticks every minute)
+
+
+def _chain_step(row) -> str:
+    return "parked" if row.status == "parked" else "retry"
+
+
+def _continue_chain(session, group_id, error, policy, *, row, automation, context, step_index, run, execution_id, user_id):
+    """A retry failed again. One budget for the whole chain: the retries already made count whatever
+    code they failed with, the limit is the largest `attempts` among the codes it has hit, and no chain
+    runs past 24 hours. A code new to the chain applies its immediate effects; the same code again only
+    counts on the alert. When the chain ends, the current code's `then` applies — or, for a chain that
+    mixed codes or ran out of time, review + notify."""
+    same = row.code == error.code
+    handle = (row.handle or policy) if same else policy
+    if same:
+        applied = []
+        if handle.get("notify"):
+            _notify_for(session, group_id, error, entry_id=_entry_id(context), automation_slug=getattr(automation, "slug", None), source="workflow")
+            applied.append("notify")
+    else:
+        applied = _effects(session, group_id, error, handle, automation=automation, context=context, user_id=user_id)
+    _refresh(row, error, context, execution_id)
+    retry = _retry_of(handle, error)
+    if not retry:  # this code isn't retried: the chain ends here
+        if row.status in RETRY_LIVE:
+            _finish(row, "failed", error=error.detail)
+        return applied, row
+
+    row.codes = sorted({*(row.codes or [row.code]), error.code})
+    row.code, row.handle = error.code, handle
+    row.max_attempts = max(row.max_attempts or 0, _retry_attempts(retry))
+    timed_out = _now() - (_aware(row.created_at) or _now()) >= MAX_CHAIN_AGE
+    if row.attempt < row.max_attempts and not timed_out:
+        _arm(session, row, retry, error)
+        applied.append(_chain_step(row))
+        return applied, row
+
+    _finish(row, "exhausted", error=error.detail)
+    applied.append("exhausted")
+    then = handle.get("then") or (FALLBACK_THEN if timed_out or len(row.codes) > 1 else None)
+    if then:
+        then_applied, row = _apply(
+            session,
+            group_id,
+            error,
+            then,
+            row=row,
+            automation=automation,
+            context=context,
+            step_index=step_index,
+            run=run,
+            execution_id=execution_id,
+            user_id=user_id,
+        )
+        applied += [a for a in then_applied if a not in applied]
     return applied, row
 
 
@@ -530,8 +597,14 @@ def _start_chain(
     key = _live_key(automation.id, entry_id, step_index)
     if row is None:
         row = session.query(IntegrationRetryModel).filter_by(group_id=group_id, live_key=key).first()
-    if row is not None and row.status in RETRY_LIVE and row.code == error.code and row.handle == handle and handle is not None:
+    if row is not None and row.status in RETRY_LIVE and handle is not None:
+        # A chain is already live for this step: it keeps its schedule and budget (every re-trigger
+        # mustn't reset the backoff, and alternating codes mustn't make a chain endless).
         _refresh(row, error, context, execution_id, snapshot=snapshot)
+        if row.code != error.code:
+            row.codes = sorted({*(row.codes or [row.code]), error.code})
+            row.code, row.handle = error.code, handle
+            row.max_attempts = max(row.max_attempts or 0, _retry_attempts(handle["retry"]))
         return row
     if row is None:
         row = IntegrationRetryModel(
@@ -549,6 +622,7 @@ def _start_chain(
     row.provider = error.provider
     row.action = error.action_key
     row.code = error.code
+    row.codes = [error.code]
     row.handle = handle
     row.attempt = 0
     row.finished_at = None
@@ -557,7 +631,7 @@ def _start_chain(
         row.max_attempts = 0
         _finish(row, "failed", error=error.detail)
         return row
-    row.max_attempts = _retry_attempts(handle["retry"])
+    row.max_attempts = _retry_attempts(_retry_of(handle, error) or handle["retry"])
     row.live_key = key
     _arm(session, row, handle["retry"], error)
     return row

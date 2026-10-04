@@ -583,3 +583,70 @@ def test_retry_rows_keep_no_entry_foreign_key_and_both_tables_index_created_at(d
     assert not [fk for fk in inspector.get_foreign_keys("integration_retries") if fk["referred_table"] == "entries"]
     for table in ("integration_retries", "integration_alerts"):
         assert f"ix_{table}_created_at" in {index["name"] for index in inspector.get_indexes(table)}
+
+
+def test_alternating_codes_share_one_retry_budget_then_review_and_notify(db_session, shop, events):
+    runner = _Runner(shop.integration.id)
+    a = _handle(retry=_retry(60, 60, 60))  # 3 retries
+    b = _handle(retry=_retry(60, 60))  # 2 retries
+    runner.failures = [
+        runner.fail("unavailable", a),
+        runner.fail("rate_limited", b),
+        runner.fail("unavailable", a),
+        runner.fail("rate_limited", b),
+    ]
+    _publish(db_session, shop, runner)
+
+    assert _retry_now(db_session, shop, runner) == "failed"  # retry 1 fails differently: the budget carries on
+    (row,) = _retries(db_session, shop)
+    assert (row.status, row.attempt, row.max_attempts, row.code) == ("pending", 1, 3, "rate_limited")
+    assert _retry_now(db_session, shop, runner) == "failed"
+    (row,) = _retries(db_session, shop)
+    assert (row.status, row.attempt) == ("pending", 2)
+    assert _retry_now(db_session, shop, runner) == "failed"
+
+    (row,) = _retries(db_session, shop)
+    assert row.status == "exhausted" and row.codes == ["rate_limited", "unavailable"]
+    # Neither code declares a `then`, but the chain mixed codes: review + notify, so it can't end silently.
+    assert _entry(db_session, shop).status == "needs_review"
+    assert [a.code for a in _alerts(db_session, shop)] == ["rate_limited"]
+
+
+def test_a_fresh_failure_with_another_code_keeps_the_chains_attempts(db_session, shop, events):
+    runner = _Runner(shop.integration.id)
+    runner.failures = [runner.fail("unavailable", _handle(retry=_retry(60, 60, 60))), runner.fail("unavailable", _handle(retry=_retry(60, 60, 60)))]
+    _publish(db_session, shop, runner)
+    _retry_now(db_session, shop, runner)
+    runner.failures = [runner.fail("rate_limited", _handle(retry=_retry(60)))]
+
+    _publish(db_session, shop, runner)
+
+    (row,) = _retries(db_session, shop)
+    assert (row.status, row.attempt, row.code, row.max_attempts) == ("pending", 1, "rate_limited", 3)
+
+
+def test_a_chain_older_than_24_hours_ends(db_session, shop, events):
+    runner = _Runner(shop.integration.id)
+    policy = _handle(retry=_retry(60, max_attempts=10))
+    runner.failures = [runner.fail("unavailable", policy), runner.fail("unavailable", policy)]
+    _publish(db_session, shop, runner)
+    (row,) = _retries(db_session, shop)
+    row.created_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=25)
+    db_session.commit()
+
+    assert _retry_now(db_session, shop, runner) == "failed"
+
+    (row,) = _retries(db_session, shop)
+    assert row.status == "exhausted" and row.attempt == 1
+    assert _entry(db_session, shop).status == "needs_review"  # timed out without a `then`: review + notify
+    assert [a.code for a in _alerts(db_session, shop)] == ["unavailable"]
+
+
+def test_succeed_with_retry_ignores_the_retry(db_session, shop, events):
+    runner = _Runner(shop.integration.id)
+    runner.failures = [runner.fail("not_found", _handle(succeed=True, retry=_retry(60)))]
+
+    _publish(db_session, shop, runner)
+
+    assert [c[0] for c in runner.calls] == ["prep", "list", "after"]
+    assert _retries(db_session, shop) == []  # retrying would run "after" a second time
