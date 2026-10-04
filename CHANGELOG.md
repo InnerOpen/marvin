@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.192 (2026-10-04)
+
+### Bug Fixes
+
+- **admin**: Keep the Ask page's hidden attachment chip hidden
+  ([`11ed7c9`](https://github.com/InnerOpen/marvin/commit/11ed7c95008a32fdbcfc7542f0148a805da7f774))
+
+### Features
+
+- **admin**: Collapse the entry editor's raw JSON fields by default
+  ([`92c3ad3`](https://github.com/InnerOpen/marvin/commit/92c3ad3c4ffe69a0def5d634d9be6f694037cdf1))
+
+- **ai**: Label the persona as Character and let the tone win on delivery
+  ([`1b1a78a`](https://github.com/InnerOpen/marvin/commit/1b1a78ac73354ab10fa9b3edad6d306d74e47875))
+
+
 ## v1.0.0-rc.191 (2026-10-04)
 
 ### Bug Fixes
