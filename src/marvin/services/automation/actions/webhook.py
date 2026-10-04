@@ -10,6 +10,8 @@ sent as `Authorization: <auth_scheme> <secret>`; the scheme defaults to `Bearer`
 APIs like Buttondown that reject Bearer.
 """
 
+import re
+
 from .base import AutomationActionError, register_action
 
 DEFAULT_TIMEOUT = 15.0
@@ -17,11 +19,20 @@ DEFAULT_TIMEOUT = 15.0
 
 DEFAULT_AUTH_SCHEME = "Bearer"
 
+MASK = "••••••"
+# Header names whose literal value is a credential. A `{{SLUG}}` reference is shown as-is (it names
+# the secret, it isn't one); a value typed in directly is masked.
+_CREDENTIAL_HEADER = re.compile(r"auth|token|secret|key|password|cookie|signature", re.IGNORECASE)
+
+
+def _secret_slug(secret_ref: str | None) -> str:
+    """`secret_ref` as a bare slug — it may be written `NAME` or `{{NAME}}`."""
+    ref = (secret_ref or "").strip()
+    return ref[2:-2].strip() if ref.startswith("{{") and ref.endswith("}}") else ref
+
 
 def _auth_header(secret_ref: str | None, group_id, scheme: str | None = None) -> dict:
-    ref = (secret_ref or "").strip()
-    if ref.startswith("{{") and ref.endswith("}}"):
-        ref = ref[2:-2].strip()
+    ref = _secret_slug(secret_ref)
     if not ref:
         return {}
     from marvin.services.secrets.resolver import resolve_secret
@@ -29,6 +40,18 @@ def _auth_header(secret_ref: str | None, group_id, scheme: str | None = None) ->
     token = resolve_secret(ref, group_id)
     scheme = (scheme or DEFAULT_AUTH_SCHEME).strip()
     return {"Authorization": f"{scheme} {token}"} if token else {}
+
+
+def _preview_headers(headers: dict, secret_ref: str | None, scheme: str | None) -> dict:
+    """The headers a dry run shows: as configured, `{{SLUG}}` references left unresolved, a literal
+    credential masked, and the `secret_ref` auth header shown by the reference it would resolve."""
+    from marvin.services.secrets.resolver import SLUG_RE
+
+    shown = {k: v if SLUG_RE.search(str(v)) or not _CREDENTIAL_HEADER.search(k) else MASK for k, v in headers.items()}
+    ref = _secret_slug(secret_ref)
+    if ref:
+        shown["Authorization"] = f"{(scheme or DEFAULT_AUTH_SCHEME).strip()} {{{{{ref}}}}}"
+    return shown
 
 
 def _log_delivery(webhook_id, group_id, status, http_status, error, request_payload, response_body=None) -> None:
@@ -64,6 +87,7 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
     url = interpolate(action.get("url"), context) if action.get("url") else None
     webhook_id = action.get("webhook_id")
 
+    configured_headers = dict(headers)
     if webhook_id:
         from marvin.db.models.groups.webhooks import GroupWebhooksModel
 
@@ -77,6 +101,7 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
         url = interpolate(str(wh.url).replace("$%7B", "${").replace("%7D", "}"), context)
         method = getattr(wh.method, "value", wh.method) or "POST"
         if wh.headers_json:
+            configured_headers.update(wh.headers_json)
             # Same treatment as event-bus delivery: `{{SLUG}}` in a header value resolves to the
             # workspace secret/variable, so `Authorization: Token {{API_KEY}}` never stores the key.
             from marvin.services.secrets.resolver import resolve_dict
@@ -97,6 +122,7 @@ def run_webhook(session, group_id, action, context, *, user_id=None, authorizer_
             "kind": "webhook",
             "method": method,
             "url": url,
+            "headers": _preview_headers(configured_headers, action.get("secret_ref"), action.get("auth_scheme")),
             "body": None if method == "GET" else body,
             "webhook_id": webhook_id,
             "authorized": bool(action.get("secret_ref")),

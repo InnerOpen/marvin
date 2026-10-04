@@ -1119,45 +1119,13 @@ class AutomationReactionListener(EventListenerBase):
         return []
 
     def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
-        from fastapi.encoders import jsonable_encoder
-
-        dd = event.document_data
-        # Flatten the event's document_data into the match context so `$event.<field>` works for ANY
-        # event family (asset_type, resource_type, form_name, …) — not just entries. snake_case field
-        # names (model_dump default) match how conditions are written. The curated explicit keys below
-        # override, so they can't be shadowed by a document_data field of the same name.
-        dd_fields: dict = {}
-        if dd is not None:
-            try:
-                dd_fields = jsonable_encoder(dd, by_alias=False)
-            except Exception:
-                dd_fields = {}
-
-        entry_id = getattr(dd, "entry_id", None) or event.entity_id
-        automation_id = getattr(dd, "automation_id", None)
-        event_ctx = {
-            **dd_fields,
-            "event_type": event.event_type.name,
-            "entry_id": entry_id,
-            "automation_id": str(automation_id) if automation_id else None,
-            "automation_slug": getattr(dd, "automation_slug", None),
-            # Incoming-webhook triggers key on the webhook slug; conditions/actions reach the request
-            # body via $event.payload.*
-            "webhook_slug": getattr(dd, "webhook_slug", None),
-            "payload": getattr(dd, "payload", None),
-            # What an update changed — lets conditions key on transitions, e.g.
-            # $event.after.status == "review" (only-changed-fields, so this reads as "changed to").
-            "changed_fields": getattr(dd, "changed_fields", None) or [],
-            "before": getattr(dd, "before", None) or {},
-            "after": getattr(dd, "after", None) or {},
-            "user_id": event.user_id,
-            "reaction_depth": getattr(event, "reaction_depth", 0),
-            # Thread the triggering event's chain id so the whole reaction cascade shares it.
-            "correlation_id": getattr(event, "correlation_id", None),
-        }
+        from marvin.services.automation.context import event_context_from_event
         from marvin.services.automation.engine import run_automations_for_event
         from marvin.services.automation.recorder import ExecutionRecorder
 
+        # The event's document_data flattened into `$event.*` (see automation.context) — the same
+        # builder a workflow dry run replays a logged event through.
+        event_ctx = event_context_from_event(event)
         with self.ensure_session() as session:
             try:
                 ran = run_automations_for_event(

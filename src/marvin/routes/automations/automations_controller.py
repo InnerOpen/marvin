@@ -243,16 +243,38 @@ class AutomationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found.")
         return AutomationExecutionDetail.model_validate(row)
 
+    @router.get("/{automation_id}/samples", summary="Events a dry run can test against")
+    def list_samples(self, automation_id: UUID4, limit: int = 10) -> dict:
+        """Recent events this workflow's trigger would have fired on (newest first, each marked with
+        whether its conditions pass) — then, for an entry trigger, recent entries no logged event
+        covers. The dry run's sample picker. Empty for a workflow no event triggers."""
+        _require_admin(self.user, self.group_id)
+        row = _get_or_404(self.session, automation_id, self.group_id)
+        from marvin.services.automation.samples import list_samples, trigger_event
+
+        samples = list_samples(self.session, self.group_id, row, user_id=self.user.id, limit=limit)
+        return {"event_type": trigger_event(row), "samples": [s.describe() for s in samples]}
+
     @router.post("/{automation_id}/run", summary="Run an automation now (manual trigger)")
-    def run_automation(self, automation_id: UUID4, dry_run: bool = False) -> dict:
+    def run_automation(self, automation_id: UUID4, dry_run: bool = False, entry_id: UUID4 | None = None, event_id: UUID4 | None = None) -> dict:
         """Run the automation's steps immediately — the Manual trigger / Run button. Skips the
         trigger + condition gates (the caller asked for it explicitly).
 
         ``dry_run=true`` resolves the target + each action's inputs but executes nothing (no AI call,
         no mutation, no webhook POST) and records nothing — it returns ``plan``, the resolved per-step
-        preview. A disabled draft can be dry-run (that's when you most want to preview it)."""
+        preview. A disabled draft can be dry-run (that's when you most want to preview it).
+
+        An event-triggered workflow is dry-run against a sample event — ``event_id`` (an event_log
+        row), ``entry_id`` (that entry's latest event of the trigger's type, or one built for it), or
+        by default the latest matching event (see ``GET /samples``). The result adds ``sample``,
+        ``trigger_matched``, per-condition ``conditions`` with the values compared, and
+        ``would_fire``."""
         _require_admin(self.user, self.group_id)
         row = _get_or_404(self.session, automation_id, self.group_id)
+        if (entry_id or event_id) and not dry_run:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A sample (entry_id / event_id) only applies to a dry run.")
+        if entry_id and event_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Pass entry_id or event_id, not both.")
         if not row.enabled and not dry_run:
             # A disabled automation is off — don't fire it via the Run button either (the scheduled
             # path already skips disabled). Enable it to run. (A dry run is fine — it does nothing.)
@@ -262,7 +284,10 @@ class AutomationsController(BaseUserController):
             )
         from marvin.services.automation.engine import run_automation_now
         from marvin.services.automation.recorder import ExecutionRecorder
+        from marvin.services.automation.samples import trigger_event
 
+        if dry_run and (entry_id or event_id or trigger_event(row)):
+            return {"status": "dry_run", **self._dry_run_with_sample(row, entry_id=entry_id, event_id=event_id)}
         try:
             res = run_automation_now(
                 self.session,
@@ -275,6 +300,25 @@ class AutomationsController(BaseUserController):
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
         return {"status": "dry_run" if dry_run else "ran", **res}
+
+    def _dry_run_with_sample(self, row, *, entry_id, event_id) -> dict:
+        """An event-triggered dry run: against the picked (or default) sample event; with no sample
+        to be had, the plain dry run — `sample: None` says nothing was found to test with."""
+        from marvin.services.automation.engine import dry_run_for_event, run_automation_now
+        from marvin.services.automation.samples import SampleNotApplicable, SampleNotFound, resolve_sample
+
+        try:
+            sample = resolve_sample(self.session, self.group_id, row, entry_id=entry_id, event_id=event_id, user_id=self.user.id)
+        except SampleNotFound as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+        except SampleNotApplicable as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+        try:
+            if sample is None:
+                return {**run_automation_now(self.session, self.group_id, row, user_id=self.user.id, dry_run=True), "sample": None}
+            return {**dry_run_for_event(self.session, self.group_id, row, sample.event_ctx), "sample": sample.describe()}
+        except Exception as e:
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e
 
     @router.post("", response_model=AutomationRead, status_code=status.HTTP_201_CREATED, summary="Create Automation")
     def create_automation(self, data: AutomationCreate) -> AutomationRead:

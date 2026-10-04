@@ -104,21 +104,34 @@ def _stringify(v: Any) -> str:
     return "" if v is None else str(v)
 
 
-def _match_one(cond: dict, context: dict) -> bool:
+def _operands(cond: dict, context: dict) -> tuple[Any, Any]:
+    """The (actual, expected) pair a leaf condition compares — shared by matching and the dry run's
+    explanation, so what the checklist shows is what was compared.
+
+    Change-aware operators key on an update's diff, not the live value: the field's last segment
+    names the diff key (so "entry.status" and "status" both mean the "status" field). For `changed`
+    the pair is (the changed field names, that key).
+    """
     field = cond.get("field")
     op = cond.get("op", "eq")
-    expected = interpolate(cond.get("value"), context)
-
-    # Change-aware operators key on an update's diff, not the live value: the field's last segment
-    # names the diff key (so "entry.status" and "status" both mean the "status" field).
     if op in ("changed", "changed_from", "changed_to"):
         key = str(field or "").rsplit(".", 1)[-1]
         if op == "changed":
-            return key in (resolve_path("event.changed_fields", context) or [])
+            return resolve_path("event.changed_fields", context) or [], key
         side = "after" if op == "changed_to" else "before"
-        return (resolve_path(f"event.{side}", context) or {}).get(key) == expected
-
+        return (resolve_path(f"event.{side}", context) or {}).get(key), interpolate(cond.get("value"), context)
     actual = resolve_path(field, context) if field else None
+    return actual, interpolate(cond.get("value"), context)
+
+
+def _match_one(cond: dict, context: dict) -> bool:
+    op = cond.get("op", "eq")
+    actual, expected = _operands(cond, context)
+
+    if op == "changed":
+        return expected in actual
+    if op in ("changed_from", "changed_to"):
+        return actual == expected
 
     if op == "exists":
         # `value: false` inverts to "must not exist".
@@ -170,3 +183,39 @@ def matches(conditions, context: dict) -> bool:
     if isinstance(conditions, list):
         return all(_eval(c, context) for c in conditions if isinstance(c, dict))
     return _eval(conditions, context)
+
+
+def explain(conditions, context: dict) -> list[dict]:
+    """Each condition's verdict with the values it compared — the dry run's checklist.
+
+    A leaf reads ``{field, op, value, actual, expected, pass}`` (``value`` as written, ``expected``
+    after interpolation); a group reads ``{group: all|any|not, children, pass}``. Mirrors
+    :func:`matches` — a top-level list is an implicit AND and skips non-dict items — so every
+    top-level node passing is exactly ``matches(conditions, context)``.
+    """
+    if not conditions:
+        return []
+    nodes = conditions if isinstance(conditions, list) else [conditions]
+    return [_explain(c, context) for c in nodes if isinstance(c, dict)]
+
+
+def _explain(cond, context: dict) -> dict:
+    if not isinstance(cond, dict):
+        return {"invalid": True, "pass": False}  # `_eval` fails a non-dict node closed too
+    for group in ("all", "any"):
+        if group in cond:
+            children = [_explain(c, context) for c in (cond[group] or [])]
+            verdicts = (c["pass"] for c in children)
+            return {"group": group, "children": children, "pass": all(verdicts) if group == "all" else any(verdicts)}
+    if "not" in cond:
+        child = _explain(cond["not"], context)
+        return {"group": "not", "children": [child], "pass": not child["pass"]}
+    actual, expected = _operands(cond, context)
+    return {
+        "field": cond.get("field"),
+        "op": cond.get("op", "eq"),
+        "value": cond.get("value"),
+        "actual": actual,
+        "expected": expected,
+        "pass": _match_one(cond, context),
+    }

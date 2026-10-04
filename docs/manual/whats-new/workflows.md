@@ -81,6 +81,8 @@ Only the first 10 steps run; the validator warns when there are more.
 3. **Save workflow**. Structural errors (unknown kind, missing field) block the save with `422`; advisory warnings (a condition that can never match) do not.
 4. **Dry run** to see the resolved plan without executing, then tick **Enabled** and **Run**.
 
+A dry run of an event-triggered workflow (Event, Incoming webhook, After another workflow, When a workflow fails) runs against a sample event, so `${entry.title}` and `$event.*` resolve as they would on a real run. **Testing with** picks the sample: recent events of the trigger's type from the event log, then (for entry lifecycle triggers) recent entries with no logged event, built into the event the entry would emit. The default is the newest event whose conditions pass, else the newest event (marked "conditions fail"), else the newest matching entry. The panel shows whether the trigger fires on that event, a ✓/✗ line per condition with the value it got, **Would fire** or **Would not fire**, and the resolved steps (a webhook step shows its URL, headers and body; `{{SLUG}}` references stay unresolved and a credential typed into a header shows as `••••••`). Steps are resolved even when a condition fails. The entry is read as it is now, not as it was when the event was logged. Manual and scheduled workflows dry-run as before.
+
 **Run** executes the whole workflow inside the request and waits for it, so a query run over many entries (especially with AI steps) can take minutes. Behind a proxy with a request timeout (Cloudflare gives up after about 100 seconds) the browser may report an error while the server carries on. Don't press **Run** again; check **Runs** for the result.
 
 ```json
@@ -106,7 +108,8 @@ All routes need workspace ADMIN or OWNER. See [API reference](../api/index.md).
 | `GET /api/automations/options` | Trigger types, event catalog, operators, condition fields per trigger, step kinds, AI operations, webhooks, incoming webhooks, other workflows, and the definition JSON Schema. |
 | `POST /api/automations/validate` | `issues[]` with `level` `error` or `warning`, `where`, `index`. |
 | `POST /api/automations/preview` | Resolve a `target` query with an optional test `payload`; returns `matches` (capped, after conditions), `total`, `capped`. |
-| `POST /api/automations/{id}/run` | Manual run; responds when the run finishes (`409` when disabled). With `?dry_run=true` it returns `plan` and records nothing. |
+| `POST /api/automations/{id}/run` | Manual run; responds when the run finishes (`409` when disabled). With `?dry_run=true` it returns `plan` and records nothing. For an event-triggered workflow the dry run also takes `entry_id` or `event_id` (an event log row) and returns `sample`, `trigger_matched`, `conditions` (each with `field`, `op`, `value`, `actual`, `expected`, `pass`, or a nested `group`), `conditions_pass` and `would_fire`. |
+| `GET /api/automations/{id}/samples?limit=` | The dry run's candidate samples: recent logged events the trigger fires on, then uncovered entries (default 10, at most 25), each with `kind`, `id`, `label`, `occurred_at`, `synthesized`, `conditions_pass`. Empty for a workflow no event triggers. |
 | `GET /api/automations/{id}/executions?limit=` · `GET …/executions/{execution_id}` | Run history (default 25, at most 100); detail includes per-step records and the definition snapshot. |
 
 ## Settings

@@ -22,7 +22,7 @@ from fastapi import HTTPException
 
 from marvin.core.root_logger import get_logger
 from marvin.repos.repository_factory import AllRepositories
-from marvin.services.event_bus_service.event_types import EventEntryData, EventOperation, EventTypes
+from marvin.services.event_bus_service.event_types import Event, EventBusMessage, EventEntryData, EventOperation, EventTypes
 
 logger = get_logger("entry_service")
 
@@ -30,6 +30,9 @@ logger = get_logger("entry_service")
 # small and scalar — never body/content/metadata (large, and by-value content shouldn't land in the
 # audit log) or relationships. These are exactly the fields automation conditions key on.
 _TRACKED_FIELDS = ("status", "title", "slug")
+
+# The status-transition events: each one is a change of `status`, so its diff always names it.
+_TRANSITION_EVENTS = (EventTypes.entry_published, EventTypes.entry_unpublished, EventTypes.entry_archived, EventTypes.entry_restored)
 
 
 def _is_uuid(value: str) -> bool:
@@ -624,26 +627,12 @@ class EntryService:
         diff: tuple[list[str], dict, dict] | None = None,
     ) -> None:
         """Dispatch one entry event. Best-effort — a dispatch failure never breaks the write."""
-        entry_type_slug, workspace_name, author_name = names
-        changed_fields, before, after = diff or ([], {}, {})
         try:
             self.event_bus.dispatch(
                 integration_id=self.integration_id,
                 group_id=self.group_id,
                 event_type=event_type,
-                document_data=EventEntryData(
-                    operation=operation,
-                    entry_id=entry.id,
-                    entry_title=entry.title,
-                    entry_type=entry_type_slug,
-                    workspace_id=entry.group_id,
-                    workspace_name=workspace_name,
-                    author_id=getattr(entry, "created_by", None),
-                    author_name=author_name,
-                    changed_fields=changed_fields,
-                    before=before,
-                    after=after,
-                ),
+                document_data=self._event_data(entry, operation, names, diff),
                 message=message,
                 user_id=self.actor_id,
                 entity_id=entry.id,
@@ -652,3 +641,41 @@ class EntryService:
             )
         except Exception as e:  # noqa: BLE001 — event dispatch is best-effort
             logger.error(f"Failed to dispatch {getattr(event_type, 'name', event_type)} event: {e}", exc_info=True)
+
+    @staticmethod
+    def _event_data(entry, operation, names, diff=None) -> EventEntryData:
+        entry_type_slug, workspace_name, author_name = names
+        changed_fields, before, after = diff or ([], {}, {})
+        return EventEntryData(
+            operation=operation,
+            entry_id=entry.id,
+            entry_title=entry.title,
+            entry_type=entry_type_slug,
+            workspace_id=entry.group_id,
+            workspace_name=workspace_name,
+            author_id=getattr(entry, "created_by", None),
+            author_name=author_name,
+            changed_fields=changed_fields,
+            before=before,
+            after=after,
+        )
+
+    def sample_event(self, entry, event_type) -> Event:
+        """The event this service emits for `entry` on an entry lifecycle `event_type`, built but not
+        dispatched — what a workflow dry run tests against when the event log holds none.
+
+        A status transition carries the status it moved to (`after.status`), as every real one does;
+        what it moved from isn't known, so `before` stays empty.
+        """
+        operation = EventOperation.create if event_type == EventTypes.entry_created else EventOperation.update
+        diff = (["status"], {}, {"status": entry.status}) if event_type in _TRANSITION_EVENTS else None
+        return Event(
+            message=EventBusMessage.from_type(event_type),
+            event_type=event_type,
+            integration_id=self.integration_id,
+            document_data=self._event_data(entry, operation, self._names(entry), diff),
+            workspace_id=self.group_id,
+            user_id=self.actor_id,
+            entity_id=entry.id,
+            entity_type="entry",
+        )

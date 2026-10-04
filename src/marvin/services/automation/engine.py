@@ -20,7 +20,7 @@ from marvin.services.event_bus_service.correlation import correlation_scope, cur
 from .actions import AutomationActionError
 from .actions import run_action as _registry_run_action
 from .authz import resolve_authorizer_role
-from .matcher import matches
+from .matcher import explain, matches
 from .recorder import CollectingRecorder, NullRecorder
 
 MAX_ACTIONS = 10  # per-automation guardrail against a runaway pipeline
@@ -88,6 +88,16 @@ def _featured_image_url(entry) -> str | None:
         return None
 
 
+def match_context(session, group_id, event_ctx: dict) -> dict:
+    """The context an event's automations match and act on: the event, plus the entry it refers to."""
+    context: dict = {"event": event_ctx, "previous": {}, "depth": int(event_ctx.get("reaction_depth", 0))}
+    if event_ctx.get("entry_id"):
+        entry_ctx = _entry_context(session, group_id, event_ctx["entry_id"])
+        if entry_ctx:
+            context["entry"] = entry_ctx
+    return context
+
+
 def run_automations_for_event(
     session,
     group_id,
@@ -115,12 +125,8 @@ def run_automations_for_event(
     if not automations:
         return 0
 
-    depth = int(event_ctx.get("reaction_depth", 0))
-    context: dict = {"event": event_ctx, "previous": {}, "depth": depth}
-    if event_ctx.get("entry_id"):
-        entry_ctx = _entry_context(session, group_id, event_ctx["entry_id"])
-        if entry_ctx:
-            context["entry"] = entry_ctx
+    context = match_context(session, group_id, event_ctx)
+    depth = context["depth"]
 
     user_id = event_ctx.get("user_id")
     ran = 0
@@ -491,3 +497,60 @@ def run_automation_now(
             return {"ok": ok, "ran": ran, "dry_run": True, "plan": dry_recorder.plan}
         _announce(session, group_id, automation, ok, 0, user_id, context, run_id=run_id)
         return {"ok": ok, "ran": ran, "result": context.get("previous", {})}
+
+
+def dry_run_for_event(
+    session,
+    group_id,
+    automation,
+    event_ctx: dict,
+    *,
+    logger=None,
+    run_action: Callable = _registry_run_action,
+) -> dict:
+    """Preview what one automation would do for one event, without doing it.
+
+    ``event_ctx`` is the `event` the listener would build (see :mod:`.context`) — a logged event
+    replayed, or one synthesized for an entry. The match context is built exactly as the event path
+    builds it, and the result reports the trigger match, every condition with the values it compared,
+    and ``would_fire``. Steps are resolved against that context even when a gate fails, so the plan
+    still shows what a run *would* send. With a `target`, conditions are the per-row WHERE (as on a
+    real run), so ``conditions`` is empty and ``would_fire`` means "a row matched".
+
+    Executes nothing, records nothing, fires no events.
+    """
+    defn = automation.definition or {}
+    trig = defn.get("trigger") or {}
+    conditions = defn.get("conditions")
+    has_target = bool(defn.get("target"))
+    context = match_context(session, group_id, event_ctx)
+    trigger_matched = _trigger_matches(trig, event_ctx)
+    checks = [] if has_target else explain(conditions, context)
+    conditions_pass = True if has_target else matches(conditions, context)
+
+    recorder = CollectingRecorder()
+    with correlation_scope():
+        ran, ok, _ = _run_targets(
+            session,
+            group_id,
+            automation,
+            context,
+            user_id=event_ctx.get("user_id"),
+            authorizer_role=resolve_authorizer_role(session, group_id, getattr(automation, "created_by", None)),
+            logger=logger,
+            run_action=run_action,
+            gate_conditions=False,
+            recorder=recorder,
+            dry_run=True,
+            trigger_kind=trig.get("type", "event"),
+        )
+    return {
+        "ok": ok,
+        "ran": ran,
+        "dry_run": True,
+        "plan": recorder.plan,
+        "trigger_matched": trigger_matched,
+        "conditions": checks,
+        "conditions_pass": conditions_pass,
+        "would_fire": trigger_matched and (ran > 0 if has_target else conditions_pass),
+    }
