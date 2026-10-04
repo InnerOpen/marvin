@@ -12,6 +12,7 @@ from pydantic import UUID4
 from marvin.core.config import get_app_settings
 from marvin.db.models.groups.secrets import WorkspaceSecret
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_admin
 from marvin.schemas.group.secret import (
     WorkspaceSecretCreate,
     WorkspaceSecretRead,
@@ -77,6 +78,7 @@ class SecretsController(BaseUserController):
     @router.post("", response_model=WorkspaceSecretRead, status_code=status.HTTP_201_CREATED)
     def create_secret(self, data: WorkspaceSecretCreate):
         """Create a workspace secret. Value is encrypted on write."""
+        require_workspace_admin(self.user, self.group_id)
         existing = self.repos.workspace_secrets().get_all()
         if any(s.slug == data.slug for s in existing):
             raise HTTPException(
@@ -109,6 +111,7 @@ class SecretsController(BaseUserController):
     @router.patch("/{secret_id}", response_model=WorkspaceSecretRead)
     def update_secret(self, secret_id: UUID4, data: WorkspaceSecretUpdate):
         """Update a secret's name, description, or value."""
+        require_workspace_admin(self.user, self.group_id)
         secret = _get_secret_or_404(self.session, secret_id, self.group_id)
 
         if data.name is not None:
@@ -128,6 +131,7 @@ class SecretsController(BaseUserController):
     @router.delete("/{secret_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_secret(self, secret_id: UUID4):
         """Delete a secret from the backend and metadata store."""
+        require_workspace_admin(self.user, self.group_id)
         secret = self.session.get(WorkspaceSecret, secret_id)
         if not secret or secret.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Secret not found.")
