@@ -831,5 +831,11 @@ each run (so 60s fires about every 120s) and would log a row a minute. `error_ov
 `integrations`, not inside `config` (the provider's settings, which the provider receives and which its
 config_schema validates). An untagged provider failure now has `code` "unknown" (`${error.code}` was empty).
 
+**Review fixes (2026-10-04):** one retry budget per chain across codes (largest `attempts`, 24h cap; mixed/timed-out
+chains without `then` → review + notify); `succeed` ignores `retry`; retries outlive deleted entries (no entry FK,
+entry facts in the snapshot); sweep in a worker thread, ~40s per tick, one claim at a time, re-arms orphaned parked
+rows; plain-failure exhaustion applies `then` or notifies; ≥60s between attempts; disabled workflows' retries wait;
+reclaimed leases count; automation_failed only for a chain's first failure and its end; secrets redacted from errors.
+
 **Later:** retry/alert metrics on the dashboard; pruning resolved alerts' samples sooner; a per-workflow
 "retries" view.
