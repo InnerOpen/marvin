@@ -18,12 +18,12 @@ from uuid import uuid4
 
 from marvin.services.event_bus_service.correlation import correlation_scope, current_correlation_id
 
-from .actions import AutomationActionError
+from .actions import AutomationActionError, IntegrationStepError
 from .actions import run_action as _registry_run_action
 from .authz import resolve_authorizer_role
 from .matcher import explain, matches
 from .recorder import CollectingRecorder, NullRecorder
-from .summary import collapse, failed_step, run_message, step_summary, trigger_ref
+from .summary import collapse, failed_step, handlings, run_handled, run_message, step_summary, trigger_ref
 
 MAX_ACTIONS = 10  # per-automation guardrail against a runaway pipeline
 MAX_REACTION_DEPTH = 3  # how many automation/emit_event hops a single chain may span before we stop
@@ -296,6 +296,8 @@ def _run_targets(
             target_ref=ref,
             dry_run=dry_run,
             step_log=step_log,
+            gated=gate,
+            trigger_kind=trigger_kind or trigger_type,
         )
         ok_all = ok_all and ok
         steps_ok += s_ok
@@ -303,7 +305,15 @@ def _run_targets(
         ran += 1
 
     status = "success" if ok_all else ("partial" if steps_ok else "failed")
-    recorder.finish(exec_id, status=status, error=base_context.get("_error"), targets_run=ran, steps_ok=steps_ok, steps_failed=steps_failed)
+    recorder.finish(
+        exec_id,
+        status=status,
+        error=base_context.get("_error"),
+        targets_run=ran,
+        steps_ok=steps_ok,
+        steps_failed=steps_failed,
+        handled=not ok_all and run_handled(step_log),
+    )
     return ran, ok_all, run_id
 
 
@@ -335,7 +345,7 @@ def _target_ok(trig: dict, event_ctx: dict) -> bool:
     return target in (event_ctx.get("automation_slug"), event_ctx.get("automation_id"))
 
 
-def _announce(session, group_id, automation, ok: bool, depth: int, user_id, context: dict, *, run_id=None) -> None:
+def _announce(session, group_id, automation, ok: bool, depth: int, user_id, context: dict, *, run_id=None, retry_attempt: int | None = None) -> None:
     """Emit automation_ran / automation_failed so chained + on-error triggers can react.
 
     The event is about the workflow; it names what triggered the run (``trigger_entity_*``) and, in
@@ -347,7 +357,8 @@ def _announce(session, group_id, automation, ok: bool, depth: int, user_id, cont
 
     event_type = EventTypes.automation_ran if ok else EventTypes.automation_failed
     try:
-        steps = collapse(context.get("_step_log") or [])
+        step_log = context.get("_step_log") or []
+        steps = collapse(step_log)
         failed = failed_step(steps)
         EventBusService(bg_tasks=None).dispatch(
             integration_id="automation",
@@ -362,9 +373,12 @@ def _announce(session, group_id, automation, ok: bool, depth: int, user_id, cont
                 error=None if ok else context.get("_error") or (failed or {}).get("error"),
                 workspace_id=group_id,
                 steps=steps,
+                handled=not ok and run_handled(step_log),
+                handling=handlings(step_log),
+                retry_attempt=retry_attempt,
                 **trigger_ref(context),
             ),
-            message=run_message(automation.slug, ok, steps),
+            message=run_message(automation.slug, ok, steps, retry_attempt=retry_attempt),
             user_id=user_id,
             entity_id=automation.id,
             entity_type="automation",
@@ -426,28 +440,63 @@ class _StepRunner:
     target_ref: Any
     dry_run: bool
     step_log: list | None
+    gated: bool = True
+    trigger_kind: str | None = None
+    error_mode: str = "policy"
+    """How a failed integration step is handled: "policy" (the provider's error policy) or "connection"
+    (only its connection-level notify — the workflow has on_failure steps or opted out)."""
 
     def run(self, action: dict, action_index: int, *, on_failure: bool = False) -> AutomationActionError | None:
-        """Run one step; returns its error (already recorded and logged), or None when it succeeded."""
+        """Run one step; returns its error (already recorded and logged), or None when it succeeded —
+        including a failure the integration's error policy says to treat as success."""
         started = datetime.now(UTC)
         record = {"target_index": self.target_index, "target_ref": self.target_ref, "action_index": action_index, "action": action}
         if on_failure:
             record["on_failure"] = True
+        resume = self._resume(action_index, on_failure)
+        if resume:
+            self.context["_resume"] = resume
         try:
             out = self.run_action(
                 self.session, self.group_id, action, self.context, user_id=self.user_id, authorizer_role=self.authorizer_role, dry_run=self.dry_run
             )
         except AutomationActionError as e:
-            self.recorder.action(self.exec_id, **record, status="failed", error=str(e), duration_ms=_ms_since(started))
+            handling = self._handle(e, action_index, on_failure)
+            if handling is not None and handling.succeed:
+                # The provider says this failure doesn't matter (e.g. closing a listing that is already gone).
+                return self._succeeded(
+                    action, action_index, record, {"ignored": True, "code": e.code, "error": str(e)}, started, on_failure, handling
+                )
+            self.recorder.action(
+                self.exec_id, **record, status="failed", error=str(e), duration_ms=_ms_since(started), handling=handling.record if handling else None
+            )
             if self.step_log is not None:
-                self.step_log.append(step_summary(self.session, action, error=str(e), on_failure=on_failure))
+                self.step_log.append(step_summary(self.session, action, error=str(e), on_failure=on_failure, handling=handling))
             if self.logger:
                 what = "on_failure step" if on_failure else "action"
                 self.logger.warning("automation '%s' %s kind=%s failed: %s", self.automation.slug, what, action.get("kind"), e)
             return e
-        self.recorder.action(self.exec_id, **record, status="success", output=out, duration_ms=_ms_since(started))
+        finally:
+            self.context.pop("_resume", None)
+        if action.get("kind") == "integration" and not self.dry_run and not on_failure:
+            from marvin.services.integrations import errors
+
+            errors.step_succeeded(
+                self.session,
+                self.group_id,
+                automation=self.automation,
+                context=self.context,
+                step_index=action_index,
+                integration_slug=action.get("integration"),
+            )
+        return self._succeeded(action, action_index, record, out, started, on_failure)
+
+    def _succeeded(self, action: dict, action_index: int, record: dict, out, started: datetime, on_failure: bool, handling=None) -> None:
+        self.recorder.action(
+            self.exec_id, **record, status="success", output=out, duration_ms=_ms_since(started), handling=handling.record if handling else None
+        )
         if self.step_log is not None:
-            self.step_log.append(step_summary(self.session, action, output=out, on_failure=on_failure))
+            self.step_log.append(step_summary(self.session, action, output=out, on_failure=on_failure, handling=handling))
         out_dict = out if isinstance(out, dict) else {}
         self.context["previous"] = out_dict
         step_entry = {"output": out_dict}
@@ -455,6 +504,43 @@ class _StepRunner:
         if action.get("id"):
             self.context["steps"][str(action["id"])] = step_entry  # $steps.<id>.output.*
         return None
+
+    def _resume(self, action_index: int, on_failure: bool) -> dict | None:
+        """On a retry run, the failed step gets its chain's partial progress and idempotency seed."""
+        retry = self.context.get("_retry")
+        if not retry or on_failure or action_index != retry.get("step_index"):
+            return None
+        return {
+            "integration_id": retry.get("integration_id"),
+            "action": retry.get("action"),
+            "partial": retry.get("partial"),
+            "seed": retry.get("seed"),
+        }
+
+    def _handle(self, error: AutomationActionError, action_index: int, on_failure: bool):
+        """Apply the integration's error policy to a failed integration step (None: nothing applies)."""
+        if self.dry_run or not isinstance(error, IntegrationStepError):
+            return None
+        from marvin.services.integrations import errors
+
+        return errors.handle_failure(
+            self.session,
+            self.group_id,
+            error,
+            automation=self.automation,
+            context=self.context,
+            step_index=action_index,
+            mode=errors.MODE_CONNECTION if on_failure else self.error_mode,
+            run={"target_ref": self.target_ref, "gated": self.gated, "trigger_kind": self.trigger_kind},
+            execution_id=self.exec_id,
+            user_id=self.user_id,
+        )
+
+
+def _error_mode(defn: dict) -> str:
+    """A workflow's own on_failure steps run instead of the provider's policy (its connection-level
+    notify still fires), and `integration_errors: "fail"` opts out of the policy outright."""
+    return "connection" if defn.get("on_failure") or defn.get("integration_errors") == "fail" else "policy"
 
 
 def _run_pipeline(
@@ -473,6 +559,10 @@ def _run_pipeline(
     target_ref=None,
     dry_run: bool = False,
     step_log: list | None = None,
+    gated: bool = True,
+    trigger_kind: str | None = None,
+    start_at: int = 0,
+    resume_from: dict | None = None,
 ) -> tuple[bool, int, int]:
     """Run one automation's action pipeline in order, recording each step. Returns
     ``(all_ok, steps_ok, steps_failed)`` — counting the workflow's own steps, not its on_failure ones.
@@ -480,6 +570,9 @@ def _run_pipeline(
     A fresh `previous` is set so pipelines don't leak into each other; a failing step stops the rest
     (later steps usually depend on it) and runs the definition's `on_failure` steps, once, with the
     failure as ``${error.*}``. Each step's summary is appended to ``step_log`` when given.
+
+    A retry resumes the pipeline at ``start_at`` with the earlier steps' outputs from ``resume_from``
+    (``{steps, previous}``) — the steps before it already ran and never run again.
     """
     recorder = recorder or NullRecorder()
     defn = automation.definition or {}
@@ -488,8 +581,8 @@ def _run_pipeline(
         logger.warning("automation '%s' has %d steps; only the first %d run (MAX_ACTIONS)", automation.slug, len(defn["actions"]), MAX_ACTIONS)
     # Fresh per-run scratch so pipelines don't leak. `steps` is addressable by position ("0") and by
     # an action's optional `id`; `previous` is the last step's output (an alias for the common case).
-    context["previous"] = {}
-    context["steps"] = {}
+    context["previous"] = dict((resume_from or {}).get("previous") or {})
+    context["steps"] = dict((resume_from or {}).get("steps") or {})
     context.pop("_error", None)
     context.pop("error", None)
     step = _StepRunner(
@@ -507,14 +600,19 @@ def _run_pipeline(
         target_ref=target_ref,
         dry_run=dry_run,
         step_log=step_log,
+        gated=gated,
+        trigger_kind=trigger_kind,
+        error_mode=_error_mode(defn),
     )
     for action_index, action in enumerate(actions):
+        if action_index < start_at:
+            continue
         error = step.run(action, action_index)
         if error is not None:
             context["_error"] = str(error)
             _run_on_failure(step, defn.get("on_failure") or [], error, action, action_index, first_index=len(actions))
-            return False, action_index, 1
-    return True, len(actions), 0
+            return False, action_index - start_at, 1
+    return True, len(actions) - start_at, 0
 
 
 def _run_on_failure(step: _StepRunner, handlers: list, error: AutomationActionError, action: dict, action_index: int, *, first_index: int) -> None:
@@ -650,3 +748,115 @@ def dry_run_for_event(
         "conditions_pass": conditions_pass,
         "would_fire": trigger_matched and (ran > 0 if has_target else conditions_pass),
     }
+
+
+def run_retry(
+    session,
+    group_id,
+    row,
+    *,
+    logger=None,
+    run_action: Callable = _registry_run_action,
+    recorder=None,
+) -> str:
+    """Run one claimed integration retry (an ``integration_retries`` row): rebuild the run from its
+    snapshot and the entry as it is *now*, re-check the workflow's conditions, and resume the pipeline
+    at the failed step — the steps before it never run again. Returns the outcome: ``superseded``
+    (the workflow, entry or step is gone or changed, or the entry no longer matches), ``succeeded``
+    or ``failed`` (the policy decided what happens next — another retry, or its `then`).
+
+    Recorded as its own run pointing back at the run it retries (``retry_of_id``) and announced like
+    any run, so chained / on-error workflows see the outcome."""
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.services.integrations import errors
+
+    recorder = recorder or NullRecorder()
+    automation = session.get(WorkspaceAutomationModel, row.automation_id)
+    if automation is None or automation.group_id != group_id or not automation.enabled:
+        errors.finish_retry(session, row, "superseded", "the workflow was deleted or disabled")
+        return "superseded"
+    defn = automation.definition or {}
+    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
+    failed = actions[row.step_index] if row.step_index < len(actions) else {}
+    if failed.get("kind") != "integration" or failed.get("integration") != row.integration_slug or failed.get("action") != row.action:
+        errors.finish_retry(session, row, "superseded", "the workflow's steps changed since the failure")
+        return "superseded"
+
+    snap = row.snapshot or {}
+    event = dict(snap.get("event") or {})
+    context: dict = {"event": event, "previous": {}, "depth": int(event.get("reaction_depth", 0) or 0), "site": _site_context(session, group_id)}
+    if row.entry_id:
+        entry_ctx = _entry_context(session, group_id, row.entry_id)
+        if entry_ctx is None:
+            errors.finish_retry(session, row, "superseded", "the entry was deleted")
+            return "superseded"
+        context["entry"] = entry_ctx
+        event["entry_id"] = entry_ctx["id"]
+    # The entry may have changed since the failure: retrying only makes sense while it still matches
+    # (an unpublished listing must not be re-created). A manual run that skipped conditions skips them here too.
+    if (snap.get("gated", True) or defn.get("target")) and not matches(defn.get("conditions"), context):
+        errors.finish_retry(session, row, "superseded", "the entry no longer matches the workflow's conditions")
+        return "superseded"
+
+    trigger_type = (defn.get("trigger") or {}).get("type", "event")
+    user_id = event.get("user_id")
+    step_log: list[dict] = []
+    context["_step_log"] = step_log
+    context["_retry"] = {
+        "id": str(row.id),
+        "step_index": row.step_index,
+        "integration_id": str(row.integration_id) if row.integration_id else None,
+        "action": row.action,
+        "partial": row.partial,
+        "seed": row.idempotency_seed,
+    }
+    attempt = row.attempt
+    with correlation_scope(event.get("correlation_id")):
+        exec_id = recorder.start(
+            automation,
+            trigger_type,
+            targets_matched=1,
+            capped=False,
+            user_id=user_id,
+            correlation_id=current_correlation_id.get(),
+            retry_of_id=row.last_execution_id or row.origin_execution_id,
+        )
+        ok, steps_ok, steps_failed = _run_pipeline(
+            session,
+            group_id,
+            automation,
+            context,
+            user_id=user_id,
+            authorizer_role=resolve_authorizer_role(session, group_id, getattr(automation, "created_by", None)),
+            logger=logger,
+            run_action=run_action,
+            recorder=recorder,
+            exec_id=exec_id,
+            target_ref=snap.get("target_ref"),
+            step_log=step_log,
+            gated=bool(snap.get("gated", True)),
+            trigger_kind=snap.get("trigger_kind"),
+            start_at=row.step_index,
+            resume_from=snap,
+        )
+        status = "success" if ok else ("partial" if steps_ok else "failed")
+        recorder.finish(
+            exec_id,
+            status=status,
+            error=context.get("_error"),
+            targets_run=1,
+            steps_ok=steps_ok,
+            steps_failed=steps_failed,
+            handled=not ok and run_handled(step_log),
+        )
+        _announce(session, group_id, automation, ok, context["depth"], user_id, context, run_id=exec_id or uuid4(), retry_attempt=attempt)
+
+    session.refresh(row)
+    if row.status == "running":
+        # The policy never saw this attempt: the step passed without settling the row (it can't, but be
+        # safe), or the run failed before the provider was called (connection disabled, …).
+        if ok:
+            errors.finish_retry(session, row, "succeeded")
+        else:
+            errors.retry_failed_plainly(session, row, context.get("_error") or "the retry failed")
+    return "succeeded" if row.status == "succeeded" else "failed"

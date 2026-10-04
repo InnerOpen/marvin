@@ -32,6 +32,44 @@ class AutomationActionError(Exception):
         self.code = code
 
 
+class IntegrationStepError(AutomationActionError):
+    """An integration step's provider call failed — everything the engine needs to apply the
+    provider's error policy (`services/integrations/errors.py`) without asking the provider again.
+
+    ``policy`` is the resolved Handle as a dict (None: the provider declares none, or the SDK predates
+    policies — the step fails as it always has). ``detail`` is the provider's own message, without
+    the "<provider>.<action> failed:" prefix. ``seed`` is the idempotency seed the call ran with, so a
+    retry of it reuses the same one."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        detail: str,
+        integration_id,
+        integration_slug: str,
+        provider: str,
+        provider_name: str,
+        action_key: str,
+        policy: dict | None = None,
+        partial: dict | None = None,
+        retry_after: float | None = None,
+        seed: str | None = None,
+    ) -> None:
+        super().__init__(message, code=code)
+        self.detail = detail
+        self.integration_id = integration_id
+        self.integration_slug = integration_slug
+        self.provider = provider
+        self.provider_name = provider_name
+        self.action_key = action_key
+        self.policy = policy
+        self.partial = partial
+        self.retry_after = retry_after
+        self.seed = seed
+
+
 ACTION_EXECUTORS: dict[str, Callable] = {}
 
 

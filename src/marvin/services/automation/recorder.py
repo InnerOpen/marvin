@@ -100,6 +100,7 @@ class CollectingRecorder:
         error: str | None = None,
         duration_ms: int | None = None,
         on_failure: bool = False,
+        handling: dict | None = None,
     ) -> None:
         self.plan.append(
             {
@@ -126,7 +127,9 @@ class ExecutionRecorder:
         self.session = session
         self.group_id = group_id
 
-    def start(self, automation, trigger_type: str, *, targets_matched: int, capped: bool, user_id=None, correlation_id: str | None = None):
+    def start(
+        self, automation, trigger_type: str, *, targets_matched: int, capped: bool, user_id=None, correlation_id: str | None = None, retry_of_id=None
+    ):
         from marvin.db.models.groups.automation_executions import AutomationExecutionModel
 
         try:
@@ -143,6 +146,7 @@ class ExecutionRecorder:
                 definition_snapshot=(getattr(automation, "definition", None) or {}),
                 correlation_id=correlation_id,
                 triggered_by=user_id,
+                retry_of_id=retry_of_id,
             )
             self.session.add(row)
             self.session.commit()
@@ -164,6 +168,7 @@ class ExecutionRecorder:
         error: str | None = None,
         duration_ms: int | None = None,
         on_failure: bool = False,
+        handling: dict | None = None,
     ) -> None:
         if exec_id is None:
             return
@@ -185,13 +190,16 @@ class ExecutionRecorder:
                 error=(error[:2000] if error else None),
                 duration_ms=duration_ms,
                 output_snapshot=_truncate(output),
+                handling=handling,
             )
             self.session.add(row)
             self.session.commit()
         except Exception:
             self.session.rollback()
 
-    def finish(self, exec_id, *, status: str, error: str | None = None, targets_run: int = 0, steps_ok: int = 0, steps_failed: int = 0) -> None:
+    def finish(
+        self, exec_id, *, status: str, error: str | None = None, targets_run: int = 0, steps_ok: int = 0, steps_failed: int = 0, handled: bool = False
+    ) -> None:
         if exec_id is None:
             return
         from marvin.db.models.groups.automation_executions import AutomationExecutionModel
@@ -208,6 +216,7 @@ class ExecutionRecorder:
             row.steps_total = steps_ok + steps_failed
             row.steps_ok = steps_ok
             row.steps_failed = steps_failed
+            row.handled = handled
             if row.started_at:
                 started = row.started_at
                 if started.tzinfo is None:

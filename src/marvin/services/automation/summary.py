@@ -47,11 +47,14 @@ def _target(session, action: dict) -> str | None:
     return None
 
 
-def step_summary(session, action: dict, *, output: Any = None, error: str | None = None, on_failure: bool = False) -> dict:
+def step_summary(session, action: dict, *, output: Any = None, error: str | None = None, on_failure: bool = False, handling=None) -> dict:
     """One step's line: its kind, what it acted on, and how it went (an HTTP status when it made a call).
-    An on_failure step (run because an earlier one failed) says so."""
+    An on_failure step (run because an earlier one failed) says so; a failure the integration's error
+    policy took in hand carries ``handling`` (its summary) and ``handled``."""
     if error is not None:
         outcome = "failed"
+    elif handling is not None and handling.succeed:
+        outcome = "ignored"
     else:
         status = output.get("status_code") if isinstance(output, dict) else None
         outcome = str(status) if status is not None else "ok"
@@ -63,6 +66,9 @@ def step_summary(session, action: dict, *, output: Any = None, error: str | None
         "error": error[:MAX_STORED_ERROR_CHARS] if error is not None else None,
         "count": 1,
     }
+    if handling is not None:
+        summary["handling"] = handling.summary
+        summary["handled"] = handling.handled
     return {**summary, "on_failure": True} if on_failure else summary
 
 
@@ -70,7 +76,7 @@ def collapse(steps: list[dict]) -> list[dict]:
     """A target query runs the same steps once per row; one line per distinct step and outcome, counted."""
     seen: dict[tuple, dict] = {}
     for step in steps:
-        key = (step["kind"], step["target"], step["outcome"], step.get("error"), step.get("on_failure", False))
+        key = (step["kind"], step["target"], step["outcome"], step.get("error"), step.get("on_failure", False), step.get("handling"))
         if key in seen:
             seen[key]["count"] += 1
         else:
@@ -97,24 +103,41 @@ def _handled(steps: list[dict]) -> str:
     return " (on-failure steps ran)" if all(s.get("ok") for s in handlers) else " (an on-failure step failed too)"
 
 
-def run_message(slug: str, ok: bool, steps: list[dict]) -> str:
-    """The run's event message: its steps on success, the failing step and its error on failure."""
+def run_handled(steps: list[dict]) -> bool:
+    """Every failure of the workflow's own steps was taken in hand by an integration's error policy."""
+    failures = [s for s in steps if not s.get("ok") and not s.get("on_failure")]
+    return bool(failures) and all(s.get("handled") for s in failures)
+
+
+def handlings(steps: list[dict]) -> list[str]:
+    """What the error policies did in this run, once each — e.g. "handled by Square: sent to review"."""
+    return list(dict.fromkeys(s["handling"] for s in steps if s.get("handling")))
+
+
+def run_message(slug: str, ok: bool, steps: list[dict], *, retry_attempt: int | None = None) -> str:
+    """The run's event message: its steps on success, the failing step and its error on failure — and
+    how the integration's error policy handled it ("failed — … — handled by Square: sent to review").
+    A retry says which one it was ("succeeded on retry 2")."""
+    retry = f" on retry {retry_attempt}" if retry_attempt else ""
     if not ok:
         failed = failed_step(steps)
         if failed is None:
-            return f"Automation '{slug}' failed"
+            return f"Automation '{slug}' failed{retry}"
         error = str(failed.get("error") or "").strip()
         if len(error) > MAX_ERROR_CHARS:
             error = error[: MAX_ERROR_CHARS - 1] + "…"
         target = f" '{failed['target']}'" if failed.get("target") else ""
         reason = f": {error}" if error else ""
-        return f"Automation '{slug}' failed — {failed['kind']}{target}{reason}{_handled(steps)}"
+        handled = f" — {failed['handling']}" if failed.get("handling") else ""
+        return f"Automation '{slug}' failed{retry} — {failed['kind']}{target}{reason}{handled}{_handled(steps)}"
     if not steps:
         return f"Automation '{slug}' ran — no steps"
     listed = "; ".join(_describe(s) for s in steps[:MAX_LISTED_STEPS])
     more = len(steps) - MAX_LISTED_STEPS
     if more > 0:
         listed += f"; +{more} more step{'s' if more > 1 else ''}"
+    if retry_attempt:
+        return f"Automation '{slug}' succeeded on retry {retry_attempt} — {listed}"
     return f"Automation '{slug}' ran — {listed}"
 
 

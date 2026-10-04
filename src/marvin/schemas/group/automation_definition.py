@@ -196,6 +196,11 @@ class AutomationDefinition(_DefnBase):
     # Steps run when a step of `actions` fails, in the same run and on the same entry, with the failure
     # as `${error.*}` (message, code, step, kind, at). The run still counts as failed.
     on_failure: list[Action] | None = None
+    # How a failing integration step is handled. "policy" (the default) applies the integration's own
+    # error policy — send the entry to review, retry later, alert admins, or carry on. "fail" opts this
+    # workflow out: its integration steps fail as plain failures (the connection's admin alert still
+    # fires). A workflow with on_failure steps runs those instead of the policy either way.
+    integration_errors: Literal["policy", "fail"] | None = None
 
     @model_validator(mode="before")
     @classmethod

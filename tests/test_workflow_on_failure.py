@@ -46,6 +46,12 @@ class _Session:
     def get(self, _model, _id):
         return None
 
+    def commit(self):
+        pass
+
+    def rollback(self):
+        pass
+
 
 class _Recorder:
     def __init__(self):

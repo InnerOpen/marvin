@@ -239,15 +239,23 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
 def _request_review(session, group_id, entity_id, action: dict, context: dict, *, user_id, depth: int, dry_run: bool) -> dict:
     """Move the entry to Needs review, adding the (templated) `reason` to its review reasons — once:
     the same reason twice (a re-run) is not listed twice."""
-    from marvin.services.entries import EntryService
-
     reason = interpolate(action.get("reason"), context) if action.get("reason") else None
     reason = str(reason).strip() if reason not in (None, "") else ""
     if dry_run:
         preview = {"dry_run": True, "kind": "entry", "op": "request_review", "entity_id": str(entity_id)}
         return {**preview, "would_set_status": REVIEW_STATUS, "reason": reason}
+    request_review(session, group_id, entity_id, reason=reason, user_id=user_id, depth=depth)
+    return {"entry_id": str(entity_id), "op": "request_review", "status": REVIEW_STATUS, "reason": reason or None}
+
+
+def request_review(session, group_id, entity_id, *, reason: str = "", metadata: dict | None = None, user_id=None, depth: int = 0) -> None:
+    """Move an entry to Needs review in one update (one entry_updated): add ``reason`` to its review
+    reasons (not twice) and merge ``metadata`` (top-level keys) into its metadata_json. Also how an
+    integration's error policy sends an entry to review (`services/integrations/errors.py`)."""
+    from marvin.services.entries import EntryService
+
     svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
-    if not reason:
+    if not reason and not metadata:
         entry = svc.set_status(entity_id, REVIEW_STATUS, reaction_depth=depth)
     else:
         from marvin.db.models.platform.entries import Entries
@@ -255,11 +263,11 @@ def _request_review(session, group_id, entity_id, action: dict, context: dict, *
         orm = session.get(Entries, entity_id)
         if orm is None or orm.group_id != group_id:
             raise AutomationActionError(f"entry {entity_id} not found in this workspace")
-        metadata = dict(orm.metadata_json or {})
-        reasons = [r for r in (metadata.get(REVIEW_REASONS_KEY) or []) if isinstance(r, str)]
-        metadata[REVIEW_REASONS_KEY] = reasons if reason in reasons else [*reasons, reason]
+        merged = {**(orm.metadata_json or {}), **(metadata or {})}
+        if reason:
+            reasons = [r for r in (merged.get(REVIEW_REASONS_KEY) or []) if isinstance(r, str)]
+            merged[REVIEW_REASONS_KEY] = reasons if reason in reasons else [*reasons, reason]
         # One update, so the status change and its reason land together (one entry_updated).
-        entry = svc.update(entity_id, {"status": REVIEW_STATUS, "metadata_json": metadata}, reaction_depth=depth)
+        entry = svc.update(entity_id, {"status": REVIEW_STATUS, "metadata_json": merged}, reaction_depth=depth)
     if entry is None:
         raise AutomationActionError(f"entry {entity_id} not found in this workspace")
-    return {"entry_id": str(entity_id), "op": "request_review", "status": REVIEW_STATUS, "reason": reason or None}

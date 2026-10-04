@@ -105,11 +105,12 @@ def test_integration_step_provider_error_fails_the_step(db_session, workspace, s
         _run(db_session, workspace, {"integration": "shop", "action": "create_listing", "args": {"slug": "x", "fail": True}})
 
 
-def test_integration_step_provider_error_without_code_has_no_code(db_session, workspace, shop):
+def test_integration_step_provider_error_without_code_is_unknown(db_session, workspace, shop):
+    # Untagged failures are "unknown" — the code an error policy's catch-all (and SDK 0.5.0's default) uses.
     with pytest.raises(AutomationActionError) as raised:
         _run(db_session, workspace, {"integration": "shop", "action": "create_listing", "args": {"slug": "x", "fail": True}})
 
-    assert raised.value.code is None
+    assert raised.value.code == "unknown"
 
 
 def test_integration_step_provider_error_code_reaches_the_step_error(db_session, workspace, shop):
