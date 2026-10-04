@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.177 (2026-10-04)
+
+### Features
+
+- **workflows**: ${site.url} in the workflow context
+  ([`eba285b`](https://github.com/InnerOpen/marvin/commit/eba285b471a0b86ff9c3f9c55d62a94712fb8932))
+
+
 ## v1.0.0-rc.176 (2026-10-04)
 
 ### Features
