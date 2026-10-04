@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.173 (2026-10-04)
+
+### Features
+
+- **frontend**: Workflow dry run picks its sample event and shows the condition checklist
+  ([`eb0a510`](https://github.com/InnerOpen/marvin/commit/eb0a510a8fb4ea6156730ebfc7cec5d1e3c67519))
+
+- **workflows**: Dry-run an event-triggered workflow against a sample event
+  ([`68ca709`](https://github.com/InnerOpen/marvin/commit/68ca7095db4bc686fa1827bc552782bc13db1d90))
+
+
 ## v1.0.0-rc.172 (2026-10-04)
 
 ### Features
