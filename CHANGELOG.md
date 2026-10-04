@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.182 (2026-10-04)
+
+### Bug Fixes
+
+- **api**: Make API client routes workspace-admin only
+  ([`4a60bb5`](https://github.com/InnerOpen/marvin/commit/4a60bb5e6ca47bdf7167b44529b4f9508dad2ad8))
+
+- **api**: Only workspace admins may create, change or delete secrets
+  ([`fddde25`](https://github.com/InnerOpen/marvin/commit/fddde25f5d46987d542979dccdb8c295747b1bdd))
+
+### Features
+
+- **integrations**: PATCH on the provider HTTP helper
+  ([`51bf42a`](https://github.com/InnerOpen/marvin/commit/51bf42ab2e806ecb333809c2300908a2654658b7))
+
+
 ## v1.0.0-rc.181 (2026-10-04)
 
 ### Features
