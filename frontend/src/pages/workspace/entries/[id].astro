@@ -11,6 +11,7 @@ import { listResources } from "@/lib/api/resources";
 import { createTag, listTags, type TagRead } from "@/lib/api/tags";
 import { keysHint } from "@/lib/disclosure";
 import { viewOnSite, withSubmittedValues } from "@/lib/entryForm";
+import { reviewReasons } from "@/lib/reviewReasons";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
 import { createSdkClient } from "@/lib/sdk";
@@ -230,6 +231,8 @@ if (entry && submitted) {
 // Why the Publish Scheduled Entries task is holding this entry back, if it is (set by the task,
 // cleared when the entry publishes or is rescheduled).
 const scheduledBlock = entry?.scheduledPublishBlocked ?? null;
+// Why the entry is in Needs review (a flagged submission, or a workflow's request_review step).
+const pendingReviewReasons = entry?.status === "needs_review" ? reviewReasons(entry.metadataJson) : [];
 
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
 const sortedCollections = collections.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -509,6 +512,17 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
         <aside class="sidebar-editor">
           <div class="sidebar-section">
             <h3>Entry Details</h3>
+
+            {pendingReviewReasons.length > 0 && (
+              <div class="schedule-waiting review-reasons" role="status">
+                <p class="schedule-waiting-title">Waiting for review because:</p>
+                <ul>
+                  {pendingReviewReasons.map((reason) => (
+                    <li>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div
               id="entry-image-preview"
@@ -1016,6 +1030,9 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   }
 
   /* The scheduled publish is holding this entry back (entries.scheduled_publish_blocked). */
+  .review-reasons {
+    margin-bottom: 1rem;
+  }
   .schedule-waiting {
     margin-top: 0.25rem;
     padding: 0.625rem 0.75rem;
