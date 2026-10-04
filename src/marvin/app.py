@@ -293,6 +293,7 @@ async def start_scheduler() -> None:
         scheduler_tasks.post_group_webhooks,
         scheduler_tasks.check_scheduled_tasks,
         scheduler_tasks.dispatch_site_rebuilds,
+        scheduler_tasks.sweep_integration_retries,
     )
 
     # Register hourly tasks
