@@ -59,7 +59,7 @@ class WorkspaceAISettingsModel(SqlAlchemyBase, BaseMixins):
     # "files": [{name, assetId, url}]}, or a library pack {"library": id} — see services/ai/character.py.
     # Unset → the icon.
     assistant_character: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
-    # Free-text voice/tone instruction appended to the system prompt.
+    # The Character (AI settings → Persona): who the assistant is, sent as "Character:" where the tone lets it.
     persona_prompt: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     # The bubble's canned lines in the workspace's own voice — {greetings, taglines, thinking, errors,
     # emotes}, each a list of strings — generated from the persona or hand-edited; see

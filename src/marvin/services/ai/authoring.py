@@ -619,7 +619,7 @@ class AuthoringService:
         an agent's prompt. "" for the plain default."""
         voice = recipe.enrichment.get("voice") if isinstance(recipe.enrichment, dict) else None
         if voice:
-            return f" Voice/tone: {voice}"
+            return f" Voice: {voice}"
         from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
         from marvin.services.ai.persona import resolve_persona
         from marvin.services.ai.tones import draft_voice, workspace_tones

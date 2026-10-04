@@ -4,6 +4,7 @@ import SchemaEditor from "@/components/SchemaEditor.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getEntryType } from "@/lib/api/entryTypes";
+import { splitRecipe } from "@/lib/recipeForm";
 
 const { id } = Astro.params;
 
@@ -29,10 +30,9 @@ const capabilities = (entryType?.capabilitiesJson ?? {}) as Record<string, unkno
 const submission = (capabilities.submission ?? {}) as Record<string, unknown>;
 const subStr = (k: string) => (submission[k] == null ? "" : String(submission[k]));
 const recipe = (entryType?.recipeJson ?? {}) as Record<string, unknown>;
-// The authoring instructions get their own prose box; the JSON textarea holds the structured contract.
-const recipeInstructions = typeof recipe.instructions === "string" ? recipe.instructions : "";
-const { instructions: _omitInstructions, ...recipeStructured } = recipe;
-const recipeStr = Object.keys(recipeStructured).length ? JSON.stringify(recipeStructured, null, 2) : "";
+// The authoring instructions and the drafts' voice (`enrichment.voice`) get their own boxes; the JSON textarea
+// holds the rest of the structured contract (lib/recipeForm).
+const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } = splitRecipe(recipe);
 ---
 
 <AppLayout
@@ -289,6 +289,19 @@ const recipeStr = Object.keys(recipeStructured).length ? JSON.stringify(recipeSt
                   style="width:100%;font-size:14px;line-height:1.5;padding:10px;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);color:var(--ink);margin-bottom:14px;"
                 >{recipeInstructions}</textarea>
 
+                <label for="recipe_voice" style="display:block;font-weight:600;margin:0 0 4px;">Voice</label>
+                <p style="margin:0 0 6px;color:var(--muted);font-size:13px;">
+                  Overrides the tone for AI drafts of this type. e.g. "Warm and first person; short sentences."
+                  Leave blank to use the tone.
+                </p>
+                <input
+                  id="recipe_voice"
+                  type="text"
+                  value={recipeVoice}
+                  placeholder="How drafts of this type should sound…"
+                  style="width:100%;font-size:14px;padding:9px 10px;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);color:var(--ink);margin-bottom:14px;"
+                />
+
                 <label for="recipe_json" style="display:block;font-weight:600;margin:0 0 4px;">Structured contract</label>
                 <p style="margin:0 0 8px;color:var(--muted);font-size:13px;">
                   What to gather &amp; derive — assets contract (min/max + roles like hero/gallery, with
@@ -485,6 +498,8 @@ const recipeStr = Object.keys(recipeStructured).length ? JSON.stringify(recipeSt
 </style>
 
 <script>
+  import { foldRecipe } from '@/lib/recipeForm';
+
   function syncRenderingJson() {
     const name = (document.getElementById('renderer_name') as HTMLInputElement)?.value.trim();
     const pkg = (document.getElementById('renderer_package') as HTMLInputElement)?.value.trim();
@@ -538,19 +553,14 @@ const recipeStr = Object.keys(recipeStructured).length ? JSON.stringify(recipeSt
     capabilitiesHidden.value = JSON.stringify(next);
   }
 
-  // Fold the prose Instructions box back into recipe_json on save (it's edited separately so authors
-  // don't have to hand-write the "instructions" key inside the JSON).
+  // Fold the prose Instructions and Voice boxes back into recipe_json on save (they're edited separately so
+  // authors don't have to hand-write the "instructions" / "enrichment.voice" keys inside the JSON).
   function syncRecipeJson() {
-    const instr = (document.getElementById('recipe_instructions') as HTMLTextAreaElement)?.value.trim() ?? '';
+    const instr = (document.getElementById('recipe_instructions') as HTMLTextAreaElement)?.value ?? '';
+    const voice = (document.getElementById('recipe_voice') as HTMLInputElement)?.value ?? '';
     const jsonEl = document.getElementById('recipe_json') as HTMLTextAreaElement;
-    const raw = jsonEl.value.trim();
-    let obj: Record<string, unknown> = {};
-    if (raw) {
-      try { obj = JSON.parse(raw); }
-      catch { return; }  // invalid structured JSON — let the server reject it rather than silently drop it
-    }
-    if (instr) obj.instructions = instr; else delete obj.instructions;
-    jsonEl.value = Object.keys(obj).length ? JSON.stringify(obj, null, 2) : '';
+    const folded = foldRecipe(jsonEl.value, instr, voice);
+    if (folded !== null) jsonEl.value = folded;  // invalid JSON goes as typed, for the server to reject
   }
   document.querySelector('form[action*="/update"]')?.addEventListener('submit', syncRecipeJson);
 

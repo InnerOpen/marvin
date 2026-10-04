@@ -234,7 +234,7 @@ def preflight(session, group_id) -> str | None:
 
     row = _row(session, group_id)
     if not row or not _norm(row.persona_prompt):
-        return "There's no persona to write lines from. Write one under Voice / tone and save first."
+        return "There's no character to write lines from. Write one in the Character field and save first."
     if not row.enabled:
         return "AI is turned off for this workspace."
     if reason := budget.blocked_reason(session, group_id):

@@ -203,8 +203,9 @@ def test_generate_without_a_persona_is_refused(db_session, workspace, provider):
     row.persona_prompt = "  "
     db_session.commit()
 
-    with pytest.raises(bl.BubbleLinesError, match="no persona"):
+    with pytest.raises(bl.BubbleLinesError, match="no character to write lines from") as e:
         bl.generate(db_session, workspace)
+    assert "Character field" in str(e.value) and "Voice / tone" not in str(e.value)  # the field's label
     assert provider.calls == []
 
 

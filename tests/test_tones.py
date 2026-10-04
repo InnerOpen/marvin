@@ -571,7 +571,7 @@ def _voice(db_session, gid, recipe, register=None):
 
 def test_draft_voice_entry_type_voice_wins_over_the_tone(db_session, workspace, ctrl):
     ctrl.put(tones=[WARM], default_tone="warm")
-    assert _voice(db_session, workspace, {"enrichment": {"voice": "wry"}}, "warm") == " Voice/tone: wry"
+    assert _voice(db_session, workspace, {"enrichment": {"voice": "wry"}}, "warm") == " Voice: wry"
 
 
 def test_draft_voice_uses_the_tone_when_the_entry_type_has_none(db_session, workspace, ctrl):
