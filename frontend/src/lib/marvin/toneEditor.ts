@@ -1,7 +1,8 @@
 /**
  * The tones editor (components/ToneEditor.astro, on AI settings): the workspace's default tone, which
  * tones the pickers offer, and its own tones — name, instructions and a persona rule (how far the
- * Persona's character reaches). Preview prompt shows the result in parts: from the Persona, from the tone.
+ * Persona's character reaches). Preview (on each row, built-ins too) and the form's Preview prompt show the
+ * result in parts — from the Persona, from the tone, which wins — through the shared lib/promptPreview.
  *
  * Every change saves the whole list at once (PUT /api/groups/ai-settings/tones) and re-renders from the
  * server's answer, so the page never drifts from what's stored. Built-ins can be hidden but not edited;
@@ -9,14 +10,8 @@
  */
 
 import { type ToneInput, previewTone, saveTones } from "@/lib/api/aiTones";
-import {
-  PERSONA_RULES,
-  type PersonaRule,
-  type Tone,
-  type TonePreview,
-  type TonesState,
-  previewSections,
-} from "@/lib/tones";
+import { promptPreviewHtml, promptPreviewMessage, tonePreviewView } from "@/lib/promptPreview";
+import { PERSONA_RULES, type PersonaRule, type Tone, type TonesState } from "@/lib/tones";
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(
@@ -26,7 +21,6 @@ const esc = (s: unknown) =>
 
 const ruleLabel = (rule: PersonaRule) => PERSONA_RULES.find((r) => r.value === rule)?.label ?? rule;
 const EXCERPT_CHARS = 140;
-const PERSONA_HREF = "/workspace/settings/ai-workflow#persona-section";
 const MAX_DESCRIPTION_CHARS = 200;
 
 function excerpt(text: string): string {
@@ -52,9 +46,10 @@ function rowHtml(t: Tone, state: TonesState): string {
   const isDefault = t.slug === state.defaultTone;
   const about = t.description || (t.builtin ? "" : excerpt(t.instructions));
   const used = t.usedBy.length ? `<span class="tone-used">Default for ${t.usedBy.map(esc).join(", ")}</span>` : "";
+  const preview = `<button type="button" class="button secondary small" data-act="preview" aria-expanded="false">Preview</button>`;
   const actions = t.builtin
-    ? `<span class="tone-badge">Built-in</span>`
-    : `<button type="button" class="button secondary small" data-act="edit">Edit</button>
+    ? `<span class="tone-badge">Built-in</span>${preview}`
+    : `${preview}<button type="button" class="button secondary small" data-act="edit">Edit</button>
        <button type="button" class="button secondary small" data-act="delete"${t.usedBy.length ? ` title="Agents default to this tone"` : ""}>Delete</button>`;
   return `<li class="tone-row${t.hidden ? " is-hidden" : ""}" data-slug="${esc(t.slug)}">
     <label class="tone-default" title="Workspace default">
@@ -69,6 +64,7 @@ function rowHtml(t: Tone, state: TonesState): string {
       <input type="checkbox" data-act="shown"${t.hidden ? "" : " checked"}${isDefault ? " disabled" : ""} /> Show
     </label>
     <div class="tone-actions">${actions}</div>
+    <div class="prompt-preview tone-row-preview" data-row-preview hidden aria-live="polite"></div>
   </li>`;
 }
 
@@ -96,27 +92,8 @@ function formHtml(t: Tone | null, state: TonesState): string {
       <button type="button" class="button secondary small" data-act="preview">Preview prompt</button>
       <button type="button" class="button secondary small" data-act="cancel">Cancel</button>
     </div>
-    <div class="tone-preview" hidden aria-live="polite"></div>
+    <div class="prompt-preview" data-form-preview hidden aria-live="polite"></div>
   </div>`;
-}
-
-/** The preview in labelled parts: what the Persona adds, what this tone adds, and which wins. */
-function previewHtml(out: TonePreview): string {
-  const p = previewSections(out);
-  const part = (text: string, note: string) =>
-    text ? `<pre>${esc(text)}</pre>` : `<p class="hint tone-part-empty">${esc(note)}</p>`;
-  return `<p class="tone-preview-summary">${esc(p.summary)}</p>
-    <div class="tone-part">
-      <div class="tone-part-label">From your <a href="${PERSONA_HREF}">Persona</a> <small class="hint">— who your assistant is</small></div>
-      ${part(p.character, p.characterNote)}
-    </div>
-    <div class="tone-part">
-      <div class="tone-part-label">From this tone <small class="hint">— how it delivers</small></div>
-      ${part(p.fromTone, p.fromToneNote)}
-    </div>
-    ${p.rule ? `<p class="tone-preview-rule"><strong>Which wins:</strong> ${esc(p.rule)}</p>` : ""}
-    <details class="tone-preview-full"><summary>Full prompt text</summary><pre>${esc(out.clause.trim())}</pre></details>
-    <small class="hint">About ${out.tokens} tokens on every agent step (with this workspace's persona).</small>`;
 }
 
 function mount(root: HTMLElement): void {
@@ -201,10 +178,10 @@ function mount(root: HTMLElement): void {
     if (act === "cancel") return closeForm();
     const draft = readForm();
     if (act === "preview") {
-      const box = formBox.querySelector<HTMLElement>(".tone-preview")!;
+      const box = formBox.querySelector<HTMLElement>("[data-form-preview]")!;
       try {
         const out = await previewTone({ name: draft.name, instructions: draft.instructions, persona: draft.persona });
-        box.innerHTML = previewHtml(out);
+        box.innerHTML = promptPreviewHtml(tonePreviewView(out));
         box.hidden = false;
       } catch (err) {
         say(errorText(err), "error");
@@ -230,10 +207,28 @@ function mount(root: HTMLElement): void {
     }
   });
 
+  /** A row's Preview: the saved tone's parts under the row, without opening the editor; again to close. */
+  async function toggleRowPreview(row: HTMLElement, button: HTMLElement, slug: string) {
+    const box = row.querySelector<HTMLElement>("[data-row-preview]")!;
+    const opening = box.hidden;
+    box.hidden = !opening;
+    button.setAttribute("aria-expanded", String(opening));
+    if (!opening) return;
+    box.innerHTML = promptPreviewMessage("Loading…");
+    try {
+      box.innerHTML = promptPreviewHtml(tonePreviewView(await previewTone({ slug })));
+    } catch (err) {
+      box.innerHTML = promptPreviewMessage(errorText(err), true);
+    }
+  }
+
   list.addEventListener("click", (e) => {
-    const act = (e.target as HTMLElement).closest<HTMLElement>("[data-act]")?.dataset.act;
-    const slug = (e.target as HTMLElement).closest<HTMLElement>(".tone-row")?.dataset.slug;
+    const button = (e.target as HTMLElement).closest<HTMLElement>("[data-act]");
+    const act = button?.dataset.act;
+    const row = (e.target as HTMLElement).closest<HTMLElement>(".tone-row");
+    const slug = row?.dataset.slug;
     const tone = state.tones.find((t) => t.slug === slug);
+    if (tone && act === "preview") return void toggleRowPreview(row!, button!, tone.slug);
     if (!tone || tone.builtin) return;
     if (act === "edit") openForm(tone);
     if (act === "delete" && confirm(`Delete the tone “${tone.name}”?`)) {

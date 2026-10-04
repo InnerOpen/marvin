@@ -998,3 +998,18 @@ code {
   gap: 0.5rem;
   padding-top: 0.25rem;
 }
+
+/* Prompt previews (lib/promptPreview.ts): a tone, the Character, an agent — one look everywhere. */
+.prompt-preview { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.prompt-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; margin: 0; max-height: 240px; overflow: auto; }
+.prompt-preview-summary { margin: 0; font-size: 13px; font-weight: 600; }
+.prompt-part-label { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.prompt-part > summary { cursor: pointer; }
+.prompt-part-hint { font-weight: 400; color: var(--muted); }
+.prompt-part-empty { margin: 0; font-size: 12px; font-style: italic; color: var(--muted); }
+.prompt-preview-rule { margin: 0; font-size: 12px; padding: 8px 10px; border-left: 3px solid var(--accent); background: var(--panel-2); }
+.prompt-preview-note { margin: 0; font-size: 12px; color: var(--muted); }
+.prompt-preview-note.is-error { color: var(--color-error); }
+.prompt-preview-full summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.prompt-preview-full pre { margin-top: 6px; }
+.prompt-preview-tokens { font-size: 12px; color: var(--muted); }

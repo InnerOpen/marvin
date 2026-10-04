@@ -314,6 +314,13 @@ const modCfg = s.moderationConfig ?? {};
           placeholder="e.g. A leathercraft studio's helper; warm and upbeat, a little dry.">{s.personaPrompt ?? ""}</textarea>
         <small class="hint">Who your assistant is and how it speaks — sent to the model as its "Character". The tone decides how far it reaches and wins on formality, length and mood. Leave blank for the default character — Marvin, the deadpan Paranoid Android (while the assistant is still named Marvin).</small>
       </label>
+      <div class="persona-preview">
+        <div class="persona-preview-actions">
+          <button type="button" class="button secondary small" id="persona-preview-btn" aria-expanded="false" aria-controls="persona-preview">Preview</button>
+          <small class="hint">What the AI receives: this character with the workspace default tone. Unsaved changes are included.</small>
+        </div>
+        <div class="prompt-preview" id="persona-preview" hidden aria-live="polite"></div>
+      </div>
       <div class="form-field bubble-lines" id="bubble-lines" data-state={JSON.stringify(bubbleState)}>
         <span class="label">Bubble lines</span>
         <small class="hint">
@@ -455,6 +462,8 @@ const modCfg = s.moderationConfig ?? {};
 
 <script>
   import { fetchApi } from '@/lib/api/client';
+  import { previewTone } from '@/lib/api/aiTones';
+  import { characterPreviewView, promptPreviewHtml, promptPreviewMessage } from '@/lib/promptPreview';
   import { createSdkClient } from '@/lib/sdk';
   // ── Usage & limits ── (GET /api/groups/ai-settings/usage; see services/ai/budget.py)
   const usd = (n: number) => (n < 0.01 && n > 0 ? '<$0.01' : `$${n.toFixed(2)}`);
@@ -508,6 +517,45 @@ const modCfg = s.moderationConfig ?? {};
   }
 
   loadUsage();
+
+  // ── Character preview ── (POST /api/groups/ai-settings/tones/preview with no tone: the workspace default)
+  // The form's current name and Character go along, so an unsaved edit previews too; while open, it follows typing.
+  const PREVIEW_DEBOUNCE_MS = 400;
+  const personaPreviewBtn = document.getElementById('persona-preview-btn');
+  const personaPreviewBox = document.getElementById('persona-preview');
+  const characterInput = document.querySelector<HTMLTextAreaElement>('textarea[name="persona_prompt"]');
+  const assistantNameInput = document.querySelector<HTMLInputElement>('input[name="assistant_name"]');
+  let personaPreviewTimer: ReturnType<typeof setTimeout> | undefined;
+
+  async function loadPersonaPreview() {
+    if (!personaPreviewBox) return;
+    try {
+      const out = await previewTone({
+        personaPrompt: characterInput?.value ?? '',
+        assistantName: assistantNameInput?.value ?? '',
+      });
+      personaPreviewBox.innerHTML = promptPreviewHtml(characterPreviewView(out));
+    } catch (err) {
+      personaPreviewBox.innerHTML = promptPreviewMessage(`Couldn't preview: ${(err as Error).message}`, true);
+    }
+  }
+
+  personaPreviewBtn?.addEventListener('click', () => {
+    if (!personaPreviewBox) return;
+    const opening = personaPreviewBox.hidden;
+    personaPreviewBox.hidden = !opening;
+    personaPreviewBtn.setAttribute('aria-expanded', String(opening));
+    if (!opening) return;
+    personaPreviewBox.innerHTML = promptPreviewMessage('Loading…');
+    void loadPersonaPreview();
+  });
+  for (const field of [characterInput, assistantNameInput]) {
+    field?.addEventListener('input', () => {
+      if (personaPreviewBox?.hidden !== false) return;
+      clearTimeout(personaPreviewTimer);
+      personaPreviewTimer = setTimeout(loadPersonaPreview, PREVIEW_DEBOUNCE_MS);
+    });
+  }
 
   // ── Bubble lines ── (/api/groups/ai-settings/bubble-lines; see services/ai/bubble_lines.py)
   // Generation runs in the background after a voice is saved, so the card polls while it does.
@@ -589,7 +637,7 @@ const modCfg = s.moderationConfig ?? {};
     document.getElementById('bubble-lines-save')!.addEventListener('click', () => bubbleAction(saveBubbleLines, 'Saved'));
     document.getElementById('bubble-lines-regenerate')!.addEventListener('click', () => {
       if ((personaInput?.value.trim() ?? '') !== savedPersona) {
-        bubbleMsg.textContent = 'Save the settings first: lines are written from the saved voice.';
+        bubbleMsg.textContent = 'Save the settings first: lines are written from the saved Character.';
         bubbleMsg.className = 'save-status error';
         return;
       }
@@ -1053,6 +1101,8 @@ const modCfg = s.moderationConfig ?? {};
   .input:focus { border-color: var(--accent); outline: none; }
 
   textarea.persona-prompt { resize: vertical; min-height: 84px; font-family: inherit; line-height: 1.5; }
+  .persona-preview { margin: -4px 0 16px; }
+  .persona-preview-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .bubble-lines-status { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
   .bubble-lines-warning { margin: 6px 0 0; font-size: 13px; color: var(--color-error); }
   .bubble-lines-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; }

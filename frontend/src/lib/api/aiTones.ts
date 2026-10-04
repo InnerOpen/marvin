@@ -35,9 +35,20 @@ export function saveTones(
   return fetchApi<TonesState>(BASE, send("PUT", data), authToken);
 }
 
-/** The section a tone adds to every agent step, with the workspace persona — whole and in parts — and a rough token count. */
+/**
+ * The section a tone adds to every agent step, with the workspace character — whole and in parts — and a rough
+ * token count. A saved tone by `slug`, a draft by its fields, or with neither the workspace default.
+ * `personaPrompt` / `assistantName` preview unsaved Character fields in place of the stored ones. ADMIN/OWNER.
+ */
 export function previewTone(
-  data: { slug?: string; name?: string; instructions?: string; persona?: PersonaRule },
+  data: {
+    slug?: string;
+    name?: string;
+    instructions?: string;
+    persona?: PersonaRule;
+    personaPrompt?: string;
+    assistantName?: string;
+  },
   authToken?: string,
 ): Promise<TonePreview> {
   return fetchApi(`${BASE}/preview`, send("POST", data), authToken);

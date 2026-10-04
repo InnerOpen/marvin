@@ -87,7 +87,7 @@ describe("previewSections", () => {
 
   test("says when there is no persona to add", () => {
     const p = previewSections(preview({ hasPersona: false, character: "", fromTone: "", rule: "" }));
-    assert.equal(p.characterNote, "No persona set, so there's no character to add.");
+    assert.equal(p.characterNote, "No character set, so there's none to add.");
     assert.match(p.fromToneNote, /only places the character/);
   });
 });

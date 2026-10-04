@@ -54,9 +54,12 @@ export interface TonePreview {
   fromTone: string;
   /** The precedence rule, when a character and a tone's instructions both apply. */
   rule: string;
+  /** The tone previewed (the workspace default when none was named). */
+  toneSlug: string;
+  toneName: string;
 }
 
-/** What the tone editor's preview shows for each part: the text, or a note saying why there is none. */
+/** What a prompt preview shows for each tone part: the text, or a note saying why there is none (lib/promptPreview.ts). */
 export function previewSections(p: TonePreview): {
   summary: string;
   character: string;
@@ -68,9 +71,7 @@ export function previewSections(p: TonePreview): {
   let characterNote = "";
   if (!p.character) {
     characterNote =
-      p.persona === "drop"
-        ? "Not used — this tone drops the character."
-        : "No persona set, so there's no character to add.";
+      p.persona === "drop" ? "Not used — this tone drops the character." : "No character set, so there's none to add.";
   }
   return {
     summary: p.personaSummary,

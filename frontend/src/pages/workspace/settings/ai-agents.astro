@@ -241,9 +241,13 @@ const builtins = agents.filter((a) => a.isSystem);
               <span class="pill">{a.kind}</span>
               <span class:list={["pill", a.allowWrites ? "warn" : ""]}>{a.allowWrites ? "can write" : "read-only"}</span>
             </div>
-            <div class="agent-actions"><button class="button secondary small perms-btn" type="button">Permissions</button></div>
+            <div class="agent-actions">
+              <button class="button secondary small perms-btn" type="button">Permissions</button>
+              <button class="button secondary small preview-btn" type="button" aria-expanded="false">Preview prompt</button>
+            </div>
           </div>
           <div class="perms" data-role="perms" hidden></div>
+          <div class="prompt-preview agent-preview" data-role="preview" hidden aria-live="polite"></div>
         </div>
       ))}
     </div>
@@ -299,6 +303,7 @@ const builtins = agents.filter((a) => a.isSystem);
   .pill.warn { color: #a16207; border-color: rgba(234,179,8,0.45); background: rgba(234,179,8,0.1); }
   .agent-actions { display: flex; gap: 8px; }
   .perms, .edit { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .agent-preview { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   /* On the card (Character button) it's a section of its own; inside the Edit form it sits under Icon and Name. */
   .character-box { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   .edit .character-box { margin: 0 0 16px; padding-top: 0; border-top: 0; }
@@ -355,11 +360,13 @@ const builtins = agents.filter((a) => a.isSystem);
     createAgent,
     deleteAgent,
     getPermissions,
+    previewAgentPrompt,
     updateAgent,
     type Agent,
     type Catalog,
     type PolicyValue,
   } from "@/lib/api/aiAgents";
+  import { agentPreviewView, promptPreviewHtml, promptPreviewMessage } from "@/lib/promptPreview";
   import { type Tone, toneOptions } from "@/lib/tones";
 
   const root = document.querySelector<HTMLElement>(".agents-root");
@@ -464,6 +471,17 @@ const builtins = agents.filter((a) => a.isSystem);
     }
     const allowWritesOf = (form: HTMLFormElement) => (form.querySelector<HTMLInputElement>('[name="allowWrites"]')?.checked ?? false);
 
+    // ── Prompt preview (POST /api/ai/agents/{slug}/preview-prompt; rendered by lib/promptPreview) ──
+    async function showPreview(box: HTMLElement, slug: string, data = {}) {
+      box.hidden = false;
+      box.innerHTML = promptPreviewMessage("Loading…");
+      try {
+        box.innerHTML = promptPreviewHtml(agentPreviewView(await previewAgentPrompt(slug, data)));
+      } catch (e) {
+        box.innerHTML = promptPreviewMessage("Couldn't preview: " + (e instanceof Error ? e.message : e), true);
+      }
+    }
+
     // ── New agent ──
     const newToggle = document.getElementById("new-toggle") as HTMLButtonElement | null;
     const newForm = document.getElementById("new-form") as HTMLFormElement | null;
@@ -549,6 +567,16 @@ const builtins = agents.filter((a) => a.isSystem);
         }
       });
 
+      // Built-ins have no Edit form, so their card previews the prompt as defined in code.
+      const previewBox = card.querySelector<HTMLElement>('[data-role="preview"]');
+      card.querySelector(".preview-btn")?.addEventListener("click", (ev) => {
+        if (!previewBox) return;
+        const opening = previewBox.hidden;
+        (ev.currentTarget as HTMLElement).setAttribute("aria-expanded", String(opening));
+        if (opening) void showPreview(previewBox, slug);
+        else previewBox.hidden = true;
+      });
+
       const enableInput = card.querySelector<HTMLInputElement>(".enable");
       const enableText = card.querySelector<HTMLElement>('[data-role="enable-text"]');
       enableInput?.addEventListener("change", async () => {
@@ -607,7 +635,8 @@ const builtins = agents.filter((a) => a.isSystem);
             <label class="toggle-label"><input type="checkbox" name="enabled" class="toggle-input"${agent.enabled ? " checked" : ""} /><span class="toggle-track"><span class="toggle-thumb"></span></span><span class="toggle-text">Enabled</span></label>
           </div>
           <div class="form-field"><div class="section-title"><h4>Tools</h4><p>Inherit follows the group default (with writes on, write groups ask first); override per group or per tool. Ask first binds the tool but pauses the run for your approval on the Ask page; where there is no conversation to pause (bubble, MCP, hand-off children) it behaves like Block.</p></div><div class="matrix" data-role="matrix"></div></div>
-          <div class="form-actions"><button type="submit" class="button small">Save changes</button><button type="button" class="button secondary small e-cancel">Cancel</button><span class="save-status" data-role="estatus"></span></div>
+          <div class="form-actions"><button type="submit" class="button small">Save changes</button><button type="button" class="button secondary small e-preview">Preview prompt</button><button type="button" class="button secondary small e-cancel">Cancel</button><span class="save-status" data-role="estatus"></span></div>
+          <div class="prompt-preview" data-role="epreview" hidden aria-live="polite"></div>
         </form>`;
         const form = editBox.querySelector("form") as HTMLFormElement;
         if (characterBox) {
@@ -619,6 +648,9 @@ const builtins = agents.filter((a) => a.isSystem);
         renderMatrix(matrix, agent.toolPolicy ?? null, agent.allowWrites);
         form.querySelector<HTMLInputElement>('[name="allowWrites"]')?.addEventListener("change", () => renderMatrix(matrix, collectPolicy(matrix), allowWritesOf(form)));
         editBox.querySelector(".e-cancel")?.addEventListener("click", () => (editBox.hidden = true));
+        // What this agent would get with the form as it stands — saved or not.
+        const ePreview = editBox.querySelector<HTMLElement>('[data-role="epreview"]')!;
+        editBox.querySelector(".e-preview")?.addEventListener("click", () => void showPreview(ePreview, slug, readForm(form, matrix)));
         form.addEventListener("submit", async (ev) => {
           ev.preventDefault();
           status(estatus, "Saving…");

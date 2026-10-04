@@ -3,6 +3,7 @@
  * omit it in the browser to go through the same-origin proxy with the HttpOnly cookie.
  */
 
+import type { AgentPromptPreview } from "@/lib/promptPreview";
 import { fetchApi } from "./client";
 
 export type AgentKind = "persona" | "model";
@@ -247,6 +248,21 @@ export function createAgent(data: AgentCreate, authToken?: string): Promise<Agen
 }
 export function updateAgent(slug: string, data: AgentUpdate, authToken?: string): Promise<Agent> {
   return fetchApi<Agent>(`/api/ai/agents/${encodeURIComponent(slug)}`, { ...json(data), method: "PATCH" }, authToken);
+}
+/**
+ * The system prompt a run of the agent sends, in labelled parts (lib/promptPreview). `data` is the Edit form's
+ * unsaved values; anything left out is the stored agent's. ADMIN+; never calls a model.
+ */
+export function previewAgentPrompt(
+  slug: string,
+  data: AgentUpdate = {},
+  authToken?: string,
+): Promise<AgentPromptPreview> {
+  return fetchApi<AgentPromptPreview>(
+    `/api/ai/agents/${encodeURIComponent(slug)}/preview-prompt`,
+    json(data),
+    authToken,
+  );
 }
 export function deleteAgent(slug: string, authToken?: string): Promise<void> {
   return fetchApi<void>(`/api/ai/agents/${encodeURIComponent(slug)}`, { method: "DELETE" }, authToken);
