@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.195 (2026-10-04)
+
+### Features
+
+- **admin**: Voice field on the New entry type page
+  ([`1e23da7`](https://github.com/InnerOpen/marvin/commit/1e23da76c4e644bdd3aa54ac819cf5d3fd115b0a))
+
+- **ai**: Preview the prompt of an agent before it is saved
+  ([`f0241f4`](https://github.com/InnerOpen/marvin/commit/f0241f4181645dffd63c795fa854137792af4e01))
+
+
 ## v1.0.0-rc.194 (2026-10-04)
 
 ### Bug Fixes
