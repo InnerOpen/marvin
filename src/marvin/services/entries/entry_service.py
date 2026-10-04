@@ -25,6 +25,7 @@ from marvin.repos.repository_factory import AllRepositories
 from marvin.services.event_bus_service.event_types import (
     Event,
     EventBusMessage,
+    EventEntryCollectionData,
     EventEntryData,
     EventOperation,
     EventScheduledPublishBlockedData,
@@ -334,6 +335,9 @@ class EntryService:
             f"Entry '{entry.title}' added to collection '{collection.name}'",
             self._names(entry),
             reaction_depth=reaction_depth,
+            data_cls=EventEntryCollectionData,
+            collection_id=collection.id,
+            collection_name=collection.name,
         )
         return "added"
 
@@ -365,6 +369,9 @@ class EntryService:
             f"Entry '{entry.title}' removed from collection '{collection.name}'",
             self._names(entry),
             reaction_depth=reaction_depth,
+            data_cls=EventEntryCollectionData,
+            collection_id=collection.id,
+            collection_name=collection.name,
         )
         return "removed"
 
@@ -666,6 +673,8 @@ class EntryService:
         *,
         reaction_depth: int = 0,
         diff: tuple[list[str], dict, dict] | None = None,
+        data_cls=EventEntryData,
+        **extra,
     ) -> None:
         """Dispatch one entry event. Best-effort — a dispatch failure never breaks the write."""
         try:
@@ -673,7 +682,7 @@ class EntryService:
                 integration_id=self.integration_id,
                 group_id=self.group_id,
                 event_type=event_type,
-                document_data=self._event_data(entry, operation, names, diff),
+                document_data=self._event_data(entry, operation, names, diff, data_cls=data_cls, **extra),
                 message=message,
                 user_id=self.actor_id,
                 entity_id=entry.id,

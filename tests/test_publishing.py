@@ -175,7 +175,7 @@ class TestNonPublishableTypesStayPrivate:
     def test_non_publishable_ids_picks_only_explicit_false(self):
         from types import SimpleNamespace
 
-        from marvin.routes.publish.publishing_controller import _non_publishable_type_ids
+        from marvin.services.publish_visibility import non_publishable_type_ids
 
         types = [
             SimpleNamespace(id="newsletter", capabilities_json={"publishable": False, "submittable": True}),
@@ -183,7 +183,7 @@ class TestNonPublishableTypesStayPrivate:
             SimpleNamespace(id="page", capabilities_json=None),
             SimpleNamespace(id="legacy", capabilities_json={}),
         ]
-        assert _non_publishable_type_ids(types) == ["newsletter"]
+        assert non_publishable_type_ids(types) == ["newsletter"]
 
     def test_only_publishable_types_filters_when_needed(self):
         from types import SimpleNamespace

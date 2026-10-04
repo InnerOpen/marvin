@@ -699,6 +699,15 @@ class EventEntryData(EventDocumentDataBase):
     """New scalar values for the changed fields (only)."""
 
 
+class EventEntryCollectionData(EventEntryData):
+    """Data payload for `entry_added_to_collection` / `entry_removed_from_collection`."""
+
+    collection_id: UUID4 | None = None
+    """The collection the entry joined or left."""
+    collection_name: str | None = None
+    """The name of that collection."""
+
+
 class EventScheduledPublishBlockedData(EventEntryData):
     """Data payload for `entry_scheduled_publish_blocked`: why a due entry hasn't gone out."""
 
@@ -823,6 +832,10 @@ class EventCollectionData(EventDocumentDataBase):
     """The human-readable name of the workspace."""
     entry_count: int | None = None
     """The number of entries in the collection."""
+    is_public: bool | None = None
+    """Whether the collection is "Visible to sites" (`is_public`), as of this event."""
+    before: dict = {}
+    """Prior values of the changed scalar fields an update tracks (only `is_public` today)."""
 
 
 class EventAssetData(EventDocumentDataBase):

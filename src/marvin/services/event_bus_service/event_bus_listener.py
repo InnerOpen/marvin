@@ -35,6 +35,7 @@ from marvin.db.db_setup import session_context  # Context manager for DB session
 from marvin.db.models.groups.webhooks import GroupWebhooksModel  # , Method # Method enum not directly used here
 from marvin.repos.repository_factory import AllRepositories  # Central repository access
 from marvin.schemas.group.webhook import WebhookRead  # Schema for reading webhook configurations
+from marvin.services.publish_visibility import is_publishable_type  # What the publishing API serves
 from marvin.services.webhooks.all_webhooks import AllWebhooks, get_webhooks  # For accessing webhook runners
 
 from .event_types import (  # Core event system types
@@ -843,13 +844,18 @@ class SiteRebuildReactionListener(EventListenerBase):
     entry, a collection change or a site-settings change reaches the site without a workflow.
 
     Requests are coalesced per workspace (services/site_rebuild): a burst of edits becomes one build,
-    sent once they go quiet. Changes nothing a visitor can see — a draft saved, a draft moved between
-    workflow collections — are ignored. Off when the workspace turns off "Rebuild the site
-    automatically" (preferences.site_auto_rebuild). Best-effort: never breaks the write.
+    sent once they go quiet. Changes nothing a visitor can see are ignored: a draft saved or moved
+    between workflow collections, anything done to an entry of a non-publishable type (a newsletter
+    signup confirmed), and changes to a collection that isn't "Visible to sites" — unless that change
+    is the visibility toggle itself. Visibility follows the publishing API (services/publish_visibility,
+    `Collections.is_public`). Off when the workspace turns off "Rebuild the site automatically"
+    (preferences.site_auto_rebuild). Best-effort: never breaks the write.
     """
 
     # Events that can change what a static site renders. Entry-scoped ones count only for a published
-    # entry (or one leaving 'published'); deletes count always (the row is gone, so its status is too).
+    # entry (or one leaving 'published') of a publishable type; an entry delete counts for any entry of
+    # a publishable type (the row is gone, so its status is too). Collection events count only for a
+    # public collection, or one changing visibility.
     ENTRY_EVENTS = frozenset(
         {
             EventTypes.entry_published,
@@ -880,6 +886,8 @@ class SiteRebuildReactionListener(EventListenerBase):
     )
     # Leaving 'published' is visible even though the entry no longer is.
     LEAVING_EVENTS = frozenset({EventTypes.entry_unpublished, EventTypes.entry_archived})
+    COLLECTION_EVENTS = frozenset({EventTypes.collection_updated, EventTypes.collection_deleted})
+    MEMBERSHIP_EVENTS = frozenset({EventTypes.entry_added_to_collection, EventTypes.entry_removed_from_collection})
     # Document-data fields that name the changed thing, for a change line whose message doesn't.
     TITLE_FIELDS = ("entry_title", "collection_name", "resource_name", "name")
     # EventBusMessage stores an empty body as the "generic" placeholder — not a description.
@@ -896,7 +904,10 @@ class SiteRebuildReactionListener(EventListenerBase):
     def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
         try:
             with self.ensure_session() as session:
-                if not self._enabled(session) or not self._visible(session, event):
+                if not self._enabled(session):
+                    return
+                if not self._visible(session, event):
+                    self.logger.debug(f"Site rebuild skipped: {event.event_type.name} changes nothing a site can see")
                     return
                 from marvin.services.site_rebuild import request_rebuild
 
@@ -931,21 +942,64 @@ class SiteRebuildReactionListener(EventListenerBase):
         return getattr(prefs, "site_auto_rebuild", True) is not False
 
     def _visible(self, session: Session, event: Event) -> bool:
-        if event.event_type in self.ALWAYS_EVENTS or event.event_type in self.LEAVING_EVENTS:
+        """Whether this event changes what a site can see. When it can't tell, it says yes — a spare
+        (coalesced) rebuild beats a stale site."""
+        if event.event_type in self.COLLECTION_EVENTS:
+            return self._collection_visible(session, event)
+        if event.event_type == EventTypes.entry_deleted:
+            return self._deleted_entry_visible(session, event)
+        if event.event_type in self.ALWAYS_EVENTS:
             return True
+        return self._entry_visible(session, event)
+
+    def _entry_visible(self, session: Session, event: Event) -> bool:
         entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id
         if not entry_id:
-            return True  # can't tell — a spare (coalesced) rebuild beats a stale site
+            return True
         from marvin.db.models.platform.entries import Entries
 
         entry = session.get(Entries, entry_id)
         if entry is None:
             return True
-        if entry.status == "published":
+        if entry.entry_type is not None and not is_publishable_type(entry.entry_type):
+            return False  # never served, whatever its status
+        if event.event_type in self.MEMBERSHIP_EVENTS and not self._collection_public(session, event.document_data):
+            return False  # entries list only their public collections
+        if event.event_type in self.LEAVING_EVENTS or entry.status == "published":
             return True
         # An update that took the entry out of 'published' (status in its changed fields) is visible too.
         before = getattr(event.document_data, "before", None) or {}
         return before.get("status") == "published"
+
+    def _deleted_entry_visible(self, session: Session, event: Event) -> bool:
+        """The row is gone; its type survives by slug in the event."""
+        slug = getattr(event.document_data, "entry_type", None)
+        if not slug:
+            return True
+        from marvin.db.models.platform import EntryTypes
+
+        entry_type = session.query(EntryTypes).filter_by(group_id=self.group_id, slug=slug).first()
+        return entry_type is None or is_publishable_type(entry_type)
+
+    def _collection_visible(self, session: Session, event: Event) -> bool:
+        data = event.document_data
+        is_public = self._collection_public(session, data, getattr(data, "collection_id", None) or event.entity_id)
+        was_public = (getattr(data, "before", None) or {}).get("is_public")
+        return is_public or (was_public is not None and bool(was_public) != is_public)
+
+    @staticmethod
+    def _collection_public(session: Session, data, collection_id=None) -> bool:
+        """The collection's visibility as the event recorded it, else as stored; unknown counts as public."""
+        recorded = getattr(data, "is_public", None)
+        if recorded is not None:
+            return bool(recorded)
+        collection_id = collection_id or getattr(data, "collection_id", None)
+        if not collection_id:
+            return True
+        from marvin.db.models.platform import Collections
+
+        collection = session.get(Collections, collection_id)
+        return collection is None or bool(collection.is_public)
 
 
 class AutomationReactionListener(EventListenerBase):

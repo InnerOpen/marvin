@@ -159,8 +159,10 @@ class CollectionsController(BaseUserController):
 
     @router.patch("/{item_id}", response_model=CollectionRead, summary="Update Collection")
     def update_collection(self, item_id: UUID4, data: CollectionUpdate) -> CollectionRead:
-        if not self.repos.collections.get_one(item_id):
+        existing = self.repos.collections.get_one(item_id)
+        if not existing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
+        was_public = existing.is_public
 
         collection = self.repos.collections.update(item_id, data)
 
@@ -175,6 +177,9 @@ class CollectionsController(BaseUserController):
                 collection_name=collection.name,
                 workspace_id=collection.group_id,
                 workspace_name=self.group.name if self.group else None,
+                is_public=collection.is_public,
+                # A visibility toggle changes what the site shows even when the collection ends up private.
+                before={"is_public": was_public} if was_public != collection.is_public else {},
             ),
             message=f"Collection '{collection.name}' updated",
             user_id=self.user.id if self.user else None,
@@ -201,6 +206,7 @@ class CollectionsController(BaseUserController):
                 collection_name=collection.name,
                 workspace_id=collection.group_id,
                 workspace_name=self.group.name if self.group else None,
+                is_public=collection.is_public,
             ),
             message=f"Collection '{collection.name}' deleted",
             user_id=self.user.id if self.user else None,
@@ -316,6 +322,7 @@ class CollectionsController(BaseUserController):
                 collection_name=collection.name,
                 workspace_id=collection.group_id,
                 workspace_name=self.group.name if self.group else None,
+                is_public=collection.is_public,
             ),
             message=f"Collection '{collection.name}' entries reordered",
             user_id=self.user.id if self.user else None,

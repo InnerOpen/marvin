@@ -48,6 +48,7 @@ from marvin.schemas.publishing import (
     WorkspaceSiteInfo,
 )
 from marvin.services.entry_urls import best_entry_url, site_base_url
+from marvin.services.publish_visibility import non_publishable_type_ids
 from marvin.services.storage.provider_factory import get_storage_provider
 
 settings = get_app_settings()
@@ -98,24 +99,13 @@ def _build_entry_type_info(entry: Entries) -> PublishedEntryTypeInfo | None:
     )
 
 
-def _non_publishable_type_ids(entry_types) -> list:
-    """Ids of entry types whose capabilities say `publishable: false` — submissions (contact,
-    newsletter signups…) and other private records. Absent capabilities count as publishable."""
-    out = []
-    for et in entry_types:
-        caps = et.capabilities_json if isinstance(et.capabilities_json, dict) else {}
-        if caps.get("publishable") is False:
-            out.append(et.id)
-    return out
-
-
 def _only_publishable_types(session, group_id, query):
     """Exclude entries of non-publishable types from a publishing query, whatever their status.
     A submittable type's entries can be moved to `published` as a workflow status; that must
     never make them public."""
     from marvin.db.models.platform import EntryTypes
 
-    excluded = _non_publishable_type_ids(session.query(EntryTypes).filter(EntryTypes.group_id == group_id).all())
+    excluded = non_publishable_type_ids(session.query(EntryTypes).filter(EntryTypes.group_id == group_id).all())
     return query.filter(Entries.entry_type_id.notin_(excluded)) if excluded else query
 
 

@@ -213,6 +213,8 @@ def get_payload_example(event_type: str) -> dict:
             "workspaceName": "My Workspace",
             "authorId": "<user-uuid>",
             "authorName": "Jane Smith",
+            "collectionId": "<collection-uuid>",
+            "collectionName": "Featured Posts",
         },
         "entry_removed_from_collection": {
             "documentType": "entry",
@@ -224,6 +226,8 @@ def get_payload_example(event_type: str) -> dict:
             "workspaceName": "My Workspace",
             "authorId": "<user-uuid>",
             "authorName": "Jane Smith",
+            "collectionId": "<collection-uuid>",
+            "collectionName": "Featured Posts",
         },
         # --- Collection events ---
         "collection_created": {
@@ -241,6 +245,7 @@ def get_payload_example(event_type: str) -> dict:
             "collectionName": "Featured Posts",
             "workspaceId": "<workspace-uuid>",
             "workspaceName": "My Workspace",
+            "isPublic": True,
         },
         "collection_deleted": {
             "documentType": "collection",
@@ -249,6 +254,7 @@ def get_payload_example(event_type: str) -> dict:
             "collectionName": "Featured Posts",
             "workspaceId": "<workspace-uuid>",
             "workspaceName": "My Workspace",
+            "isPublic": True,
         },
         # --- Asset events ---
         "asset_uploaded": {

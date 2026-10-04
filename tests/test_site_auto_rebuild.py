@@ -20,7 +20,7 @@ from marvin.services.event_bus_service.event_types import EventTypes
 def site(db_session):
     from marvin.db.models.groups import Groups
     from marvin.db.models.groups.preferences import GroupPreferencesModel
-    from marvin.db.models.platform import Entries, EntryTypes
+    from marvin.db.models.platform import Collections, Entries, EntryCollections, EntryTypes
 
     gid = uuid.uuid4()
     g = Groups(session=db_session, name=f"sr-{gid.hex[:8]}", slug=f"sr-{gid.hex[:8]}")
@@ -29,16 +29,32 @@ def site(db_session):
     db_session.flush()
     db_session.add(GroupPreferencesModel(session=db_session, group_id=gid))
     et = EntryTypes(session=db_session, group_id=gid, name="Venue", slug="venue", schema_json={})
-    db_session.add(et)
+    # A submission type: its entries are never served, whatever their status (publishing_controller).
+    signup = EntryTypes(
+        session=db_session,
+        group_id=gid,
+        name="Newsletter",
+        slug="newsletter",
+        schema_json={},
+        capabilities_json={"publishable": False, "submittable": True},
+    )
+    db_session.add_all([et, signup])
     db_session.flush()
     live = Entries(session=db_session, group_id=gid, entry_type_id=et.id, title="Live", slug=f"live-{gid.hex[:6]}", status="published")
     draft = Entries(session=db_session, group_id=gid, entry_type_id=et.id, title="Draft", slug=f"draft-{gid.hex[:6]}", status="draft")
-    db_session.add_all([live, draft])
+    subscriber = Entries(session=db_session, group_id=gid, entry_type_id=signup.id, title="a@b.c", slug=f"sub-{gid.hex[:6]}", status="published")
+    public = Collections(session=db_session, group_id=gid, name="Venues", slug="venues")
+    private = Collections(session=db_session, group_id=gid, name="Confirmed subscribers", slug="confirmed", is_public=False)
+    db_session.add_all([live, draft, subscriber, public, private])
+    db_session.flush()
+    db_session.add(EntryCollections(entry_id=live.id, collection_id=private.id))
     db_session.commit()
-    yield SimpleNamespace(gid=gid, live=live.id, draft=draft.id)
+    yield SimpleNamespace(gid=gid, live=live.id, draft=draft.id, subscriber=subscriber.id, public=public.id, private=private.id)
     db_session.execute(delete(SiteRebuildRequestModel).where(SiteRebuildRequestModel.group_id == gid))
     # The request that opens a batch logs `site_rebuild_queued` against the workspace.
     db_session.query(EventLogModel).filter_by(workspace_id=gid).delete()
+    db_session.query(EntryCollections).filter(EntryCollections.collection_id.in_([public.id, private.id])).delete()
+    db_session.query(Collections).filter_by(group_id=gid).delete()
     db_session.query(Entries).filter_by(group_id=gid).delete()
     db_session.query(EntryTypes).filter_by(group_id=gid).delete()
     db_session.query(GroupPreferencesModel).filter_by(group_id=gid).delete()
@@ -46,9 +62,14 @@ def site(db_session):
     db_session.commit()
 
 
-def _event(event_type, entry_id=None, before=None):
-    data = SimpleNamespace(entry_id=entry_id, before=before or {})
-    return SimpleNamespace(event_type=event_type, document_data=data, entity_id=entry_id, message=SimpleNamespace(body=f"{event_type.name}"))
+def _event(event_type, entry_id=None, before=None, **data):
+    document = SimpleNamespace(entry_id=entry_id, before=before or {}, **data)
+    return SimpleNamespace(event_type=event_type, document_data=document, entity_id=entry_id, message=SimpleNamespace(body=f"{event_type.name}"))
+
+
+def _collection_event(event_type, collection_id, **data):
+    document = SimpleNamespace(collection_id=collection_id, **data)
+    return SimpleNamespace(event_type=event_type, document_data=document, entity_id=collection_id, message=SimpleNamespace(body=event_type.name))
 
 
 def _fire(gid, event):
@@ -97,6 +118,73 @@ def test_unrelated_events_are_ignored(db_session, site):
     assert _queued(db_session, site.gid) == 0
 
 
+# --- Maintenance no site can see: private records and collections not "Visible to sites" ---
+
+
+def test_anything_done_to_a_non_publishable_entry_does_not_queue_a_rebuild(db_session, site):
+    # Confirming a newsletter signup publishes it and files it under "Confirmed subscribers".
+    for event_type in (
+        EventTypes.entry_published,
+        EventTypes.entry_updated,
+        EventTypes.entry_added_to_collection,
+        EventTypes.entry_tag_attached,
+        EventTypes.entry_unpublished,
+        EventTypes.entry_archived,
+    ):
+        _fire(site.gid, _event(event_type, site.subscriber, before={"status": "published"}))
+    _fire(site.gid, _event(EventTypes.entry_deleted, uuid.uuid4(), entry_type="newsletter"))
+    assert _queued(db_session, site.gid) == 0
+
+
+def test_deleting_an_entry_of_a_publishable_type_still_queues_a_rebuild(db_session, site):
+    _fire(site.gid, _event(EventTypes.entry_deleted, uuid.uuid4(), entry_type="venue"))
+    assert _queued(db_session, site.gid) == 1
+
+
+def test_a_private_collection_membership_change_does_not_queue_a_rebuild(db_session, site):
+    _fire(site.gid, _event(EventTypes.entry_added_to_collection, site.live, collection_id=site.private))
+    _fire(site.gid, _event(EventTypes.entry_removed_from_collection, site.live, collection_id=site.private))
+    assert _queued(db_session, site.gid) == 0
+
+
+def test_a_public_collection_membership_change_still_queues_a_rebuild(db_session, site):
+    _fire(site.gid, _event(EventTypes.entry_added_to_collection, site.live, collection_id=site.public))
+    assert _queued(db_session, site.gid) == 1
+
+
+def test_a_private_collection_updated_reordered_or_deleted_does_not_queue_a_rebuild(db_session, site):
+    _fire(site.gid, _collection_event(EventTypes.collection_updated, site.private))  # visibility read from the row
+    _fire(site.gid, _collection_event(EventTypes.collection_updated, site.private, is_public=False, before={}))
+    _fire(site.gid, _collection_event(EventTypes.collection_deleted, uuid.uuid4(), is_public=False))  # row already gone
+    assert _queued(db_session, site.gid) == 0
+
+
+def test_a_public_collection_updated_still_queues_a_rebuild(db_session, site):
+    _fire(site.gid, _collection_event(EventTypes.collection_updated, site.public))
+    assert _queued(db_session, site.gid) == 1
+
+
+def test_turning_visible_to_sites_off_or_on_queues_a_rebuild(db_session, site):
+    _fire(site.gid, _collection_event(EventTypes.collection_updated, site.private, is_public=False, before={"is_public": True}))
+    _fire(site.gid, _collection_event(EventTypes.collection_updated, site.public, is_public=True, before={"is_public": False}))
+    assert _queued(db_session, site.gid) == 2
+
+
+def test_a_published_entry_only_in_private_collections_still_queues_a_rebuild(db_session, site):
+    # Entry endpoints serve it whatever collections it's in.
+    _fire(site.gid, _event(EventTypes.entry_published, site.live))
+    _fire(site.gid, _event(EventTypes.entry_updated, site.live))
+    assert _queued(db_session, site.gid) == 2
+
+
+def test_a_skip_is_logged_at_debug(db_session, site, caplog):
+    import logging
+
+    with caplog.at_level(logging.DEBUG):
+        _fire(site.gid, _event(EventTypes.entry_published, site.subscriber))
+    assert any("Site rebuild skipped: entry_published" in r.getMessage() and r.levelno == logging.DEBUG for r in caplog.records)
+
+
 def test_the_workspace_can_turn_it_off(db_session, site):
     from marvin.db.models.groups.preferences import GroupPreferencesModel
 
@@ -142,3 +230,53 @@ def test_the_first_change_logs_the_queued_rebuild_and_later_ones_join_it(db_sess
     db_session.expire_all()
     logged = db_session.query(EventLogModel).filter_by(workspace_id=site.gid, event_type="site_rebuild_queued").all()
     assert _queued(db_session, site.gid) == 2 and len(logged) == 1
+
+
+# --- The producers record what the listener needs: which collection, and whether it was visible ---
+
+
+class _SpyBus:
+    def __init__(self):
+        self.dispatched = []
+
+    def dispatch(self, *, event_type, document_data, **_):
+        self.dispatched.append((event_type, document_data))
+
+
+def test_membership_events_name_their_collection(db_session, site):
+    from marvin.services.entries import EntryService
+
+    bus = _SpyBus()
+    EntryService(db_session, site.gid, event_bus=bus, integration_id="test").add_to_collection(site.subscriber, site.private)
+
+    [(event_type, data)] = bus.dispatched
+    assert (event_type, data.collection_id, data.collection_name) == (EventTypes.entry_added_to_collection, site.private, "Confirmed subscribers")
+
+
+def _collections_controller(db_session, gid, bus):
+    from marvin.routes.platform.collections_controller import CollectionsController
+
+    ctl = object.__new__(CollectionsController)
+    ctl.session, ctl.event_bus, ctl._repos = db_session, bus, None
+    ctl.user = SimpleNamespace(id=None, active_group_id=gid, group_id=gid)
+    return ctl
+
+
+def test_a_visibility_toggle_records_the_prior_visibility(db_session, site):
+    from marvin.schemas.platform.collections import CollectionUpdate
+
+    bus = _SpyBus()
+    _collections_controller(db_session, site.gid, bus).update_collection(site.public, CollectionUpdate(is_public=False))
+
+    [(_, data)] = bus.dispatched
+    assert (data.is_public, data.before) == (False, {"is_public": True})
+
+
+def test_an_edit_that_keeps_visibility_records_no_prior_visibility(db_session, site):
+    from marvin.schemas.platform.collections import CollectionUpdate
+
+    bus = _SpyBus()
+    _collections_controller(db_session, site.gid, bus).update_collection(site.private, CollectionUpdate(description="Members only"))
+
+    [(_, data)] = bus.dispatched
+    assert (data.is_public, data.before) == (False, {})
