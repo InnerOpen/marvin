@@ -2,6 +2,7 @@
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { entityHref, entityTypeLabel } from "@/lib/eventEntity";
 
 const authToken = getAuthToken(Astro.cookies);
 
@@ -138,16 +139,22 @@ function relTime(iso?: string | null): string {
             <p class="empty">No recent activity yet.</p>
           ) : (
             <ul class="activity-list">
-              {recentActivity.map((ev) => (
-                <li class="activity-item">
-                  <span class="activity-dot" aria-hidden="true"></span>
-                  <div class="activity-body">
-                    <span class="activity-msg">{ev.message}</span>
-                    {ev.entityType && <span class="activity-meta">{ev.entityType}</span>}
-                  </div>
-                  <time class="activity-time">{relTime(ev.occurredAt ?? ev.occurred_at)}</time>
-                </li>
-              ))}
+              {recentActivity.map((ev) => {
+                const entityLabel = entityTypeLabel(ev.entityType);
+                const entityLink = entityHref(ev.entityType, ev.entityId);
+                return (
+                  <li class="activity-item">
+                    <span class="activity-dot" aria-hidden="true"></span>
+                    <div class="activity-body">
+                      <span class="activity-msg">{ev.message}</span>
+                      {entityLink ? (
+                        <a class="activity-meta activity-link" href={entityLink}>{entityLabel}</a>
+                      ) : entityLabel && <span class="activity-meta">{entityLabel}</span>}
+                    </div>
+                    <time class="activity-time">{relTime(ev.occurredAt ?? ev.occurred_at)}</time>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </section>
@@ -381,6 +388,15 @@ function relTime(iso?: string | null): string {
     text-transform: uppercase;
     letter-spacing: 0.4px;
     color: var(--muted);
+  }
+
+  a.activity-link {
+    text-decoration: none;
+  }
+
+  a.activity-link:hover {
+    color: var(--accent);
+    text-decoration: underline;
   }
 
   .activity-time {

@@ -36,6 +36,7 @@ const { userId = null } = Astro.props;
     toastView,
   } from "@/lib/activity/toast";
   import { fetchApi } from "@/lib/api/client";
+  import { entityHref } from "@/lib/eventEntity";
 
   type FeedEvent = {
     eventId: string;
@@ -76,12 +77,14 @@ const { userId = null } = Astro.props;
   const MODE_ICON: Record<Mode, string> = { all: "🔔", failures: "⚠️", off: "🔕" };
 
   const entryHref = (e: FeedEvent) => (e.entityType === "entry" && e.entityId ? `/workspace/entries/${e.entityId}` : "/workspace/events");
+  // The event's own subject (the workflow, the scheduled task) when it has a page, else the list page.
+  const subjectHref = (fallback: string) => (e: FeedEvent) => entityHref(e.entityType, e.entityId) ?? fallback;
 
   // What's worth a toast. Anything not listed stays in the event log only.
   const KINDS: Record<string, Kind> = {
-    automation_started: { tone: "info", label: "Workflow", href: () => "/automation/workflows" },
-    automation_ran: { tone: "ok", label: "Workflow", href: () => "/automation/workflows" },
-    automation_failed: { tone: "err", label: "Workflow failed", href: () => "/automation/workflows" },
+    automation_started: { tone: "info", label: "Workflow", href: subjectHref("/automation/workflows") },
+    automation_ran: { tone: "ok", label: "Workflow", href: subjectHref("/automation/workflows") },
+    automation_failed: { tone: "err", label: "Workflow failed", href: subjectHref("/automation/workflows") },
     incoming_webhook: { tone: "info", label: "Webhook received", href: () => "/automation/incoming-webhooks" },
     site_rebuild_queued: { tone: "info", label: "Site rebuild" },
     webhook_triggered: { tone: "info", label: "Site rebuild" },
@@ -92,7 +95,7 @@ const { userId = null } = Astro.props;
     site_deployment_started: { tone: "info", label: "Site deploy started" },
     site_deployment_completed: { tone: "ok", label: "Site deployed" },
     site_deployment_failed: { tone: "err", label: "Site deploy failed" },
-    scheduled_task_failed: { tone: "err", label: "Scheduled task failed", href: () => "/workspace/scheduled-tasks" },
+    scheduled_task_failed: { tone: "err", label: "Scheduled task failed", href: subjectHref("/workspace/scheduled-tasks") },
     ai_operation_failed: { tone: "err", label: "AI operation failed" },
     ai_budget_threshold_reached: { tone: "warn", label: "AI budget", href: () => "/workspace/settings/ai-workflow#usage-section" },
     ai_budget_exceeded: { tone: "err", label: "AI budget reached", href: () => "/workspace/settings/ai-workflow#usage-section" },

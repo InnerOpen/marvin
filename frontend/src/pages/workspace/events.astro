@@ -1,6 +1,7 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { entityLink, entityTypeLabel } from "@/lib/eventEntity";
 
 const authToken = getAuthToken(Astro.cookies);
 const authed = !!authToken;
@@ -102,7 +103,7 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
         </div>
         <div class="chips" id="entity-chips">
           <button class="chip active" data-entity="">All</button>
-          {entityTypes.map((t) => <button class="chip" data-entity={t}>{t}</button>)}
+          {entityTypes.map((t) => <button class="chip" data-entity={t}>{entityTypeLabel(t)}</button>)}
         </div>
       </div>
 
@@ -146,11 +147,18 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
               const occurredAt = fld(ev, 'occurredAt', 'occurred_at');
               const entityType = fld(ev, 'entityType', 'entity_type');
               const entityId = fld(ev, 'entityId', 'entity_id');
+              const subject = entityLink(entityType, entityId);
+              // A workflow run also names what triggered it (the entry, the incoming webhook, …).
+              const related = entityLink(
+                fld(ev, 'relatedEntityType', 'related_entity_type'),
+                fld(ev, 'relatedEntityId', 'related_entity_id'),
+                fld(ev, 'relatedEntityLabel', 'related_entity_label'),
+              );
               const title = fld(ev, 'messageTitle', 'message_title');
               const body = fld(ev, 'messageBody', 'message_body');
               const isLegacyType = /^\d+$/.test(String(eventType ?? ''));
               const status = statusOf(eventType, title);
-              const search = `${title ?? ''} ${body ?? ''} ${isLegacyType ? '' : prettyType(eventType)} ${entityType ?? ''}`.toLowerCase();
+              const search = `${title ?? ''} ${body ?? ''} ${isLegacyType ? '' : prettyType(eventType)} ${subject?.label ?? ''} ${related?.label ?? ''}`.toLowerCase();
               return (
                 <>
                   <tr class="log-row" data-search={search} data-entity={entityType ?? ''} data-status={status}>
@@ -174,10 +182,20 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
                     </td>
                     <td class="detail-col">{body || '—'}</td>
                     <td class="nowrap">
-                      {entityType ? (
+                      {subject ? (
                         <span class="entity-cell">
-                          <span class="entity-type">{entityType}</span>
-                          {entityId && <span class="entity-id">{String(entityId).slice(0, 8)}</span>}
+                          {subject.href ? (
+                            <a class="entity-type entity-link" href={subject.href}>{subject.label}</a>
+                          ) : (
+                            <span class="entity-type">{subject.label}</span>
+                          )}
+                          {subject.shortId && <span class="entity-id">{subject.shortId}</span>}
+                          {related && (
+                            <span class="entity-related">
+                              from{' '}
+                              {related.href ? <a class="entity-link" href={related.href}>{related.label}</a> : related.label}
+                            </span>
+                          )}
                         </span>
                       ) : <span class="muted">—</span>}
                     </td>
@@ -544,7 +562,10 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
   .ac-chip-label { color: var(--ink); }
 
   .entity-cell { display: flex; flex-direction: column; gap: 1px; }
-  .entity-type { font-size: 13px; color: var(--ink); text-transform: capitalize; }
+  .entity-type { font-size: 13px; color: var(--ink); }
+  .entity-link { color: var(--accent); text-decoration: none; }
+  .entity-link:hover { text-decoration: underline; }
+  .entity-related { font-size: 12px; color: var(--muted); white-space: normal; }
   .entity-id { font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
 
   .count-note { margin: 14px 2px 0; font-size: 12px; color: var(--muted); }

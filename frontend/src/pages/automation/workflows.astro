@@ -1092,6 +1092,15 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   document.body.appendChild(dh);
 
   renderList();
+
+  // ?workflow=<id> (the event log links a run's workflow here): bring that card into view with its runs open.
+  const linked = new URLSearchParams(location.search).get("workflow");
+  const linkedCard = linked ? $("wf-list").querySelector(`.wf-card[data-id="${CSS.escape(linked)}"]`) : null;
+  if (linked && linkedCard) {
+    linkedCard.classList.add("linked");
+    linkedCard.scrollIntoView({ block: "center" });
+    toggleHistory(linkedCard, linked);
+  }
 </script>
 
 <style>
@@ -1207,6 +1216,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.wf-card) { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; background: var(--bg); transition: border-color 0.15s, box-shadow 0.15s; }
   .workflows-page :global(.wf-card:hover) { border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); box-shadow: 0 2px 12px rgb(0 0 0 / 0.05); }
   .workflows-page :global(.wf-card.off) { opacity: 0.6; }
+  .workflows-page :global(.wf-card.linked) { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
   .workflows-page :global(.wf-main) { flex: 1; min-width: 0; }
   .workflows-page :global(.wf-title) { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
   .workflows-page :global(.wf-title strong) { font-size: 15px; }
