@@ -182,7 +182,10 @@ def prime(providers) -> None:
 def get_logo(slug: str) -> Logo | None:
     """The validated logo for a registered provider, or None."""
     if slug not in _cache:
-        from marvin_integration_sdk import INTEGRATION_REGISTRY
+        try:
+            from marvin_integration_sdk import INTEGRATION_REGISTRY
+        except ImportError:  # no SDK installed: no integrations, so no logos
+            return None
 
         provider = INTEGRATION_REGISTRY.get(slug)
         if provider is None:

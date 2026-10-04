@@ -18,6 +18,7 @@ from pytest import fixture
 from marvin.app import app
 from marvin.core.dependencies import get_current_user
 from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
+from marvin.services.integrations import INTEGRATIONS_AVAILABLE
 
 NOPE = "00000000-0000-4000-8000-000000000000"
 
@@ -175,35 +176,47 @@ def _ids(route):
     return f"{route[0]} {route[1]}"
 
 
+# The integrations controller is only mounted when marvin_integration_sdk is installed (CI runs without it).
+_NEEDS_SDK = pytest.mark.skipif(not INTEGRATIONS_AVAILABLE, reason="integration routes need marvin_integration_sdk")
+
+
+def _gated(routes):
+    return [pytest.param(r, id=_ids(r), marks=_NEEDS_SDK if r[1].startswith(INTEGRATIONS) else ()) for r in routes]
+
+
+def _open(paths):
+    return [pytest.param(p, id=p, marks=_NEEDS_SDK if p.startswith(INTEGRATIONS) else ()) for p in paths]
+
+
 @pytest.mark.parametrize("role", BELOW_ADMIN)
-@pytest.mark.parametrize("route", GATED, ids=_ids)
+@pytest.mark.parametrize("route", _gated(GATED))
 def test_members_below_admin_get_403(workspace, role, route):
     res = _call(_sign_in(workspace, role), workspace, *route)
     assert res.status_code == 403, res.text
 
 
-@pytest.mark.parametrize("route", GATED, ids=_ids)
+@pytest.mark.parametrize("route", _gated(GATED))
 def test_non_member_gets_403(workspace, route):
     res = _call(_sign_in(workspace, None), workspace, *route)
     assert res.status_code == 403, res.text
 
 
 @pytest.mark.parametrize("role", [WorkspaceRole.OWNER, WorkspaceRole.ADMIN])
-@pytest.mark.parametrize("route", GATED, ids=_ids)
+@pytest.mark.parametrize("route", _gated(GATED))
 def test_owner_or_admin_gets_past_the_gate(workspace, role, route):
     res = _call(_sign_in(workspace, role), workspace, *route)
     assert res.status_code != 403, res.text
     assert res.status_code < 500, res.text
 
 
-@pytest.mark.parametrize("route", GATED, ids=_ids)
+@pytest.mark.parametrize("route", _gated(GATED))
 def test_platform_super_admin_gets_past_the_gate(workspace, route):
     res = _call(_sign_in(workspace, None, PlatformRole.SUPER_ADMIN), workspace, *route)
     assert res.status_code != 403, res.text
     assert res.status_code < 500, res.text
 
 
-@pytest.mark.parametrize("path", OPEN)
+@pytest.mark.parametrize("path", _open(OPEN))
 def test_catalog_reads_stay_open_to_viewers(workspace, path):
     assert _sign_in(workspace, WorkspaceRole.VIEWER).get(path).status_code == 200
 
