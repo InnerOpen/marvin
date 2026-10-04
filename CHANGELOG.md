@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.193 (2026-10-04)
+
+### Features
+
+- **dashboard**: Count Needs review and show why on the Review Queue's cards
+  ([`3ebd320`](https://github.com/InnerOpen/marvin/commit/3ebd320c59ba55350560872c40b17eea288d017f))
+
+- **workflows**: On_failure steps, a request_review entry op and coded integration errors
+  ([`79fa3d0`](https://github.com/InnerOpen/marvin/commit/79fa3d07b7ff248e7af4c38c1228bd623a28ca72))
+
+
 ## v1.0.0-rc.192 (2026-10-04)
 
 ### Bug Fixes
