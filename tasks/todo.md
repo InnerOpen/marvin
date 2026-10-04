@@ -133,8 +133,95 @@ no token streaming (providers are sync). Each slice committed + rolled out on it
 - [ ] Rollout + pod check (see plan step 3–4).
 
 ### Follow-ups
-- **C2** — carry a specialist's ask up to Marvin: a hand-off child that hits an ask-first tool returns "awaiting" from `run_agent`; the parent parks with a nested record; resume finishes the child first, feeds its answer back as the tool result, then continues Marvin. Design only.
-- **Marvin-first picker** (separate commit): Ask page picker — Marvin first and default; then the workspace's agents; Ask and Chat under "Built-in" at the bottom (Chat hidden when the default model supports tools). No backend change.
+- **C2** — carry a specialist's ask up to Marvin: **planned 2026-10-04, see "Slice C2" below.**
+- **Marvin-first picker** — very low priority, probably won't implement (Jared 2026-10-04). (separate commit): Ask page picker — Marvin first and default; then the workspace's agents; Ask and Chat under "Built-in" at the bottom (Chat hidden when the default model supports tools). No backend change.
+
+## Slice C2 — carry a specialist's ask up to Marvin (plan, 2026-10-04)
+
+**Goal:** when Marvin hands off to a specialist and the specialist hits an ask-first call, the approval appears
+in the user's conversation with Marvin (Ask page or bubble); approve/deny there resumes the child on its own
+thread/execution, the child's answer becomes the `run_agent` result, and Marvin finishes with one answer.
+
+**Today (origin/develop):** children never park — `_bind_agent_tools` (operations_controller ~:2080) only allows
+parking at depth 0, so a child's ask-first tools simply aren't bound. `run_agent` runs synchronously in the loop
+(`services/ai/agent.py` dispatch ~:204). Park/resume: `_park_agent_run` (~:1673) → `park_thread`
+(`services/ai/threads.py` ~:207); `resume_thread` (~:1044) is owner-only. Abandon only at depth 0. Depth is 1
+(specialists can't hand off further). No expiry. **To verify first:** the bubble's default Marvin (`POST /agent`,
+~:769) binds tools with no agent spec, which may skip Marvin's permission matrix (ask-first `automation_run`/`mcp`)
+— if so, bubble Marvin can't park at all (and isn't asking when it should).
+
+**Design:**
+1. A tool can defer: `ToolDeferred(child)` in `agent.py` → `PendingCall(kind="handoff", child=…)`; sibling calls still
+   run; loop stops `awaiting_approval`; `ResumeState.outputs` feeds a child's result in as the tool output.
+2. Child parks quietly on its child thread (`emit=False`, `pending_json.parent={thread_id, call_id}`); delegate
+   raises `ToolDeferred`.
+3. Parent parks with a nested record; decidable ids are paths (`c1/c7`); `flatten_pending()` gives one card with the
+   parent's own asks and the child's, each tagged `via`.
+4. Resume walks children first (`_resume_core` extracted, recursive): child finishes → output; child re-parks →
+   parent re-parks without running; then the parent loop continues once.
+5. Resuming on a child thread forwards to the root (one place decides).
+6. Two specialists → both parked; same specialist twice → guard error result.
+7. Abandon cascades down (new message on parent) and up (new message on a parked child); optional TTL
+   `AI_PARKED_RUN_TTL_HOURS` (default off).
+8. Permissions re-checked at decision time: owner of root + child threads, `may_talk` still passes, child tools
+   rebound with the child's matrix at the caller's current role, "no longer permitted" if revoked. Never widened.
+9. Audit: append-only `metadata_json.approvals` on each execution; approval events gain `via_agent`,
+   `child_thread_id`, `decided_by`, `surface`, `reason`; fired once, on the root.
+10. Live steps show "Waiting for approval: run_workflow · via Workshop".
+
+**No migration** (JSON keys only). **API:** flattened `pending` with `via`; resume accepts path ids; `source`
+bubble/ask_page. **UI:** Ask page card with "via" chips; bubble inline approve/deny card (required when the Ask
+page is off — today that case is a dead end even for plain ask-first); `approval_requested` toast.
+
+**Checklist:** 0) test + fix the bubble `POST /agent` matrix question · 1) loop deferral · 2) child parking ·
+3) nested record/flatten · 4) recursive resume · 5) abandon cascade + TTL · 6) permission re-checks · 7) audit +
+events · 8) Ask page card · 9) bubble card + toast · 10) manual, rollout, walk-through.
+
+**Risks:** fixing the bubble matrix makes workflows/MCP writes start asking in the bubble (correct, visible);
+stale child context on long waits; one request runs child + parent legs (session/rollback care); path ids must stay
+stable across re-parks.
+
+**Open questions:** 1) bubble Marvin obeys Marvin's matrix and parks like the Ask page? 2) child-thread resume
+forwards to parent (rec.) or 409? 3) new message on a parked child abandons the parent too (rec.)? 4) expiry off or
+default (e.g. 7 days), notify on expiry? 5) events once on the root (rec.)? 6) bubble inline card always, or only
+when the Ask page is off? 7) design for hand-off depth 2 now, or keep depth 1?
+
+## Custom tones (Marvin Agents) (plan, 2026-10-04)
+
+**Goal:** a workspace defines its own named tones — name, instructions, and a persona rule (frame only /
+everywhere / drop persona) — usable as the workspace default, an agent's default, and per call (Ask page,
+bubble). Built-ins `auto` / `professional` / `playful` stay (hideable, not deletable); every stored value keeps
+working.
+
+**Today (origin/develop):** `default_register` on workspace AI settings (unvalidated string) and on agents
+(String(16), hard-coded tuple in `schemas/group/agent.py`). Prompt clause built in
+`routes/ai/operations_controller.py` `_register_clause` (~:2338) and appended last to the system prompt at
+:775/:982/:992/:1848/:1855; carried through park/resume (:1112/:1715) and hand-offs (:1835). Compose/revise pass a
+register that authoring ignores (recipe voice wins; revise ignores the per-call value). Bubble has no picker.
+
+**Design:**
+- JSON on `workspace_ai_settings`: `tones` `[{slug, name, instructions, persona, description?}]` + `hidden_tones`.
+- `services/ai/tones.py`: `ToneSpec`, built-ins in the same shape, `validate_tones`, `resolve_tone`,
+  `tone_clause` (replaces `_register_clause`, same position; built-in output byte-identical — golden tests).
+- Slugs fixed on rename; built-in slugs reserved; ≤20 custom tones; instructions ≤1500 chars (~375 tokens/step).
+- Unknown/deleted slug at run time falls back (agent → workspace → auto) with a warning; on save → 422.
+- API: `GET/PUT /api/groups/ai-settings/tones` (PUT admin; 409 if a removed tone is used by agents, `?reassign`),
+  `POST …/tones/preview` (assembled clause + token estimate).
+- UI: tones editor on AI settings, agent default select and Ask picker from the endpoint, bubble `/tone <name>`.
+- Migration: add the two columns; widen `workspace_agents.default_register` to String(40) (Postgres would reject
+  longer slugs); export/import carries tones.
+
+**Checklist:** tones module · columns + migration · controller swap · schema/validation · endpoints ·
+(authoring wiring, if agreed) · export/import · UI · docs · tests (validation, clause modes × persona, golden
+built-ins, fallback, 409/reassign, column length, round-trip).
+
+**Risks:** per-step prompt cost (shown in the editor); weak models may blur "everywhere" — steer client-facing
+tones to "drop"; tone text is admin-only (same trust as persona); explicit tones propagate to hand-off specialists.
+
+**Open questions:** 1) apply to compose/revise drafts? 2) built-ins hide-only or editable? 3) section on AI
+settings or own page? 4) bubble `/tone` command enough, or a visible chip? 5) deleting an in-use tone: block or
+reset agents? 6) free-text only for v1, or structured knobs (max length, no emoji)? 7) non-admins pick per call
+(yes) / create personal tones (no)?
 
 # Trash — reversible delete (2026-10-01, Jared: "add that feature to todos")
 
