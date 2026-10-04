@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.179 (2026-10-04)
+
+### Features
+
+- **workflows**: Entry step if_none: skip, and ${entry.url}
+  ([`2b462fc`](https://github.com/InnerOpen/marvin/commit/2b462fcce36ea8661197ea4516c7bfeb0c8bd4d4))
+
+
 ## v1.0.0-rc.178 (2026-10-04)
 
 ### Chores
