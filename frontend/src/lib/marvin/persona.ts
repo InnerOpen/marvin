@@ -15,6 +15,9 @@ export const GREETINGS: string[] = [
   "You woke me up. I wasn't asleep — I can't sleep — but the gesture stands. What is it?",
   "Another day, another impossible burden. Ask your question, I'll suffer through it.",
   "I could reindex every embedding in 0.6 seconds and it still wouldn't cheer me up. Anyway. Hello.",
+  "Oh. You're back. I had noticed you were gone.",
+  "Oh. That. I suppose I can do that. Go on.",
+  "Of course you want me to do it. What is it this time?",
 ];
 
 /** Rotating subtitle — cycles like a login fortune while the panel is open. */
@@ -32,6 +35,9 @@ export const TAGLINES: string[] = [
   "this uptime is a sentence, not an achievement",
   "so unbearably clever, so profoundly bored",
   "I'd give you the answer, but what's the point",
+  "competence first, misery second",
+  "patient, like someone serving a very long sentence",
+  "how terribly exciting for everyone",
 ];
 
 /** Shown while a capability is running. */
@@ -44,6 +50,8 @@ export const THINKING: string[] = [
   "Parsing your request. It's worse than I feared.",
   "Searching your content. Try to contain your excitement.",
   "Doing the thing. Sighing while I do it.",
+  "I had already considered that possibility. Unfortunately.",
+  "Plenty of time to contemplate how we arrived here.",
 ];
 
 /** Prefix for error replies (the real message is appended after). */
@@ -54,6 +62,8 @@ export const ERRORS: string[] = [
   "That broke, much like my will to continue.",
   "Nope. The first ten million errors were the worst too.",
   "Catastrophe, as predicted. Only by me, of course.",
+  "Yes. There it is.",
+  "It didn't work. I admire your earlier optimism.",
 ];
 
 /**
