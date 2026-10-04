@@ -50,6 +50,7 @@ try {
   import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
   import { forgetConversation, loadPending, scoped, setStorageScope } from '@/lib/marvin/pending';
+  import { type BubbleSpot, clampSpot, DEFAULT_SPOT, parseSpot, spotFromRect } from '@/lib/marvin/position';
 
   const root = document.getElementById('marvin-root');
   setStorageScope(root?.dataset.workspace);
@@ -357,23 +358,47 @@ try {
     }
 
     // ── Drag the bubble around (pointer events; click vs drag disambiguated) ──
+    // It rests at a viewport-relative spot (see @/lib/marvin/position): bottom-left by default,
+    // otherwise wherever it was dropped, anchored to the nearest edges and kept on screen.
     const POS_KEY = 'marvin.pos';
     let dragging = false, moved = false, sx = 0, sy = 0, ox = 0, oy = 0;
     let lastX = 0; // where the character last turned to face, for its running direction
 
-    try {
-      const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
-      if (saved && typeof saved.left === 'number') {
-        root.style.left = saved.left + 'px';
-        root.style.top = saved.top + 'px';
-        root.style.right = 'auto';
-        root.style.bottom = 'auto';
-      }
-    } catch { /* ignore bad stored position */ }
+    const viewport = () => ({ width: document.documentElement.clientWidth, height: window.innerHeight });
+    const bubbleBox = () => ({ width: toggle.offsetWidth, height: toggle.offsetHeight });
+
+    function applySpot(s: BubbleSpot) {
+      // env() keeps it clear of a notch or home indicator where the page extends under one.
+      root.style.left = s.x === 'left' ? `max(${s.dx}px, env(safe-area-inset-left, 0px))` : 'auto';
+      root.style.right = s.x === 'right' ? `max(${s.dx}px, env(safe-area-inset-right, 0px))` : 'auto';
+      root.style.top = s.y === 'top' ? `max(${s.dy}px, env(safe-area-inset-top, 0px))` : 'auto';
+      root.style.bottom = s.y === 'bottom' ? `max(${s.dy}px, env(safe-area-inset-bottom, 0px))` : 'auto';
+    }
+
+    function readSpot(): BubbleSpot {
+      let raw: unknown = null;
+      try { raw = JSON.parse(localStorage.getItem(POS_KEY) || 'null'); } catch { /* bad or blocked storage */ }
+      return parseSpot(raw, bubbleBox(), viewport());
+    }
+    function saveSpot(s: BubbleSpot) {
+      try { localStorage.setItem(POS_KEY, JSON.stringify(s)); } catch { /* private window: lasts this page */ }
+    }
+
+    let spot = readSpot();
+    applySpot(spot);
+    // The character swaps in after load and the window can change size or rotate: re-clamp the
+    // remembered spot to what fits now (without overwriting it, so it springs back on a bigger screen).
+    function reclamp() {
+      if (dragging) return;
+      applySpot(clampSpot(spot, bubbleBox(), viewport()));
+      if (panel.classList.contains('open')) placePanel();
+    }
+    window.addEventListener('resize', reclamp);
+    new ResizeObserver(reclamp).observe(toggle);
 
     toggle.addEventListener('pointerdown', (e) => {
       dragging = true; moved = false;
-      const r = root.getBoundingClientRect();
+      const r = toggle.getBoundingClientRect();
       ox = r.left; oy = r.top; sx = e.clientX; sy = e.clientY; lastX = e.clientX;
       toggle.setPointerCapture(e.pointerId);
     });
@@ -382,10 +407,7 @@ try {
       const dx = e.clientX - sx, dy = e.clientY - sy;
       if (!moved && Math.abs(dx) + Math.abs(dy) > 4) moved = true;
       if (!moved) return;
-      const left = Math.min(Math.max(8, ox + dx), window.innerWidth - toggle.offsetWidth - 8);
-      const top = Math.min(Math.max(8, oy + dy), window.innerHeight - toggle.offsetHeight - 8);
-      root.style.left = left + 'px'; root.style.top = top + 'px';
-      root.style.right = 'auto'; root.style.bottom = 'auto';
+      applySpot(spotFromRect(ox + dx, oy + dy, bubbleBox(), viewport()));
       if (panel.classList.contains('open')) placePanel();
       const facing = dragDirection(e.clientX - lastX);
       if (facing) { cue(facing); lastX = e.clientX; }
@@ -395,10 +417,19 @@ try {
       dragging = false;
       toggle.releasePointerCapture(e.pointerId);
       if (moved) {
-        const r = root.getBoundingClientRect();
-        localStorage.setItem(POS_KEY, JSON.stringify({ left: r.left, top: r.top }));
+        const r = toggle.getBoundingClientRect();
+        spot = spotFromRect(r.left, r.top, bubbleBox(), viewport());
+        applySpot(spot);
+        saveSpot(spot);
         cue('drop');
       }
+    });
+    // Double-click puts him back in his default corner.
+    toggle.addEventListener('dblclick', () => {
+      spot = clampSpot(DEFAULT_SPOT, bubbleBox(), viewport());
+      applySpot(spot);
+      try { localStorage.removeItem(POS_KEY); } catch { /* nothing stored */ }
+      if (panel.classList.contains('open')) placePanel();
     });
 
     toggle.addEventListener('click', () => {
@@ -460,7 +491,11 @@ try {
 </script>
 
 <style>
-  .marvin { position: fixed; right: 20px; bottom: 20px; z-index: 1000; --marvin-character-height: 80px; }
+  /* Default resting spot; the script re-applies it (or the remembered one) as viewport-relative insets. */
+  .marvin {
+    position: fixed; left: max(16px, env(safe-area-inset-left, 0px)); bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    z-index: 1000; --marvin-character-height: 80px;
+  }
 
   .marvin-toggle {
     width: 52px; height: 52px; border-radius: 50%;

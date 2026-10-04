@@ -533,6 +533,11 @@ code {
   display: none;
 }
 
+/* Keep the sidebar's last item clear of the Marvin bubble, which rests at the bottom-left. */
+.app-shell:has(.marvin:not([hidden])) .sidebar {
+  padding-bottom: 96px;
+}
+
 @media (max-width: 920px) {
   .app-shell {
     grid-template-columns: minmax(0, 1fr);
@@ -554,6 +559,10 @@ code {
     transition:
       transform 0.2s ease-out,
       visibility 0s linear 0.2s;
+  }
+
+  .app-shell:has(.marvin:not([hidden])) .sidebar {
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
   }
 
   html.nav-open .sidebar {
