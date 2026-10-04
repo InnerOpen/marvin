@@ -48,6 +48,7 @@ try {
   import { createCast, type Cast } from '@/lib/marvin/cast';
   import { createCharacter, dragDirection, type Character, type CharacterEvent, type CharacterStates } from '@/lib/marvin/character';
   import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
+  import { bubbleAllowed } from '@/lib/marvin/gate';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
   import { forgetConversation, loadPending, scoped, setStorageScope } from '@/lib/marvin/pending';
   import { type BubbleSpot, clampSpot, DEFAULT_SPOT, parseSpot, spotFromRect } from '@/lib/marvin/position';
@@ -59,7 +60,7 @@ try {
     (async () => {
       try {
         const settings = await fetchApi<any>('/api/groups/ai-settings');
-        if (settings?.enabled === false) { root.remove(); return; }
+        if (!bubbleAllowed(settings)) { root.remove(); return; } // AI off, or Ask switched off
         applyIdentity(settings);
         root.removeAttribute('hidden');
       } catch {
