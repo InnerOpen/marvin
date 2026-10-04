@@ -530,3 +530,25 @@ No vendor publishes a per-token price API for its own models, so prices come fro
 - [ ] Unpriced runs are visible, never silent: the Usage card shows "N runs this month have no price" with a
       link to set one; the budget warns that it can't count them; setting a price backfills `estimated_cost_usd`
       from the stored token counts.
+
+## Persona vs tone, raw JSON collapsed, Ask chip (2026-10-04)
+Jared: make persona vs tone clear; the entry editor's JSON fields are "distracting and for those that don't know
+might feel too technical"; the Ask page shows an empty attachment chip.
+- [x] Prompt: persona is a `Character:` block; a tone is `Tone (<name>):` followed by the precedence rule (the tone
+      wins on formality, length and mood; the character keeps its identity and way of speaking). Frame scopes the
+      character to addressing the user, everywhere says it covers work product, drop omits it. Built-ins keep
+      their behaviour; wording pinned verbatim in tests/test_tones.py.
+- [x] `/chat` resolves and applies the tone like Marvin (it appended the raw persona).
+- [x] Drafts: same labels and rule; an entry type's voice still wins.
+- [x] `POST /tones/preview` returns parts (character, fromTone, rule, personaSummary, hasPersona); the editor shows
+      "From your Persona" / "From this tone" / "Which wins" and the persona rule in plain words.
+- [x] AI settings copy (Persona = who your assistant is; Tones = how it delivers); manual Tones section.
+- [x] Agent prompt: "notifier" (removed) → integrations and MCP servers, as the overview's structure block lists.
+- [x] Entry editor + new entry: data JSON, Metadata (JSON) and placement metadata behind `<details>`; summary says
+      what's inside; metadata opens itself after a refused save; open state remembered per browser.
+- [x] Ask page: `[hidden]` overrides for the attachment chip, suggestions row and Speak button; source check.
+
+### Review
+Full backend suite, frontend tests, Biome and ruff green; `astro check` 50 errors, the same files and counts as
+the base. Browser-checked on SQLite + astro dev (headless Chromium): preview parts for frame / everywhere / drop,
+JSON panels collapsed, collapsed metadata still saved, invalid metadata reopens its panel, no empty Ask chip.
