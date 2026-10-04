@@ -68,6 +68,9 @@ class EventFeedItem(EventLogSummary):
     updates one toast per run."""
     workflow_name: str | None = None
     """The workflow's display name (falls back to its slug) on those events."""
+    handled: bool = False
+    """A failed workflow run whose failures the integration's error policy took care of (sent to
+    review, retry scheduled, …) — the toaster shows it as a warning instead of an error."""
     target_count: int | None = None
     """How many entries a target-query run acts on (automation_started)."""
     quiet_seconds: int | None = None

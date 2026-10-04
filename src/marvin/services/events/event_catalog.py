@@ -722,6 +722,45 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("expected_send_at", "When it is sent if nothing else joins it", "2026-07-16T10:01:00Z", type="datetime"),
         ],
     ),
+    # ── Connect: Integrations ─────────────────────────────────────────────────
+    # Not workflow triggers (automation/triggers.py): a workflow reacting to a connection alert could
+    # call the failing connection again. Route them from Settings → Integrations → Integration alerts.
+    CatalogEntry(
+        event_type="integration_attention_needed",
+        name="Integration Needs Attention",
+        description="An integration failed in a way its provider says admins should know about (expired credentials, "
+        "a misconfigured account, …). Sent once when the alert opens and again after each reminder window — "
+        "never once per affected item.",
+        category="Connect",
+        variables=COMMON_VARS
+        + [
+            EventVariable("integration_name", "The connection's name", "Shop", type="name"),
+            EventVariable("integration_slug", "The connection's slug", "shop"),
+            EventVariable("provider_name", "The provider's name", "Square", type="name"),
+            EventVariable("code", "The provider's error code", "auth"),
+            EventVariable("error", "The latest failure's message", "The access token expired"),
+            EventVariable("count", "Failures since the alert opened", "3", type="number"),
+            EventVariable("reminder", "True when the alert was already open (a reminder)", "false"),
+            EventVariable("title", "Short heading", "Square needs attention"),
+            EventVariable("summary", "One line with the detail, for chat channels", "Square (shop) needs attention: auth — ..."),
+        ],
+    ),
+    CatalogEntry(
+        event_type="integration_attention_resolved",
+        name="Integration Working Again",
+        description="A connection that needed attention is working again — a passing health check, a successful action, "
+        "or an admin's Resolve. Also delivered to every channel that delivered the alert.",
+        category="Connect",
+        variables=COMMON_VARS
+        + [
+            EventVariable("integration_name", "The connection's name", "Shop", type="name"),
+            EventVariable("provider_name", "The provider's name", "Square", type="name"),
+            EventVariable("code", "The error code that was resolved", "auth"),
+            EventVariable("resolution", "How it resolved (check, action, manual)", "check"),
+            EventVariable("title", "Short heading", "Square is working again"),
+            EventVariable("summary", "One line with the detail, for chat channels", "Square (shop) is working again"),
+        ],
+    ),
     # ── Connect: Webhooks ─────────────────────────────────────────────────────
     CatalogEntry(
         event_type="incoming_webhook",

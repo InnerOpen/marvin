@@ -66,6 +66,7 @@ def _progress(event_data: dict) -> dict:
     return {
         "run_id": str(run_id) if run_id else None,
         "workflow_name": doc.get("automationName") or doc.get("automationSlug"),
+        "handled": doc.get("handled") is True,
         "target_count": _int(doc.get("targetCount")),
         "quiet_seconds": _int(doc.get("quietSeconds")),
         "max_wait_seconds": _int(doc.get("maxWaitSeconds")),

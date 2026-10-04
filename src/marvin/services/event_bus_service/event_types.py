@@ -445,6 +445,16 @@ class EventTypes(EventTypeBase):
     ai_provider_quota_exceeded = auto()
     """Event dispatched when the AI provider rejects a call for lack of quota/credits (no tokens available)."""
 
+    # ==========================================================================
+    # Integration Events
+    # ==========================================================================
+    integration_attention_needed = auto()
+    """A connection needs attention: an integration failed in a way its provider says admins should
+    know about. Sent when the alert opens and again on each reminder window — never once per item."""
+    integration_attention_resolved = auto()
+    """A connection that needed attention is working again (a passing check, a successful action, or
+    an admin's Resolve). Goes back through the channels that delivered the alert."""
+
 
 class EventDocumentTypeBase(Enum):
     """
@@ -499,6 +509,8 @@ class EventDocumentType(EventDocumentTypeBase):
     """Indicates the event data pertains to a site deployment."""
     ai = "ai"
     """Indicates the event data pertains to an AI operation or execution."""
+    integration = "integration"
+    """Indicates the event data pertains to a workspace integration (a connection)."""
 
 
 class WebhookMode(str, Enum):
@@ -1301,6 +1313,54 @@ class EventAutomationData(EventDocumentDataBase):
     """On automation_ran / automation_failed: what each step did, in order — ``{kind, target,
     outcome, ok, count}``, repeats across a target query's rows collapsed into one line with a count;
     ``on_failure: true`` marks a step the definition's on_failure list ran after a step failed."""
+    handled: bool = False
+    """On automation_failed: every failure in the run was taken care of by the integration's error
+    policy (sent to review, retry scheduled, …) — still a failure, but nobody needs to act on it."""
+    handling: list[str] = []
+    """On automation_failed: how the policy handled each failure, e.g. "handled by Square: sent to review"."""
+    retry_attempt: int | None = None
+    """When the run is a retry of an earlier failed step: which retry it is (1-based)."""
+
+
+class EventIntegrationAttentionData(EventDocumentDataBase):
+    """Data payload for integration_attention_needed / integration_attention_resolved.
+
+    ``summary`` is the ready-made one-line text a Slack or Apprise subscription sends (`{{summary}}`);
+    ``channels`` names the subscription rows the alert went out through, so the "resolved" notice
+    goes back through exactly those.
+    """
+
+    document_type: EventDocumentTypeBase = EventDocumentType.integration
+    operation: EventOperationBase = EventOperation.info
+    alert_id: UUID4
+    integration_id: UUID4
+    integration_slug: str
+    integration_name: str | None = None
+    provider: str
+    """The provider's registry key, e.g. 'square'."""
+    provider_name: str | None = None
+    """The provider's display name, e.g. 'Square'."""
+    code: str
+    """The provider's error code, e.g. 'auth'."""
+    error: str | None = None
+    """The latest failure's message (None on resolved)."""
+    count: int = 1
+    """Failures counted since the alert opened."""
+    first_at: datetime | None = None
+    last_at: datetime | None = None
+    reminder: bool = False
+    """True when this is a reminder for an alert that is still open."""
+    resolution: str | None = None
+    """On resolved: check | action | manual."""
+    title: str
+    """Short heading, e.g. "Square needs attention"."""
+    summary: str
+    """One line with the detail, for chat/notification channels."""
+    channels: dict = {}
+    """{"email": [subscription ids], "integration": [subscription ids]} — where the alert went."""
+    settings_url: str | None = None
+    """Where to look: the workspace's Settings → Integrations page."""
+    workspace_id: UUID4
 
 
 class EventAIBudgetData(EventDocumentDataBase):

@@ -75,6 +75,22 @@ SYSTEM_TEMPLATES: list[SystemTemplateDefinition] = [
         optional_vars=["first_name", "username", "workspace_name"],
     ),
     SystemTemplateDefinition(
+        template_type="integration_alert",
+        name="Integration Alert",
+        description="Sent to workspace admins when a connection needs attention, and again when it works again. "
+        "Chosen under Settings → Integrations → Integration alerts.",
+        subject="{{title}}",
+        body_markdown=(
+            "{{summary}}\n\n"
+            "Connection: **{{integration_name}}** ({{provider_name}}) · error code `{{code}}`\n\n"
+            "{{settings_url}}\n\n"
+            "You get one email when the alert opens, a reminder while it stays open, and one when it is resolved — "
+            "never one per affected item."
+        ),
+        required_vars=["title", "summary"],
+        optional_vars=["integration_name", "provider_name", "code", "settings_url", "count", "error", "resolution"],
+    ),
+    SystemTemplateDefinition(
         template_type="custom",
         name="Custom Notification",
         description="General-purpose custom notification email. Edit to suit any event.",
