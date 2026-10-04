@@ -3,6 +3,7 @@ import CharacterPicker from "@/components/CharacterPicker.astro";
 import EmojiPicker from "@/components/EmojiPicker.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { voiceFor } from "@/lib/marvin/persona";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -49,6 +50,24 @@ const s = {
   personaPrompt: settings?.personaPrompt ?? null,
   defaultRegister: settings?.defaultRegister ?? "auto",
 };
+
+// The bubble's canned lines (AI settings → Persona → Bubble lines; services/ai/bubble_lines.py). An empty
+// list shows, as its placeholder, the built-in lines the bubble falls back to.
+const bubbleState = {
+  bubbleLines: settings?.bubbleLines ?? null,
+  bubbleLinesSource: settings?.bubbleLinesSource ?? null,
+  bubbleLinesUpdatedAt: settings?.bubbleLinesUpdatedAt ?? null,
+  bubbleLinesWarning: settings?.bubbleLinesWarning ?? null,
+  bubbleLinesGenerating: settings?.bubbleLinesGenerating ?? false,
+};
+const fallbackVoice = voiceFor((s.assistantName ?? "").trim() || "Marvin");
+const BUBBLE_LISTS = [
+  { key: "greetings", label: "Greetings", hint: "When the panel opens." },
+  { key: "taglines", label: "Taglines", hint: "Rotate under the name; keep them short." },
+  { key: "thinking", label: "Thinking", hint: "While it works on a request." },
+  { key: "errors", label: "Errors", hint: "Open an error; the real message follows." },
+  { key: "emotes", label: "Emotes", hint: "Stage directions, like *smiles*." },
+] as const;
 
 const invSrc = s.invocationSources ?? {};
 const isIconUrl = /^(https?:\/\/|\/)/.test(s.assistantIcon ?? "");
@@ -300,6 +319,33 @@ const modCfg = s.moderationConfig ?? {};
           (like "Review &amp; suggest") may still override this per run.
         </small>
       </label>
+      <div class="form-field bubble-lines" id="bubble-lines" data-state={JSON.stringify(bubbleState)}>
+        <span class="label">Bubble lines</span>
+        <small class="hint">
+          What the bubble says around its answers. When you save a voice above, one AI call writes these
+          in that voice; you can edit them here, one line per row. An empty list uses the built-in lines
+          (shown greyed). Edited lines are kept when the voice changes — <em>Regenerate from persona</em>
+          replaces them.
+        </small>
+        <p class="bubble-lines-status" id="bubble-lines-status"></p>
+        <p class="bubble-lines-warning" id="bubble-lines-warning" hidden></p>
+        <div class="bubble-lines-grid">
+          {BUBBLE_LISTS.map((list) => (
+            <label class="form-field">
+              <span class="label">{list.label}</span>
+              <textarea class="input bubble-lines-list" data-list={list.key} rows="5"
+                placeholder={fallbackVoice[list.key].slice(0, 4).join("\n")}>{(bubbleState.bubbleLines?.[list.key] ?? []).join("\n")}</textarea>
+              <small class="hint">{list.hint}</small>
+            </label>
+          ))}
+        </div>
+        <div class="bubble-lines-actions">
+          <button type="button" class="button secondary small" id="bubble-lines-save">Save lines</button>
+          <button type="button" class="button secondary small" id="bubble-lines-regenerate">Regenerate from persona</button>
+          <button type="button" class="button secondary small" id="bubble-lines-clear">Clear</button>
+          <span class="save-status" id="bubble-lines-msg"></span>
+        </div>
+      </div>
     </div>
 
     <!-- 6. Usage & limits -->
@@ -453,6 +499,108 @@ const modCfg = s.moderationConfig ?? {};
   }
 
   loadUsage();
+
+  // ── Bubble lines ── (/api/groups/ai-settings/bubble-lines; see services/ai/bubble_lines.py)
+  // Generation runs in the background after a voice is saved, so the card polls while it does.
+  const BUBBLE_API = '/api/groups/ai-settings/bubble-lines';
+  const BUBBLE_POLL_MS = 3000;
+  const BUBBLE_POLL_LIMIT = 60; // ~3 minutes, then the card stops waiting and says so
+  const bubbleBox = document.getElementById('bubble-lines');
+  const bubbleAreas = Array.from(document.querySelectorAll<HTMLTextAreaElement>('.bubble-lines-list'));
+  const bubbleMsg = document.getElementById('bubble-lines-msg')!;
+  const personaInput = document.querySelector<HTMLTextAreaElement>('textarea[name="persona_prompt"]');
+  const savedPersona = personaInput?.value.trim() ?? '';
+  let bubbleState: any = JSON.parse(bubbleBox?.dataset.state || '{}');
+  let bubbleDirty = false;
+  let bubblePolls = 0;
+
+  function bubbleStatusText(st: any): string {
+    if (st.bubbleLinesGenerating) return 'Writing lines from the persona…';
+    if (!st.bubbleLines) return 'Using the built-in lines.';
+    const when = st.bubbleLinesUpdatedAt ? ` on ${new Date(st.bubbleLinesUpdatedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}` : '';
+    return st.bubbleLinesSource === 'edited' ? `Edited${when}.` : `Generated from the persona${when}.`;
+  }
+
+  function renderBubble(st: any) {
+    bubbleState = st;
+    document.getElementById('bubble-lines-status')!.textContent = bubbleStatusText(st);
+    const warning = document.getElementById('bubble-lines-warning')!;
+    warning.textContent = st.bubbleLinesWarning ? `Last generation didn't work: ${st.bubbleLinesWarning}` : '';
+    warning.hidden = !st.bubbleLinesWarning;
+    if (!bubbleDirty) {
+      for (const area of bubbleAreas) area.value = (st.bubbleLines?.[area.dataset.list!] ?? []).join('\n');
+    }
+    (document.getElementById('bubble-lines-regenerate') as HTMLButtonElement).disabled = !!st.bubbleLinesGenerating;
+    if (st.bubbleLinesGenerating) scheduleBubblePoll();
+  }
+
+  function scheduleBubblePoll() {
+    if (bubblePolls >= BUBBLE_POLL_LIMIT) {
+      document.getElementById('bubble-lines-status')!.textContent = 'Still writing — reload the page later to see the lines.';
+      return;
+    }
+    bubblePolls += 1;
+    setTimeout(async () => {
+      try {
+        renderBubble(await fetchApi(BUBBLE_API));
+      } catch {
+        scheduleBubblePoll();
+      }
+    }, BUBBLE_POLL_MS);
+  }
+
+  function bubbleLinesPayload(): Record<string, string[]> {
+    const lines: Record<string, string[]> = {};
+    for (const area of bubbleAreas) lines[area.dataset.list!] = area.value.split('\n').map((l) => l.trim()).filter(Boolean);
+    return lines;
+  }
+
+  async function saveBubbleLines() {
+    const st = await fetchApi(BUBBLE_API, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bubbleLinesPayload()) });
+    bubbleDirty = false;
+    renderBubble(st);
+  }
+
+  async function bubbleAction(run: () => Promise<void>, done: string) {
+    bubbleMsg.textContent = 'Working…';
+    bubbleMsg.className = 'save-status';
+    try {
+      await run();
+      bubbleMsg.textContent = done;
+      bubbleMsg.className = 'save-status success';
+    } catch (err) {
+      bubbleMsg.textContent = `Error: ${(err as Error).message}`;
+      bubbleMsg.className = 'save-status error';
+    }
+  }
+
+  if (bubbleBox) {
+    renderBubble(bubbleState);
+    bubbleAreas.forEach((area) => area.addEventListener('input', () => { bubbleDirty = true; }));
+    document.getElementById('bubble-lines-save')!.addEventListener('click', () => bubbleAction(saveBubbleLines, 'Saved'));
+    document.getElementById('bubble-lines-regenerate')!.addEventListener('click', () => {
+      if ((personaInput?.value.trim() ?? '') !== savedPersona) {
+        bubbleMsg.textContent = 'Save the settings first: lines are written from the saved voice.';
+        bubbleMsg.className = 'save-status error';
+        return;
+      }
+      if (bubbleState.bubbleLinesSource === 'edited' && !confirm('Replace your edited lines with new ones written from the persona?')) return;
+      bubbleAction(async () => {
+        const st = await fetchApi(`${BUBBLE_API}/generate`, { method: 'POST' });
+        bubbleDirty = false;
+        bubblePolls = 0;
+        renderBubble(st);
+      }, 'Started');
+    });
+    document.getElementById('bubble-lines-clear')!.addEventListener('click', () => {
+      if (!confirm('Go back to the built-in lines? The lines here are removed.')) return;
+      bubbleAction(async () => {
+        const st = await fetchApi(BUBBLE_API, { method: 'DELETE' });
+        bubbleDirty = false;
+        renderBubble(st);
+      }, 'Cleared');
+    });
+  }
 
   const form = document.getElementById('ai-settings-form');
   const enabledToggle = document.getElementById('ai-enabled');
@@ -643,6 +791,8 @@ const modCfg = s.moderationConfig ?? {};
     saveStatus.className = 'save-status';
 
     try {
+      // Unsaved line edits go first, so they count as edited and a changed voice won't overwrite them.
+      if (bubbleDirty) await saveBubbleLines();
       await createSdkClient().ai.settings.update(payload);
 
       saveStatus.textContent = 'Saved';
@@ -895,6 +1045,11 @@ const modCfg = s.moderationConfig ?? {};
   .input:focus { border-color: var(--accent); outline: none; }
 
   textarea.persona-prompt { resize: vertical; min-height: 84px; font-family: inherit; line-height: 1.5; }
+  .bubble-lines-status { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+  .bubble-lines-warning { margin: 6px 0 0; font-size: 13px; color: var(--color-error); }
+  .bubble-lines-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; }
+  textarea.bubble-lines-list { resize: vertical; min-height: 110px; font-family: inherit; line-height: 1.5; }
+  .bubble-lines-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 
   /* ── Advanced / collapsible ── */
   .advanced-section summary { list-style: none; }

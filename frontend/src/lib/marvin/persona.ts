@@ -2,6 +2,8 @@
  * Marvin's voice — the Paranoid Android. Lines are cycled/picked at random so he never
  * says quite the same miserable thing twice. Taglines rotate like a 2000s shell MOTD /
  * fortune(6). Keep it deadpan, world-weary, and put-upon; never actually mean to the user.
+ * A sample of these is the format example the backend gives the model when it writes a workspace's
+ * own bubble lines (src/marvin/services/ai/bubble_lines.py: FORMAT_EXAMPLE).
  */
 
 /** Greetings shown when the panel first opens. */
@@ -112,7 +114,7 @@ export type Voice = { greetings: string[]; taglines: string[]; thinking: string[
 
 export const MARVIN_VOICE: Voice = { greetings: GREETINGS, taglines: TAGLINES, thinking: THINKING, errors: ERRORS, emotes: EMOTES };
 
-/** Plain lines for an assistant that isn't (default) Marvin — a renamed assistant or a custom persona. */
+/** Plain lines for a renamed assistant with no lines of its own — never Marvin's, never anyone else's. */
 export function neutralVoice(name: string): Voice {
   return {
     greetings: [`Hi — I'm ${name}. What can I help with?`, `${name} here. What are we working on?`, "Hello! Ask me anything about this workspace."],
@@ -123,12 +125,22 @@ export function neutralVoice(name: string): Voice {
   };
 }
 
+const VOICE_LISTS = ["greetings", "taglines", "thinking", "errors", "emotes"] as const;
+
 /**
- * Marvin's gloomy lines only while the assistant is plainly Marvin: the default name and no custom
- * persona. Otherwise a renamed or re-voiced assistant would greet you as the Paranoid Android.
+ * The bubble's lines, per list: the workspace's own (AI settings → Persona → Bubble lines, generated
+ * from its persona or hand-edited) where it has some; otherwise Marvin's while the assistant is still
+ * named Marvin — whatever its persona says — and plain ones for a renamed assistant, so "Ada" never
+ * greets you as the Paranoid Android. An empty or missing list falls back on its own.
  */
-export function voiceFor(name: string, hasCustomPersona: boolean): Voice {
-  return name === "Marvin" && !hasCustomPersona ? MARVIN_VOICE : neutralVoice(name);
+export function voiceFor(name: string, stored?: Partial<Voice> | null): Voice {
+  const base = name === "Marvin" ? MARVIN_VOICE : neutralVoice(name);
+  const voice = { ...base };
+  for (const key of VOICE_LISTS) {
+    const lines = (stored?.[key] ?? []).filter((line) => typeof line === "string" && line.trim());
+    if (lines.length) voice[key] = lines;
+  }
+  return voice;
 }
 
 /** Pick a random line. */

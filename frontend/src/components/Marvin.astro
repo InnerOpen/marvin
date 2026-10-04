@@ -85,11 +85,12 @@ try {
     let voice = MARVIN_VOICE;
 
     // The workspace's name and icon for its assistant (AI settings → Persona). An icon is an emoji,
-    // or an image URL. The canned lines follow the identity: Marvin's only while it's plainly Marvin.
+    // or an image URL. The canned lines are the workspace's own bubble lines where it has them, else
+    // Marvin's while it's still named Marvin (see voiceFor).
     function applyIdentity(settings: any) {
       const name = (settings?.assistantName || '').trim() || 'Marvin';
       const icon = (settings?.assistantIcon || '').trim();
-      voice = voiceFor(name, !!(settings?.personaPrompt || '').trim());
+      voice = voiceFor(name, settings?.bubbleLines);
       document.querySelector('#marvin-root .marvin-name')!.textContent = name;
       for (const el of [toggle, panel]) el.setAttribute('aria-label', `Ask ${name}`);
       toggle.title = `Ask ${name}`;
