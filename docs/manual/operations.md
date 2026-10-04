@@ -55,6 +55,8 @@ Integration providers call outside services through Marvin's HTTP client. A resp
 
 The platform's bubble-character library (see [Agents and Ask](whats-new/agents-and-ask.md)) stores its packs through the same provider, outside any workspace: under `_platform/character-packs/<pack id>/` (on local storage, inside `STORAGE_LOCAL_ROOT`), served by the same public URL as asset files. A workspace's own bubble character is stored as ordinary workspace assets.
 
+Since rc.159 an upload makes an image's opaque solid background transparent. Files stored before that can be cleaned the same way with `python -m marvin.scripts.repair_character_mattes`, run where the backend runs: on its own it lists what would change, and `--apply` overwrites each changed file in place at its storage key, so stored URLs keep working. It covers library packs and every workspace's and agent's own upload. A browser that cached a file may show the old one until a hard refresh.
+
 ## Retention
 
 | What | Setting | Default |
