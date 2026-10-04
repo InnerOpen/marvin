@@ -15,6 +15,7 @@ from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.agent import (
     AgentCreate,
+    AgentDefinitionPreviewRequest,
     AgentPromptPreview,
     AgentPromptPreviewRequest,
     AgentRead,
@@ -968,6 +969,15 @@ class AIOperationsController(BaseUserController):
         if row.character:
             self._save_agent_character(row, None)
 
+    @router.post("/agents/preview-prompt", response_model=AgentPromptPreview, summary="Preview the system prompt of an agent not saved yet")
+    def preview_new_agent_prompt(self, data: AgentDefinitionPreviewRequest) -> AgentPromptPreview:
+        """As `/agents/{slug}/preview-prompt`, for the New form: `data` is the whole create payload, read as the
+        saved agent would be. Nothing is stored; never calls a model."""
+        from marvin.services.ai.agents import unsaved_spec
+
+        self._require_preview_role()
+        return self._prompt_preview(unsaved_spec(data.model_dump(exclude={"slug"}), (data.slug or "").strip().lower()))
+
     @router.post("/agents/{slug}/preview-prompt", response_model=AgentPromptPreview, summary="Preview the system prompt an agent runs with")
     def preview_agent_prompt(self, slug: str, data: AgentPromptPreviewRequest) -> AgentPromptPreview:
         """What a run of this agent sends the model as its system prompt, assembled by the run's own code, in
@@ -976,11 +986,18 @@ class AIOperationsController(BaseUserController):
         out is the stored agent's. Tools are bound as you would run it from the Ask page and only counted per
         category. Never calls a model.
         """
-        from marvin.services.ai import tones as t
+        self._require_preview_role()
+        return self._prompt_preview(self._agent_with_overrides(self._agent_or_404(slug), data))
+
+    def _require_preview_role(self) -> None:
         from marvin.services.ai.operations.base import ROLE_ADMIN
 
         self._require_role(ROLE_ADMIN, "ADMIN role or higher required to preview an agent's prompt.")
-        spec = self._agent_with_overrides(self._agent_or_404(slug), data)
+
+    def _prompt_preview(self, spec) -> AgentPromptPreview:
+        """The preview of `spec`'s system prompt, built by the helpers a real run uses."""
+        from marvin.services.ai import tones as t
+
         assistant_name, persona_prompt = self._persona()
         tones = self._tones()
         register = self._effective_register(None, spec)

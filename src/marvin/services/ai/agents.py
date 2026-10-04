@@ -236,6 +236,14 @@ def spec_from_row(row) -> AgentSpec:
     )
 
 
+def unsaved_spec(values: dict, slug: str) -> AgentSpec:
+    """An agent definition not saved yet (a create payload's fields), read as `spec_from_row` reads it once saved."""
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    return replace(spec_from_row(SimpleNamespace(**values, slug=slug, id=None, character=None)), id=None)
+
+
 def _system_agent(session, group_id, spec: AgentSpec) -> AgentSpec:
     """A system agent as this workspace knows it: the main agent (`marvin`) carries the workspace's
     assistant name (AI settings → Persona), so the Ask page, the bubble, MCP and hand-offs all say it."""

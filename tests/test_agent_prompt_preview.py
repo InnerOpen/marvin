@@ -1,4 +1,4 @@
-"""An agent's prompt preview (POST /ai/agents/{slug}/preview-prompt).
+"""An agent's prompt preview (POST /ai/agents/{slug}/preview-prompt, and /ai/agents/preview-prompt for one not saved yet).
 
 The Agents page's **Preview prompt** shows what a run of the agent actually sends: the workspace preamble, the
 agent's instructions (or its kind's default), the Character and tone with the rule for which wins, and who it
@@ -14,6 +14,7 @@ import pytest
 from fastapi import HTTPException
 
 from marvin.routes.ai import operations_controller as oc
+from marvin.schemas.group.agent import AgentCreate, AgentDefinitionPreviewRequest
 from marvin.services.ai.tones import PRECEDENCE_RULE
 
 C = oc.AIOperationsController
@@ -30,6 +31,10 @@ REAL = (
     "_require_role",
     "_workspace_name",
     "_external_mcp_tools",
+    "_require_preview_role",
+    "_prompt_preview",
+    "_require_known_tone",
+    "_agent_character",
 )
 
 
@@ -68,12 +73,15 @@ def ctrl(db_session, workspace, monkeypatch):
     c = SimpleNamespace(session=db_session, group_id=workspace, user=SimpleNamespace(id=None, admin=False), logger=logging.getLogger("test"))
     for name in REAL:
         setattr(c, name, getattr(C, name).__get__(c))
-    for name in ("_agent_with_overrides", "_default_agent_system_prompt", "_framed", "_handoff_max_depth", "_restrict_tools", "_tool_categories"):
+    static = ("_agent_with_overrides", "_agent_read", "_default_agent_system_prompt", "_framed")
+    static += ("_handoff_max_depth", "_restrict_tools", "_tool_categories")
+    for name in static:
         setattr(c, name, getattr(C, name))
     c.role = ROLE_ADMIN
     c._user_role = lambda: c.role
     c.execute_operation = lambda *a, **k: pytest.fail("a prompt preview must not run an AI operation")
     c.preview = lambda slug, **kw: C.preview_agent_prompt(c, slug, _request(**kw))
+    c.preview_new = lambda **kw: C.preview_new_agent_prompt(c, AgentDefinitionPreviewRequest(**kw))
     return c
 
 
@@ -193,3 +201,56 @@ def test_preview_matches_the_system_prompt_a_run_sends(ctrl, monkeypatch):
 
 def test_preview_route_is_registered_under_the_agents():
     assert any(getattr(r, "path", "") == "/ai/agents/{slug}/preview-prompt" for r in oc.router.routes)
+
+
+# ── An agent not saved yet (the New form) ──
+
+NEW_AGENTS = (
+    {
+        "slug": "critic",
+        "name": "Critic",
+        "system_prompt": "Review drafts.",
+        "default_register": "warm",
+        "allow_writes": True,
+        "tool_policy": {"entries_author": "block"},
+    },
+    {"slug": "helper", "name": "Helper", "kind": "model"},
+    {"slug": "plain", "name": "Plain"},
+)
+
+
+@pytest.mark.parametrize("definition", NEW_AGENTS, ids=lambda d: d["slug"])
+def test_new_agent_preview_matches_the_preview_once_saved_with_the_same_values(ctrl, definition):
+    before = ctrl.preview_new(**definition)
+    C.create_agent(ctrl, AgentCreate(**definition))
+    assert before == ctrl.preview(definition["slug"])
+
+
+def test_new_agent_preview_keeps_the_agent_off_its_own_roster_and_stores_nothing(ctrl, db_session, workspace):
+    from marvin.db.models.groups.agents import WorkspaceAgentModel
+
+    out = ctrl.preview_new(slug="scout-two", name="Scout Two", system_prompt="Help.")
+    assert out.instructions == "Help." and "scout-two" not in out.roster
+    assert db_session.query(WorkspaceAgentModel).filter_by(group_id=workspace, slug="scout-two").first() is None
+
+
+def test_new_agent_preview_without_a_slug_yet_uses_the_default_instructions(ctrl):
+    out = ctrl.preview_new(name="Drafty")
+    assert out.default_instructions and out.instructions == C._default_agent_system_prompt("Drafty")
+
+
+def test_new_agent_preview_requires_a_workspace_admin(ctrl):
+    ctrl.role = 3  # EDITOR
+    with pytest.raises(HTTPException) as e:
+        ctrl.preview_new(name="Critic")
+    assert e.value.status_code == 403
+
+
+def test_new_agent_preview_never_reaches_a_provider(ctrl):
+    ctrl._agent_provider = lambda: pytest.fail("a prompt preview must not look up a provider")
+    ctrl._default_model = lambda: pytest.fail("a prompt preview must not pick a model")
+    assert ctrl.preview_new(name="Critic", allow_writes=True).tool_count > 0
+
+
+def test_new_agent_preview_route_is_registered_beside_the_agents():
+    assert any(getattr(r, "path", "") == "/ai/agents/preview-prompt" and "POST" in r.methods for r in oc.router.routes)

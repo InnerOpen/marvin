@@ -143,6 +143,13 @@ class AgentPromptPreviewRequest(AgentUpdate):
     """The Edit form's unsaved values for a prompt preview; anything left out is the stored agent's."""
 
 
+class AgentDefinitionPreviewRequest(AgentBase):
+    """A whole agent not saved yet (the New form's create payload) for a prompt preview. The slug is
+    optional and unchecked: nothing is stored, and it only keeps the agent off its own roster."""
+
+    slug: str | None = None
+
+
 class AgentToolCategory(_MarvinModel):
     id: str
     label: str

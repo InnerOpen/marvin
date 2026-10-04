@@ -161,9 +161,11 @@ const builtins = agents.filter((a) => a.isSystem);
         </div>
         <div class="form-actions">
           <button type="submit" class="button">Save agent</button>
+          <button type="button" id="new-preview" class="button secondary">Preview prompt</button>
           <button type="button" id="new-cancel" class="button secondary">Cancel</button>
           <span class="save-status" id="new-status"></span>
         </div>
+        <div class="prompt-preview" id="new-preview-box" hidden aria-live="polite"></div>
       </form>
     </div>
 
@@ -361,6 +363,7 @@ const builtins = agents.filter((a) => a.isSystem);
     deleteAgent,
     getPermissions,
     previewAgentPrompt,
+    previewNewAgentPrompt,
     updateAgent,
     type Agent,
     type Catalog,
@@ -471,12 +474,13 @@ const builtins = agents.filter((a) => a.isSystem);
     }
     const allowWritesOf = (form: HTMLFormElement) => (form.querySelector<HTMLInputElement>('[name="allowWrites"]')?.checked ?? false);
 
-    // ── Prompt preview (POST /api/ai/agents/{slug}/preview-prompt; rendered by lib/promptPreview) ──
-    async function showPreview(box: HTMLElement, slug: string, data = {}) {
+    // ── Prompt preview (POST /api/ai/agents/{slug}/preview-prompt, or /api/ai/agents/preview-prompt for the
+    // New form's unsaved agent; rendered by lib/promptPreview) ──
+    async function showPreview(box: HTMLElement, load: () => ReturnType<typeof previewAgentPrompt>) {
       box.hidden = false;
       box.innerHTML = promptPreviewMessage("Loading…");
       try {
-        box.innerHTML = promptPreviewHtml(agentPreviewView(await previewAgentPrompt(slug, data)));
+        box.innerHTML = promptPreviewHtml(agentPreviewView(await load()));
       } catch (e) {
         box.innerHTML = promptPreviewMessage("Couldn't preview: " + (e instanceof Error ? e.message : e), true);
       }
@@ -506,10 +510,18 @@ const builtins = agents.filter((a) => a.isSystem);
       document.getElementById("new-cancel")?.addEventListener("click", () => {
         newForm.hidden = true;
       });
+      const newSlug = () => String(new FormData(newForm).get("slug") ?? "").trim().toLowerCase();
+      const newPreview = document.getElementById("new-preview-box");
+      document.getElementById("new-preview")?.addEventListener("click", () => {
+        if (!newPreview) return;
+        const data = readForm(newForm, newMatrix);
+        // A name is required to save, not to look: the default instructions just need something to call it.
+        void showPreview(newPreview, () => previewNewAgentPrompt({ slug: newSlug(), ...data, name: data.name || "New agent" }));
+      });
       newForm.addEventListener("submit", async (ev) => {
         ev.preventDefault();
         const data = readForm(newForm, newMatrix);
-        const slug = String(new FormData(newForm).get("slug") ?? "").trim().toLowerCase();
+        const slug = newSlug();
         status(newStatus, "Saving…");
         try {
           await createAgent({ slug, ...data });
@@ -573,7 +585,7 @@ const builtins = agents.filter((a) => a.isSystem);
         if (!previewBox) return;
         const opening = previewBox.hidden;
         (ev.currentTarget as HTMLElement).setAttribute("aria-expanded", String(opening));
-        if (opening) void showPreview(previewBox, slug);
+        if (opening) void showPreview(previewBox, () => previewAgentPrompt(slug));
         else previewBox.hidden = true;
       });
 
@@ -650,7 +662,7 @@ const builtins = agents.filter((a) => a.isSystem);
         editBox.querySelector(".e-cancel")?.addEventListener("click", () => (editBox.hidden = true));
         // What this agent would get with the form as it stands — saved or not.
         const ePreview = editBox.querySelector<HTMLElement>('[data-role="epreview"]')!;
-        editBox.querySelector(".e-preview")?.addEventListener("click", () => void showPreview(ePreview, slug, readForm(form, matrix)));
+        editBox.querySelector(".e-preview")?.addEventListener("click", () => void showPreview(ePreview, () => previewAgentPrompt(slug, readForm(form, matrix))));
         form.addEventListener("submit", async (ev) => {
           ev.preventDefault();
           status(estatus, "Saving…");

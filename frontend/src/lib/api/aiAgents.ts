@@ -264,6 +264,16 @@ export function previewAgentPrompt(
     authToken,
   );
 }
+/**
+ * The same preview for an agent not saved yet: `data` is the New form's whole create payload (the slug may be
+ * blank while typing). Nothing is stored. ADMIN+; never calls a model.
+ */
+export function previewNewAgentPrompt(
+  data: Omit<AgentCreate, "slug"> & { slug?: string },
+  authToken?: string,
+): Promise<AgentPromptPreview> {
+  return fetchApi<AgentPromptPreview>("/api/ai/agents/preview-prompt", json(data), authToken);
+}
 export function deleteAgent(slug: string, authToken?: string): Promise<void> {
   return fetchApi<void>(`/api/ai/agents/${encodeURIComponent(slug)}`, { method: "DELETE" }, authToken);
 }
