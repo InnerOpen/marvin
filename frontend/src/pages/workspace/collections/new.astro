@@ -2,9 +2,11 @@
 import EmojiPicker from "@/components/EmojiPicker.astro";
 import SlugInput from "@/components/SlugInput.astro";
 import SmartCollectionFields from "@/components/SmartCollectionFields.astro";
+import CollectionVisibilityField from "@/components/CollectionVisibilityField.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createCollection } from "@/lib/api/collections";
+import { IS_PUBLIC_FIELD, isPublicFromForm } from "@/lib/collectionForm";
 
 const authToken = getAuthToken(Astro.cookies);
 if (!authToken) {
@@ -18,7 +20,7 @@ if (Astro.request.method === "POST") {
     const data: Record<string, any> = {};
 
     formData.forEach((value, key) => {
-      if (value !== "") {
+      if (value !== "" && key !== IS_PUBLIC_FIELD) {
         // Handle checkbox
         if (key === "is_smart") {
           data[key] = value === "true";
@@ -39,6 +41,8 @@ if (Astro.request.method === "POST") {
         }
       }
     });
+
+    data[IS_PUBLIC_FIELD] = isPublicFromForm(formData);
 
     const collection = await createCollection(data, authToken);
     return Astro.redirect(`/workspace/collections/${collection.id}`);
@@ -113,6 +117,8 @@ if (Astro.request.method === "POST") {
         />
         <p class="form-help">Lower numbers appear first</p>
       </div>
+
+      <CollectionVisibilityField />
 
       <SmartCollectionFields />
 

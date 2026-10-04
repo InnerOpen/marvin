@@ -1,4 +1,5 @@
 ---
+import CollectionVisibilityField from "@/components/CollectionVisibilityField.astro";
 import EmojiPicker from "@/components/EmojiPicker.astro";
 import SmartCollectionFields from "@/components/SmartCollectionFields.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -123,6 +124,8 @@ if (!authToken) {
             <p class="form-help">Lower numbers appear first</p>
           </div>
 
+          <CollectionVisibilityField checked={collection.isPublic !== false} locked={collection.isSystem === true} />
+
           <SmartCollectionFields checked={collection.isSmart === true} rules={collection.smartRules} targetType={(collection as any).targetType ?? 'entry'} />
 
           <div class="form-group">
@@ -240,6 +243,7 @@ if (!authToken) {
 </AppLayout>
 
 <script>
+  import { isPublicFromForm } from '@/lib/collectionForm';
   import { createSdkClient } from '@/lib/sdk';
 
   const sdk = createSdkClient();
@@ -291,6 +295,7 @@ if (!authToken) {
       const description = formData.get('description') as string;
       const sortOrder = formData.get('sort_order') as string;
       const isSmart = formData.get('is_smart') === 'true';
+      const isPublic = isPublicFromForm(formData);
       const targetType = (formData.get('target_type') as string) || 'entry';
       const smartRulesStr = formData.get('smartRules') as string;
       const metadataStr = formData.get('metadata') as string;
@@ -327,6 +332,7 @@ if (!authToken) {
           description: description?.trim() || null,
           sortOrder: sortOrder ? parseInt(sortOrder) : 0,
           isSmart,
+          isPublic,
           targetType,
           smartRules: smartRules,
           metadataJson: metadataJson,

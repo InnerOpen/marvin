@@ -93,6 +93,9 @@ function fmtDate(d?: string | null): string {
             {collection.isSmart && <span class="pill">Smart</span>}
             {targetType !== "entry" && <span class="pill target-pill">{targetType}s</span>}
             {collection.isSystem && <span class="pill system-pill">System</span>}
+            {collection.isPublic === false && !collection.isSystem && (
+              <span class="pill system-pill" title="Hidden from the publishing API — sites can't list or read it">Private</span>
+            )}
           </h2>
           {collection.description && <p class="col-desc">{collection.description}</p>}
         </div>

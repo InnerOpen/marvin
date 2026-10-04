@@ -439,11 +439,19 @@ async def list_published_entries(
     if collection:
         from marvin.db.models.platform import EntryCollections
 
-        # Get collection
-        collection_obj = session.query(Collections).filter(Collections.group_id == group.id, Collections.slug == collection).first()
+        # Get collection (public only — a private collection can't be read through this filter either)
+        collection_obj = (
+            session.query(Collections)
+            .filter(
+                Collections.group_id == group.id,
+                Collections.slug == collection,
+                Collections.is_public == True,  # noqa: E712
+            )
+            .first()
+        )
 
         if not collection_obj:
-            # Return empty list if collection doesn't exist
+            # Return empty list if collection doesn't exist or is private
             return PublishedEntriesResponse(
                 data=[],
                 meta=PaginationMeta(

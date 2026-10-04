@@ -1,0 +1,66 @@
+---
+/**
+ * "Visible to sites" toggle for a collection's `is_public` flag. Shared by the create and edit
+ * collection forms; read the submitted value with `isPublicFromForm` (lib/collectionForm.ts).
+ *
+ * System collections are always private (the publish API never exposes workflow stages), so
+ * `locked` shows the toggle disabled with that explanation instead of offering a choice.
+ */
+import { IS_PUBLIC_FIELD } from "@/lib/collectionForm";
+
+interface Props {
+  checked?: boolean;
+  locked?: boolean;
+}
+const { checked = true, locked = false } = Astro.props;
+---
+
+<label class="visibility-toggle">
+  <input type="checkbox" name={IS_PUBLIC_FIELD} id={IS_PUBLIC_FIELD} value="true" checked={checked} disabled={locked} />
+  <span class="visibility-toggle-text">
+    <strong>Visible to sites</strong>
+    {locked ? (
+      <span class="form-help">System collections are always private — Marvin never exposes workflow stages to sites.</span>
+    ) : (
+      <span class="form-help">
+        Off: the collection is hidden from the publishing API — sites can't list it, open it, or filter
+        entries by it. Its entries stay published and can still appear through other collections, entry
+        lists and their own pages.
+      </span>
+    )}
+  </span>
+</label>
+
+<style>
+  .visibility-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.6rem;
+    font-weight: 400;
+    cursor: pointer;
+    margin: 0;
+  }
+
+  .visibility-toggle input[type="checkbox"] {
+    margin: 0.15rem 0 0;
+    flex: 0 0 auto;
+  }
+
+  .visibility-toggle-text {
+    display: grid;
+    gap: 0.15rem;
+  }
+
+  .visibility-toggle-text strong {
+    font-size: 0.9rem;
+    color: var(--ink);
+  }
+
+  /* Scoped styles don't inherit the page's .form-help — define the same small-grey helper here. */
+  .form-help {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
+</style>

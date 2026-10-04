@@ -31,6 +31,11 @@ const smartCollections = sortedCollections.filter((c) => c.isSmart);
 // Custom = user-created (editable, reorderable); System = workflow pipeline (locked).
 const customCollections = sortedCollections.filter((c) => !c.isSystem);
 const systemCollections = sortedCollections.filter((c) => c.isSystem);
+
+// System collections are always private and already carry a "System" pill, so only flag user
+// collections someone switched off "Visible to sites".
+const isPrivate = (c: CollectionRead) => c.isPublic === false && !c.isSystem;
+const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or read it";
 ---
 
 <AppLayout title="Collections">
@@ -121,7 +126,7 @@ const systemCollections = sortedCollections.filter((c) => c.isSystem);
                               <span class="empty-value">EMPTY</span>
                             )}
                           </td>
-                          <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}</td>
+                          <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}{isPrivate(collection) && <span class="pill private-pill" title={PRIVATE_TITLE}>Private</span>}</td>
                           <td>{collection.slug ? <code>{collection.slug}</code> : <span class="empty-value">EMPTY</span>}</td>
                           <td>{collection.description || <span class="empty-value">EMPTY</span>}</td>
                           <td><span class="pill">{collection.isSmart ? 'Smart' : 'Manual'}</span></td>
@@ -178,7 +183,7 @@ const systemCollections = sortedCollections.filter((c) => c.isSystem);
                             <span class="empty-value">EMPTY</span>
                           )}
                         </td>
-                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}</td>
+                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}{isPrivate(collection) && <span class="pill private-pill" title={PRIVATE_TITLE}>Private</span>}</td>
                         <td>{collection.slug ? <code>{collection.slug}</code> : <span class="empty-value">EMPTY</span>}</td>
                         <td>{collection.description || <span class="empty-value">EMPTY</span>}</td>
                         <td>
@@ -228,7 +233,7 @@ const systemCollections = sortedCollections.filter((c) => c.isSystem);
                             <span class="empty-value">EMPTY</span>
                           )}
                         </td>
-                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}</td>
+                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}{isPrivate(collection) && <span class="pill private-pill" title={PRIVATE_TITLE}>Private</span>}</td>
                         <td>{collection.slug ? <code>{collection.slug}</code> : <span class="empty-value">EMPTY</span>}</td>
                         <td>{collection.description || <span class="empty-value">EMPTY</span>}</td>
                         <td class="count-cell">{collection.entryCount ?? 0}</td>
@@ -285,7 +290,7 @@ const systemCollections = sortedCollections.filter((c) => c.isSystem);
                             <span class="empty-value">EMPTY</span>
                           )}
                         </td>
-                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}</td>
+                        <td class="collection-name">{collection.name ? <a href={`/workspace/collections/${collection.id}`} class="name-link"><strong>{collection.name}</strong></a> : <span class="empty-value">EMPTY</span>}{isPrivate(collection) && <span class="pill private-pill" title={PRIVATE_TITLE}>Private</span>}</td>
                         <td>{collection.slug ? <code>{collection.slug}</code> : <span class="empty-value">EMPTY</span>}</td>
                         <td>{collection.description || <span class="empty-value">EMPTY</span>}</td>
                         <td class="count-cell">{collection.entryCount ?? 0}</td>
@@ -694,6 +699,12 @@ const systemCollections = sortedCollections.filter((c) => c.isSystem);
 
   .system-pill {
     margin-left: 0.35rem;
+    background: var(--panel-2);
+    color: var(--muted);
+  }
+
+  .private-pill {
+    margin-left: 0.5rem;
     background: var(--panel-2);
     color: var(--muted);
   }
