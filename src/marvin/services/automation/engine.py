@@ -11,6 +11,7 @@ the engine is unit-testable without real executors.
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -22,7 +23,7 @@ from .actions import run_action as _registry_run_action
 from .authz import resolve_authorizer_role
 from .matcher import explain, matches
 from .recorder import CollectingRecorder, NullRecorder
-from .summary import collapse, run_message, step_summary, trigger_ref
+from .summary import collapse, failed_step, run_message, step_summary, trigger_ref
 
 MAX_ACTIONS = 10  # per-automation guardrail against a runaway pipeline
 MAX_REACTION_DEPTH = 3  # how many automation/emit_event hops a single chain may span before we stop
@@ -347,7 +348,7 @@ def _announce(session, group_id, automation, ok: bool, depth: int, user_id, cont
     event_type = EventTypes.automation_ran if ok else EventTypes.automation_failed
     try:
         steps = collapse(context.get("_step_log") or [])
-        failed = next((s for s in reversed(steps) if not s["ok"]), None)
+        failed = failed_step(steps)
         EventBusService(bg_tasks=None).dispatch(
             integration_id="automation",
             group_id=group_id,
@@ -407,6 +408,55 @@ def _announce_start(group_id, automation, run_id, trigger: str, *, target_count:
         pass
 
 
+@dataclass
+class _StepRunner:
+    """Runs and records one step at a time for a pipeline, threading its outputs into the context."""
+
+    session: Any
+    group_id: Any
+    automation: Any
+    context: dict
+    user_id: Any
+    authorizer_role: Any
+    logger: Any
+    run_action: Callable
+    recorder: Any
+    exec_id: Any
+    target_index: int
+    target_ref: Any
+    dry_run: bool
+    step_log: list | None
+
+    def run(self, action: dict, action_index: int, *, on_failure: bool = False) -> AutomationActionError | None:
+        """Run one step; returns its error (already recorded and logged), or None when it succeeded."""
+        started = datetime.now(UTC)
+        record = {"target_index": self.target_index, "target_ref": self.target_ref, "action_index": action_index, "action": action}
+        if on_failure:
+            record["on_failure"] = True
+        try:
+            out = self.run_action(
+                self.session, self.group_id, action, self.context, user_id=self.user_id, authorizer_role=self.authorizer_role, dry_run=self.dry_run
+            )
+        except AutomationActionError as e:
+            self.recorder.action(self.exec_id, **record, status="failed", error=str(e), duration_ms=_ms_since(started))
+            if self.step_log is not None:
+                self.step_log.append(step_summary(self.session, action, error=str(e), on_failure=on_failure))
+            if self.logger:
+                what = "on_failure step" if on_failure else "action"
+                self.logger.warning("automation '%s' %s kind=%s failed: %s", self.automation.slug, what, action.get("kind"), e)
+            return e
+        self.recorder.action(self.exec_id, **record, status="success", output=out, duration_ms=_ms_since(started))
+        if self.step_log is not None:
+            self.step_log.append(step_summary(self.session, action, output=out, on_failure=on_failure))
+        out_dict = out if isinstance(out, dict) else {}
+        self.context["previous"] = out_dict
+        step_entry = {"output": out_dict}
+        self.context["steps"][str(action_index)] = step_entry
+        if action.get("id"):
+            self.context["steps"][str(action["id"])] = step_entry  # $steps.<id>.output.*
+        return None
+
+
 def _run_pipeline(
     session,
     group_id,
@@ -425,68 +475,67 @@ def _run_pipeline(
     step_log: list | None = None,
 ) -> tuple[bool, int, int]:
     """Run one automation's action pipeline in order, recording each step. Returns
-    ``(all_ok, steps_ok, steps_failed)``.
+    ``(all_ok, steps_ok, steps_failed)`` — counting the workflow's own steps, not its on_failure ones.
 
     A fresh `previous` is set so pipelines don't leak into each other; a failing step stops the rest
-    (later steps usually depend on it). Each step's summary is appended to ``step_log`` when given.
+    (later steps usually depend on it) and runs the definition's `on_failure` steps, once, with the
+    failure as ``${error.*}``. Each step's summary is appended to ``step_log`` when given.
     """
     recorder = recorder or NullRecorder()
-    actions = (automation.definition or {}).get("actions") or []
-    if logger and len(actions) > MAX_ACTIONS:
-        logger.warning("automation '%s' has %d steps; only the first %d run (MAX_ACTIONS)", automation.slug, len(actions), MAX_ACTIONS)
+    defn = automation.definition or {}
+    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
+    if logger and len(defn.get("actions") or []) > MAX_ACTIONS:
+        logger.warning("automation '%s' has %d steps; only the first %d run (MAX_ACTIONS)", automation.slug, len(defn["actions"]), MAX_ACTIONS)
     # Fresh per-run scratch so pipelines don't leak. `steps` is addressable by position ("0") and by
     # an action's optional `id`; `previous` is the last step's output (an alias for the common case).
     context["previous"] = {}
     context["steps"] = {}
     context.pop("_error", None)
-    steps_ok, steps_failed = 0, 0
-    for action_index, action in enumerate(actions[:MAX_ACTIONS]):
-        started = datetime.now(UTC)
-        try:
-            out = run_action(session, group_id, action, context, user_id=user_id, authorizer_role=authorizer_role, dry_run=dry_run)
-            recorder.action(
-                exec_id,
-                target_index=target_index,
-                target_ref=target_ref,
-                action_index=action_index,
-                action=action,
-                status="success",
-                output=out,
-                duration_ms=_ms_since(started),
-            )
-            if step_log is not None:
-                step_log.append(step_summary(session, action, output=out))
-            out_dict = out if isinstance(out, dict) else {}
-            context["previous"] = out_dict
-            step_entry = {"output": out_dict}
-            context["steps"][str(action_index)] = step_entry
-            if action.get("id"):
-                context["steps"][str(action["id"])] = step_entry  # $steps.<id>.output.*
-            steps_ok += 1
-        except AutomationActionError as e:
-            recorder.action(
-                exec_id,
-                target_index=target_index,
-                target_ref=target_ref,
-                action_index=action_index,
-                action=action,
-                status="failed",
-                error=str(e),
-                duration_ms=_ms_since(started),
-            )
-            context["_error"] = str(e)
-            if step_log is not None:
-                step_log.append(step_summary(session, action, error=str(e)))
-            steps_failed += 1
-            if logger:
-                logger.warning(
-                    "automation '%s' action kind=%s failed: %s",
-                    automation.slug,
-                    action.get("kind"),
-                    e,
-                )
-            return False, steps_ok, steps_failed
-    return True, steps_ok, steps_failed
+    context.pop("error", None)
+    step = _StepRunner(
+        session=session,
+        group_id=group_id,
+        automation=automation,
+        context=context,
+        user_id=user_id,
+        authorizer_role=authorizer_role,
+        logger=logger,
+        run_action=run_action,
+        recorder=recorder,
+        exec_id=exec_id,
+        target_index=target_index,
+        target_ref=target_ref,
+        dry_run=dry_run,
+        step_log=step_log,
+    )
+    for action_index, action in enumerate(actions):
+        error = step.run(action, action_index)
+        if error is not None:
+            context["_error"] = str(error)
+            _run_on_failure(step, defn.get("on_failure") or [], error, action, action_index, first_index=len(actions))
+            return False, action_index, 1
+    return True, len(actions), 0
+
+
+def _run_on_failure(step: _StepRunner, handlers: list, error: AutomationActionError, action: dict, action_index: int, *, first_index: int) -> None:
+    """Run the definition's `on_failure` steps after a step failed — same run, same entry, with
+    ``${error.message}``, ``${error.code}`` (the integration's stable reason, when it gave one),
+    ``${error.step}`` (the failed step's id, else its position), ``${error.kind}`` and ``${error.at}``.
+
+    They run once: a failing on_failure step stops the rest and has no handler of its own, so a
+    broken handler can never loop. Recorded after the workflow's steps, labelled as on-failure."""
+    if not handlers:
+        return
+    step.context["error"] = {
+        "message": str(error),
+        "code": error.code,
+        "step": str(action.get("id") or action_index),
+        "kind": action.get("kind"),
+        "at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    for offset, handler in enumerate(handlers[:MAX_ACTIONS]):
+        if step.run(handler, first_index + offset, on_failure=True) is not None:
+            return
 
 
 def run_automation_now(

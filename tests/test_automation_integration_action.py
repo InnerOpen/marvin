@@ -35,6 +35,10 @@ class _FakeShop(IntegrationProvider):
         self.calls.append((key, args, ctx))
         if args.get("fail"):
             raise ValueError("price must be positive")
+        if args.get("refuse"):
+            error = ValueError("the shop refused it")
+            error.code = "blocked"  # a provider's stable reason, for on_failure steps
+            raise error
         return {"checkout_url": f"https://pay.example/{args['slug']}", "variation_id": "VAR1"}
 
 
@@ -99,6 +103,20 @@ def test_integration_step_dry_run_resolves_args_without_calling(db_session, work
 def test_integration_step_provider_error_fails_the_step(db_session, workspace, shop):
     with pytest.raises(AutomationActionError, match="price must be positive"):
         _run(db_session, workspace, {"integration": "shop", "action": "create_listing", "args": {"slug": "x", "fail": True}})
+
+
+def test_integration_step_provider_error_without_code_has_no_code(db_session, workspace, shop):
+    with pytest.raises(AutomationActionError) as raised:
+        _run(db_session, workspace, {"integration": "shop", "action": "create_listing", "args": {"slug": "x", "fail": True}})
+
+    assert raised.value.code is None
+
+
+def test_integration_step_provider_error_code_reaches_the_step_error(db_session, workspace, shop):
+    with pytest.raises(AutomationActionError, match="the shop refused it") as raised:
+        _run(db_session, workspace, {"integration": "shop", "action": "create_listing", "args": {"slug": "x", "refuse": True}})
+
+    assert raised.value.code == "blocked"
 
 
 def test_integration_step_refuses_actions_that_require_approval(db_session, workspace, shop):

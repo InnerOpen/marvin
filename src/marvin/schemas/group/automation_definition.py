@@ -105,7 +105,9 @@ class OperationAction(_DefnBase):
 
 class EntryAction(_DefnBase):
     kind: Literal["entry"]
-    op: Literal["publish", "unpublish", "archive", "restore", "add_to_collection", "remove_from_collection", "set_metadata", "set_data"]
+    op: Literal[
+        "publish", "unpublish", "archive", "restore", "add_to_collection", "remove_from_collection", "set_metadata", "set_data", "request_review"
+    ]
     entity_id: str | None = None
     entity_slug: str | None = None
     entity_query: dict[str, Any] | None = None  # find exactly one entry (target-selector vocabulary; values may be templates)
@@ -114,6 +116,7 @@ class EntryAction(_DefnBase):
     collection_slug: str | None = None  # …preferred: a collection slug/name (may be a $event.* template)
     metadata: dict[str, Any] | None = None  # for set_metadata: keys merged into metadata_json (values may be templates)
     data: dict[str, Any] | None = None  # for set_data: schema fields merged into data_json (validated; values may be templates)
+    reason: str | None = None  # for request_review: why it needs review, added to metadata_json.review_reasons (may be a template)
     id: str | None = None
 
 
@@ -190,6 +193,9 @@ class AutomationDefinition(_DefnBase):
     # A top-level list is an implicit AND; a single group dict is also accepted (JSON-mode advanced).
     conditions: list[Condition] | Condition | None = None
     actions: list[Action] = Field(default_factory=list)
+    # Steps run when a step of `actions` fails, in the same run and on the same entry, with the failure
+    # as `${error.*}` (message, code, step, kind, at). The run still counts as failed.
+    on_failure: list[Action] | None = None
 
     @model_validator(mode="before")
     @classmethod

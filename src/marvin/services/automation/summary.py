@@ -47,14 +47,15 @@ def _target(session, action: dict) -> str | None:
     return None
 
 
-def step_summary(session, action: dict, *, output: Any = None, error: str | None = None) -> dict:
-    """One step's line: its kind, what it acted on, and how it went (an HTTP status when it made a call)."""
+def step_summary(session, action: dict, *, output: Any = None, error: str | None = None, on_failure: bool = False) -> dict:
+    """One step's line: its kind, what it acted on, and how it went (an HTTP status when it made a call).
+    An on_failure step (run because an earlier one failed) says so."""
     if error is not None:
         outcome = "failed"
     else:
         status = output.get("status_code") if isinstance(output, dict) else None
         outcome = str(status) if status is not None else "ok"
-    return {
+    summary = {
         "kind": action.get("kind") or "step",
         "target": _target(session, action),
         "outcome": outcome,
@@ -62,13 +63,14 @@ def step_summary(session, action: dict, *, output: Any = None, error: str | None
         "error": error[:MAX_STORED_ERROR_CHARS] if error is not None else None,
         "count": 1,
     }
+    return {**summary, "on_failure": True} if on_failure else summary
 
 
 def collapse(steps: list[dict]) -> list[dict]:
     """A target query runs the same steps once per row; one line per distinct step and outcome, counted."""
     seen: dict[tuple, dict] = {}
     for step in steps:
-        key = (step["kind"], step["target"], step["outcome"], step.get("error"))
+        key = (step["kind"], step["target"], step["outcome"], step.get("error"), step.get("on_failure", False))
         if key in seen:
             seen[key]["count"] += 1
         else:
@@ -82,19 +84,31 @@ def _describe(step: dict) -> str:
     return f"{step['kind']}{target} → {step['outcome']}{times}"
 
 
+def failed_step(steps: list[dict]) -> dict | None:
+    """The step that failed the run — the workflow's own, not an on_failure step that ran after it."""
+    return next((s for s in reversed(steps) if not s.get("ok") and not s.get("on_failure")), None)
+
+
+def _handled(steps: list[dict]) -> str:
+    """How the run's on_failure steps went, as a message suffix ("" when it has none)."""
+    handlers = [s for s in steps if s.get("on_failure")]
+    if not handlers:
+        return ""
+    return " (on-failure steps ran)" if all(s.get("ok") for s in handlers) else " (an on-failure step failed too)"
+
+
 def run_message(slug: str, ok: bool, steps: list[dict]) -> str:
     """The run's event message: its steps on success, the failing step and its error on failure."""
     if not ok:
-        failed = next((s for s in reversed(steps) if not s.get("ok")), None)
+        failed = failed_step(steps)
         if failed is None:
             return f"Automation '{slug}' failed"
         error = str(failed.get("error") or "").strip()
         if len(error) > MAX_ERROR_CHARS:
             error = error[: MAX_ERROR_CHARS - 1] + "…"
         target = f" '{failed['target']}'" if failed.get("target") else ""
-        return (
-            f"Automation '{slug}' failed — {failed['kind']}{target}: {error}" if error else f"Automation '{slug}' failed — {failed['kind']}{target}"
-        )
+        reason = f": {error}" if error else ""
+        return f"Automation '{slug}' failed — {failed['kind']}{target}{reason}{_handled(steps)}"
     if not steps:
         return f"Automation '{slug}' ran — no steps"
     listed = "; ".join(_describe(s) for s in steps[:MAX_LISTED_STEPS])

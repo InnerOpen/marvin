@@ -7,6 +7,8 @@ Two families, both through EntryService so the right events fire and chains stay
     entry_added_to_collection / entry_removed_from_collection), idempotent.
   * **field writes** — set_metadata (merge into metadata_json) and set_data (merge into the schema
     fields in data_json, validated against the entry type — e.g. a select field's new option).
+  * **review** — request_review moves the entry to Needs review and, given a `reason`, adds it to
+    `metadata_json.review_reasons` (shown with the entry, beside a form submission's own reasons).
 
 It targets the triggering entry (`$event.entry_id`) by default, an entry by slug (`entity_slug`), or
 an explicit id — so it pairs with the target selector to act on a whole query: "add all drafts
@@ -46,7 +48,13 @@ METADATA_OPS = ("set_metadata",)
 # set_metadata. The entry type's schema validates the result (an unknown select option fails).
 DATA_OPS = ("set_data",)
 
-ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS)
+# Send the entry to the review queue, saying why — e.g. a workflow's on_failure steps flagging a
+# signup an integration refused. Its own family because it may write a reason with the status.
+REVIEW_OPS = ("request_review",)
+REVIEW_STATUS = "needs_review"
+REVIEW_REASONS_KEY = "review_reasons"
+
+ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS, *REVIEW_OPS)
 
 
 def _typed_like_schema(patch: dict, entry_type) -> dict:
@@ -208,6 +216,9 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
             raise AutomationActionError(f"entry {entity_id} not found in this workspace")
         return {"entry_id": str(entity_id), "op": op, "merged": patch}
 
+    if op in REVIEW_OPS:
+        return _request_review(session, group_id, entity_id, action, context, user_id=user_id, depth=depth, dry_run=dry_run)
+
     # ── Status transition ──────────────────────────────────────────────────────
     if dry_run:
         return {"dry_run": True, "kind": "entry", "op": op, "entity_id": str(entity_id), "would_set_status": ENTRY_OPS[op]}
@@ -223,3 +234,32 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
     if entry is None:
         raise AutomationActionError(f"entry {entity_id} not found in this workspace")
     return {"entry_id": str(entity_id), "op": op, "status": ENTRY_OPS[op]}
+
+
+def _request_review(session, group_id, entity_id, action: dict, context: dict, *, user_id, depth: int, dry_run: bool) -> dict:
+    """Move the entry to Needs review, adding the (templated) `reason` to its review reasons — once:
+    the same reason twice (a re-run) is not listed twice."""
+    from marvin.services.entries import EntryService
+
+    reason = interpolate(action.get("reason"), context) if action.get("reason") else None
+    reason = str(reason).strip() if reason not in (None, "") else ""
+    if dry_run:
+        preview = {"dry_run": True, "kind": "entry", "op": "request_review", "entity_id": str(entity_id)}
+        return {**preview, "would_set_status": REVIEW_STATUS, "reason": reason}
+    svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
+    if not reason:
+        entry = svc.set_status(entity_id, REVIEW_STATUS, reaction_depth=depth)
+    else:
+        from marvin.db.models.platform.entries import Entries
+
+        orm = session.get(Entries, entity_id)
+        if orm is None or orm.group_id != group_id:
+            raise AutomationActionError(f"entry {entity_id} not found in this workspace")
+        metadata = dict(orm.metadata_json or {})
+        reasons = [r for r in (metadata.get(REVIEW_REASONS_KEY) or []) if isinstance(r, str)]
+        metadata[REVIEW_REASONS_KEY] = reasons if reason in reasons else [*reasons, reason]
+        # One update, so the status change and its reason land together (one entry_updated).
+        entry = svc.update(entity_id, {"status": REVIEW_STATUS, "metadata_json": metadata}, reaction_depth=depth)
+    if entry is None:
+        raise AutomationActionError(f"entry {entity_id} not found in this workspace")
+    return {"entry_id": str(entity_id), "op": "request_review", "status": REVIEW_STATUS, "reason": reason or None}

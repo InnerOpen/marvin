@@ -1299,7 +1299,8 @@ class EventAutomationData(EventDocumentDataBase):
     """Its name as the run saw it (an entry's title, a webhook's name), for display."""
     steps: list[dict] = []
     """On automation_ran / automation_failed: what each step did, in order — ``{kind, target,
-    outcome, ok, count}``, repeats across a target query's rows collapsed into one line with a count."""
+    outcome, ok, count}``, repeats across a target query's rows collapsed into one line with a count;
+    ``on_failure: true`` marks a step the definition's on_failure list ran after a step failed."""
 
 
 class EventAIBudgetData(EventDocumentDataBase):

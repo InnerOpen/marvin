@@ -159,59 +159,71 @@ def validate_definition(definition: dict | None) -> list[dict]:
             issues.append(_issue("warning", f"Unknown condition operator “{op}”.", "condition", i))
 
     # ── Actions ───────────────────────────────────────────────────────────────
+    from .engine import MAX_ACTIONS
+
     actions = definition.get("actions") or []
     if not actions:
         issues.append(_issue("warning", "This workflow has no steps, so it does nothing.", "action"))
-    else:
-        from .engine import MAX_ACTIONS
-
-        if len(actions) > MAX_ACTIONS:
-            issues.append(
-                _issue(
-                    "warning",
-                    f"This workflow has {len(actions)} steps, but only the first {MAX_ACTIONS} will run "
-                    f"(the rest are ignored). Split it into chained workflows.",
-                    "action",
-                )
+    elif len(actions) > MAX_ACTIONS:
+        issues.append(
+            _issue(
+                "warning",
+                f"This workflow has {len(actions)} steps, but only the first {MAX_ACTIONS} will run "
+                f"(the rest are ignored). Split it into chained workflows.",
+                "action",
             )
+        )
 
     for i, act in enumerate(actions):
-        if not isinstance(act, dict):
-            continue
-        kind = act.get("kind")
-        # An AI `operation` or an `entry` action operates on an entity — both default to
-        # $event.entry_id. Under a trigger with no entry (and no target selector), that resolves to
-        # nothing unless the author targets one from the payload, by slug (entity_slug — preferred,
-        # human-readable), by id (entity_id), or by a run-time lookup (entity_query, entry actions).
-        targets_own_entry = any(act.get(k) for k in ("entity_slug", "entity_id", "entity_query"))
-        if kind in ("operation", "entry") and not has_entry and not targets_own_entry:
-            what = act.get("op", kind)
-            issues.append(
-                _issue(
-                    "warning",
-                    f"Step “{what}” runs on an entry, but this {_pretty(ttype)} trigger has none. "
-                    "Point it at one with entity_slug (e.g. $event.payload.entry_slug) or entity_query, "
-                    "add a Run-on target, or use an entry trigger.",
-                    "action",
-                    i,
-                )
-            )
-        # A collection-membership entry action needs a target collection.
-        if (
-            kind == "entry"
-            and act.get("op") in ("add_to_collection", "remove_from_collection")
-            and not act.get("collection_slug")
-            and not act.get("collection_id")
-        ):
-            issues.append(
-                _issue(
-                    "warning",
-                    f"Step “{act.get('op')}” needs a target collection — set collection_slug (e.g. 'featured' or $event.payload.collection_slug).",
-                    "action",
-                    i,
-                )
-            )
+        issues.extend(_step_issues(act, i, "action", ttype, has_entry))
+    # Steps that run when one above fails — same entry, same checks.
+    on_failure = definition.get("on_failure") or []
+    if len(on_failure) > MAX_ACTIONS:
+        issues.append(_issue("warning", f"On failure has {len(on_failure)} steps, but only the first {MAX_ACTIONS} will run.", "on_failure"))
+    for i, act in enumerate(on_failure):
+        issues.extend(_step_issues(act, i, "on_failure", ttype, has_entry))
 
+    return issues
+
+
+def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool) -> list[dict]:
+    """Advisory issues for one step (of `actions` or `on_failure`)."""
+    issues: list[dict] = []
+    if not isinstance(act, dict):
+        return issues
+    kind = act.get("kind")
+    # An AI `operation` or an `entry` action operates on an entity — both default to
+    # $event.entry_id. Under a trigger with no entry (and no target selector), that resolves to
+    # nothing unless the author targets one from the payload, by slug (entity_slug — preferred,
+    # human-readable), by id (entity_id), or by a run-time lookup (entity_query, entry actions).
+    targets_own_entry = any(act.get(k) for k in ("entity_slug", "entity_id", "entity_query"))
+    if kind in ("operation", "entry") and not has_entry and not targets_own_entry:
+        what = act.get("op", kind)
+        issues.append(
+            _issue(
+                "warning",
+                f"Step “{what}” runs on an entry, but this {_pretty(ttype)} trigger has none. "
+                "Point it at one with entity_slug (e.g. $event.payload.entry_slug) or entity_query, "
+                "add a Run-on target, or use an entry trigger.",
+                where,
+                i,
+            )
+        )
+    # A collection-membership entry action needs a target collection.
+    if (
+        kind == "entry"
+        and act.get("op") in ("add_to_collection", "remove_from_collection")
+        and not act.get("collection_slug")
+        and not act.get("collection_id")
+    ):
+        issues.append(
+            _issue(
+                "warning",
+                f"Step “{act.get('op')}” needs a target collection — set collection_slug (e.g. 'featured' or $event.payload.collection_slug).",
+                where,
+                i,
+            )
+        )
     return issues
 
 
@@ -225,7 +237,7 @@ def _pretty(trigger_type: str) -> str:
 # kind, missing required field, wrong type). It's derived entirely from AutomationDefinition, so the
 # models are the single source of truth — and the write path gates on it (create/update 422).
 
-_WHERE_BY_HEAD = {"actions": "action", "conditions": "condition", "trigger": "trigger"}
+_WHERE_BY_HEAD = {"actions": "action", "on_failure": "on_failure", "conditions": "condition", "trigger": "trigger"}
 
 
 def _structural_issue(err: dict) -> dict:

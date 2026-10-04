@@ -149,6 +149,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <label class="label">Then do <span class="muted">(steps run in order; each can use the previous step’s output)</span></label>
           <div id="wf-actions" class="rows"></div>
           <button type="button" class="linkish" id="wf-add-action">+ Add step</button>
+          <p id="wf-on-failure-note" class="hint small" hidden></p>
         </div>
 
         <label class="check"><input type="checkbox" id="wf-enabled" /> Enabled</label>
@@ -313,11 +314,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const ENTRY_OP_LABELS: Record<string, string> = {
     publish: "Publish", unpublish: "Unpublish", archive: "Archive", restore: "Restore from archive",
     add_to_collection: "Add to collection", remove_from_collection: "Remove from collection",
-    set_metadata: "Set metadata", set_data: "Set fields",
+    set_metadata: "Set metadata", set_data: "Set fields", request_review: "Send to review",
   };
   const COLLECTION_OPS = new Set(["add_to_collection", "remove_from_collection"]);
   const METADATA_OPS = new Set(["set_metadata"]);
   const DATA_OPS = new Set(["set_data"]);
+  const REVIEW_OPS = new Set(["request_review"]);
   const TARGET_MODE_HINTS: Record<string, string> = {
     default: "Acts on the triggering entry (or each entry a Run-on target matches).",
     slug: "Point at one entry by slug — a literal or a template such as <code>$event.payload.entry_slug</code>.",
@@ -327,6 +329,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   // anything the form can't edit (id, input, config, body, a raw-url webhook…) survives a round trip.
   const ORIGINAL_ACTION = new WeakMap<Element, any>();
   let originalTarget: any = null;  // same idea for the top-level `target` selector
+  // …and for top-level keys the builder has no fields for (`on_failure`), so a guided save keeps them.
+  const BUILDER_KEYS = new Set(["trigger", "target", "conditions", "actions"]);
+  let originalExtras: Record<string, unknown> = {};
   const COND_OP_LABELS: Record<string, string> = {
     eq: "equals", neq: "not equals", contains: "contains", in: "is one of",
     starts_with: "starts with", exists: "exists", changed: "changed",
@@ -470,6 +475,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <div class="a-data-wrap tf" ${DATA_OPS.has(a.op) ? "" : "hidden"}><span>Fields to set <span class="muted">(field keys of the entry type and their new values — validated; checkbox and number values may be typed as text)</span></span></div>
         <label class="a-collection-wrap tf" ${COLLECTION_OPS.has(a.op) ? "" : "hidden"}><span>Collection</span>
           <input class="input a-collection" placeholder="slug or name — e.g. featured" value="${esc(a.collection_slug ?? "")}" /></label>
+        <label class="a-reason-wrap tf" ${REVIEW_OPS.has(a.op) ? "" : "hidden"}><span>Reason <span class="muted">(optional — shown with the entry in the review queue)</span></span>
+          <input class="input a-reason" placeholder="e.g. Refused: \${error.message}" value="${esc(a.reason ?? "")}" /></label>
         <div class="a-target-wrap tf"><span>Target entry</span>
           <select class="input a-target-mode">
             ${modeOpt("default", "Triggering entry (default)")}
@@ -487,6 +494,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       const opSel = wrap.querySelector(".a-op") as HTMLSelectElement;
       opSel.addEventListener("change", () => {
         wrap.querySelector(".a-collection-wrap")!.toggleAttribute("hidden", !COLLECTION_OPS.has(opSel.value));
+        wrap.querySelector(".a-reason-wrap")!.toggleAttribute("hidden", !REVIEW_OPS.has(opSel.value));
         wrap.querySelector(".a-meta-wrap")!.toggleAttribute("hidden", !METADATA_OPS.has(opSel.value));
         wrap.querySelector(".a-data-wrap")!.toggleAttribute("hidden", !DATA_OPS.has(opSel.value));
       });
@@ -580,6 +588,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         setOrDrop("entity_query", mode === "query" ? parseJsonObject(field(".a-entity-query")?.value, `Step ${i + 1} target query`) : null);
         setOrDrop("if_none", mode === "query" && (field(".a-if-none-skip") as HTMLInputElement | null)?.checked ? "skip" : null);
         setOrDrop("collection_slug", COLLECTION_OPS.has(op) ? field(".a-collection")?.value.trim() : null);
+        setOrDrop("reason", REVIEW_OPS.has(op) ? field(".a-reason")?.value.trim() : null);
         const metadata = readKv(r.querySelector(".a-meta-wrap"));
         setOrDrop("metadata", METADATA_OPS.has(op) && Object.keys(metadata).length ? metadata : null);
         const data = readKv(r.querySelector(".a-data-wrap"));
@@ -637,7 +646,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     } else {
       trigger = { type: ttype };
     }
-    return { trigger, ...readTarget(), conditions, actions };
+    return { ...originalExtras, trigger, ...readTarget(), conditions, actions };
   }
 
   // The optional "Run on" selector (FROM clause). Returns {} or { target: {...} }.
@@ -742,12 +751,25 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     (def.conditions ?? []).forEach((c: any) => condWrap.appendChild(conditionRow(c)));
     const actWrap = $("wf-actions"); actWrap.innerHTML = "";
     (def.actions?.length ? def.actions : [{}]).forEach((a: any) => actWrap.appendChild(actionRow(a)));
+    originalExtras = Object.fromEntries(Object.entries(def).filter(([key]) => !BUILDER_KEYS.has(key)));
+    showOnFailureNote(def.on_failure);
 
     ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(def, null, 2);
     setJsonMode(false);
     statusEl.textContent = "";
     builder.removeAttribute("hidden");
     builder.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  // The builder has no fields for `on_failure` steps; say they're there (they're kept on save).
+  function showOnFailureNote(steps: any) {
+    const note = $("wf-on-failure-note");
+    const list: any[] = Array.isArray(steps) ? steps : [];
+    note.toggleAttribute("hidden", !list.length);
+    if (!list.length) return;
+    const names = list.map((a: any) => ENTRY_OP_LABELS[a.op] ?? a.op ?? KIND_LABELS[a.kind] ?? a.kind).join(", ");
+    note.innerHTML = `If a step fails: ${esc(names)} <span class="muted">(on-failure steps, kept as they are)</span>
+      <button type="button" class="linkish wf-on-failure-json">Edit as JSON</button>`;
+    note.querySelector(".wf-on-failure-json")!.addEventListener("click", () => setJsonMode(true));
   }
   function closeBuilder() { builder.setAttribute("hidden", ""); editingId = null; }
 

@@ -22,7 +22,14 @@ from marvin.services.ai.operations.base import ROLE_OWNER
 
 
 class AutomationActionError(Exception):
-    """An action could not run (unknown kind, gate denied, missing config, or execution failed)."""
+    """An action could not run (unknown kind, gate denied, missing config, or execution failed).
+
+    ``code`` is an optional stable reason a failure handler can branch on or show (an integration's
+    refusal, e.g. ``blocked``) — the message stays the human-readable account."""
+
+    def __init__(self, message: str = "", *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 ACTION_EXECUTORS: dict[str, Callable] = {}

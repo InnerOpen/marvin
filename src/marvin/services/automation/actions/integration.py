@@ -71,7 +71,9 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     try:
         result = provider.run_action(key, args, ctx)
     except (ValueError, NotImplementedError) as e:
-        raise AutomationActionError(f"{row.provider}.{key} failed: {e}") from e
+        # A provider may tag its error with a stable `code` (e.g. "blocked") for on_failure steps to use.
+        code = getattr(e, "code", None)
+        raise AutomationActionError(f"{row.provider}.{key} failed: {e}", code=code if isinstance(code, str) and code else None) from e
     return result if isinstance(result, dict) else {}
 
 

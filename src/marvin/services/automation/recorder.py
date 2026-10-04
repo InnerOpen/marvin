@@ -37,6 +37,12 @@ def _truncate(value) -> dict | None:
     return {"_truncated": True, "bytes": len(s), "preview": s[:1000]}
 
 
+def _step_label(action: dict, on_failure: bool) -> str | None:
+    """A step's label, marked when it is an on_failure step (run because an earlier step failed)."""
+    label = _action_label(action)
+    return f"on failure: {label or action.get('kind') or 'step'}" if on_failure else label
+
+
 def _action_label(action: dict) -> str | None:
     """A short human label for a step, by kind."""
     kind = action.get("kind")
@@ -93,6 +99,7 @@ class CollectingRecorder:
         output=None,
         error: str | None = None,
         duration_ms: int | None = None,
+        on_failure: bool = False,
     ) -> None:
         self.plan.append(
             {
@@ -100,7 +107,8 @@ class CollectingRecorder:
                 "target": target_ref,
                 "action_index": action_index,
                 "kind": action.get("kind"),
-                "label": _action_label(action),
+                "label": _step_label(action, on_failure),
+                "on_failure": on_failure,
                 "status": status,  # "success" = would run; "failed" = a gate/resolve error
                 "resolved": output,  # the executor's dry-run preview (or None on a gate failure)
                 "error": error,
@@ -155,6 +163,7 @@ class ExecutionRecorder:
         output=None,
         error: str | None = None,
         duration_ms: int | None = None,
+        on_failure: bool = False,
     ) -> None:
         if exec_id is None:
             return
@@ -171,7 +180,7 @@ class ExecutionRecorder:
                 target_entity_id=ref.get("id"),
                 action_index=action_index,
                 kind=action.get("kind", "?"),
-                label=_action_label(action),
+                label=_step_label(action, on_failure),
                 status=status,
                 error=(error[:2000] if error else None),
                 duration_ms=duration_ms,
