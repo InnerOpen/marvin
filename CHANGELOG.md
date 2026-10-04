@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.183 (2026-10-04)
+
+### Bug Fixes
+
+- **frontend**: Remove the unused API-client create route that put the token in a URL
+  ([`4910f83`](https://github.com/InnerOpen/marvin/commit/4910f83216e1629a5ddd4d26474cfa9e5652c9d5))
+
+- **frontend**: Show new personal API tokens once in a dialog, never in the URL
+  ([`7a3998a`](https://github.com/InnerOpen/marvin/commit/7a3998ae175c820739c09015fc4a46869d5f44a3))
+
+
 ## v1.0.0-rc.182 (2026-10-04)
 
 ### Bug Fixes
