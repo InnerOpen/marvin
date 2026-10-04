@@ -22,7 +22,14 @@ from fastapi import HTTPException
 
 from marvin.core.root_logger import get_logger
 from marvin.repos.repository_factory import AllRepositories
-from marvin.services.event_bus_service.event_types import Event, EventBusMessage, EventEntryData, EventOperation, EventTypes
+from marvin.services.event_bus_service.event_types import (
+    Event,
+    EventBusMessage,
+    EventEntryData,
+    EventOperation,
+    EventScheduledPublishBlockedData,
+    EventTypes,
+)
 
 logger = get_logger("entry_service")
 
@@ -228,6 +235,35 @@ class EntryService:
         entry = self.repos.entries.get_one(entry_id)
         self._emit(entry, EventTypes.entry_updated, EventOperation.update, f"Suggested asset rejected on '{entry.title}'", self._names(entry))
         return entry
+
+    def emit_scheduled_publish_blocked(self, entry, block: dict) -> None:
+        """Emit `entry_scheduled_publish_blocked` for an entry the Publish Scheduled Entries task is
+        holding back; `block` is its record (services/entries/scheduled_block.py). Best-effort, like
+        every entry event."""
+        why = "for approval" if block["waiting_for"] == "approval" else f"— can't publish: {block['reason']}"
+        data = self._event_data(
+            entry,
+            EventOperation.info,
+            self._names(entry),
+            data_cls=EventScheduledPublishBlockedData,
+            waiting_for=block["waiting_for"],
+            reason=block["reason"],
+            issues=block["issues"],
+            publish_at=entry.publish_at,
+        )
+        try:
+            self.event_bus.dispatch(
+                integration_id=self.integration_id,
+                group_id=self.group_id,
+                event_type=EventTypes.entry_scheduled_publish_blocked,
+                document_data=data,
+                message=f"Scheduled publish of '{entry.title}' is waiting {why}",
+                user_id=self.actor_id,
+                entity_id=entry.id,
+                entity_type="entry",
+            )
+        except Exception as e:  # noqa: BLE001 — event dispatch is best-effort
+            logger.error(f"Failed to dispatch entry_scheduled_publish_blocked event: {e}", exc_info=True)
 
     def delete(self, entry_id) -> bool:
         """Emit `entry_deleted` (before the row is gone) then delete. Returns False if not found."""
@@ -648,10 +684,10 @@ class EntryService:
             logger.error(f"Failed to dispatch {getattr(event_type, 'name', event_type)} event: {e}", exc_info=True)
 
     @staticmethod
-    def _event_data(entry, operation, names, diff=None) -> EventEntryData:
+    def _event_data(entry, operation, names, diff=None, *, data_cls=EventEntryData, **extra) -> EventEntryData:
         entry_type_slug, workspace_name, author_name = names
         changed_fields, before, after = diff or ([], {}, {})
-        return EventEntryData(
+        return data_cls(
             operation=operation,
             entry_id=entry.id,
             entry_title=entry.title,
@@ -663,6 +699,7 @@ class EntryService:
             changed_fields=changed_fields,
             before=before,
             after=after,
+            **extra,
         )
 
     def sample_event(self, entry, event_type) -> Event:

@@ -444,7 +444,8 @@ def test_scheduled_publish_skips_entry_whose_expiry_passed(db_session, workspace
     summary, events = run_task(workspace.id)
 
     entry = reload(db_session, entry_id)
-    assert (entry.status, entry.publish_at is not None, events) == ("draft", True, [])
+    assert (entry.status, entry.publish_at is not None) == ("draft", True)
+    assert [e["event_type"] for e in events] == [EventTypes.entry_scheduled_publish_blocked]
     assert summary == f"1 entry skipped (can't publish: '{entry.title}' — {expired_message(PAST)})"
 
 
@@ -504,3 +505,256 @@ def test_expiry_issue_message_shows_the_date_in_utc():
     issue = expiry_issue(datetime(2026, 10, 1, 9, 5, tzinfo=timezone(timedelta(hours=-5))), now=NOW)
 
     assert issue.message == "The expiration date (Oct 1, 2026 14:05 UTC) has passed — clear it or set a later date."
+
+
+# ── A held-back scheduled publish: recorded on the entry, notified once ─────────
+#
+# Regression: a scheduled publish the gate refused was skipped every 5 minutes with the reason only
+# in the scheduler's execution log, so nobody knew the entry hadn't gone out.
+
+REQUIRED_SUBJECT = "Required field 'Subject' is empty."
+
+
+def blocked_events(events):
+    return of_type(events, EventTypes.entry_scheduled_publish_blocked)
+
+
+def edit(db_session, workspace, entry_id, **changes):
+    from marvin.schemas.platform import EntryUpdate
+
+    service_for(db_session, workspace).update(entry_id, EntryUpdate(**changes))
+
+
+def test_blocked_entry_records_the_reason_on_the_entry(db_session, workspace, make_entry, strict_type_id):
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+
+    run_task(workspace.id)
+
+    block = reload(db_session, entry_id).scheduled_publish_blocked
+    assert {k: block[k] for k in ("waiting_for", "reason", "issues", "notified")} == {
+        "waiting_for": "requirements",
+        "reason": REQUIRED_SUBJECT,
+        "issues": [REQUIRED_SUBJECT],
+        "notified": True,
+    }
+
+
+def test_blocked_entry_notifies_once_across_runs(db_session, workspace, make_entry, strict_type_id):
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+
+    notified = [blocked_events(run_task(workspace.id)[1]) for _ in range(3)]
+
+    assert [len(n) for n in notified] == [1, 0, 0]
+    event = notified[0][0]
+    assert (event["entity_id"], event["entity_type"], event["document_data"].issues) == (entry_id, "entry", [REQUIRED_SUBJECT])
+
+
+def test_blocked_entry_event_says_why(db_session, workspace, make_entry, strict_type_id):
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+
+    event = blocked_events(run_task(workspace.id)[1])[0]
+
+    title = reload(db_session, entry_id).title
+    assert (event["document_data"].waiting_for, event["message"]) == (
+        "requirements",
+        f"Scheduled publish of '{title}' is waiting — can't publish: {REQUIRED_SUBJECT}",
+    )
+
+
+def test_blocked_entry_renotifies_when_the_reason_changes(db_session, workspace, make_entry, strict_type_id):
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+    run_task(workspace.id)
+    entry = reload(db_session, entry_id)
+    entry.expire_at = PAST  # not through an edit: only the reason changes
+    db_session.commit()
+
+    events = blocked_events(run_task(workspace.id)[1])
+
+    assert [e["document_data"].issues for e in events] == [[REQUIRED_SUBJECT, expired_message(PAST)]]
+    assert reload(db_session, entry_id).scheduled_publish_blocked["issues"] == [REQUIRED_SUBJECT, expired_message(PAST)]
+
+
+def test_an_edit_that_keeps_the_schedule_keeps_the_notice_and_renotifies(db_session, workspace, make_entry, strict_type_id):
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+    run_task(workspace.id)
+    # The editor posts publish_at on every save, as a UTC ISO string; the same instant isn't a reschedule.
+    edit(db_session, workspace, entry_id, summary="Tweaked", publish_at=PAST.isoformat().replace("+00:00", "Z"))
+
+    kept = reload(db_session, entry_id).scheduled_publish_blocked
+    events = blocked_events(run_task(workspace.id)[1])
+
+    assert (kept["issues"], kept["notified"], len(events)) == ([REQUIRED_SUBJECT], False, 1)
+
+
+def test_scheduled_publish_after_the_fix_clears_the_block(db_session, workspace, make_entry, strict_type_id):
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+    run_task(workspace.id)
+    edit(db_session, workspace, entry_id, data_json={"subject": "October news"})
+
+    summary, events = run_task(workspace.id)
+
+    entry = reload(db_session, entry_id)
+    assert (entry.status, entry.scheduled_publish_blocked, blocked_events(events)) == ("published", None, [])
+
+
+@pytest.mark.parametrize("changes", [{"publish_at": FUTURE}, {"publish_at": None}, {"status": "archived"}])
+def test_rescheduling_or_archiving_clears_the_block(db_session, workspace, make_entry, strict_type_id, changes):
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+    run_task(workspace.id)
+
+    edit(db_session, workspace, entry_id, **changes)
+
+    assert reload(db_session, entry_id).scheduled_publish_blocked is None
+
+
+def test_dry_run_records_and_notifies_nothing(db_session, workspace, make_entry, strict_type_id):
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+
+    _, events = run_task(workspace.id, dry_run=True)
+
+    assert (reload(db_session, entry_id).scheduled_publish_blocked, events) == (None, [])
+
+
+# ── "Scheduled publish only for approved entries" (workspace setting) ───────────
+
+
+def set_approval_only(db_session, workspace_id, on: bool) -> None:
+    from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+    prefs = db_session.query(GroupPreferencesModel).filter_by(group_id=workspace_id).first()
+    if prefs is None:
+        prefs = GroupPreferencesModel(session=db_session, group_id=workspace_id)
+        db_session.add(prefs)
+    prefs.scheduled_publish_requires_approval = on
+    db_session.commit()
+
+
+@fixture
+def approval_only(db_session, workspace):
+    from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+    set_approval_only(db_session, workspace.id, True)
+    yield
+    db_session.query(GroupPreferencesModel).filter_by(group_id=workspace.id).delete()
+    db_session.commit()
+
+
+def approval_message(status_label: str) -> str:
+    return f"This workspace publishes only approved entries on schedule, and this one is '{status_label}'. Approve it to let it go out."
+
+
+def test_approval_setting_off_publishes_an_inbox_entry(db_session, workspace, make_entry):
+    entry_id = make_entry(status="inbox", publish_at=PAST)
+
+    run_task(workspace.id)
+
+    assert reload(db_session, entry_id).status == "published"
+
+
+def test_approval_setting_holds_an_unapproved_entry_with_the_reason(db_session, workspace, make_entry, approval_only):
+    waiting_id = make_entry(status="inbox", publish_at=PAST)
+    approved_id = make_entry(status="approved", publish_at=PAST)
+
+    summary, events = run_task(workspace.id)
+
+    waiting, approved = reload(db_session, waiting_id), reload(db_session, approved_id)
+    block = waiting.scheduled_publish_blocked
+    assert (waiting.status, waiting.publish_at is not None, approved.status) == ("inbox", True, "published")
+    assert (block["waiting_for"], block["reason"], block["issues"]) == ("approval", "Waiting for approval", [approval_message("Inbox")])
+    assert [(e["entity_id"], e["message"]) for e in blocked_events(events)] == [
+        (waiting_id, f"Scheduled publish of '{waiting.title}' is waiting for approval")
+    ]
+    assert summary == f"1 entry published: '{approved.title}'; 1 waiting for approval: '{waiting.title}'"
+
+
+def test_approval_wait_notifies_once_then_publishes_when_approved(db_session, workspace, make_entry, approval_only):
+    entry_id = make_entry(status="needs_review", publish_at=PAST)
+    first, second = (blocked_events(run_task(workspace.id)[1]) for _ in range(2))
+    edit(db_session, workspace, entry_id, status="approved")
+
+    run_task(workspace.id)
+
+    entry = reload(db_session, entry_id)
+    assert (len(first), len(second), first[0]["document_data"].issues) == (1, 0, [approval_message("Needs review")])
+    assert (entry.status, entry.scheduled_publish_blocked) == ("published", None)
+
+
+def test_platform_wide_run_reads_each_workspace_setting(db_session, workspace, make_entry, approval_only):
+    from marvin.db.models.groups import Groups
+    from marvin.db.models.platform import Entries, EntryTypes
+
+    other_id = uuid.uuid4()
+    other = Groups(session=db_session, name=f"sched-{other_id.hex[:8]}", slug=f"sched-{other_id.hex[:8]}")
+    other.id = other_id
+    db_session.add(other)
+    db_session.flush()
+    other_type = EntryTypes(session=db_session, group_id=other_id, name="Newsletter", slug="newsletter", schema_json={})
+    db_session.add(other_type)
+    db_session.flush()
+    other_entry = Entries(
+        session=db_session, group_id=other_id, entry_type_id=other_type.id, title="Elsewhere", slug=f"else-{other_id.hex[:6]}", status="inbox"
+    )
+    other_entry.publish_at = PAST
+    db_session.add(other_entry)
+    db_session.commit()
+    other_entry_id = other_entry.id
+    waiting_id = make_entry(status="inbox", publish_at=PAST)
+    try:
+        run_task(None)
+
+        assert (reload(db_session, waiting_id).status, reload(db_session, other_entry_id).status) == ("inbox", "published")
+    finally:
+        db_session.query(Entries).filter_by(group_id=other_id).delete()
+        db_session.query(EntryTypes).filter_by(group_id=other_id).delete()
+        db_session.query(Groups).filter_by(id=other_id).delete()
+        db_session.commit()
+
+
+def test_approval_setting_is_a_workspace_preference(db_session, workspace):
+    from marvin.repos.repository_factory import AllRepositories
+    from marvin.schemas.group.preferences import GroupPreferencesRead
+
+    set_approval_only(db_session, workspace.id, True)
+    try:
+        prefs = AllRepositories(db_session, group_id=workspace.id).group_preferences.multi_query({"group_id": workspace.id})[0]
+        assert GroupPreferencesRead.model_validate(prefs).model_dump(by_alias=True)["scheduledPublishRequiresApproval"] is True
+    finally:
+        set_approval_only(db_session, workspace.id, False)
+        from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+        db_session.query(GroupPreferencesModel).filter_by(group_id=workspace.id).delete()
+        db_session.commit()
+
+
+def test_entry_read_carries_the_block(db_session, workspace, make_entry, strict_type_id):
+    from marvin.schemas.platform import EntryRead
+
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+    run_task(workspace.id)
+
+    read = EntryRead.model_validate(reload(db_session, entry_id)).model_dump(by_alias=True)["scheduledPublishBlocked"]
+
+    assert {k: read[k] for k in ("waitingFor", "reason", "issues")} == {
+        "waitingFor": "requirements",
+        "reason": REQUIRED_SUBJECT,
+        "issues": [REQUIRED_SUBJECT],
+    }
+    assert "notified" not in read
+
+
+def test_an_automation_write_back_re_arms_the_notification(db_session, workspace, make_entry, strict_type_id):
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+    run_task(workspace.id)
+
+    service_for(db_session, workspace).apply_fields(entry_id, {"summary": "Written by a workflow"})
+
+    assert reload(db_session, entry_id).scheduled_publish_blocked["notified"] is False
+
+
+def test_an_automation_write_back_that_reschedules_clears_the_block(db_session, workspace, make_entry, strict_type_id):
+    entry_id = make_entry(publish_at=PAST, entry_type_id=strict_type_id)
+    run_task(workspace.id)
+
+    service_for(db_session, workspace).apply_fields(entry_id, {"publish_at": FUTURE})
+
+    assert reload(db_session, entry_id).scheduled_publish_blocked is None

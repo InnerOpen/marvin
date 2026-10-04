@@ -25,6 +25,7 @@ TRIGGER_EVENT_GROUPS: dict[str, list[str]] = {
         "entry_archived",
         "entry_restored",
         "entry_deleted",
+        "entry_scheduled_publish_blocked",
         "entry_resource_attached",
         "entry_resource_detached",
         "entry_tag_attached",

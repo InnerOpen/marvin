@@ -211,6 +211,7 @@ class WorkspaceExporter:
             "timezone": prefs.site_timezone,
             "contactEmail": prefs.site_contact_email,
             "autoRebuild": prefs.site_auto_rebuild,
+            "scheduledPublishRequiresApproval": prefs.scheduled_publish_requires_approval,
             "social": prefs.site_social_json,
             "metadataJson": prefs.site_metadata_json,
         }

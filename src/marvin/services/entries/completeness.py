@@ -220,7 +220,7 @@ def evaluate_entry(entry, entry_type, *, data_json=None, title=None, summary=Non
     )
 
 
-def _as_utc(value: datetime | str | None) -> datetime | None:
+def as_utc(value: datetime | str | None) -> datetime | None:
     """A timestamp as an aware UTC datetime. Naive values are UTC (how entries store them); an
     unparseable string is None — the repository rejects it, not this check."""
     if isinstance(value, str):
@@ -239,7 +239,7 @@ def expiry_issue(expire_at: datetime | str | None, *, now: datetime | None = Non
     Not part of the type's contract, but it blocks the same way: the Unpublish Expired Entries
     task archives a published entry whose expire_at <= now, so publishing it would only last until
     the next run. Shown in UTC — the server doesn't know the viewer's zone."""
-    expires = _as_utc(expire_at)
+    expires = as_utc(expire_at)
     if expires is None or expires > (now or datetime.now(UTC)):
         return None
     when = f"{expires:%b} {expires.day}, {expires:%Y %H:%M} UTC"

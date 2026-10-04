@@ -165,6 +165,19 @@ class EntryUpdate(_MarvinModel):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class ScheduledPublishBlock(_MarvinModel):
+    """Why the Publish Scheduled Entries task is holding a due entry back (entries.scheduled_publish_blocked)."""
+
+    waiting_for: str = "requirements"
+    """"requirements" (the publish gate refused it) or "approval" (the workspace only publishes approved entries on schedule)."""
+    reason: str = ""
+    """One line: the issues joined, or "Waiting for approval"."""
+    issues: list[str] = []
+    """Each unmet requirement, as the publish gate words it."""
+    at: datetime | None = None
+    """When the task first held it back for this reason."""
+
+
 class EntryRead(_MarvinModel):
     """Schema for reading an entry.
 
@@ -198,6 +211,8 @@ class EntryRead(_MarvinModel):
         description="Pending AI-proposed changes staged for review (write-back)",
         serialization_alias="suggestionJson",
     )
+    scheduled_publish_blocked: ScheduledPublishBlock | None = None
+    """Set while the entry's publish_at has arrived but the scheduled publish is holding it back, and why."""
     created_by: UUID4 | None = None
     created_at: datetime | None = None
     update_at: datetime | None = None

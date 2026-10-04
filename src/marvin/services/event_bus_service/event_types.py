@@ -164,6 +164,9 @@ class EventTypes(EventTypeBase):
     """Event dispatched when an entry is archived."""
     entry_restored = auto()
     """Event dispatched when an archived entry is restored."""
+    entry_scheduled_publish_blocked = auto()
+    """An entry's Scheduled Publish time arrived but the scheduled publish is holding it back (the publish gate
+    refused it, or the workspace publishes only approved entries on schedule). Once per distinct reason."""
 
     # ==========================================================================
     # Form Events
@@ -694,6 +697,20 @@ class EventEntryData(EventDocumentDataBase):
     """Prior scalar values for the changed fields (only)."""
     after: dict = {}
     """New scalar values for the changed fields (only)."""
+
+
+class EventScheduledPublishBlockedData(EventEntryData):
+    """Data payload for `entry_scheduled_publish_blocked`: why a due entry hasn't gone out."""
+
+    operation: EventOperationBase = EventOperation.info
+    waiting_for: str
+    """"requirements" (the publish gate refused it) or "approval" (only approved entries publish on schedule)."""
+    reason: str
+    """One line: the unmet requirements joined, or "Waiting for approval"."""
+    issues: list[str] = []
+    """Each unmet requirement, as the publish gate words it."""
+    publish_at: datetime | None = None
+    """The Scheduled Publish time that has arrived."""
 
 
 class EventFormData(EventDocumentDataBase):

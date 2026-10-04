@@ -288,6 +288,22 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="entry_scheduled_publish_blocked",
+        name="Scheduled Publish Waiting",
+        # Once per distinct reason (and again after the entry is edited), not on every 5-minute run.
+        description="An entry's Scheduled Publish time arrived but it wasn't published: it doesn't meet its type's "
+        "requirements (or its expiration date has passed), or the workspace publishes only approved entries on schedule.",
+        category="Content",
+        variables=COMMON_VARS
+        + [
+            EventVariable("entry_title", "Title of the waiting entry", "October newsletter", type="title"),
+            EventVariable("waiting_for", "requirements or approval", "requirements"),
+            EventVariable("reason", "Why it's waiting, in one line", "Required field 'Subject' is empty."),
+            EventVariable("issues", "Each unmet requirement", "[\"Required field 'Subject' is empty.\"]"),
+            EventVariable("publish_at", "The Scheduled Publish time that arrived", "2026-07-16T10:00:00Z", type="datetime"),
+        ],
+    ),
+    CatalogEntry(
         event_type="entry_deleted",
         name="Entry Deleted",
         description="A content entry was permanently deleted.",

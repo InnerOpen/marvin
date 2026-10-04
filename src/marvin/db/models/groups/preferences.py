@@ -73,6 +73,13 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         server_default=sa.true(),
         doc="Request a (coalesced) static-site rebuild whenever published content changes.",
     )
+    scheduled_publish_requires_approval: Mapped[bool] = mapped_column(
+        sa.Boolean,
+        nullable=False,
+        default=False,
+        server_default=sa.false(),
+        doc="Scheduled publish only publishes due entries whose status is 'approved'; others wait for approval.",
+    )
     site_social_json: Mapped[dict | None] = mapped_column(
         sa.JSON, nullable=True, doc="Social media links and handles (e.g., {instagram: 'url', facebook: 'url'})."
     )

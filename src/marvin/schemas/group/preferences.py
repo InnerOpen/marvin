@@ -64,6 +64,8 @@ class GroupPreferencesCreate(_MarvinModel):
     """Flexible metadata for framework-specific settings. Include social links under 'social' key, SEO under 'seo', etc."""
     submission_protection_json: dict | None = None
     """Workspace override of the platform submission-protection defaults; null fields inherit."""
+    scheduled_publish_requires_approval: bool = False
+    """Scheduled publish only publishes due entries whose status is 'approved'; the others wait."""
 
     model_config = ConfigDict(from_attributes=True)  # Allows creating from ORM model attributes
 
@@ -117,6 +119,8 @@ class GroupPreferencesUpdate(_MarvinModel):  # Typically, update schemas allow p
     """Optional: Flexible metadata for framework-specific settings. Include social links under 'social' key, SEO under 'seo', etc."""
     submission_protection_json: SubmissionProtectionOverride | None = None
     """Optional: workspace override of the platform submission-protection defaults; null fields inherit."""
+    scheduled_publish_requires_approval: bool | None = None
+    """Optional: scheduled publish only publishes due entries whose status is 'approved'."""
 
     model_config = ConfigDict(from_attributes=True)
 

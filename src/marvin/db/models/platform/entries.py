@@ -59,6 +59,11 @@ class Entries(SqlAlchemyBase, BaseMixins):
     # would otherwise count as a pending suggestion). See clear_suggestion / dashboard attention count.
     suggestion_json: Mapped[dict | None] = mapped_column("suggestion_json", sa.JSON(none_as_null=True), nullable=True)
     """Custom non-schema metadata (API keys, external IDs, CMS config, etc.)."""
+    # Why the Publish Scheduled Entries task is holding this due entry back — {waiting_for:
+    # "requirements" | "approval", reason, issues, at, notified}. System-managed: written by the task,
+    # cleared when the entry publishes, is archived or its publish_at changes. Kept out of
+    # metadata_json, which the editor round-trips and the API exposes as the entry's own data.
+    scheduled_publish_blocked: Mapped[dict | None] = mapped_column(sa.JSON(none_as_null=True), nullable=True)
     created_by: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
 
     entry_type: Mapped["EntryTypes"] = orm.relationship("EntryTypes", back_populates="entries")

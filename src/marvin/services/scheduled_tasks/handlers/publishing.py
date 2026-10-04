@@ -11,10 +11,18 @@ from fastapi import HTTPException
 
 from marvin.core.root_logger import get_logger
 from marvin.db.db_setup import session_context
+from marvin.db.models.groups.preferences import GroupPreferencesModel
 from marvin.db.models.platform.entries import Entries
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 from marvin.schemas.platform import EntryUpdate
 from marvin.services.entries import EntryService
+from marvin.services.entries.scheduled_block import (
+    APPROVAL_REASON,
+    WAITING_FOR_APPROVAL,
+    WAITING_FOR_REQUIREMENTS,
+    approval_issue,
+    block_record,
+)
 from marvin.services.event_bus_service.event_bus_service import EventBusService
 from marvin.services.event_bus_service.event_types import EventSiteRebuildData, EventTypes, SiteRebuildChange
 
@@ -46,14 +54,31 @@ class _StatusChanger:
         self._event_bus = event_bus
         self._services: dict[UUID, EntryService] = {}
 
+    def _service(self, group_id: UUID) -> EntryService:
+        service = self._services.get(group_id)
+        if service is None:
+            service = EntryService(self._session, group_id, event_bus=self._event_bus, integration_id=INTEGRATION_ID)
+            self._services[group_id] = service
+        return service
+
     def set_status(self, entry: Entries, status: str, **changes) -> None:
         """Set the status, plus any other field `changes` made in the same update (one
         entry_updated event)."""
-        service = self._services.get(entry.group_id)
-        if service is None:
-            service = EntryService(self._session, entry.group_id, event_bus=self._event_bus, integration_id=INTEGRATION_ID)
-            self._services[entry.group_id] = service
-        service.update(entry.id, EntryUpdate(status=status, **changes))
+        self._service(entry.group_id).update(entry.id, EntryUpdate(status=status, **changes))
+
+    def hold(self, entry: Entries, waiting_for: str, reason: str, issues: list[str], now: datetime) -> None:
+        """Record why a due entry is being held back (Entries.scheduled_publish_blocked) and emit
+        entry_scheduled_publish_blocked the first time this block is seen — not on every run. Written
+        directly, not as an entry update: it's the task's bookkeeping, not an edit to react to."""
+        previous = entry.scheduled_publish_blocked
+        record = block_record(waiting_for, reason, issues, previous, now)
+        notify = not record["notified"]
+        record["notified"] = True
+        if record != previous:
+            entry.scheduled_publish_blocked = record
+            self._session.commit()
+        if notify:
+            self._service(entry.group_id).emit_scheduled_publish_blocked(entry, record)
 
 
 def _entries(n: int) -> str:
@@ -70,9 +95,25 @@ def _titles(titles: list[str]) -> str:
     return _limited([f"'{t}'" for t in titles])
 
 
+def _refusal_issues(error: HTTPException) -> list[str]:
+    detail = error.detail if isinstance(error.detail, dict) else {}
+    return [str(i) for i in detail.get("issues") or []]
+
+
 def _refusal_reason(error: HTTPException) -> str:
     detail = error.detail if isinstance(error.detail, dict) else {}
-    return ", ".join(detail.get("issues") or []) or str(detail.get("message") or error.detail)
+    return ", ".join(_refusal_issues(error)) or str(detail.get("message") or error.detail)
+
+
+def _approval_only_workspaces(session, workspace_ids: set[UUID]) -> set[UUID]:
+    """The workspaces among `workspace_ids` that publish only approved entries on schedule."""
+    if not workspace_ids:
+        return set()
+    rows = session.query(GroupPreferencesModel.group_id).filter(
+        GroupPreferencesModel.group_id.in_(workspace_ids),
+        GroupPreferencesModel.scheduled_publish_requires_approval.is_(True),
+    )
+    return {row[0] for row in rows}
 
 
 class PublishScheduledEntriesHandler(ScheduledTaskHandler):
@@ -90,6 +131,12 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
       run after it's fixed. The others still publish.
     Archived entries are skipped: an old schedule must not resurrect them.
 
+    A workspace with "Scheduled publish only for approved entries" on (preferences.
+    scheduled_publish_requires_approval) gets only its `approved` due entries published; the others
+    keep their schedule and wait. Every entry held back, for either reason, gets the reason recorded
+    on it (the editor shows it next to Scheduled Publish) and one entry_scheduled_publish_blocked
+    event per distinct reason, which the activity toaster shows (services/entries/scheduled_block.py).
+
     Configuration (task_config):
     - dry_run: bool (default: False) - If true, log what would be published
     """
@@ -105,6 +152,7 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
 
         published: list[str] = []
         skipped: list[str] = []
+        waiting: list[str] = []
         with session_context() as session:
             q = session.query(Entries).filter(
                 Entries.publish_at <= datetime.now(UTC),
@@ -116,8 +164,16 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
             logger.debug("Found %d entries to publish in %s (dry_run=%s)", len(due), scope_label, dry_run)
 
             changer = _StatusChanger(session, event_bus)
+            approval_only = _approval_only_workspaces(session, {entry.group_id for entry in due})
+            now = datetime.now(UTC)
             for entry in due:
                 entry_id, title = entry.id, entry.title
+                if entry.group_id in approval_only and entry.status != "approved":
+                    logger.info("Scheduled publish of '%s' (id=%s) is waiting for approval (status %s)", title, entry_id, entry.status)
+                    if not dry_run:
+                        changer.hold(entry, WAITING_FOR_APPROVAL, APPROVAL_REASON, [approval_issue(entry.status)], now)
+                    waiting.append(title)
+                    continue
                 if dry_run:
                     logger.info("Would publish: %s (id=%s, publish_at=%s)", title, entry_id, entry.publish_at)
                     published.append(title)
@@ -129,6 +185,7 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
                         raise
                     reason = _refusal_reason(e)
                     logger.warning("Scheduled publish skipped entry '%s' (id=%s): %s", title, entry_id, reason)
+                    changer.hold(entry, WAITING_FOR_REQUIREMENTS, reason, _refusal_issues(e) or [reason], now)
                     skipped.append(f"'{title}' — {reason}")
                     continue
                 logger.info("Published entry '%s' (id=%s)", title, entry_id)
@@ -139,19 +196,22 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
             logger.debug("Publish scheduled entries: none due in %s", scope_label)
             return None
 
-        summary = self._summary(published, skipped, dry_run)
+        summary = self._summary(published, skipped, waiting, dry_run)
         logger.info("Publish scheduled entries: %s", summary)
         return summary
 
     @staticmethod
-    def _summary(published: list[str], skipped: list[str], dry_run: bool) -> str:
+    def _summary(published: list[str], skipped: list[str], waiting: list[str], dry_run: bool) -> str:
         parts = []
         if published:
             label = "would publish" if dry_run else "published"
             parts.append(f"{_entries(len(published))} {label}: {_titles(published)}")
         if skipped:
-            count = f"{len(skipped)}" if published else _entries(len(skipped))
+            count = f"{len(skipped)}" if parts else _entries(len(skipped))
             parts.append(f"{count} skipped (can't publish: {_limited(skipped, '; ')})")
+        if waiting:
+            count = f"{len(waiting)}" if parts else _entries(len(waiting))
+            parts.append(f"{count} waiting for approval: {_titles(waiting)}")
         summary = "; ".join(parts)
         return f"{summary} (dry run)" if dry_run else summary
 

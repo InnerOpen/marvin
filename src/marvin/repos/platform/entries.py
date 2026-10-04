@@ -236,6 +236,15 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
                 # If unpublishing (changing to draft/etc), clear published_at
                 data_dict["published_at"] = None
 
+        # A scheduled publish the task is holding back (services/entries/scheduled_block.py): publishing,
+        # archiving or rescheduling ends the wait; any other edit re-arms its notification.
+        from marvin.services.entries.scheduled_block import after_edit
+
+        stored = self.session.get(Entries, existing_entry.id)
+        block_changed, block = after_edit(stored.scheduled_publish_blocked if stored else None, data_dict, existing_entry.publish_at)
+        if block_changed:
+            data_dict["scheduled_publish_blocked"] = block
+
         # Validate entry type exists if being changed
         entry_type_id = data_dict.get("entry_type_id")
         if entry_type_id and not self._entry_type_exists(entry_type_id):
@@ -313,9 +322,15 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
         special "resources" target (a list of refs — id/slug/name — attached reuse-only, unioned
         with the entry's existing resources). `_meta` keys are ignored.
         """
+        from marvin.services.entries.scheduled_block import after_edit
+
         entry = self.session.get(Entries, entry_id)
         if not entry:
             return
+        columns = {t: v for t, v in fields.items() if t not in ("_meta", "tags", "resources") and "." not in t}
+        block_changed, block = after_edit(entry.scheduled_publish_blocked, columns, entry.publish_at)
+        if block_changed:
+            entry.scheduled_publish_blocked = block
         for target, value in fields.items():
             if target == "_meta":
                 continue
