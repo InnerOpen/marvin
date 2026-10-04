@@ -7,12 +7,18 @@ schedule was brought back.
 Regression: the scheduled publish/expiry wrote the status directly and dispatched an event with no
 entry in it, so nothing keyed on the entry reacted: a smart collection didn't pick up a scheduled
 publish until it was re-saved. They now change status as a manual edit does (EntryService).
+
+Regression: expiry archived an entry but kept its expire_at, so re-publishing it put it back in
+front of the expiry task, which archived it again within minutes. Expiry now clears the date, and
+publishing an entry whose expiration date has passed is refused with the reason.
 """
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from pytest import fixture
 
 from marvin.services.event_bus_service.event_types import EventTypes
@@ -320,4 +326,181 @@ def test_incomplete_entry_is_skipped_and_others_publish(db_session, workspace, m
     incomplete, complete = reload(db_session, incomplete_id), reload(db_session, complete_id)
     assert (incomplete.status, incomplete.publish_at is not None, complete.status) == ("draft", True, "published")
     assert [e["entity_id"] for e in of_type(events, EventTypes.entry_published)] == [complete_id]
-    assert summary == f"1 entry published: '{complete.title}'; 1 skipped (incomplete: '{incomplete.title}' — Required field 'Subject' is empty.)"
+    assert summary == f"1 entry published: '{complete.title}'; 1 skipped (can't publish: '{incomplete.title}' — Required field 'Subject' is empty.)"
+
+
+# ── Expiration date ────────────────────────────────────────────────────────────
+
+
+def service_for(db_session, workspace):
+    from marvin.services.entries import EntryService
+
+    return EntryService(db_session, workspace.id, event_bus=SimpleNamespace(dispatch=lambda **_: None))
+
+
+def expired_message(when: datetime) -> str:
+    return f"The expiration date ({when:%b} {when.day}, {when:%Y %H:%M} UTC) has passed — clear it or set a later date."
+
+
+def test_expiry_archives_and_clears_expire_at(db_session, workspace, make_entry):
+    entry_id = make_entry(status="published", expire_at=PAST)
+
+    run_task(workspace.id, handler=UnpublishExpiredEntriesHandler)
+
+    entry = reload(db_session, entry_id)
+    assert (entry.status, entry.expire_at) == ("archived", None)
+
+
+def test_expiry_dry_run_keeps_expire_at(db_session, workspace, make_entry):
+    entry_id = make_entry(status="published", expire_at=PAST)
+
+    run_task(workspace.id, handler=UnpublishExpiredEntriesHandler, dry_run=True)
+
+    entry = reload(db_session, entry_id)
+    assert (entry.status, entry.expire_at is not None) == ("published", True)
+
+
+def test_republish_after_expiry_stays_published_past_next_run(db_session, workspace, make_entry):
+    entry_id = make_entry(status="published", expire_at=PAST)
+    run_task(workspace.id, handler=UnpublishExpiredEntriesHandler)
+    service_for(db_session, workspace).set_status(entry_id, "published")
+
+    summary, _ = run_task(workspace.id, handler=UnpublishExpiredEntriesHandler)
+
+    assert (reload(db_session, entry_id).status, summary) == ("published", None)
+
+
+def test_manual_archive_keeps_a_pending_expiry(db_session, workspace, make_entry):
+    entry_id = make_entry(status="published", expire_at=FUTURE)
+
+    service_for(db_session, workspace).set_status(entry_id, "archived")
+
+    assert reload(db_session, entry_id).expire_at == FUTURE
+
+
+def test_publish_with_past_expiry_is_refused_with_reason(db_session, workspace, make_entry):
+    entry_id = make_entry(expire_at=PAST)
+
+    with pytest.raises(HTTPException) as exc:
+        service_for(db_session, workspace).set_status(entry_id, "published")
+
+    assert (exc.value.status_code, exc.value.detail["issues"]) == (422, [expired_message(PAST)])
+    assert reload(db_session, entry_id).status == "draft"
+
+
+def test_publish_with_future_expiry_publishes(db_session, workspace, make_entry):
+    entry_id = make_entry(expire_at=FUTURE)
+
+    service_for(db_session, workspace).set_status(entry_id, "published")
+
+    entry = reload(db_session, entry_id)
+    assert (entry.status, entry.expire_at is not None) == ("published", True)
+
+
+def test_publish_that_clears_a_past_expiry_in_the_same_save_publishes(db_session, workspace, make_entry):
+    from marvin.schemas.platform import EntryUpdate
+
+    entry_id = make_entry(expire_at=PAST)
+
+    service_for(db_session, workspace).update(entry_id, EntryUpdate(status="published", expire_at=None))
+
+    entry = reload(db_session, entry_id)
+    assert (entry.status, entry.expire_at) == ("published", None)
+
+
+def test_publish_that_sets_a_past_expiry_in_the_same_save_is_refused(db_session, workspace, make_entry):
+    entry_id = make_entry()
+
+    with pytest.raises(HTTPException) as exc:
+        service_for(db_session, workspace).update(entry_id, {"status": "published", "expire_at": PAST.isoformat()})
+
+    assert exc.value.detail["issues"] == [expired_message(PAST)]
+
+
+def test_publish_reports_past_expiry_alongside_missing_fields(db_session, workspace, make_entry, strict_type_id):
+    entry_id = make_entry(expire_at=PAST, entry_type_id=strict_type_id)
+
+    with pytest.raises(HTTPException) as exc:
+        service_for(db_session, workspace).set_status(entry_id, "published")
+
+    assert exc.value.detail["issues"] == ["Required field 'Subject' is empty.", expired_message(PAST)]
+
+
+def test_saving_a_published_entry_with_a_past_expiry_is_allowed(db_session, workspace, make_entry):
+    """Not a publish: setting a live entry's expiry to now/earlier is how you take it down on the next run."""
+    from marvin.schemas.platform import EntryUpdate
+
+    entry_id = make_entry(status="published")
+
+    service_for(db_session, workspace).update(entry_id, EntryUpdate(expire_at=PAST))
+
+    entry = reload(db_session, entry_id)
+    assert (entry.status, entry.expire_at is not None) == ("published", True)
+
+
+def test_scheduled_publish_skips_entry_whose_expiry_passed(db_session, workspace, make_entry):
+    entry_id = make_entry(publish_at=PAST, expire_at=PAST)
+
+    summary, events = run_task(workspace.id)
+
+    entry = reload(db_session, entry_id)
+    assert (entry.status, entry.publish_at is not None, events) == ("draft", True, [])
+    assert summary == f"1 entry skipped (can't publish: '{entry.title}' — {expired_message(PAST)})"
+
+
+def test_automation_publish_with_past_expiry_fails_the_step_with_reason(db_session, workspace, make_entry):
+    from marvin.services.automation.actions.base import AutomationActionError
+    from marvin.services.automation.actions.entry import run_entry_action
+    from marvin.services.automation.authz import ROLE_OWNER
+
+    entry_id = make_entry(expire_at=PAST)
+
+    with pytest.raises(AutomationActionError) as exc:
+        run_entry_action(
+            db_session,
+            workspace.id,
+            {"kind": "entry", "op": "publish", "entity_id": str(entry_id)},
+            {"event": {}, "steps": {}, "depth": 0},
+            authorizer_role=ROLE_OWNER,
+        )
+
+    assert str(exc.value) == f"entry publish refused: {expired_message(PAST)}"
+    assert reload(db_session, entry_id).status == "draft"
+
+
+# ── expiry_issue ───────────────────────────────────────────────────────────────
+
+NOW = datetime(2026, 10, 3, 12, 0, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "expire_at",
+    [
+        datetime(2026, 10, 3, 11, 59, tzinfo=UTC),
+        datetime(2026, 10, 3, 11, 59),  # noqa: DTZ001 — naive is UTC, as entries store it
+        datetime(2026, 10, 3, 6, 59, tzinfo=timezone(timedelta(hours=-5))),
+        "2026-10-03T11:59:00Z",
+        NOW,  # the expiry task archives at expire_at <= now
+    ],
+)
+def test_expiry_issue_blocks_a_passed_date(expire_at):
+    from marvin.services.entries.completeness import expiry_issue
+
+    issue = expiry_issue(expire_at, now=NOW)
+
+    assert issue is not None and issue.blocking and issue.key == "expire_at"
+
+
+@pytest.mark.parametrize("expire_at", [None, "", "not a date", datetime(2026, 10, 3, 12, 1, tzinfo=UTC)])
+def test_expiry_issue_allows_unset_unparseable_and_future(expire_at):
+    from marvin.services.entries.completeness import expiry_issue
+
+    assert expiry_issue(expire_at, now=NOW) is None
+
+
+def test_expiry_issue_message_shows_the_date_in_utc():
+    from marvin.services.entries.completeness import expiry_issue
+
+    issue = expiry_issue(datetime(2026, 10, 1, 9, 5, tzinfo=timezone(timedelta(hours=-5))), now=NOW)
+
+    assert issue.message == "The expiration date (Oct 1, 2026 14:05 UTC) has passed — clear it or set a later date."

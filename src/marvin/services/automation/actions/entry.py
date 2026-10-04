@@ -199,8 +199,15 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
     # ── Status transition ──────────────────────────────────────────────────────
     if dry_run:
         return {"dry_run": True, "kind": "entry", "op": op, "entity_id": str(entity_id), "would_set_status": ENTRY_OPS[op]}
+    from fastapi import HTTPException
+
     svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
-    entry = svc.set_status(entity_id, ENTRY_OPS[op], reaction_depth=depth)
+    try:
+        entry = svc.set_status(entity_id, ENTRY_OPS[op], reaction_depth=depth)
+    except HTTPException as e:  # the publish gate refused: required fields missing, expiry passed, …
+        detail = e.detail if isinstance(e.detail, dict) else {}
+        reason = "; ".join(detail.get("issues") or []) or detail.get("message") or e.detail
+        raise AutomationActionError(f"entry {op} refused: {reason}") from e
     if entry is None:
         raise AutomationActionError(f"entry {entity_id} not found in this workspace")
     return {"entry_id": str(entity_id), "op": op, "status": ENTRY_OPS[op]}

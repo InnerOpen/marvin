@@ -124,12 +124,18 @@ class EntryService:
 
     def _gate_publish(self, entry_id, old, data) -> None:
         """Block an inbox/draft → published transition when the entry doesn't satisfy its type's
-        completeness contract. Evaluates the *projected* state (pending field changes overlaid on
-        the persisted entry). Fail-open on any internal error — never block on our own bug — but a
-        genuine unmet-requirement raises HTTP 422 with the specific gaps."""
+        completeness contract, or its expiration date has already passed. Evaluates the *projected*
+        state (pending field changes overlaid on the persisted entry). Fail-open on any internal
+        error — never block on our own bug — but a genuine unmet requirement raises HTTP 422 with
+        the specific gaps."""
+        from marvin.services.entries import completeness as C
 
         def _get(attr):
             return data.get(attr) if isinstance(data, dict) else getattr(data, attr, None)
+
+        def _projected(attr):
+            pending = data if isinstance(data, dict) else getattr(data, "model_fields_set", set())
+            return _get(attr) if attr in pending else getattr(old, attr, None)
 
         if _get("status") != "published" or getattr(old, "status", None) == "published":
             return
@@ -138,32 +144,31 @@ class EntryService:
         try:
             from marvin.db.models.platform.entries import Entries
             from marvin.db.models.platform.entry_types import EntryTypes
-            from marvin.services.entries import completeness as C
 
             orm = self.session.get(Entries, entry_id)
-            if orm is None or not orm.entry_type_id:
-                return
-            entry_type = self.session.get(EntryTypes, orm.entry_type_id)
-            if entry_type is None:
-                return
-            report = C.evaluate_entry(
-                orm,
-                entry_type,
-                data_json=_get("data_json"),  # None → uses the entry's stored data_json
-                title=_get("title"),
-                summary=_get("summary"),
-                description=_get("description"),
-            )
+            entry_type = self.session.get(EntryTypes, orm.entry_type_id) if orm is not None and orm.entry_type_id else None
+            if entry_type is not None:
+                report = C.evaluate_entry(
+                    orm,
+                    entry_type,
+                    data_json=_get("data_json"),  # None → uses the entry's stored data_json
+                    title=_get("title"),
+                    summary=_get("summary"),
+                    description=_get("description"),
+                )
         except Exception as e:  # noqa: BLE001 — a gate bug must not break publishing
             logger.warning("Publish completeness gate skipped for %s: %s", entry_id, e)
-            return
 
-        if report is not None and not report.ok:
+        issues = report.blocking_messages() if report is not None else []
+        expired = C.expiry_issue(_projected("expire_at"))
+        if expired is not None:
+            issues.append(expired.message)
+        if issues:
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "message": f"Cannot publish — {len(report.blocking)} requirement(s) unmet.",
-                    "issues": report.blocking_messages(),
+                    "message": f"Cannot publish — {len(issues)} requirement(s) unmet.",
+                    "issues": issues,
                 },
             )
 

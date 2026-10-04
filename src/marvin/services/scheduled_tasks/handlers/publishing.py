@@ -13,6 +13,7 @@ from marvin.core.root_logger import get_logger
 from marvin.db.db_setup import session_context
 from marvin.db.models.platform.entries import Entries
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+from marvin.schemas.platform import EntryUpdate
 from marvin.services.entries import EntryService
 from marvin.services.event_bus_service.event_bus_service import EventBusService
 from marvin.services.event_bus_service.event_types import EventSiteRebuildData, EventTypes, SiteRebuildChange
@@ -25,8 +26,9 @@ logger = get_logger(__name__)
 INTEGRATION_ID = "scheduled_tasks"
 # Entries named in a run summary before it says "and N more".
 SUMMARY_NAME_LIMIT = 5
-# What EntryService's publish gate raises for an entry missing required fields/assets/tags.
-INCOMPLETE_STATUS_CODE = 422
+# What EntryService's publish gate raises for an entry it won't publish: missing required
+# fields/assets/tags, or an expiration date that has already passed.
+PUBLISH_REFUSED_STATUS_CODE = 422
 
 
 class _StatusChanger:
@@ -44,12 +46,14 @@ class _StatusChanger:
         self._event_bus = event_bus
         self._services: dict[UUID, EntryService] = {}
 
-    def set_status(self, entry: Entries, status: str) -> None:
+    def set_status(self, entry: Entries, status: str, **changes) -> None:
+        """Set the status, plus any other field `changes` made in the same update (one
+        entry_updated event)."""
         service = self._services.get(entry.group_id)
         if service is None:
             service = EntryService(self._session, entry.group_id, event_bus=self._event_bus, integration_id=INTEGRATION_ID)
             self._services[entry.group_id] = service
-        service.set_status(entry.id, status)
+        service.update(entry.id, EntryUpdate(status=status, **changes))
 
 
 def _entries(n: int) -> str:
@@ -66,7 +70,7 @@ def _titles(titles: list[str]) -> str:
     return _limited([f"'{t}'" for t in titles])
 
 
-def _incomplete_reason(error: HTTPException) -> str:
+def _refusal_reason(error: HTTPException) -> str:
     detail = error.detail if isinstance(error.detail, dict) else {}
     return ", ".join(detail.get("issues") or []) or str(detail.get("message") or error.detail)
 
@@ -81,8 +85,9 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
     - publishing consumes the schedule (publish_at is cleared), so an entry unpublished afterwards
       stays unpublished instead of going live again on the next run;
     - a published_at already set (a backdated import) is kept;
-    - an entry that fails its type's completeness check is skipped and keeps its schedule, so it
-      shows as overdue and goes out on the first run after it's completed. The others still publish.
+    - an entry that fails its type's completeness check, or whose expiration date has already
+      passed, is skipped and keeps its schedule, so it shows as overdue and goes out on the first
+      run after it's fixed. The others still publish.
     Archived entries are skipped: an old schedule must not resurrect them.
 
     Configuration (task_config):
@@ -120,10 +125,10 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
                 try:
                     changer.set_status(entry, "published")
                 except HTTPException as e:
-                    if e.status_code != INCOMPLETE_STATUS_CODE:
+                    if e.status_code != PUBLISH_REFUSED_STATUS_CODE:
                         raise
-                    reason = _incomplete_reason(e)
-                    logger.warning("Scheduled publish skipped incomplete entry '%s' (id=%s): %s", title, entry_id, reason)
+                    reason = _refusal_reason(e)
+                    logger.warning("Scheduled publish skipped entry '%s' (id=%s): %s", title, entry_id, reason)
                     skipped.append(f"'{title}' — {reason}")
                     continue
                 logger.info("Published entry '%s' (id=%s)", title, entry_id)
@@ -146,7 +151,7 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
             parts.append(f"{_entries(len(published))} {label}: {_titles(published)}")
         if skipped:
             count = f"{len(skipped)}" if published else _entries(len(skipped))
-            parts.append(f"{count} skipped (incomplete: {_limited(skipped, '; ')})")
+            parts.append(f"{count} skipped (can't publish: {_limited(skipped, '; ')})")
         summary = "; ".join(parts)
         return f"{summary} (dry run)" if dry_run else summary
 
@@ -158,6 +163,11 @@ class UnpublishExpiredEntriesHandler(ScheduledTaskHandler):
 
     Each entry is archived as a manual status change would archive it (EntryService), so the same
     events fire: entry_updated, entry_unpublished and entry_archived.
+
+    Expiring consumes the date (expire_at is cleared, as publishing clears publish_at), so an entry
+    re-published afterwards stays published instead of being archived again on the next run. Only
+    this task clears it: a manual archive or unpublish leaves a pending expiry for when the entry
+    goes live again.
 
     Configuration (task_config):
     - dry_run: bool (default: False) - If true, log what would be unpublished
@@ -189,7 +199,7 @@ class UnpublishExpiredEntriesHandler(ScheduledTaskHandler):
                 if dry_run:
                     logger.info("Would unpublish: %s (id=%s, expire_at=%s)", title, entry_id, entry.expire_at)
                 else:
-                    changer.set_status(entry, "archived")
+                    changer.set_status(entry, "archived", expire_at=None)
                     logger.info("Unpublished expired entry '%s' (id=%s)", title, entry_id)
                 archived.append(title)
 

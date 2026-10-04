@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 
 from marvin.schemas.platform.entry_type_recipe import EntryTypeRecipe
 from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
@@ -34,7 +35,7 @@ _LINKABLE_FIELD_TYPES = frozenset({"markdown", "richtext"})
 
 @dataclass
 class CompletenessIssue:
-    kind: str  # "field" | "asset" | "resource" | "tag" | "link"
+    kind: str  # "field" | "asset" | "resource" | "tag" | "link" | "expiry"
     key: str  # field key / asset role / resource type / "*"
     message: str
     blocking: bool
@@ -216,4 +217,35 @@ def evaluate_entry(entry, entry_type, *, data_json=None, title=None, summary=Non
         link_fields=linkable_text_fields(getattr(entry_type, "schema_json", None)) if entry_type else None,
         summary=summary if summary is not None else getattr(entry, "summary", None),
         description=description if description is not None else getattr(entry, "description", None),
+    )
+
+
+def _as_utc(value: datetime | str | None) -> datetime | None:
+    """A timestamp as an aware UTC datetime. Naive values are UTC (how entries store them); an
+    unparseable string is None — the repository rejects it, not this check."""
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+    if not isinstance(value, datetime):
+        return None
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def expiry_issue(expire_at: datetime | str | None, *, now: datetime | None = None) -> CompletenessIssue | None:
+    """The publish blocker for an expiration date that has already passed, or None.
+
+    Not part of the type's contract, but it blocks the same way: the Unpublish Expired Entries
+    task archives a published entry whose expire_at <= now, so publishing it would only last until
+    the next run. Shown in UTC — the server doesn't know the viewer's zone."""
+    expires = _as_utc(expire_at)
+    if expires is None or expires > (now or datetime.now(UTC)):
+        return None
+    when = f"{expires:%b} {expires.day}, {expires:%Y %H:%M} UTC"
+    return CompletenessIssue(
+        kind="expiry",
+        key="expire_at",
+        message=f"The expiration date ({when}) has passed — clear it or set a later date.",
+        blocking=True,
     )
