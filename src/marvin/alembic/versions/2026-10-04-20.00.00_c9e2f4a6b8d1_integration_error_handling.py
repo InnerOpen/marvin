@@ -57,6 +57,7 @@ def upgrade() -> None:
         sa.Column("action", sa.String(), nullable=False),
         sa.Column("step_index", sa.Integer(), nullable=False),
         sa.Column("code", sa.String(), nullable=False),
+        sa.Column("codes", sa.JSON(none_as_null=True), nullable=True),
         sa.Column("status", sa.String(), nullable=False),
         sa.Column("live_key", sa.String(), nullable=True),
         sa.Column("attempt", sa.Integer(), nullable=False),
@@ -76,13 +77,13 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(["group_id"], ["groups.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["automation_id"], ["workspace_automations.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["integration_id"], ["integrations.id"], ondelete="CASCADE"),
-        sa.ForeignKeyConstraint(["entry_id"], ["entries.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["origin_execution_id"], ["automation_executions.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["last_execution_id"], ["automation_executions.id"], ondelete="SET NULL"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("group_id", "live_key", name="uq_integration_retries_live"),
     )
-    for column in ("group_id", "automation_id", "integration_id", "entry_id", "status", "next_attempt_at", "origin_execution_id"):
+    # entry_id has no foreign key on purpose: a retry must outlive its entry (its facts are in `snapshot`).
+    for column in ("group_id", "automation_id", "integration_id", "entry_id", "status", "next_attempt_at", "origin_execution_id", "created_at"):
         op.create_index(f"ix_integration_retries_{column}", "integration_retries", [column])
 
     op.create_table(
@@ -113,15 +114,15 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("group_id", "open_key", name="uq_integration_alerts_open"),
     )
-    for column in ("group_id", "integration_id", "status"):
+    for column in ("group_id", "integration_id", "status", "created_at"):
         op.create_index(f"ix_integration_alerts_{column}", "integration_alerts", [column])
 
 
 def downgrade() -> None:
-    for column in ("status", "integration_id", "group_id"):
+    for column in ("created_at", "status", "integration_id", "group_id"):
         op.drop_index(f"ix_integration_alerts_{column}", table_name="integration_alerts")
     op.drop_table("integration_alerts")
-    for column in ("origin_execution_id", "next_attempt_at", "status", "entry_id", "integration_id", "automation_id", "group_id"):
+    for column in ("created_at", "origin_execution_id", "next_attempt_at", "status", "entry_id", "integration_id", "automation_id", "group_id"):
         op.drop_index(f"ix_integration_retries_{column}", table_name="integration_retries")
     op.drop_table("integration_retries")
 

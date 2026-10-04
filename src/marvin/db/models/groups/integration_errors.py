@@ -51,7 +51,9 @@ class IntegrationRetryModel(SqlAlchemyBase, BaseMixins):
     group: Mapped[Optional["Groups"]] = orm.relationship("Groups")
     automation_id: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("workspace_automations.id", ondelete="CASCADE"), nullable=False, index=True)
     integration_id: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("integrations.id", ondelete="CASCADE"), nullable=True, index=True)
-    entry_id: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("entries.id", ondelete="CASCADE"), nullable=True, index=True)
+    entry_id: Mapped[GUID | None] = mapped_column(GUID, nullable=True, index=True)
+    """The entry the step acted on. Deliberately no foreign key: a retry must outlive its entry (closing a
+    Square link after the entry is deleted), so the entry's facts are kept in `snapshot` too."""
 
     integration_slug: Mapped[str] = mapped_column(sa.String, nullable=False)
     provider: Mapped[str] = mapped_column(sa.String, nullable=False)
@@ -61,6 +63,8 @@ class IntegrationRetryModel(SqlAlchemyBase, BaseMixins):
     """Position of the failed step in the workflow's `actions` — where a retry resumes."""
     code: Mapped[str] = mapped_column(sa.String, nullable=False)
 
+    codes: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
+    """Every error code the chain has hit — one retry budget across them (see errors.py)."""
     status: Mapped[str] = mapped_column(sa.String, nullable=False, default="pending", index=True)
     live_key: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     attempt: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
@@ -73,7 +77,8 @@ class IntegrationRetryModel(SqlAlchemyBase, BaseMixins):
     handle: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     """The policy (Handle.to_dict()) driving this chain; its `then` applies once retries run out."""
     snapshot: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
-    """{event, steps, previous, target_ref, gated, trigger_kind, user_id} — enough to resume the run."""
+    """{event, entry, steps, previous, target_ref, gated, trigger_kind} — enough to resume the run, even
+    once the entry is gone."""
     partial: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     """The provider's partial progress, handed back as ctx.resume."""
     idempotency_seed: Mapped[str] = mapped_column(sa.String, nullable=False)

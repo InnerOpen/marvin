@@ -574,3 +574,12 @@ def test_run_message_names_the_handling_and_the_retry():
     assert run_handled([handled]) is True and run_handled([failed]) is False
     ok = {"kind": "integration", "target": "shop.create_listing", "outcome": "ok", "ok": True, "error": None, "count": 1}
     assert run_message("w", True, [ok], retry_attempt=2).startswith("Automation 'w' succeeded on retry 2 — ")
+
+
+def test_retry_rows_keep_no_entry_foreign_key_and_both_tables_index_created_at(db_session):
+    from sqlalchemy import inspect
+
+    inspector = inspect(db_session.bind)
+    assert not [fk for fk in inspector.get_foreign_keys("integration_retries") if fk["referred_table"] == "entries"]
+    for table in ("integration_retries", "integration_alerts"):
+        assert f"ix_{table}_created_at" in {index["name"] for index in inspector.get_indexes(table)}
