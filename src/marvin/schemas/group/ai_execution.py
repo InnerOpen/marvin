@@ -91,6 +91,9 @@ class AIReviseEntryRequest(_MarvinModel):
     entry: str  # the entry to revise, by slug or id
     instruction: str  # what to determine / change
     model_override: str | None = None
+    # Optional tone for this revision (a tone slug), falling back to the workspace default. The entry
+    # type's own voice still wins. Aliased to `register` on the wire, as on compose.
+    tone_register: str | None = Field(default=None, alias="register")
     source: str = "editor"  # invocation surface; gated by workspace policy
 
     model_config = ConfigDict(from_attributes=True)

@@ -56,8 +56,9 @@ class WorkspaceAISettingsCreate(_MarvinModel):
     # POST /groups/ai-settings/character or PUT …/character/library; see services/ai/character.py.
     assistant_character: dict | None = None
     persona_prompt: str | None = None
-    # Default tone register for agent runs (axis B, separate from persona). A per-call register wins.
-    default_register: str = "auto"  # "auto" | "professional" | "playful"
+    # Default tone for agent runs (axis B, separate from persona) — a tone slug, built-in ("auto" |
+    # "professional" | "playful") or the workspace's own (GET /groups/ai-settings/tones). A per-call tone wins.
+    default_register: str = "auto"
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -100,6 +101,55 @@ class WorkspaceAISettingsRead(BubbleLinesState, WorkspaceAISettingsCreate):
     agent_characters: dict[str, dict[str, str]] = {}
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ToneItem(_MarvinModel):
+    """A custom tone as the editor sends it. No slug → one is made from the name; a slug never changes."""
+
+    slug: str | None = None
+    name: str = ""
+    instructions: str = ""
+    persona: str = "frame"  # "frame" | "everywhere" | "drop" — see services/ai/tones.py
+    description: str | None = None
+
+
+class ToneRead(ToneItem):
+    slug: str
+    builtin: bool = False
+    hidden: bool = False
+    used_by: list[str] = []  # slugs of the workspace agents that default to this tone
+
+
+class TonesState(_MarvinModel):
+    """Every tone the workspace can use (built-ins first), which one is the default, and the editor's limits."""
+
+    tones: list[ToneRead]
+    default_tone: str
+    max_custom_tones: int
+    max_name_chars: int
+    max_instructions_chars: int
+
+
+class TonesUpdate(_MarvinModel):
+    """Replace the custom tones and the hidden list (and optionally the default) in one save."""
+
+    tones: list[ToneItem] = []
+    hidden: list[str] = []
+    default_tone: str | None = None  # omitted → unchanged
+
+
+class TonePreviewRequest(_MarvinModel):
+    """A saved tone by slug, or a draft one (name + instructions + persona) as the editor has it."""
+
+    slug: str | None = None
+    name: str | None = None
+    instructions: str | None = None
+    persona: str | None = None
+
+
+class TonePreview(_MarvinModel):
+    clause: str  # exactly what is appended to an agent's system prompt (with the workspace persona)
+    tokens: int  # rough estimate; it rides on every agent step
 
 
 class AIUsageOperation(_MarvinModel):

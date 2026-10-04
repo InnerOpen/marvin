@@ -36,7 +36,7 @@ class WorkspaceAgentModel(SqlAlchemyBase, BaseMixins):
     # None = every tool the caller's role allows; a list = only those names (registry tools, AI
     # operations by slug-with-underscores, or external MCP tools as mcp__<server>__<tool>).
     tool_allowlist: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
-    default_register: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    default_register: Mapped[str | None] = mapped_column(String(40), nullable=True)  # a tone slug (services/ai/tones.py)
     # Minimum workspace role that may talk to this agent (ROLE_* in services/ai/operations/base.py).
     min_role: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # Invocation surfaces allowed (editor | api | mcp | agent); None = all.

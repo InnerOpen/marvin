@@ -15,6 +15,7 @@ from marvin.routes.ai import operations_controller as oc
 from marvin.schemas.group.ai_execution import AIAgentRequest
 from marvin.services.ai.agents import AgentSpec
 from marvin.services.ai.operations.base import ROLE_AUTHOR
+from marvin.services.ai.tones import WorkspaceTones
 
 MATERIALS = AgentSpec(slug="materials", name="Materials", description="stock", default_register="playful")
 CHAT_LIKE = AgentSpec(slug="talk", name="Talk", kind="model")
@@ -67,6 +68,7 @@ def ctl(monkeypatch):
     monkeypatch.setattr(c, "_resolve_entity_id", lambda t, i: i, raising=False)
     monkeypatch.setattr(c, "_persona", lambda: ("Marvin", "gloomy"), raising=False)
     monkeypatch.setattr(c, "_default_register", lambda: "auto", raising=False)
+    monkeypatch.setattr(c, "_tones", lambda: WorkspaceTones(), raising=False)
     monkeypatch.setattr(c, "_register_clause", lambda register, persona: f"[{register}]", raising=False)
     monkeypatch.setattr(c, "_user_role", lambda: ROLE_AUTHOR, raising=False)
     specs = {"materials": MATERIALS, "talk": CHAT_LIKE, "private": PRIVATE}

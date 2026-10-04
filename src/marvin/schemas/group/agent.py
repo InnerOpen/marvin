@@ -8,18 +8,24 @@ from pydantic import UUID4, ConfigDict, Field, field_validator
 from marvin.schemas._marvin import _MarvinModel
 from marvin.schemas.group.ai_settings import AssistantCharacter
 from marvin.services.ai.operations.base import INVOCATION_SOURCES
+from marvin.services.ai.tones import SLUG_RE as TONE_SLUG_RE
 
 AgentKind = Literal["persona", "model"]
 PolicyValue = Literal["allow", "block", "ask"]  # ask = bound, but every call waits for the user (Ask threads)
-REGISTERS = ("auto", "professional", "playful")
 # Built-in agents are code, not rows; a user-defined agent may not shadow them.
 SYSTEM_AGENT_SLUGS = ("marvin", "ask", "chat")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 
 
 def _check_register(v: str | None) -> str | None:
-    if v is not None and v not in REGISTERS:
-        raise ValueError(f"default_register must be one of {REGISTERS}")
+    """A tone slug's shape. Whether the workspace has that tone is checked on save (it needs the DB)."""
+    if v is None:
+        return None
+    v = v.strip().lower()
+    if not v:
+        return None
+    if not TONE_SLUG_RE.match(v):
+        raise ValueError("default_register must be a tone slug (a-z, 0-9 and '-', at most 40 chars)")
     return v
 
 

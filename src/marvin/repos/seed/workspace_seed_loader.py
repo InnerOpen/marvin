@@ -872,6 +872,7 @@ class WorkspaceSeedLoader:
             for json_key, attr in field_map.items():
                 if json_key in ai_data and hasattr(row, attr):
                     setattr(row, attr, ai_data[json_key])
+            self._import_tones(row, ai_data)
             self.repos.session.commit()
             self.logger.info("Imported AI settings")
             return True
@@ -879,6 +880,23 @@ class WorkspaceSeedLoader:
             self.repos.session.rollback()
             self.logger.error(f"Failed to import AI settings: {e}")
             return False
+
+    def _import_tones(self, row, ai_data: dict[str, Any]) -> None:
+        """Custom tones + hidden list, re-validated like a save. A bundle that fails validation keeps the
+        workspace on the built-ins (agents pointing at its tones fall back at run time) rather than failing
+        the whole import."""
+        from marvin.services.ai import tones as t
+
+        if "tones" not in ai_data and "hiddenTones" not in ai_data:
+            return
+        try:
+            custom = t.validate_tones(ai_data.get("tones") or [])
+            hidden = t.validate_hidden(ai_data.get("hiddenTones") or [], t.BUILTIN_TONES + tuple(custom))
+        except t.ToneError as e:
+            self.logger.warning(f"Skipped the bundle's custom tones: {e}")
+            custom, hidden = [], []
+        row.tones = [x.to_json() for x in custom] or None
+        row.hidden_tones = hidden or None
 
     def _resolve_backup_key(self) -> str | None:
         """The operator-supplied backup key, or the workspace's stored key (same-workspace restore)."""

@@ -70,10 +70,16 @@ class WorkspaceAISettingsModel(SqlAlchemyBase, BaseMixins):
     bubble_lines_updated_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)
     # Why the last generation failed (the previous lines were kept); cleared by the next success.
     bubble_lines_warning: Mapped[str | None] = mapped_column(sa.String, nullable=True)
-    # Default tone register for agent runs — a SEPARATE axis from persona (axis B). Persona is how
-    # the assistant addresses you; register is how work product reads. "professional" suppresses
-    # the persona for the run. "auto" | "professional" | "playful". A per-call register overrides it.
+    # Default tone for agent runs — a SEPARATE axis from persona (axis B). Persona is how the
+    # assistant addresses you; the tone is how work product reads. A tone slug: a built-in ("auto" |
+    # "professional" | "playful") or one of `tones` below. A per-call tone overrides it. See
+    # services/ai/tones.py.
     default_register: Mapped[str] = mapped_column(sa.String, default="auto", nullable=False, server_default="auto")
+    # The workspace's own tones — [{slug, name, instructions, persona, description?}], validated by
+    # services/ai/tones.py:validate_tones. None → just the built-ins.
+    tones: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
+    # Tone slugs (built-in or custom) left out of the pickers. Hidden tones still resolve at run time.
+    hidden_tones: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

@@ -558,7 +558,7 @@ class AIOperationsController(BaseUserController):
                 source=body.source,
                 assistant_name=assistant_name,
                 persona_prompt=persona_prompt,
-                register=body.tone_register or self._default_register(),
+                register=body.tone_register,
                 log_inputs=log_inputs,
                 log_outputs=log_outputs,
                 max_tokens=self._max_output_tokens(),
@@ -649,7 +649,7 @@ class AIOperationsController(BaseUserController):
                 entry=entry,
                 instruction=body.instruction,
                 source=body.source,
-                register=self._default_register(),
+                register=body.tone_register,
                 log_inputs=log_inputs,
                 log_outputs=log_outputs,
                 max_tokens=self._max_output_tokens(),
@@ -842,6 +842,7 @@ class AIOperationsController(BaseUserController):
         exists = self.session.query(WorkspaceAgentModel).filter_by(group_id=self.group_id, slug=data.slug).first()
         if exists:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"An agent with slug '{data.slug}' already exists.")
+        self._require_known_tone(data.default_register)
         row = WorkspaceAgentModel(session=self.session, group_id=self.group_id, created_by=self.user.id, **data.model_dump())
         self.session.add(row)
         self.session.commit()
@@ -856,6 +857,7 @@ class AIOperationsController(BaseUserController):
 
         self._require_role(ROLE_ADMIN, "ADMIN role or higher required to edit agents.")
         row = self._agent_row_or_404(slug)
+        self._require_known_tone(data.default_register)
         for k, v in data.model_dump(exclude_unset=True).items():
             setattr(row, k, v)
         self.session.commit()
@@ -2317,60 +2319,46 @@ class AIOperationsController(BaseUserController):
         settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
         return resolve_persona(settings.assistant_name if settings else None, settings.persona_prompt if settings else None)
 
-    # Tone registers. Persona and register are DIFFERENT axes and must not share one knob:
-    #   persona  = how the assistant ADDRESSES you (workspace-level, user-authored)
-    #   register = how THIS call's output should read (per-request, set by the caller)
+    # Tones. Persona and tone are DIFFERENT axes and must not share one knob:
+    #   persona = how the assistant ADDRESSES you (workspace-level, user-authored)
+    #   tone    = how THIS call's output should read (per-request, set by the caller)
     # Asking for a review and getting it in character is the failure this separates. The only
     # reliable lever is to withhold the persona entirely — asking a model to compartmentalise
-    # is advisory, and small models ignore it.
-    REGISTERS = ("auto", "professional", "playful")
+    # is advisory, and small models ignore it. The tones themselves (built-in + the workspace's
+    # own) live in marvin.services.ai.tones; the wire name stays `register`.
+
+    def _tones(self):
+        from marvin.services.ai.tones import workspace_tones
+
+        return workspace_tones(self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first())
 
     def _effective_register(self, requested: str | None, spec) -> str:
-        """The register a named agent runs with: an explicit caller choice, else the agent's own, else the workspace's.
+        """The tone a named agent runs with: an explicit caller choice, else the agent's own, else the workspace's.
 
         "auto" from the caller is not a choice — the Ask page always sends one — so it must not override an
-        agent configured as professional (a specialist would otherwise inherit the workspace persona).
+        agent configured as professional (a specialist would otherwise inherit the workspace persona). A slug
+        that names no tone (deleted since) is skipped with a warning.
         """
         explicit = requested if requested and requested.lower() != "auto" else None
-        return explicit or spec.default_register or self._default_register()
+        return self._tones().resolve(explicit, spec.default_register).slug
+
+    def _require_known_tone(self, slug: str | None) -> None:
+        """422 unless `slug` (an agent's default tone) names a tone this workspace has; None = workspace default."""
+        if slug and self._tones().get(slug) is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"No tone '{slug}' in this workspace.")
 
     def _default_register(self) -> str:
-        """The workspace's default tone register, or 'auto' when unset."""
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        return settings.default_register if settings and settings.default_register else "auto"
+        """The workspace's default tone, or 'auto' when unset (or it names a tone that's gone)."""
+        return self._tones().default.slug
 
     def _register_clause(self, register: str | None, persona_prompt: str) -> str:
-        """The voice/tone section of a system prompt for the requested register.
+        """The voice/tone section of a system prompt for the requested tone (unknown → workspace default → auto).
 
         Returns "" when there's nothing to say (no persona, or persona deliberately withheld).
         """
-        reg = (register or "auto").lower()
-        if reg not in self.REGISTERS:
-            reg = "auto"
+        from marvin.services.ai.tones import tone_clause
 
-        if reg == "professional":
-            # Withhold the persona outright — this is the mechanism, not a request to behave.
-            return (
-                "\n\nWrite plainly, specifically and professionally. Do not adopt a persona, "
-                "voice, or character; skip pleasantries and lead with the substance. Be concrete: "
-                "name the field, section, or line you mean, and say what to change and why."
-            )
-
-        if not persona_prompt:
-            return ""
-
-        if reg == "playful":
-            return f"\n\nVoice and tone: {persona_prompt}"
-
-        # auto — persona for framing, plain for the artifact.
-        return (
-            f"\n\nVoice and tone: {persona_prompt}"
-            "\nThat voice applies ONLY to how you address the user — greetings, framing, brief "
-            "asides. Work product itself — reviews, critiques, findings, summaries, suggested "
-            "copy — must be written plainly, specifically, and professionally. Never let the "
-            "persona soften, exaggerate, or obscure a finding, and never write generated "
-            "content in that voice unless the user explicitly asks for it."
-        )
+        return tone_clause(self._tones().resolve(register), persona_prompt)
 
     # Caps for replayed conversation history. The client sends what it has; the server decides
     # what's affordable. Keeps the newest turns — recency is what "do #2" depends on.

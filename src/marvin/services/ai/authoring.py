@@ -87,7 +87,7 @@ class AuthoringService:
         assistant_name: str = "Marvin",
         persona_prompt: str = "",
         parent_execution_id: str | None = None,
-        register: str = "auto",
+        register: str | None = None,
         log_inputs: bool = False,
         log_outputs: bool = True,
         max_tokens: int | None = None,
@@ -156,13 +156,11 @@ class AuthoringService:
             if img:
                 parts.append(ImagePart(data=img, mime_type=a.get("mime_type") or "image/png"))
 
-        voice = recipe.enrichment.get("voice") if isinstance(recipe.enrichment, dict) else None
         system_content = (
             f"You are a content author. Produce a complete, publish-ready '{entry_type.name}'. Return ONLY the requested fields. "
             + AUTHORING_LINKS_RULE
+            + self._voice_suffix(recipe, register)
         )
-        if voice:
-            system_content += f" Voice/tone: {voice}"
         messages = [
             Message(role="system", content=system_content),
             Message(role="user", content=parts if len(parts) > 1 else instruction),
@@ -317,7 +315,7 @@ class AuthoringService:
         entry,
         instruction: str,
         source: str = "api",
-        register: str = "auto",
+        register: str | None = None,
         log_inputs: bool = False,
         parent_execution_id: str | None = None,
         log_outputs: bool = True,
@@ -379,7 +377,7 @@ class AuthoringService:
                 role="system",
                 content=(
                     "You are a content editor revising an existing entry. Reuse the existing tags and resources listed; "
-                    "never invent duplicates. Return ONLY the requested fields. " + AUTHORING_LINKS_RULE
+                    "never invent duplicates. Return ONLY the requested fields. " + AUTHORING_LINKS_RULE + self._voice_suffix(recipe, register)
                 ),
             ),
             Message(role="user", content=instruction_msg),
@@ -614,6 +612,21 @@ class AuthoringService:
                 self.session.rollback()
                 self.logger.warning(f"AuthoringService: alt-text enrichment skipped for asset {aid}: {e}")
         return enriched
+
+    def _voice_suffix(self, recipe, register: str | None) -> str:
+        """The draft's voice for the system prompt: the entry type's own (recipe ``enrichment.voice``) when
+        it has one, else the requested tone's (None → the workspace default). "" for the plain default."""
+        voice = recipe.enrichment.get("voice") if isinstance(recipe.enrichment, dict) else None
+        if not voice:
+            from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+            from marvin.services.ai.persona import resolve_persona
+            from marvin.services.ai.tones import draft_voice, workspace_tones
+
+            settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
+            tone = workspace_tones(settings).resolve(register)
+            _, persona_prompt = resolve_persona(settings.assistant_name if settings else None, settings.persona_prompt if settings else None)
+            voice = draft_voice(tone, persona_prompt)
+        return f" Voice/tone: {voice}" if voice else ""
 
     def _recipe_instructions_block(self, recipe) -> str:
         """The recipe author's verbatim ``instructions`` — freeform "how to build this type" prose the

@@ -27,7 +27,7 @@ def _ctrl():
     ctrl._HISTORY_MAX_TURNS = AIOperationsController._HISTORY_MAX_TURNS
     ctrl._HISTORY_MAX_CHARS = AIOperationsController._HISTORY_MAX_CHARS
     ctrl._HISTORY_TURN_CHARS = AIOperationsController._HISTORY_TURN_CHARS
-    ctrl.REGISTERS = AIOperationsController.REGISTERS
+    ctrl._tones = lambda: AIOperationsController._tones(ctrl)
     return ctrl
 
 

@@ -50,7 +50,7 @@ def test_agent_create_validates_kind_register_and_sources():
     with pytest.raises(ValidationError):
         AgentCreate(slug="a1", name="a", kind="workflow")  # v3, not yet
     with pytest.raises(ValidationError):
-        AgentCreate(slug="a1", name="a", default_register="shouty")
+        AgentCreate(slug="a1", name="a", default_register="not a tone slug!")  # an unknown-but-valid slug is a 422 on save
     with pytest.raises(ValidationError):
         AgentCreate(slug="a1", name="a", sources=["editor", "carrier-pigeon"])
     ok = AgentCreate(slug="a1", name="a", sources=["editor", "editor", "mcp"], tool_allowlist=[" x ", "", "x"])
@@ -61,7 +61,7 @@ def test_agent_create_validates_kind_register_and_sources():
 def test_agent_update_is_fully_optional_but_still_validated():
     assert AgentUpdate().model_dump(exclude_unset=True) == {}
     with pytest.raises(ValidationError):
-        AgentUpdate(default_register="loud")
+        AgentUpdate(default_register="loud noises!")
 
 
 def test_agent_read_marks_system_agents_without_an_id():

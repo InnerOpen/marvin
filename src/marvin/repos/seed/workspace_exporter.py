@@ -556,6 +556,8 @@ class WorkspaceExporter:
             "bubbleLines": row.bubble_lines,
             "bubbleLinesSource": row.bubble_lines_source,
             "defaultRegister": row.default_register,
+            "tones": row.tones,
+            "hiddenTones": row.hidden_tones,
         }
 
     def _export_secrets(self) -> list[dict[str, Any]]:

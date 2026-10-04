@@ -18,6 +18,11 @@ from marvin.schemas.group.ai_settings import (
     BubbleLines,
     BubbleLinesState,
     CharacterPackSummary,
+    TonePreview,
+    TonePreviewRequest,
+    ToneRead,
+    TonesState,
+    TonesUpdate,
     WorkspaceAISettingsRead,
     WorkspaceAISettingsUpdate,
     WorkspaceAIUsage,
@@ -155,6 +160,9 @@ class AISettingsController(BaseUserController):
                     detail=f"approval_mode must be one of: {', '.join(APPROVAL_MODES)}.",
                 )
 
+        if "default_register" in data.model_fields_set:
+            data.default_register = self._usable_default_tone(data.default_register)
+
         row = self._settings_row()
         persona_set = bool({"assistant_name", "persona_prompt"} & data.model_fields_set)
         before_name, before_persona = row.assistant_name, row.persona_prompt
@@ -199,6 +207,133 @@ class AISettingsController(BaseUserController):
         if warnings:
             self.logger.warning("AI settings saved with warnings: %s", "; ".join(warnings))
         return result
+
+    # --- tones (services/ai/tones.py) ---------------------------------------------------------------
+
+    def _usable_default_tone(self, slug: str | None, tones=None) -> str:
+        """`slug` normalised, or 422 unless it names a tone the workspace has and doesn't hide."""
+        from marvin.services.ai.tones import load_workspace_tones
+
+        tones = tones or load_workspace_tones(self.session, self.group_id)
+        key = (slug or "auto").strip().lower()
+        if tones.get(key) is None:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"No tone '{key}' in this workspace.")
+        if key in tones.hidden:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="The default tone can't be a hidden one.")
+        return key
+
+    def _agents_by_tone(self) -> dict[str, list[str]]:
+        from marvin.db.models.groups.agents import WorkspaceAgentModel
+
+        rows = (
+            self.session.query(WorkspaceAgentModel.slug, WorkspaceAgentModel.default_register)
+            .filter(WorkspaceAgentModel.group_id == self.group_id, WorkspaceAgentModel.default_register.isnot(None))
+            .all()
+        )
+        out: dict[str, list[str]] = {}
+        for slug, tone in rows:
+            out.setdefault(tone, []).append(slug)
+        return out
+
+    def _tones_state(self) -> TonesState:
+        from marvin.services.ai import tones as t
+
+        state = t.load_workspace_tones(self.session, self.group_id)
+        used = self._agents_by_tone()
+        return TonesState(
+            tones=[
+                ToneRead(
+                    slug=x.slug,
+                    name=x.name,
+                    instructions=x.instructions,
+                    persona=x.persona,
+                    description=x.description,
+                    builtin=x.builtin,
+                    hidden=x.slug in state.hidden,
+                    used_by=sorted(used.get(x.slug, [])),
+                )
+                for x in state.all()
+            ],
+            default_tone=state.default.slug,
+            max_custom_tones=t.MAX_CUSTOM_TONES,
+            max_name_chars=t.MAX_NAME_CHARS,
+            max_instructions_chars=t.MAX_INSTRUCTIONS_CHARS,
+        )
+
+    @router.get("/tones", response_model=TonesState, summary="The workspace's tones")
+    def get_tones(self) -> TonesState:
+        """Built-in and custom tones, for the editor and every tone picker. Any member may read them."""
+        return self._tones_state()
+
+    @router.put("/tones", response_model=TonesState, summary="Save the workspace's tones")
+    def put_tones(self, data: TonesUpdate) -> TonesState:
+        """Replace the custom tones and hidden list (and optionally the default). ADMIN/OWNER only.
+
+        A tone that agents default to can't be removed (409 naming them); an invalid list is a 422.
+        """
+        from marvin.routes._base.checks import require_workspace_admin
+        from marvin.services.ai import tones as t
+
+        require_workspace_admin(self.user, self.group_id)
+        before = t.load_workspace_tones(self.session, self.group_id)
+        try:
+            custom = t.validate_tones([i.model_dump() for i in data.tones], existing=before.custom)
+            hidden = t.validate_hidden(data.hidden, t.BUILTIN_TONES + tuple(custom))
+        except t.ToneError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+
+        kept = {x.slug for x in custom}
+        removed = [x for x in before.custom if x.slug not in kept]
+        used = self._agents_by_tone()
+        blocked = {x.slug: sorted(used[x.slug]) for x in removed if x.slug in used}
+        if blocked:
+            names = ", ".join(f"'{x.name}'" for x in removed if x.slug in blocked)
+            agents = sorted({a for v in blocked.values() for a in v})
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "message": f"Agents still default to {names}: {', '.join(agents)}. Pick another default tone for them first.",
+                    "tones": blocked,
+                },
+            )
+
+        after = t.WorkspaceTones(custom=tuple(custom), hidden=frozenset(hidden), default_slug=before.default_slug)
+        default = data.default_tone if data.default_tone is not None else before.default_slug
+        if data.default_tone is None and (after.get(default) is None or default in after.hidden):
+            # The old default went away (or was hidden) and the caller didn't pick another: say so.
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"'{default}' is the workspace's default tone; pick another default to remove or hide it.",
+            )
+        default = self._usable_default_tone(default, after)
+
+        row = self._settings_row()
+        row.tones = [x.to_json() for x in custom] or None
+        row.hidden_tones = hidden or None
+        row.default_register = default
+        self.session.commit()
+        return self._tones_state()
+
+    @router.post("/tones/preview", response_model=TonePreview, summary="Preview a tone's prompt clause")
+    def preview_tone(self, data: TonePreviewRequest) -> TonePreview:
+        """The clause a tone adds to every agent step (with this workspace's persona), and its rough token cost."""
+        from marvin.services.ai import tones as t
+        from marvin.services.ai.persona import resolve_persona
+
+        if data.slug:
+            tone = t.load_workspace_tones(self.session, self.group_id).get(data.slug)
+            if tone is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No tone '{data.slug}'.")
+        else:
+            draft = {"name": data.name or "Untitled", "instructions": data.instructions, "persona": data.persona}
+            try:
+                tone = t.validate_tones([draft])[0]
+            except t.ToneError as e:
+                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
+        _, persona = resolve_persona(row.assistant_name if row else None, row.persona_prompt if row else None)
+        clause = t.tone_clause(tone, persona)
+        return TonePreview(clause=clause, tokens=t.estimate_tokens(clause))
 
     # --- the bubble's animated character (services/ai/character.py) ------------------------------
 
