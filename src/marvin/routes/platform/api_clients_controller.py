@@ -181,6 +181,10 @@ class APIClientsController(BaseUserController):
         if not api_client:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API client not found.")
 
+        # Two-step safety: a live site's token can't vanish in one click — it has to be disabled first.
+        if api_client.enabled:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Disable the client before deleting it.")
+
         # Emit event before deletion
         self.event_bus.dispatch(
             integration_id="api_client_management",
