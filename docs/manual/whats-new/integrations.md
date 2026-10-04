@@ -8,6 +8,8 @@ An **integration** is a credentialed connection from one workspace to one extern
 
 On startup `src/marvin/services/integrations/loader.py` reads every entry point in the group, imports it and registers its provider. A package that fails to import is logged and skipped; it never blocks the others or crashes startup. Its load report (distribution, version, error) is what the **Installed plugins** panel shows.
 
+**Plugins and integrations.** A *plugin* is the package the platform operator installs; an *integration* is one workspace's connection to a provider that a plugin registers. Platform super admins see every installed plugin under **Admin → Extensions → Plugins** (`/admin/plugins`): its package, version and kind (the only kind today is **Integration**), whether it loaded and, if not, why, and for each provider it registers the number of actions, blueprints and workspaces that have connected it. The page is read-only: installing a plugin runs its code, so it stays with whoever builds the image or the Helm init container (see [Install a provider](#install-a-provider)).
+
 A provider is a manifest plus handlers, defined against `marvin_integration_sdk` (`src/marvin_integration_sdk/base.py`):
 
 - `slug`, `name`, `description`, `category` (`source`, `destination`, `capability`, `notify`) and an optional emoji `icon`;
@@ -16,7 +18,7 @@ A provider is a manifest plus handlers, defined against `marvin_integration_sdk`
 - `content`, the [blueprints](blueprints.md) it declares, and `signature_schemes`, presets it adds to [incoming webhook](incoming-webhooks.md#signature-schemes) verification;
 - a `check(ctx)` health probe returning `(status, error)`, and `run_action(key, args, ctx)`.
 
-The provider receives only `config`, the resolved `secret`, a logger and an HTTP helper. It never touches the database or the event bus; core owns persistence and dispatch. The HTTP helper offers `get`, `post`, `put` and `delete`; it refuses private, loopback, link-local and reserved hosts (re-checked on every redirect), sends a `marvin-cms/integrations` User-Agent, defaults to a 15 s timeout, and refuses a response larger than `INTEGRATION_HTTP_MAX_BYTES` (default 5,000,000 bytes). See the SDK README at `https://github.com/InnerOpen/marvin-integration-sdk`.
+The provider receives only `config`, the resolved `secret`, a logger and an HTTP helper. It never touches the database or the event bus; core owns persistence and dispatch. The HTTP helper offers `get`, `post`, `put`, `patch` and `delete`; it refuses private, loopback, link-local and reserved hosts (re-checked on every redirect), sends a `marvin-cms/integrations` User-Agent, defaults to a 15 s timeout, and refuses a response larger than `INTEGRATION_HTTP_MAX_BYTES` (default 5,000,000 bytes). See the SDK README at `https://github.com/InnerOpen/marvin-integration-sdk`.
 
 Providers published so far, all under `https://github.com/InnerOpen/marvin-integration-*`:
 
@@ -28,6 +30,7 @@ Providers published so far, all under `https://github.com/InnerOpen/marvin-integ
 | `marvin-integration-instagram` | `instagram` | destination | `list_recent_comments`, `send_private_reply` (DM a comment's author), `auto_reply` (keyword rules, dry-run by default), `refresh_token`; declares its own entry types, collections and scheduled tasks |
 | `marvin-integration-square` | `square` | destination | `list_locations`, `create_listing`, `close_listing` (sell one-of-a-kind items through a Square checkout link); declares fields on an item type, an incoming webhook with its own `square` signature scheme, and workflows |
 | `marvin-integration-cloudflare-pages` | `cloudflare_pages` | destination | `list_deployments`, `build_log` (the likely failure line from a deployment's build log), `connect_notifications` (sets up Cloudflare's deploy notifications to post to Marvin), `deploy`; contributes a `cloudflare` token signature scheme and declares an incoming webhook plus workflows that turn deploy started / succeeded / failed notifications into site deployment events, with the build-log reason on failure |
+| `marvin-integration-buttondown` | `buttondown` | destination | `subscribe`, `lookup_subscriber`, `create_issue_email`, `connect_webhooks` (**Connect Buttondown webhooks**); contributes a `buttondown` signature scheme and declares an incoming webhook plus workflows that run a site's newsletter through Buttondown (see [Newsletter with Buttondown](#newsletter-with-buttondown)) |
 | `marvin-integration-template` | `example` | destination | `ping`; the starting point for a new provider |
 
 ## Where
@@ -37,6 +40,7 @@ Providers published so far, all under `https://github.com/InnerOpen/marvin-integ
 - **Workflows**: the **Run integration** step (`kind: "integration"`); see [Workflows](workflows.md).
 - **Scheduled runs**: a "Run Integration Action" scheduled task (`run_integration_action`).
 - **Install**: the backend image, or an init container in the Helm chart.
+- **Installed plugins, platform-wide**: **Admin → Extensions → Plugins** (`/admin/plugins`), super admins only.
 
 ## How to use
 
@@ -84,6 +88,18 @@ On `/automation/events/[type]` choose **+ Connect an integration action**, pick 
 
 A workflow's **Run integration** step calls one action of one integration (by its slug) with templated args and hands the result to later steps as `$steps.<id>.output`. See [Workflows](workflows.md).
 
+### Newsletter with Buttondown
+
+The Buttondown provider keeps Marvin as the list of record while [Buttondown](https://buttondown.com) sends the email. A signup on the site becomes a Buttondown subscriber; when the reader confirms, their signup entry is published, and when they unsubscribe it is archived (inbox = pending, published = confirmed, archived = unsubscribed). Publishing a newsletter issue creates its Buttondown email.
+
+- **Connection**: the **API key** (best as a `{{SECRET}}` reference), **Issue delivery** and an optional **Site URL**. Issue delivery is **Off** (publishing an issue does nothing in Buttondown), **Draft** (the default: a draft to review and send in Buttondown) or **Send** (sent to subscribers straight away). Relative links in an issue are made absolute against the Site URL, or, when it is blank, the workspace's **Canonical URL**, which the workflow passes as `${site.url}`.
+- **`subscribe`** returns the existing subscriber for an address already on the list. If that subscriber never confirmed, it asks Buttondown to re-send the confirmation email (`confirmation_resent` in the result); if Buttondown refuses, the signup still succeeds. An address that unsubscribed before is refused by Buttondown (`subscriber_suppressed`) and has to be re-added there.
+- **`create_issue_email`** follows Issue delivery, sends the issue's page (`${entry.url}`) as its canonical URL, and runs once per entry: an issue that already has its email is skipped, not sent twice.
+- **Connect Buttondown webhooks** (`connect_webhooks`) creates or updates the Buttondown webhook that posts this workspace's subscriber confirmations and unsubscribes to its `buttondown` incoming webhook, signed with `{{BUTTONDOWN_SIGNING_KEY}}`. It is safe to run again, never touches webhooks pointing elsewhere, and can retire one old hook URL you name. With `patch` on the HTTP helper (rc.182) it updates the webhook in place; on an older Marvin it creates a new one and deletes the old.
+- **Content**: the `buttondown` incoming webhook, workflows for signup → subscribe, confirmed → publish, unsubscribed → archive and published issue → email, and two optional workflows that keep a confirmed-subscribers collection. Confirm and unsubscribe workflows find the signup entry with an entry step set to skip when nothing matches (`if_none: skip`), so a reader who subscribed through another workspace on the same Buttondown account leaves the run green.
+
+It needs rc.177 for `${site.url}` and rc.179 for `${entry.url}` and `if_none: skip`. Setup steps, parameters and known limits are in the package's [README](https://github.com/InnerOpen/marvin-integration-buttondown#readme).
+
 ### Capability routing
 
 An action that declares a `capability` (currently `image.generate`, `image.edit`, `image.describe`, `image.search`, `image.upscale`) is discoverable by kind rather than by provider. `integrations_providing(kind, group_id)` returns pre-authorised handlers from every enabled integration in the workspace, highest `priority` first; `src/marvin/services/ai/media/capability.py` consumes it. Each invocation is logged as an `ai_executions` row and an `ai_operation_executed` (or `ai_operation_failed`) event, so paid capability spend shows in the event log.
@@ -103,7 +119,7 @@ All routes are workspace-scoped under `/api/groups/integrations` and mounted onl
 | GET / POST | `/subscriptions?event_type=` | List / create `event_type → action + args` |
 | PATCH / DELETE | `/subscriptions/{sub_id}` | Toggle `enabled` or replace `args` / remove |
 
-Blueprints are applied through `/api/groups/blueprints`; see [Blueprints](blueprints.md). Full reference: [API reference](../api/index.md).
+The platform-wide list is `GET /api/admin/plugins` (super admin): each installed package with `name`, `package`, `version`, `kind`, `ok`, `error` and `providers` (`slug`, `name`, `actions`, `blueprints`, `workspaces`). Blueprints are applied through `/api/groups/blueprints`; see [Blueprints](blueprints.md). Full reference: [API reference](../api/index.md).
 
 ## Settings
 
@@ -115,7 +131,7 @@ No setting switches integrations on; presence of an installed provider does. Cre
 
 ## Since
 
-Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145.
+Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145. **Admin → Extensions → Plugins** and `GET /api/admin/plugins`: rc.158. HTTP `patch`: rc.182. The Buttondown provider is a separate package; it relies on `${site.url}` (rc.177), `${entry.url}` and `if_none: skip` (rc.179).
 
 Note: `docs/INTEGRATIONS_DESIGN.md` and the plugin architecture doc predate the implementation and describe polling that nothing calls; the SDK package is the contract.
 
