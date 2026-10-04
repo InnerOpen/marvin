@@ -60,7 +60,7 @@ try {
     (async () => {
       try {
         const settings = await fetchApi<any>('/api/groups/ai-settings');
-        if (!bubbleAllowed(settings)) { root.remove(); return; } // AI off, or Ask switched off
+        if (!bubbleAllowed(settings)) { root.remove(); return; } // AI off, or the bubble switched off
         applyIdentity(settings);
         root.removeAttribute('hidden');
       } catch {

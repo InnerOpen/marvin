@@ -192,7 +192,7 @@ class AIOperationsController(BaseUserController):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role for this operation.")
 
         # Invocation-source gate: operation's declared sources ∩ workspace policy.
-        self._check_invocation_source(body.source, operation.invocation_sources)
+        body.source = self._check_invocation_source(body.source, operation.invocation_sources)
 
         # Budget check from workspace settings
         self._check_budget()
@@ -497,7 +497,7 @@ class AIOperationsController(BaseUserController):
 
         # Compose is an authoring verb: reachable from the editor, MCP, the agent, and the API
         # (not forms/scheduled). Gated against the workspace invocation_sources policy.
-        self._check_invocation_source(body.source, ("editor", "mcp", "agent", "api"))
+        body.source = self._check_invocation_source(body.source, ("editor", "mcp", "agent", "api"))
 
         # Resolve entry type by slug (workspace or system), then by id.
         entry_type = (
@@ -607,7 +607,7 @@ class AIOperationsController(BaseUserController):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="AUTHOR role or higher required.")
 
         # Same authoring surfaces as compose (editor / MCP / agent / API), gated by policy.
-        self._check_invocation_source(body.source, ("editor", "mcp", "agent", "api"))
+        body.source = self._check_invocation_source(body.source, ("editor", "mcp", "agent", "api"))
 
         # Resolve the entry (workspace-scoped) by slug then id.
         entry = self.session.query(Entries).filter(Entries.slug == body.entry, Entries.group_id == self.group_id).first()
@@ -756,7 +756,7 @@ class AIOperationsController(BaseUserController):
 
         # AUTHOR or higher — the default agent can create/modify content.
         self._require_role(ROLE_AUTHOR, "AUTHOR role or higher required.")
-        self._check_invocation_source(body.source, ("agent", "editor", "api", "mcp"))
+        body.source = self._check_invocation_source(body.source, ("agent", "editor", "api", "mcp"))
         self._check_budget()
 
         provider = self._agent_provider()
@@ -958,13 +958,14 @@ class AIOperationsController(BaseUserController):
         completion — no tools, no retrieval.
         """
         from marvin.services.ai.agents import may_talk
+        from marvin.services.ai.operations.base import execution_source
 
         spec = self._agent_or_404(slug)
         role = self._user_role()
-        ok, reason = may_talk(spec, role, body.source)
+        ok, reason = may_talk(spec, role, execution_source(body.source))
         if not ok:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
-        self._check_invocation_source(body.source, ("agent", "editor", "api", "mcp"))
+        body.source = self._check_invocation_source(body.source, ("agent", "editor", "api", "mcp"))
         self._check_budget()
 
         provider = self._agent_provider()
@@ -1071,11 +1072,12 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This thread has nothing waiting for approval.")
         spec = self._agent_or_404(thread.agent_slug)
         role = self._user_role()
-        # Resuming a paused Ask-Marvin conversation is the agent surface, gated like the original run.
+        # Resuming a paused conversation is agent chat from the surface that resumes it (the Ask page),
+        # gated like the original run.
         ok, reason = may_talk(spec, role, "agent")
         if not ok:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=reason)
-        self._check_invocation_source("agent", ("agent",))
+        self._check_invocation_source(data.source, ("agent",))
         self._check_budget()
         provider = self._agent_provider()
         run = dict(pending.get("run") or {})
@@ -1978,7 +1980,7 @@ class AIOperationsController(BaseUserController):
         if self._user_role() < ROLE_VIEWER:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="VIEWER role or higher required.")
 
-        self._check_invocation_source(body.source, ("editor", "api", "agent", "mcp"))
+        body.source = self._check_invocation_source(body.source, ("editor", "api", "agent", "mcp"))
         self._check_budget()
 
         try:
@@ -2598,35 +2600,37 @@ class AIOperationsController(BaseUserController):
                 return WORKSPACE_ROLE_HIERARCHY.get(m.workspace_role, 0)
         return 0
 
-    def _check_invocation_source(self, source: str, operation_sources) -> None:
-        """Gate a call by its invocation surface.
+    def _check_invocation_source(self, source: str, operation_sources) -> str:
+        """Gate a call by its invocation surface; returns the source it runs under.
 
         Effective allow-list = the operation's declared sources ∩ the workspace's
         invocation_sources policy. `source` is set by the calling infrastructure (the admin
-        editor sends "editor", MarvinMCP sends "mcp", the agent endpoint sends "agent", …), so
+        editor sends "editor", the bubble "bubble", the Ask page "ask_page", MarvinMCP "mcp", …), so
         this is surface/feature gating — the per-user authorization wall is min_role. The
         workspace policy is an override map: a source is enabled unless explicitly set false,
-        so an unset/None policy allows everything (back-compat).
+        so an unset/None policy allows everything (back-compat). The Ask surfaces are agent chat:
+        an operation declaring `agent` takes them, and past the gate they run as `agent`.
         """
-        from marvin.services.ai.operations.base import INVOCATION_SOURCES
+        from marvin.services.ai.operations.base import INVOCATION_SOURCES, execution_source, source_allowed
 
         if source not in INVOCATION_SOURCES:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Unknown invocation source '{source}'. Valid: {', '.join(INVOCATION_SOURCES)}.",
             )
-        if source not in operation_sources:
+        runs_as = execution_source(source)
+        if runs_as not in operation_sources:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"This operation cannot be invoked from the '{source}' source.",
             )
         settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        policy = settings.invocation_sources if settings else None
-        if isinstance(policy, dict) and policy.get(source, True) is False:
+        if not source_allowed(settings.invocation_sources if settings else None, source):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"This workspace has disabled AI from the '{source}' source.",
             )
+        return runs_as
 
     def _max_output_tokens(self) -> int | None:
         """Per-request output-token cap: the workspace's `max_tokens_per_request`, else the app default."""

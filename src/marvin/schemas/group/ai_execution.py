@@ -42,7 +42,7 @@ class AIOperationExecuteRequest(_MarvinModel):
     entity_id: str | None = None  # UUID or slug — resolved server-side (MCP/CLI work in slugs)
     input: dict = {}
     model_override: str | None = None  # override the workspace default model
-    # Invocation surface (editor/forms/actions/mcp/scheduled/agent/api). Set by the calling
+    # Invocation surface (editor/bubble/ask_page/mcp/agent/automation/api…). Set by the calling
     # infrastructure (e.g. MarvinMCP sends "mcp"); gated against the workspace policy ∩ the
     # operation's declared sources. Defaults to the admin editor.
     source: str = "editor"

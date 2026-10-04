@@ -56,5 +56,6 @@ class AIThreadResumeRequest(_MarvinModel):
 
     decisions: dict[str, Literal["approve", "deny"]] = {}
     client_run_id: str | None = None  # live steps for the resumed run, as on a run
+    source: str = "agent"  # invocation surface resuming it (the Ask page sends "ask_page"); gated by workspace policy
 
     model_config = ConfigDict(from_attributes=True)

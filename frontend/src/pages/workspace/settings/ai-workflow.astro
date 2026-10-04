@@ -3,6 +3,7 @@ import CharacterPicker from "@/components/CharacterPicker.astro";
 import EmojiPicker from "@/components/EmojiPicker.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { sourceAllowed } from "@/lib/marvin/gate";
 import { voiceFor } from "@/lib/marvin/persona";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -69,6 +70,8 @@ const BUBBLE_LISTS = [
   { key: "emotes", label: "Emotes", hint: "Stage directions, like *smiles*." },
 ] as const;
 
+// A pre-split `agent: false` shows both Ask toggles off (sourceAllowed), and saving writes the shown keys
+// only — so it carries over as `bubble`/`ask_page` false instead of silently switching back on.
 const invSrc = s.invocationSources ?? {};
 const isIconUrl = /^(https?:\/\/|\/)/.test(s.assistantIcon ?? "");
 // Catalog-driven so every real source (incl. `automation`) renders and can't drift from the backend.
@@ -81,7 +84,8 @@ const sourceCatalog = sources.length
       { key: "actions", label: "Manual actions", description: "AI actions triggered by hand." },
       { key: "mcp", label: "External MCP hosts", description: "External assistants calling in over MCP." },
       { key: "scheduled", label: "Scheduled tasks", description: "AI run by scheduled tasks." },
-      { key: "agent", label: `Ask ${s.assistantName ?? "Marvin"}`, description: "The assistant bubble, the Ask page and named agents." },
+      { key: "bubble", label: `${s.assistantName ?? "Marvin"} bubble`, description: "The floating assistant bubble on every admin page." },
+      { key: "ask_page", label: "Ask page", description: "The Ask page and named agents, incl. resuming a paused chat." },
       { key: "automation", label: "Automations", description: "Workflows running an AI-operation step." },
       { key: "api", label: "API", description: "Direct calls to the AI operation endpoints." },
     ];
@@ -238,7 +242,7 @@ const modCfg = s.moderationConfig ?? {};
     </div>
 
     <!-- 4. Invocation Sources -->
-    <div class="section-card ai-dependent">
+    <div class="section-card ai-dependent" id="invocation-sources">
       <div class="section-title">
         <h3>Invocation Sources</h3>
         <p>Which subsystems are allowed to trigger AI calls.</p>
@@ -254,7 +258,7 @@ const modCfg = s.moderationConfig ?? {};
               type="checkbox"
               name={`invocation_sources.${key}`}
               class="toggle-input"
-              checked={invSrc[key] !== false}
+              checked={sourceAllowed(invSrc, key)}
             />
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
           </label>

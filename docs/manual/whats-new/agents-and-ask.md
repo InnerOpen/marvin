@@ -116,12 +116,12 @@ All under `/api/ai`; role gates as noted. Full reference: [API reference](../api
 | `POST /agents`, `PATCH /agents/{slug}`, `DELETE /agents/{slug}` | define / edit / delete (ADMIN+; built-ins cannot be edited) |
 | `GET /agents/catalog` | categories and every bindable tool, including MCP tools discovered right now |
 | `GET /agents/{slug}/permissions` | effective matrix for the caller (`rows[].tools[].decision`, `reason`) |
-| `POST /agents/{slug}/run` | run an agent; body `AIAgentRequest` (`message`, `history`, `register`, `thread_id`, `client_run_id`, `entity_type`, `entity_id`, `model_override`, `max_steps`, `source`, default `agent`) |
+| `POST /agents/{slug}/run` | run an agent; body `AIAgentRequest` (`message`, `history`, `register`, `thread_id`, `client_run_id`, `entity_type`, `entity_id`, `model_override`, `max_steps`, `source`, default `agent`; the Ask page sends `ask_page`) |
 | `POST /agent` | the default `marvin` run (AUTHOR+) |
 | `GET /agents/runs/{run_id}/progress` | `{status, events, threadId, executionId, error}` for a run started with `client_run_id`; 404 = nothing recorded |
 | `GET /threads?agent=&limit=&children=` | my threads (admins: all); `children=true` adds the specialist threads opened by hand-offs |
 | `GET /threads/{id}`, `PATCH /threads/{id}`, `DELETE /threads/{id}` | read with messages and `pending`; rename; delete |
-| `POST /threads/{id}/resume` | decide a parked run's calls (`decisions: {call_id: "approve"}`, anything else denies) and continue it; 409 when nothing is waiting |
+| `POST /threads/{id}/resume` | decide a parked run's calls (`decisions: {call_id: "approve"}`, anything else denies) and continue it; `source` defaults to `agent` (the Ask page sends `ask_page`); 409 when nothing is waiting |
 | `GET /agent/tools` | the tools the loop would bind for you right now |
 | `POST /agents/{slug}/character`, `DELETE /agents/{slug}/character` | ADMIN+, workspace agents only. Upload the agent's own character (multipart `files`; the response adds `ignored`, `idleGuessed` and `cleared`) / remove it, so the agent shows the workspace's again |
 | `PUT /agents/{slug}/character/states`, `PUT /agents/{slug}/character/library` | ADMIN+. `{state, file}` plays one of its files for a state (`file: null` clears it) / `{pack}` (id or slug) switches it to a library pack. `AgentRead.character` holds the result |
@@ -171,12 +171,15 @@ Progress and the reindex run state are process-local: with more than one backend
 | Key | Label | Sent by |
 |---|---|---|
 | `editor` | Entry editor | inline AI actions in the entry editor |
-| `agent` | Ask plus the assistant name (Ask Marvin by default) | the bubble, the Ask page and named agents (including resuming a paused run) |
+| `bubble` | the assistant name plus "bubble" (Marvin bubble by default) | the floating Ask bubble on every admin page |
+| `ask_page` | Ask page | the Ask page and named agents run from it, including resuming a paused run |
 | `automation` | Workflows | a workflow's AI-operation step, including form- and schedule-triggered workflows |
 | `mcp` | External MCP hosts | `marvin-mcp` and other MCP clients |
 | `api` | API | direct calls to the operation endpoints |
 
-`forms`, `actions` and `scheduled` remain valid keys (old policies may store them) but nothing sends them, so they have no toggle. The source is reported by the caller, so this is feature gating, not a security boundary: per-user authorization is the role check.
+With **bubble** off the bubble does not appear; with **Ask page** off the sidebar's **Ask** link is hidden and the Ask page says Ask is switched off, with a link to Invocation Sources for workspace admins. Each can be off while the other stays on.
+
+`agent` is agent chat from anywhere: the default `source` of `POST /agent`, `POST /agents/{slug}/run` and `POST /threads/{id}/resume` for API and SDK callers, and what the bubble and Ask page calls run as once they pass the check (so operation, agent and tool sources and the executions log say `agent`). It has no toggle of its own: it is off when both **bubble** and **Ask page** are off, or when a stored policy sets `agent` to `false`. Before the split, `agent` was the single "Ask Marvin" toggle; a stored `agent: false` still switches both surfaces off, and the upgrade migration rewrites it to `bubble: false, ask_page: false`. `forms`, `actions` and `scheduled` remain valid keys (old policies may store them) but nothing sends them, so they have no toggle. The source is reported by the caller, so this is feature gating, not a security boundary: per-user authorization is the role check.
 
 ### Usage and limits
 

@@ -10,6 +10,7 @@ import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getEntryCounts } from "@/lib/api/entries";
+import { sourceAllowed } from "@/lib/marvin/gate";
 import { createSdkClient } from "@/lib/sdk";
 
 interface Props {
@@ -69,6 +70,17 @@ if (authToken) {
   }
 }
 
+// Ask link: hidden while the workspace has the Ask page invocation source switched off. Best-effort — a
+// failed read keeps the link (the page explains itself).
+let askLinkShown = true;
+if (authToken) {
+  try {
+    askLinkShown = sourceAllowed(((await sdk.ai.settings.get()) as any)?.invocationSources, "ask_page");
+  } catch {
+    askLinkShown = true;
+  }
+}
+
 // Simplified navigation following 80% rule
 const ASK_PATH = "/workspace/settings/ai-ask";
 
@@ -79,7 +91,7 @@ const navGroups = [
     items: [
       { href: "/", label: "Dashboard", icon: "⌂" },
       // Quick link to the agent chat; the page itself gates on AI being enabled.
-      { href: ASK_PATH, label: "Ask", icon: "💬" },
+      ...(askLinkShown ? [{ href: ASK_PATH, label: "Ask", icon: "💬" }] : []),
     ],
   },
   {

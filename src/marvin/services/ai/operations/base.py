@@ -16,7 +16,13 @@ ROLE_OWNER = 5
 # call is the INTERSECTION of the operation's declared sources and the per-workspace
 # invocation_sources policy (ai_settings). This gates *which surfaces* may run AI; min_role
 # is the separate per-user authorization wall.
-INVOCATION_SOURCES = ("editor", "forms", "actions", "mcp", "scheduled", "agent", "automation", "api")
+INVOCATION_SOURCES = ("editor", "forms", "actions", "mcp", "scheduled", "agent", "bubble", "ask_page", "automation", "api")
+
+# The admin's two Ask chat surfaces, each with its own toggle. Both run the agent, so once a call from
+# either is past the policy gate it runs as `agent`: operation, agent and tool sources, tool handlers
+# and the execution's trigger type all see `agent`.
+AGENT_SOURCE = "agent"
+AGENT_SURFACES = ("bubble", "ask_page")
 
 # User-facing catalog for the invocation_sources policy editor: which surface each source is, in
 # terms people recognize (not how it's wired). A source is allowed unless the workspace policy
@@ -27,6 +33,10 @@ INVOCATION_SOURCES = ("editor", "forms", "actions", "mcp", "scheduled", "agent",
 # on form submissions and scheduled runs goes through workflows (`automation`) — so a toggle for them
 # would switch nothing off.
 #
+# `agent` has no toggle either: it is agent chat from anywhere — what API/SDK agent runs send by default
+# and what the agent loop runs under. It predates the bubble/Ask page split, so a stored `agent: false`
+# still switches both surfaces off; otherwise it is off only when both surfaces are (see source_allowed).
+#
 # `source` is reported by the caller, so this is feature gating (turn a surface off), not a security
 # boundary: per-user authorization is the role check.
 UNSENT_SOURCES = ("forms", "actions", "scheduled")
@@ -35,14 +45,41 @@ INVOCATION_SOURCE_CATALOG: tuple[dict[str, str], ...] = (
     {"key": "editor", "label": "Entry editor", "description": "Inline AI actions inside the entry editor (summarize, tags, rewrite…)."},
     # `{assistant}` is the workspace's assistant name (AI settings → Persona), filled in when served.
     {
-        "key": "agent",
-        "label": "Ask {assistant}",
-        "description": "The Ask {assistant} bubble, the Ask page and named agents (incl. resuming a paused chat).",
+        "key": "bubble",
+        "label": "{assistant} bubble",
+        "description": "The floating Ask {assistant} bubble on every admin page.",
     },
+    {"key": "ask_page", "label": "Ask page", "description": "The Ask page and named agents, incl. resuming a paused chat."},
     {"key": "automation", "label": "Workflows", "description": "Workflows running an AI-operation step (incl. form- or schedule-triggered ones)."},
     {"key": "mcp", "label": "External MCP hosts", "description": "External assistants (Claude Desktop, etc.) calling in over MCP."},
     {"key": "api", "label": "API", "description": "Direct calls to the AI operation endpoints."},
 )
+
+
+def execution_source(source: str) -> str:
+    """The source a call runs under once it is past the gate: an Ask surface runs as `agent`."""
+    return AGENT_SOURCE if source in AGENT_SURFACES else source
+
+
+def source_allowed(policy: dict | None, source: str) -> bool:
+    """Whether a workspace's invocation_sources policy lets `source` run AI.
+
+    The policy is an override map — a source is allowed unless set false; no policy allows all. An Ask
+    surface is also off when the legacy `agent` key is, and `agent` itself is off when both surfaces are,
+    so neither a pre-split policy nor switching both surfaces off leaves agent chat reachable.
+    """
+    if not isinstance(policy, dict):
+        return True
+
+    def is_off(key: str) -> bool:
+        return policy.get(key, True) is False
+
+    if source in AGENT_SURFACES:
+        return not (is_off(source) or is_off(AGENT_SOURCE))
+    if source == AGENT_SOURCE:
+        return not (is_off(AGENT_SOURCE) or all(is_off(s) for s in AGENT_SURFACES))
+    return not is_off(source)
+
 
 OPERATION_REGISTRY: dict[str, "AIOperation"] = {}
 

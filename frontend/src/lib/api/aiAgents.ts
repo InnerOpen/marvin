@@ -222,9 +222,9 @@ export function deleteAgent(slug: string, authToken?: string): Promise<void> {
 }
 
 /**
- * Run a named agent. Stateless callers pass `history` (prior turns, oldest first, excluding this
- * message); thread-backed callers pass `threadId` (NEW_THREAD to open one) and the server keeps the
- * history — `history` is then ignored.
+ * Run a named agent from the Ask page (the `ask_page` invocation source). Stateless callers pass
+ * `history` (prior turns, oldest first, excluding this message); thread-backed callers pass `threadId`
+ * (NEW_THREAD to open one) and the server keeps the history — `history` is then ignored.
  */
 export function runAgent(
   slug: string,
@@ -244,7 +244,7 @@ export function runAgent(
     `/api/ai/agents/${encodeURIComponent(slug)}/run`,
     json({
       message,
-      source: "agent",
+      source: "ask_page",
       ...(opts.register ? { register: opts.register } : {}),
       ...(opts.entityType && opts.entityId ? { entityType: opts.entityType, entityId: opts.entityId } : {}),
       ...(opts.threadId ? { threadId: opts.threadId } : {}),
@@ -292,8 +292,9 @@ export function deleteThread(id: string, authToken?: string): Promise<void> {
   return fetchApi<void>(`/api/ai/threads/${encodeURIComponent(id)}`, { method: "DELETE" }, authToken);
 }
 /**
- * Decide the calls a parked run is waiting on and continue it. Missing ids count as denied. The
- * result has the shape of a run (it may park again: `stoppedReason === "awaiting_approval"`).
+ * Decide the calls a parked run is waiting on and continue it, from the Ask page (`ask_page`). Missing
+ * ids count as denied. The result has the shape of a run (it may park again:
+ * `stoppedReason === "awaiting_approval"`).
  */
 export function resumeThread(
   id: string,
@@ -303,7 +304,7 @@ export function resumeThread(
 ): Promise<AgentRunResult> {
   return fetchApi<AgentRunResult>(
     `/api/ai/threads/${encodeURIComponent(id)}/resume`,
-    json({ decisions, ...(opts.clientRunId ? { clientRunId: opts.clientRunId } : {}) }),
+    json({ decisions, source: "ask_page", ...(opts.clientRunId ? { clientRunId: opts.clientRunId } : {}) }),
     authToken,
   );
 }

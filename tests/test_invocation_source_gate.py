@@ -5,6 +5,7 @@ and the workspace's invocation_sources policy (an override map: enabled unless e
 false). This exercises `_check_invocation_source` directly with a mocked session.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,7 +13,9 @@ from fastapi import HTTPException
 
 from marvin.routes.ai.operations_controller import AIOperationsController
 
-ALL = ("editor", "forms", "actions", "mcp", "scheduled", "agent", "api")
+FRONTEND = Path(__file__).resolve().parents[1] / "frontend" / "src"
+
+ALL = ("editor", "forms", "actions", "mcp", "scheduled", "agent", "api")  # an op declaring every source
 
 
 def _controller(policy):
@@ -25,7 +28,16 @@ def _controller(policy):
 
 
 def _check(policy, source, op_sources=ALL):
-    AIOperationsController._check_invocation_source(_controller(policy), source, op_sources)
+    return AIOperationsController._check_invocation_source(_controller(policy), source, op_sources)
+
+
+def _blocked(policy, source, op_sources=ALL) -> bool:
+    try:
+        _check(policy, source, op_sources)
+    except HTTPException as exc:
+        assert exc.status_code == 403
+        return True
+    return False
 
 
 def test_unknown_source_is_rejected():
@@ -70,19 +82,75 @@ def test_intersection_requires_both():
 
 def test_source_catalog_lists_every_source_something_sends():
     # Drift guard: every source a caller actually sends has a UI toggle (a new source can't ship
-    # without one), and the UI never offers a toggle that switches nothing off.
-    from marvin.services.ai.operations.base import INVOCATION_SOURCE_CATALOG, INVOCATION_SOURCES, UNSENT_SOURCES
+    # without one), and the UI never offers a toggle that switches nothing off. `agent` is sent (API
+    # default, the agent loop) but follows the two Ask surface toggles instead of having its own.
+    from marvin.services.ai.operations.base import AGENT_SOURCE, INVOCATION_SOURCE_CATALOG, INVOCATION_SOURCES, UNSENT_SOURCES
 
     catalog_keys = {s["key"] for s in INVOCATION_SOURCE_CATALOG}
-    assert catalog_keys == set(INVOCATION_SOURCES) - set(UNSENT_SOURCES)
+    assert catalog_keys == set(INVOCATION_SOURCES) - set(UNSENT_SOURCES) - {AGENT_SOURCE}
     assert all(s.get("label") and s.get("description") for s in INVOCATION_SOURCE_CATALOG)
 
 
-def test_the_bubble_and_ask_page_identify_as_the_agent_surface():
-    # The "Ask Marvin" toggle (agent) must govern them; they used to send "editor".
-    from pathlib import Path
+# ── The Ask surfaces: bubble + ask_page, and the legacy `agent` key ──
 
-    api = Path(__file__).resolve().parents[1] / "frontend" / "src" / "lib" / "api"
-    for name in ("aiBubble.ts", "aiAgents.ts"):
-        text = (api / name).read_text()
-        assert 'source: "editor"' not in text and 'source: "agent"' in text, name
+
+@pytest.mark.parametrize("surface", ["bubble", "ask_page"])
+def test_ask_surface_is_allowed_with_no_policy(surface):
+    assert not _blocked(None, surface)
+
+
+@pytest.mark.parametrize("surface", ["bubble", "ask_page"])
+def test_ask_surface_switched_off_is_forbidden(surface):
+    assert _blocked({surface: False}, surface)
+
+
+@pytest.mark.parametrize("surface", ["bubble", "ask_page"])
+def test_legacy_agent_false_blocks_each_ask_surface(surface):
+    assert _blocked({"agent": False}, surface)
+
+
+def test_bubble_off_leaves_the_ask_page_on_and_vice_versa():
+    assert not _blocked({"bubble": False}, "ask_page")
+    assert not _blocked({"ask_page": False}, "bubble")
+
+
+def test_agent_source_follows_the_ask_surfaces():
+    # External/API agent runs: off when `agent` is, or when both surfaces are; one surface off is not enough.
+    assert _blocked({"agent": False}, "agent")
+    assert _blocked({"bubble": False, "ask_page": False}, "agent")
+    assert not _blocked({"bubble": False}, "agent")
+    assert not _blocked({"ask_page": False}, "agent")
+    assert not _blocked(None, "agent")
+
+
+@pytest.mark.parametrize("surface", ["bubble", "ask_page"])
+def test_ask_surface_runs_as_agent(surface):
+    # An operation/endpoint declaring `agent` takes the surfaces, and past the gate the call is an agent call.
+    assert _check(None, surface, op_sources=("agent",)) == "agent"
+
+
+def test_other_sources_run_as_themselves():
+    assert _check(None, "editor") == "editor"
+
+
+def test_ask_surface_rejected_where_agent_is_not_declared():
+    with pytest.raises(HTTPException) as exc:
+        _check(None, "bubble", op_sources=("editor", "mcp"))
+    assert exc.value.status_code == 403
+
+
+def test_the_bubble_identifies_as_bubble():
+    text = (FRONTEND / "lib" / "api" / "aiBubble.ts").read_text()
+    assert 'source: "bubble"' in text and 'source: "agent"' not in text and 'source: "editor"' not in text
+
+
+def test_the_ask_page_identifies_as_ask_page():
+    # Named-agent runs and resuming a paused chat both come from the Ask page.
+    text = (FRONTEND / "lib" / "api" / "aiAgents.ts").read_text()
+    assert text.count('source: "ask_page"') == 2 and 'source: "agent"' not in text
+
+
+def test_ask_link_and_page_follow_the_ask_page_source():
+    assert "sourceAllowed(" in (FRONTEND / "layouts" / "AppLayout.astro").read_text()
+    page = (FRONTEND / "pages" / "workspace" / "settings" / "ai-ask.astro").read_text()
+    assert '"ask_page"' in page and "Ask is switched off for this workspace." in page

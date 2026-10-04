@@ -2,13 +2,18 @@
 import AppLayout from "@/layouts/AppLayout.astro";
 import { type Agent, listAgents } from "@/lib/api/aiAgents";
 import { getAuthToken } from "@/lib/api/client";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 import { MAIN_AGENT } from "@/lib/marvin/cast";
+import { sourceAllowed } from "@/lib/marvin/gate";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 const authed = !!authToken;
 
 let aiEnabled = false;
+// The workspace can switch the Ask page off on its own (AI settings → Invocation Sources, `ask_page`).
+let askEnabled = true;
+let canManage = false;
 let settingsError: string | null = null;
 let agents: Agent[] = [];
 // The workspace's name for its main agent (AI settings), shown wherever that agent is named.
@@ -19,15 +24,20 @@ if (authed) {
   try {
     const settings = await createSdkClient(authToken).ai.settings.get();
     aiEnabled = (settings as any)?.enabled !== false;
+    askEnabled = sourceAllowed((settings as any)?.invocationSources, "ask_page");
     assistantName = String((settings as any)?.assistantName ?? "").trim();
   } catch (e) {
     settingsError = e instanceof Error ? e.message : String(e);
     console.error("[ai-ask] Error loading AI settings:", e);
   }
-  try {
-    agents = (await listAgents(authToken)).filter((a) => a.enabled);
-  } catch (e) {
-    console.error("[ai-ask] Error loading agents:", e);
+  if (aiEnabled && !askEnabled) {
+    canManage = await canManageCurrentWorkspace(authToken!).catch(() => false);
+  } else {
+    try {
+      agents = (await listAgents(authToken)).filter((a) => a.enabled);
+    } catch (e) {
+      console.error("[ai-ask] Error loading agents:", e);
+    }
   }
 }
 const agentsJson = JSON.stringify(agents);
@@ -57,6 +67,11 @@ const agentDisplayName = (a: Agent) => (a.slug === MAIN_AGENT && assistantName ?
       AI is currently disabled for this workspace.
       <a href="/workspace/settings/ai-workflow">Enable it in AI Settings</a> to ask questions.
       {settingsError && <span class="muted"> ({settingsError})</span>}
+    </div>
+  ) : !askEnabled ? (
+    <div class="alert alert-info">
+      Ask is switched off for this workspace. An admin can turn it on in{" "}
+      {canManage ? <a href="/workspace/settings/ai-workflow#invocation-sources">AI settings → Invocation Sources</a> : "AI settings → Invocation Sources"}.
     </div>
   ) : (
   <>
