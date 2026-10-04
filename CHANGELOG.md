@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.187 (2026-10-04)
+
+### Bug Fixes
+
+- **ai**: Bind the bubble's Marvin through Marvin's permission matrix
+  ([`f040df4`](https://github.com/InnerOpen/marvin/commit/f040df4906ca9787e0078086ad42c0fe0918111b))
+
+
 ## v1.0.0-rc.186 (2026-10-04)
 
 ### Features
