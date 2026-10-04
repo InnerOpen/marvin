@@ -116,6 +116,8 @@ Admin: **Admin → Operations → Backups** (`/admin/backups`) and `/api/admin/b
 | `MCP_TOOL_RESULT_MAX_CHARS` | `20000` | longest external MCP tool result an agent sees; longer ones are cut with a note. Must be above 0 (rc.146) |
 | `AI_ALLOW_WORKSPACE_CREDENTIALS` | `true` | workspaces may store their own provider keys |
 | `AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS` | `0` | how long after startup to mark AI runs left `running` by an earlier process as failed; `0` sweeps at startup. The Helm chart sets the grace period plus 60 seconds under a rolling update, `0` under `Recreate` |
+| `AI_PARKED_RUN_TTL_HOURS` | `168` | how long an agent run waiting for your approval stays decidable (7 days). An hourly task ends older ones: the pending actions are denied, the run fails "expired" and `approval_rejected` fires with reason `expired`. `0` keeps them forever |
+| `AI_HANDOFF_MAX_DEPTH` | `1` | how deep agent hand-offs nest: `1` lets the main agent hand off to a specialist that cannot hand off further, `2` lets that specialist hand off once more; `0` turns hand-offs off. Each level runs inside the request of the level above |
 | `OIDC_*`, `LDAP_*`, `SECURITY_*`, `AUTH_COOKIE_NAME` | see [Auth and tokens](auth-and-tokens.md) | |
 
 The full list with docstrings is `src/marvin/core/settings/settings.py`; `docs/configuration-settings.md` in the repo is older and not checked against rc.186.

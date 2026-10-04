@@ -173,13 +173,46 @@ parking at depth 0, so a child's ask-first tools simply aren't bound. `run_agent
 bubble/ask_page. **UI:** Ask page card with "via" chips; bubble inline approve/deny card (required when the Ask
 page is off — today that case is a dead end even for plain ask-first); `approval_requested` toast.
 
-**Checklist:** 0) test + fix the bubble `POST /agent` matrix question · 1) loop deferral · 2) child parking ·
-3) nested record/flatten · 4) recursive resume · 5) abandon cascade + TTL · 6) permission re-checks · 7) audit +
-events · 8) Ask page card · 9) bubble card + toast · 10) manual, rollout, walk-through.
+**Checklist:**
+- [x] 0) bubble `POST /agent` binds Marvin's matrix and parks (`f040df49`, tests/test_bubble_agent_permissions.py)
+- [x] 1) loop deferral — `ToolDeferred`, `PendingCall(kind="handoff", child)`, `ResumeState.outputs`; still-pending hand-off → re-park without a model call
+- [x] 2) child parking — specialist binds ask-first under a thread-backed parent, parks quietly (`pending_json.parent`), delegate raises `ToolDeferred`
+- [x] 3) nested record + `flatten_pending()` — recursive, path ids `c1/c7`, `via`/`viaName`/`viaChain`/`childThreadId`/`childExecutionId`
+- [x] 4) recursive resume — `_resume_leg` / `_resume_child`, children first; resuming on a child thread forwards to the root
+- [x] 5) abandon cascade (up + down, `parked_runs.end_tree`) + TTL `AI_PARKED_RUN_TTL_HOURS` (default 168; hourly task + lazy 409 on resume)
+- [x] 6) permission re-checks — owner of every thread, `may_talk` per agent (else `no_longer_permitted`), tools rebound at current role (`NOT_PERMITTED_RESULT`)
+- [x] 7) audit `metadata_json.approvals` (append-only) + events once on the root with `via_agent`/`child_*`/`decided_by`/`surface`/`reason`
+- [x] 8) Ask page card (via chips grouped by origin, root switch, live-step wording)
+- [x] 9) bubble inline card (+ "Open on Ask page" when that source is on, resume source `bubble`) + `approval_requested` toast (owner only; Ask off → opens the bubble)
+- [x] depth setting `AI_HANDOFF_MAX_DEPTH` (default 1; recursion works for 2+, chain guard)
+- [x] follow-ups: `GET /agent/tools` through Marvin's matrix with `asksFirst`; compose/revise use the run's tone (`ToolContext.tone_register`)
+- [x] 10a) manual (Agents and Ask, Operations settings)
+- [ ] 10b) rollout + Jared's walk-through
 
 **Risks:** fixing the bubble matrix makes workflows/MCP writes start asking in the bubble (correct, visible);
 stale child context on long waits; one request runs child + parent legs (session/rollback care); path ids must stay
 stable across re-parks.
+
+**Review (2026-10-04, branch `feat/agents-c2-carry-ask`):** built as planned; no migration. Commits: follow-ups
+(`/agent/tools` matrix + run tone), backend C2, frontend, docs. Design notes: the parent's hand-off call stores a
+*snapshot* of the specialist's pending calls (refreshed on every re-park) so `pending` flattens without loading child
+threads; the child thread's own `pending_json` stays the source of truth for resuming it. A partially-settled resume
+(parent's own calls decided while a specialist re-parks) runs the parent's approved calls once and re-parks without a
+model call. Approval events: granted/rejected each carry only the calls with that decision (the decision map stays
+complete); event-level `via_agent`/`child_*` are set only when every call in the event comes from one specialist.
+Depth: platform setting (least churn); depth 2+ parks and resumes (tested), an agent already in the chain is refused,
+each level still nests inside the parent's request. Expiry fires `approval_rejected` reason `expired`, no notification.
+Tests: tests/test_agent_handoff_approval.py (loop + controller end to end over the real loop with a scripted provider),
+plus updates in test_agent_approval/test_agent_handoff/test_bubble_agent_permissions/test_tones; frontend node tests in
+lib/approvals.test.mjs, pending.test.mjs, toast.test.mjs. Full backend suite green; astro check = base (50). Browser
+check on SQLite + fake Ollama: Ask page card with the via chip, bubble inline card → approve → answer, toast (Ask on →
+link; Ask off → opens the bubble with the card). Not verified: a real model, Postgres, the "replaced by a newer
+message" card state in a browser. Code review (subagent) found no critical bugs; fixed: a specialist failing before its own
+resume starts is ended (`failed`) instead of left `awaiting_approval`; a hand-off the router may no longer make
+(matrix/depth changed) does not resume the specialist; deciding on a specialist's thread is refused (409) when the root
+waits on other actions too, so nothing unseen is denied. Known, left: `approval_granted` fires before the legs run, so
+it can list a call that then ends `no_longer_permitted`/`failed` (the execution's audit has the truth); an orphaned
+specialist park (parent failed after the child parked) blocks re-hand-offs to it until TTL or a message on its thread.
 
 **Decisions (Jared 2026-10-04):** 1) yes — the bubble's Marvin follows Marvin's permission matrix and parks ask-first calls like the Ask page (test + fix done as a separate change first); 2) resuming on a child thread passes the decision up to the root; 3) yes — a new message on a parked child abandons the parent too; 4) parked runs expire (default TTL, e.g. 7 days, configurable), no notification on expiry for now; 5) approval events fire once on the root, plus an `approval_requested` toast popup; 6) the bubble always gets the inline approve/deny card (plus the Ask page link when the Ask page is on); 7) hand-off depth is configurable (workspace or platform setting) if it isn't too much churn, default 1.
 forwards to parent (rec.) or 409? 3) new message on a parked child abandons the parent too (rec.)? 4) expiry off or
