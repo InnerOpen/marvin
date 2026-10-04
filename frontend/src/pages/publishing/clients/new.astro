@@ -1,5 +1,6 @@
 ---
 import ApiClientPermissionFields from "@/components/ApiClientPermissionFields.astro";
+import ApiTokenRevealModal from "@/components/ApiTokenRevealModal.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
@@ -66,22 +67,13 @@ try {
       </div>
     </form>
   )}
+
+  <ApiTokenRevealModal doneHref="/publishing/clients" />
 </AppLayout>
 
 <script>
   import { permissionsFromChecked } from '@/lib/apiClientPermissions';
-
-  interface APIClientWithToken {
-    id: string;
-    groupId: string;
-    name: string;
-    slug: string;
-    description?: string | null;
-    permissions: Record<string, unknown>;
-    token: string;
-    enabled: boolean;
-    createdAt?: string | null;
-  }
+  import { revealTokenOnce } from '@/lib/tokenReveal';
 
   interface APIClientCreatePayload {
     name: string;
@@ -119,19 +111,12 @@ try {
         const sdk = createSdkClient();
         const result = await sdk.apiClients.create(data);
 
-        console.log('API Client created:', result);
-        console.log('Token:', result.token);
-        console.log('Name:', result.name);
-
-        if (!result.token) {
-          console.error('No token in response!', result);
+        // Shown once from the response; dismissing the dialog moves on to the clients list.
+        const dialog = document.getElementById('api-token-modal') as HTMLDialogElement | null;
+        if (!dialog || !revealTokenOnce(dialog, result.token)) {
           alert('Warning: Client created but no token was returned. Please rotate the token to get a new one.');
           window.location.href = '/publishing/clients';
-          return;
         }
-
-        // Redirect to clients page with token info
-        window.location.href = `/publishing/clients?token=${result.token}&client_name=${encodeURIComponent(result.name)}`;
       } catch (err) {
         alert('Error: ' + (err instanceof Error ? err.message : 'Failed to create client'));
       }

@@ -1,0 +1,142 @@
+---
+/**
+ * One-time display of a new API client token. Pages fill and open it with `revealTokenOnce` from
+ * `@/lib/tokenReveal`, passing the token from the create/rotate response — never via the URL.
+ * `doneHref`: where to go once the dialog is dismissed (Done or Escape); omit to stay on the page.
+ */
+interface Props {
+  doneHref?: string;
+}
+
+const { doneHref } = Astro.props;
+---
+
+<dialog id="api-token-modal" class="modal" data-done-href={doneHref}>
+  <div class="modal-content">
+    <h3>API Client Token</h3>
+    <p class="warning">
+      ⚠️ Copy this token now and store it somewhere safe. It won't be shown again; if you lose it,
+      rotate the token to get a new one.
+    </p>
+    <div class="token-display-wrapper">
+      <code class="token-display" data-token-value></code>
+      <button type="button" class="copy-button" data-copy-token title="Copy to clipboard">
+        <span class="copy-icon">📋</span>
+      </button>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="button" data-close-token>Done</button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  import { forgetToken, TOKEN_VALUE_SELECTOR } from '@/lib/tokenReveal';
+
+  const COPIED_FEEDBACK_MS = 2000;
+  const dialog = document.getElementById('api-token-modal') as HTMLDialogElement | null;
+
+  if (dialog) {
+    const copyButton = dialog.querySelector<HTMLButtonElement>('[data-copy-token]');
+    const copyIcon = copyButton?.querySelector('.copy-icon');
+    copyButton?.addEventListener('click', async () => {
+      const token = dialog.querySelector(TOKEN_VALUE_SELECTOR)?.textContent;
+      if (!token || !copyIcon) return;
+      await navigator.clipboard.writeText(token);
+      copyIcon.textContent = '✓';
+      setTimeout(() => {
+        copyIcon.textContent = '📋';
+      }, COPIED_FEEDBACK_MS);
+    });
+
+    dialog.querySelector('[data-close-token]')?.addEventListener('click', () => dialog.close());
+
+    // `close` also fires on Escape, so the token is wiped however the dialog is dismissed.
+    dialog.addEventListener('close', () => {
+      forgetToken(dialog);
+      const doneHref = dialog.dataset.doneHref;
+      if (doneHref) window.location.href = doneHref;
+    });
+  }
+</script>
+
+<style>
+  .modal {
+    border: none;
+    border-radius: var(--radius);
+    padding: 0;
+    max-width: 90vw;
+    box-shadow: 0 8px 32px rgb(0 0 0 / 0.15);
+  }
+
+  .modal::backdrop {
+    background: rgb(0 0 0 / 0.5);
+  }
+
+  .modal-content {
+    padding: 24px;
+    background: var(--panel);
+  }
+
+  .modal h3 {
+    margin: 0 0 4px;
+    font-size: 20px;
+    font-weight: 600;
+  }
+
+  .warning {
+    margin: 8px 0 16px;
+    padding: 12px;
+    background: rgb(169 99 47 / 0.1);
+    border-left: 3px solid var(--warn);
+    color: var(--warn);
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .token-display-wrapper {
+    position: relative;
+    margin-bottom: 20px;
+  }
+
+  .token-display {
+    display: block;
+    padding: 16px 50px 16px 16px;
+    background: var(--bg);
+    color: var(--good);
+    border: 1px solid var(--line);
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    border-radius: var(--radius);
+    word-break: break-all;
+    user-select: all;
+    line-height: 1.5;
+  }
+
+  .copy-button {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 8px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 18px;
+    transition: background 0.2s;
+  }
+
+  .copy-button:hover {
+    background: var(--panel-2);
+  }
+
+  .copy-icon {
+    display: block;
+  }
+
+  .modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+  }
+</style>
