@@ -376,8 +376,8 @@ def default_policy(spec: AgentSpec, category_id: str) -> str:
       category/tool in the matrix); without `allow_writes` writes are blocked;
     - the router `marvin` allows its in-workspace writes and asks first for `ROUTER_ASK_CATEGORIES`.
 
-    "Ask first" needs a thread to park on. From a surface with no thread (the admin bubble, MCP
-    `run_agent`, a delegated child) ask means *not bound*.
+    "Ask first" needs a thread to park on. From a run with no thread (MCP `run_agent`, a delegated
+    child, an API call without a thread id) ask means *not bound*.
     """
     from marvin.services.ai.tools.categories import category_writes
 

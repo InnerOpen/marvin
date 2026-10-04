@@ -766,7 +766,11 @@ class AIOperationsController(BaseUserController):
         self._require_tool_capable(provider, model)
 
         entity_id = self._resolve_entity_id(body.entity_type, body.entity_id)
-        tools, ctx = self._bind_agent_tools(provider)
+        # This is the Ask page's Marvin under another URL (the bubble's default agent), so it binds
+        # through Marvin's permission matrix exactly as `/agents/marvin/run` does: "ask first" tools
+        # park the run when there is a thread to park on, and are not bound without one.
+        spec = self._agent_or_404(ROUTER_SLUG)
+        tools, ctx = self._bind_agent_tools(provider, agent=spec, role=self._user_role(), park_allowed=bool(body.thread_id))
         max_steps = self._agent_max_steps(body)
 
         assistant_name, persona_prompt = self._persona()
