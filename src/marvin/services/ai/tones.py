@@ -196,6 +196,27 @@ def persona_summary(tone: ToneSpec) -> str:
     return _PERSONA_SUMMARY[tone.persona]
 
 
+def preview(tone: ToneSpec, persona_prompt: str) -> dict:
+    """The tone's section as the previews show it: whole, in labelled parts, its persona rule and rough cost.
+
+    The fields of ``schemas.group.ai_settings.TonePreview``; the tone, Character and agent previews all use it,
+    so the parts read the same wherever they are shown.
+    """
+    parts = tone_parts(tone, persona_prompt)
+    return {
+        "clause": parts.text,
+        "tokens": estimate_tokens(parts.text),
+        "persona": tone.persona,
+        "persona_summary": persona_summary(tone),
+        "has_persona": bool((persona_prompt or "").strip()),
+        "character": parts.character.strip(),
+        "from_tone": (parts.scope + parts.tone).strip(),
+        "rule": parts.rule.strip(),
+        "tone_slug": tone.slug,
+        "tone_name": tone.name,
+    }
+
+
 def draft_voice(tone: ToneSpec, persona_prompt: str) -> str:
     """The voice a composed/revised draft is written in under `tone`, or "" for the plain default.
 

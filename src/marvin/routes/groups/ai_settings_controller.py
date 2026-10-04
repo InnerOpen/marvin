@@ -314,35 +314,34 @@ class AISettingsController(BaseUserController):
         self.session.commit()
         return self._tones_state()
 
-    @router.post("/tones/preview", response_model=TonePreview, summary="Preview a tone's prompt clause")
+    @router.post("/tones/preview", response_model=TonePreview, summary="Preview a tone's prompt section")
     def preview_tone(self, data: TonePreviewRequest) -> TonePreview:
-        """The section a tone adds to every agent step (with this workspace's persona), in its parts, and its rough token cost."""
+        """The section a tone adds to every agent step, with this workspace's character, in its parts, and its
+        rough token cost: a saved tone (`slug`), a draft one (the editor's fields) or, with neither, the
+        workspace default. `personaPrompt` / `assistantName` preview unsaved Character fields."""
         from marvin.services.ai import tones as t
         from marvin.services.ai.persona import resolve_persona
 
+        self._require_admin()
+        workspace = t.load_workspace_tones(self.session, self.group_id)
         if data.slug:
-            tone = t.load_workspace_tones(self.session, self.group_id).get(data.slug)
+            tone = workspace.get(data.slug)
             if tone is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No tone '{data.slug}'.")
-        else:
+        elif data.is_draft:
             draft = {"name": data.name or "Untitled", "instructions": data.instructions, "persona": data.persona}
             try:
                 tone = t.validate_tones([draft])[0]
             except t.ToneError as e:
                 raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        else:
+            tone = workspace.default
         row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        _, persona = resolve_persona(row.assistant_name if row else None, row.persona_prompt if row else None)
-        parts = t.tone_parts(tone, persona)
-        return TonePreview(
-            clause=parts.text,
-            tokens=t.estimate_tokens(parts.text),
-            persona=tone.persona,
-            persona_summary=t.persona_summary(tone),
-            has_persona=bool(persona),
-            character=parts.character.strip(),
-            from_tone=(parts.scope + parts.tone).strip(),
-            rule=parts.rule.strip(),
-        )
+        sent = data.model_fields_set
+        name = data.assistant_name if "assistant_name" in sent else (row.assistant_name if row else None)
+        prompt = data.persona_prompt if "persona_prompt" in sent else (row.persona_prompt if row else None)
+        _, persona = resolve_persona(name, prompt)
+        return TonePreview(**t.preview(tone, persona))
 
     # --- the bubble's animated character (services/ai/character.py) ------------------------------
 

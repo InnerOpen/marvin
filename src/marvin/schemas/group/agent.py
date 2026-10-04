@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import UUID4, ConfigDict, Field, field_validator
 
 from marvin.schemas._marvin import _MarvinModel
-from marvin.schemas.group.ai_settings import AssistantCharacter
+from marvin.schemas.group.ai_settings import AssistantCharacter, TonePreview
 from marvin.services.ai.operations.base import INVOCATION_SOURCES
 from marvin.services.ai.tones import SLUG_RE as TONE_SLUG_RE
 
@@ -137,3 +137,34 @@ class AgentRead(AgentBase):
     character: AssistantCharacter | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AgentPromptPreviewRequest(AgentUpdate):
+    """The Edit form's unsaved values for a prompt preview; anything left out is the stored agent's."""
+
+
+class AgentToolCategory(_MarvinModel):
+    id: str
+    label: str
+    count: int
+
+
+class AgentPromptPreview(_MarvinModel):
+    """The system prompt a run of this agent sends, in labelled parts, assembled by the run's own code.
+
+    Leaves out what only a run knows: the "what the user is looking at" block, the conversation, and the
+    tool definitions themselves (summarised as counts per permission-matrix category).
+    """
+
+    system: str  # the whole system prompt, in order
+    tokens: int  # rough estimate of `system`
+    kind: AgentKind
+    workspace: str = ""  # from Marvin: the workspace preamble (persona agents only; it names the bound tools)
+    instructions: str  # from the agent: its own instructions, or its kind's default
+    default_instructions: bool  # `instructions` is the default (the agent has none of its own)
+    tone: TonePreview  # the Character / tone section, as the tone preview shows it
+    tone_source: Literal["agent", "workspace"]  # the agent's default tone, or the workspace default
+    roster: str = ""  # the agents it may hand off or refer to, when it can
+    tool_count: int = 0
+    ask_first_count: int = 0  # of those, the ones that pause the run for approval
+    tool_categories: list[AgentToolCategory] = Field(default_factory=list)

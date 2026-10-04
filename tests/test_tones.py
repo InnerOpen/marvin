@@ -521,6 +521,40 @@ def test_preview_of_a_drop_tone_has_no_character_part(ctrl):
     assert out.persona_summary == "Drop: no character, just this tone."
 
 
+def test_preview_without_a_slug_or_draft_is_the_workspace_default_tone(ctrl):
+    ctrl.put(tones=[WARM], default_tone="warm")
+    out = ctrl.preview()
+    assert (out.tone_slug, out.tone_name) == ("warm", "Warm")
+    assert out.from_tone.endswith("Tone (Warm): Write warmly and encouragingly.") and out.rule == RULE
+
+
+def test_preview_names_the_tone_it_previewed(ctrl):
+    assert (ctrl.preview(slug="playful").tone_slug, ctrl.preview(slug="playful").tone_name) == ("playful", "Playful")
+
+
+def test_preview_uses_an_unsaved_character_in_place_of_the_stored_one(ctrl, db_session, workspace):
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    assert ctrl.preview(slug="auto", persona_prompt="You are Bea.").character == "Character: You are Bea."
+    assert ctrl.preview(slug="auto").character == "Character: You are Ada."  # nothing sent → the stored one
+    stored = db_session.query(WorkspaceAISettingsModel).filter_by(group_id=workspace).one()
+    assert stored.persona_prompt == "You are Ada."
+
+
+def test_preview_of_a_cleared_character_follows_the_unsaved_assistant_name(ctrl):
+    from marvin.services.ai.persona import DEFAULT_PERSONA_PROMPT
+
+    marvin = ctrl.preview(slug="auto", persona_prompt="", assistant_name="Marvin")
+    assert marvin.character == f"Character: {DEFAULT_PERSONA_PROMPT.strip()}" and marvin.has_persona
+    renamed = ctrl.preview(slug="auto", persona_prompt="  ", assistant_name="Ada")
+    assert (renamed.character, renamed.has_persona) == ("", False)
+
+
+def test_preview_requires_a_workspace_admin(ctrl):
+    ctrl.user = SimpleNamespace(id=None, admin=False, workspace_memberships=[])
+    assert _status(ctrl.preview, slug="auto").status_code == 403
+
+
 # ── Export / import ──────────────────────────────────────────────────────────────────────────────
 
 

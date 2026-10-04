@@ -13,7 +13,14 @@ from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
 from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.controller import controller
-from marvin.schemas.group.agent import AgentCreate, AgentRead, AgentUpdate
+from marvin.schemas.group.agent import (
+    AgentCreate,
+    AgentPromptPreview,
+    AgentPromptPreviewRequest,
+    AgentRead,
+    AgentToolCategory,
+    AgentUpdate,
+)
 from marvin.schemas.group.ai_execution import (
     AIAgentRequest,
     AIComposeEntryRequest,
@@ -961,6 +968,73 @@ class AIOperationsController(BaseUserController):
         if row.character:
             self._save_agent_character(row, None)
 
+    @router.post("/agents/{slug}/preview-prompt", response_model=AgentPromptPreview, summary="Preview the system prompt an agent runs with")
+    def preview_agent_prompt(self, slug: str, data: AgentPromptPreviewRequest) -> AgentPromptPreview:
+        """What a run of this agent sends the model as its system prompt, assembled by the run's own code, in
+        labelled parts: the workspace preamble, the agent's instructions, the character and tone (with the rule
+        for which wins), and who it may hand off to. `data` is the Edit form's unsaved values; anything left
+        out is the stored agent's. Tools are bound as you would run it from the Ask page and only counted per
+        category. Never calls a model.
+        """
+        from marvin.services.ai import tones as t
+        from marvin.services.ai.operations.base import ROLE_ADMIN
+
+        self._require_role(ROLE_ADMIN, "ADMIN role or higher required to preview an agent's prompt.")
+        spec = self._agent_with_overrides(self._agent_or_404(slug), data)
+        assistant_name, persona_prompt = self._persona()
+        tones = self._tones()
+        register = self._effective_register(None, spec)
+        instructions = self._named_agent_instructions(spec, assistant_name)
+        system = instructions + self._register_clause(register, persona_prompt)
+        preamble = roster = ""
+        tools: list = []
+        if spec.kind != "model":
+            # No provider: binding only builds the tool list; nothing runs, so nothing reaches a model.
+            tools, _ = self._bind_agent_tools(None, agent=spec, role=self._user_role(), park_allowed=True)
+            preamble, roster = self._system_frame({tool.name for tool in tools}, spec.slug)
+            system = self._framed(system, preamble, roster)
+        return AgentPromptPreview(
+            system=system,
+            tokens=t.estimate_tokens(system),
+            kind=spec.kind,
+            workspace=preamble,
+            instructions=instructions,
+            default_instructions=not spec.system_prompt,
+            tone=t.preview(tones.resolve(register), persona_prompt),
+            tone_source="agent" if spec.default_register and tones.get(spec.default_register) else "workspace",
+            roster=roster,
+            tool_count=len(tools),
+            ask_first_count=sum(1 for tool in tools if getattr(tool, "requires_approval", False)),
+            tool_categories=self._tool_categories(tools),
+        )
+
+    @staticmethod
+    def _agent_with_overrides(spec, data: AgentPromptPreviewRequest):
+        """`spec` with the form's unsaved values; a field sent as null keeps its stored value where null
+        means nothing for it (name, kind, the toggles), and clears it where it does (instructions, tone)."""
+        from dataclasses import replace
+
+        changes = data.model_dump(exclude_unset=True)
+        for key in ("name", "kind", "min_role", "enabled", "allow_writes", "sources"):
+            if changes.get(key, ...) is None:
+                del changes[key]
+        for key in ("tool_allowlist", "sources", "suggestions"):
+            if changes.get(key) is not None:
+                changes[key] = tuple(changes[key])
+        return replace(spec, **changes)
+
+    @staticmethod
+    def _tool_categories(tools: list) -> list[AgentToolCategory]:
+        """Bound tools counted per permission-matrix category, in the matrix's order."""
+        from collections import Counter
+
+        from marvin.services.ai.tools.categories import CATEGORIES
+
+        counts = Counter(tool.category or "other_write" for tool in tools)
+        labels = {c.id: c.label for c in CATEGORIES}
+        order = [c.id for c in CATEGORIES] + sorted(set(counts) - set(labels))
+        return [AgentToolCategory(id=cid, label=labels.get(cid, cid), count=counts[cid]) for cid in order if counts[cid]]
+
     @router.post("/agents/{slug}/run", summary="Run a named agent (built-in or workspace-defined)")
     def run_named_agent(self, slug: str, body: AIAgentRequest) -> dict:
         """Same loop as `/agent`, shaped by the agent: its prompt, model, tool allowlist and write policy.
@@ -985,13 +1059,10 @@ class AIOperationsController(BaseUserController):
         if not model:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No model configured. Set a default model on the provider.")
 
-        from marvin.services.ai.agents import model_agent_system_prompt
-
         assistant_name, persona_prompt = self._persona()
         register = self._effective_register(body.tone_register, spec)
+        system = self._named_agent_instructions(spec, assistant_name) + self._register_clause(register, persona_prompt)
         if spec.kind == "model":
-            system = spec.system_prompt or model_agent_system_prompt(spec.name if not spec.is_system else assistant_name, router_name=assistant_name)
-            system += self._register_clause(register, persona_prompt)
             return self._run_model_agent(spec, provider, model, system, body)
 
         self._require_tool_capable(provider, model)
@@ -1001,8 +1072,6 @@ class AIOperationsController(BaseUserController):
         tools, ctx = self._bind_agent_tools(provider, agent=spec, role=role, park_allowed=bool(body.thread_id))
         ctx.tone_register = register
         max_steps = self._agent_max_steps(body)
-        system = spec.system_prompt or self._default_agent_system_prompt(assistant_name if spec.is_system else spec.name)
-        system += self._register_clause(register, persona_prompt)
         return self._run_agent_core(
             provider=provider,
             model=model,
@@ -1579,6 +1648,34 @@ class AIOperationsController(BaseUserController):
             "Be concise."
         )
 
+    def _named_agent_instructions(self, spec, assistant_name: str) -> str:
+        """A named agent's own part of its system prompt: its instructions, else its kind's default. The
+        character/tone section follows it; a persona run then frames both (`_system_frame`)."""
+        from marvin.services.ai.agents import model_agent_system_prompt
+
+        name = assistant_name if spec.is_system else spec.name
+        if spec.kind == "model":
+            return spec.system_prompt or model_agent_system_prompt(name, router_name=assistant_name)
+        return spec.system_prompt or self._default_agent_system_prompt(name)
+
+    def _system_frame(self, tool_names: set[str], agent_slug: str) -> tuple[str, str]:
+        """(preamble, roster) around a persona run's own prompt. Environment facts come first — what "the
+        RAG" means here and which of the bound tools answers which kind of question; the agents it may hand
+        off or refer to come last ("" when it can do neither)."""
+        from marvin.services.ai.agents import list_agents, roster_block, workspace_preamble
+
+        preamble = workspace_preamble(self._workspace_name(), tool_names)
+        roster = ""
+        if "run_agent" in tool_names or "suggest_agent" in tool_names:
+            specs = list_agents(self.session, self.group_id)
+            roster = roster_block(specs, agent_slug, self._user_role(), "agent", can_handoff="run_agent" in tool_names)
+        return preamble, roster
+
+    @staticmethod
+    def _framed(system: str, preamble: str, roster: str) -> str:
+        framed = preamble + "\n\n" + system
+        return framed + "\n\n" + roster if roster else framed
+
     def _catalog_with_mcp(self) -> list[dict]:
         """The registry catalog plus the MCP tools discovered right now, so the matrix can show and
         override real `mcp__server__tool` names rather than a blind category row."""
@@ -1635,7 +1732,6 @@ class AIOperationsController(BaseUserController):
         from datetime import UTC, datetime
 
         from marvin.services.ai.agent import STOPPED_AWAITING_APPROVAL, run_agent_loop
-        from marvin.services.ai.agents import list_agents, roster_block, workspace_preamble
         from marvin.services.ai.base import Message
         from marvin.services.ai.threads import create_thread, pending_state
 
@@ -1654,12 +1750,7 @@ class AIOperationsController(BaseUserController):
         context_block = self._agent_context_block(body.entity_type, entity_id)
         # Environment facts come first, the agent's own persona after: what "the RAG" means here and which
         # of the bound tools answers which kind of question.
-        system = workspace_preamble(self._workspace_name(), names) + "\n\n" + system
-        if "run_agent" in names or "suggest_agent" in names:
-            specs = list_agents(self.session, self.group_id)
-            roster = roster_block(specs, agent_slug, self._user_role(), "agent", can_handoff="run_agent" in names)
-            if roster:
-                system += "\n\n" + roster
+        system = self._framed(system, *self._system_frame(names, agent_slug))
         user_msg = body.message
         if context_block:
             system += (
@@ -2020,7 +2111,7 @@ class AIOperationsController(BaseUserController):
         import json
 
         from marvin.services.ai.agent import STOPPED_AWAITING_APPROVAL, ToolDeferred
-        from marvin.services.ai.agents import may_talk, model_agent_system_prompt, resolve_agent
+        from marvin.services.ai.agents import may_talk, resolve_agent
         from marvin.services.ai.threads import child_thread_for, pending_state
 
         role = self._user_role()
@@ -2067,10 +2158,8 @@ class AIOperationsController(BaseUserController):
                 child_on_event = self._via_listener(on_event, spec.slug)
                 assistant_name, persona_prompt = self._persona()
                 register = self._effective_register(parent_body.tone_register, spec)
+                system = self._named_agent_instructions(spec, assistant_name) + self._register_clause(register, persona_prompt)
                 if spec.kind == "model":
-                    agent_name = spec.name if not spec.is_system else assistant_name
-                    system = spec.system_prompt or model_agent_system_prompt(agent_name, router_name=assistant_name)
-                    system += self._register_clause(register, persona_prompt)
                     res = self._run_model_agent(spec, provider, model, system, child_body, parent_thread_id=parent_id, execution_meta=meta)
                 else:
                     self._require_tool_capable(provider, model)
@@ -2080,8 +2169,6 @@ class AIOperationsController(BaseUserController):
                         provider, agent=spec, role=role, depth=child_depth, park_allowed=parent_thread is not None
                     )
                     child_ctx.tone_register = register
-                    system = spec.system_prompt or self._default_agent_system_prompt(assistant_name if spec.is_system else spec.name)
-                    system += self._register_clause(register, persona_prompt)
                     res = self._run_agent_core(
                         provider=provider,
                         model=model,

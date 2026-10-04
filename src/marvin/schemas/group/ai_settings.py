@@ -48,7 +48,8 @@ class WorkspaceAISettingsCreate(_MarvinModel):
     media_presets: dict | None = None
     # Master switch: may the agent draw tools from registered external MCP servers?
     external_mcp_enabled: bool = False
-    # Per-workspace AI persona: display name, bubble icon (emoji or image URL) and a voice/tone instruction.
+    # Per-workspace AI persona: display name, bubble icon (emoji or image URL) and its Character
+    # (who the assistant is and how it speaks; the tone decides how far it reaches — services/ai/tones.py).
     assistant_name: str | None = None
     assistant_icon: str | None = None
     # The bubble's animated character ({"states": {state: url}, "files": [...]}, or a library pack's —
@@ -139,12 +140,23 @@ class TonesUpdate(_MarvinModel):
 
 
 class TonePreviewRequest(_MarvinModel):
-    """A saved tone by slug, or a draft one (name + instructions + persona) as the editor has it."""
+    """A saved tone by slug, or a draft one (name + instructions + persona) as the editor has it; neither →
+    the workspace default tone (the Character box's preview).
+
+    ``persona_prompt`` / ``assistant_name``, when sent, stand in for the stored ones (the AI settings form's
+    unsaved values; blank means blank, so a cleared Character previews Marvin's default one).
+    """
 
     slug: str | None = None
     name: str | None = None
     instructions: str | None = None
     persona: str | None = None
+    persona_prompt: str | None = None
+    assistant_name: str | None = None
+
+    @property
+    def is_draft(self) -> bool:
+        return any(v is not None for v in (self.name, self.instructions, self.persona))
 
 
 class TonePreview(_MarvinModel):
@@ -158,6 +170,8 @@ class TonePreview(_MarvinModel):
     character: str = ""  # from the persona: the Character block ("" when the tone drops it, or there is none)
     from_tone: str = ""  # from the tone: its persona rule's scope line(s) and its instructions
     rule: str = ""  # the precedence rule, when a character and a tone's instructions both apply
+    tone_slug: str = ""  # the tone previewed (for a draft, the slug it would get)
+    tone_name: str = ""
 
 
 class AIUsageOperation(_MarvinModel):
