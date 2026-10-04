@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.184 (2026-10-04)
+
+### Bug Fixes
+
+- **frontend**: The Ask bubble hides when "Ask {assistant}" is switched off
+  ([`24b778e`](https://github.com/InnerOpen/marvin/commit/24b778e36b44af3fa534babaa77ed2a1e8b67525))
+
+
 ## v1.0.0-rc.183 (2026-10-04)
 
 ### Bug Fixes
