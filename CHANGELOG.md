@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.181 (2026-10-04)
+
+### Features
+
+- **api**: Refuse to delete an enabled API client
+  ([`c09fc5e`](https://github.com/InnerOpen/marvin/commit/c09fc5e4513003f528e3fd8a828d241837d8df60))
+
+- **frontend**: Edit and delete API clients, offer form-submit permissions
+  ([`ff6417d`](https://github.com/InnerOpen/marvin/commit/ff6417d732cae1d2f8e2fa417586f254750f57a8))
+
+
 ## v1.0.0-rc.180 (2026-10-04)
 
 ### Features
