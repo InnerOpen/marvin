@@ -681,3 +681,98 @@ def test_an_entry_deleted_run_can_be_retried(db_session, shop, events):
     (row,) = _retries(db_session, shop)
     assert str(row.entry_id) == gone and row.status == "pending"
     assert _retry_now(db_session, shop, runner) == "succeeded"
+
+
+def test_retries_of_a_disabled_workflow_wait_for_it(db_session, shop, events):
+    runner = _Runner(shop.integration.id)
+    runner.failures = [runner.fail("unavailable", _handle(retry=_retry(60))), None]
+    _publish(db_session, shop, runner)
+    (row,) = _retries(db_session, shop)
+    row.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
+    shop.automation.enabled = False
+    db_session.commit()
+
+    assert errors.claim_due(db_session) == []
+    (row,) = _retries(db_session, shop)
+    assert (row.status, row.attempt) == ("pending", 0)
+
+    shop.automation.enabled = True
+    db_session.commit()
+    assert _retry_now(db_session, shop, runner) == "succeeded"
+
+
+def test_a_reclaimed_lease_counts_as_an_attempt(db_session, shop, events):
+    runner = _Runner(shop.integration.id)
+    runner.failures = [runner.fail("unavailable", _handle(retry=_retry(60)))]
+    _publish(db_session, shop, runner)
+    (row,) = _retries(db_session, shop)
+    row.status, row.attempt, row.lease_until = "running", 1, datetime.now(UTC) - timedelta(seconds=1)
+    db_session.commit()
+
+    (claimed,) = errors.claim_due(db_session)
+
+    assert claimed.attempt == 2 and claimed.attempt > claimed.max_attempts  # the sweep ends it instead of running it
+
+
+def test_plain_failures_that_run_out_apply_then_or_notify(db_session, shop, events):
+    runner = _Runner(shop.integration.id)
+    runner.failures = [runner.fail("unavailable", _handle(retry=_retry(60)))]
+    _publish(db_session, shop, runner)
+    (row,) = _retries(db_session, shop)
+    row.attempt = row.max_attempts
+    db_session.commit()
+
+    errors.retry_failed_plainly(db_session, row, "integration 'shop' is disabled")
+
+    db_session.expire_all()
+    (row,) = _retries(db_session, shop)
+    assert row.status == "exhausted"
+    (alert,) = _alerts(db_session, shop)  # no `then`: admins are told
+    assert alert.message == "integration 'shop' is disabled"
+
+
+def test_attempts_are_at_least_a_minute_apart(db_session, shop, events):
+    runner = _Runner(shop.integration.id)
+    runner.failures = [runner.fail("auth", _handle(retry=_retry(on_recovery=True)))]  # empty backoff, no alert to park on
+
+    _publish(db_session, shop, runner)
+
+    (row,) = _retries(db_session, shop)
+    assert row.status == "pending"
+    assert (errors._aware(row.next_attempt_at) - datetime.now(UTC)).total_seconds() > 55
+
+
+def test_parked_retries_without_an_open_alert_go_back_to_pending(db_session, shop, events):
+    runner = _Runner(shop.integration.id)
+    runner.failures = [runner.fail("auth", _handle(notify=True, retry=_retry(on_recovery=True)))]
+    _publish(db_session, shop, runner)
+    (alert,) = _alerts(db_session, shop)
+    alert.status, alert.open_key = "resolved", None  # resolved between the failure and the parking
+    db_session.commit()
+
+    assert errors.rearm_orphaned_parked(db_session) == 1
+    (row,) = _retries(db_session, shop)
+    assert row.status == "pending"
+
+
+def test_the_sweep_runs_off_the_event_loop_within_a_time_budget(db_session, shop, events):
+    import asyncio
+
+    from marvin.services.scheduler.tasks.sweep_integration_retries import sweep_integration_retries, sweep_once
+
+    assert asyncio.iscoroutinefunction(sweep_integration_retries)
+    runner = _Runner(shop.integration.id)
+    runner.failures = [runner.fail("unavailable", _handle(retry=_retry(60, 60)))]
+    _publish(db_session, shop, runner)
+    (row,) = _retries(db_session, shop)
+    row.next_attempt_at = datetime.now(UTC) - timedelta(seconds=1)
+    db_session.commit()
+
+    assert sweep_once(budget_s=0) == {}  # out of time: the row waits for the next tick
+    db_session.expire_all()
+    assert _retries(db_session, shop)[0].attempt == 0
+
+    sweep_once()  # the real step can't run here (no provider installed): counted as a plain failure
+    db_session.expire_all()
+    (row,) = _retries(db_session, shop)
+    assert row.attempt == 1 and row.status == "pending"

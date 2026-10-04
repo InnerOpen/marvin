@@ -43,6 +43,7 @@ def _is_leader() -> bool:
         logger.error(f"scheduler leader election failed, skipping tick: {e}", exc_info=True)
         return False
 
+
 # Current working directory of this file (not actively used in this module's logic)
 CWD = Path(__file__).parent
 
@@ -156,6 +157,17 @@ def _scheduled_task_wrapper(task_callable: Callable[[], None]) -> None:  # Renam
         logger.error(f"Error in scheduled task func='{task_name_for_error}': exception='{e}'", exc_info=True)
 
 
+async def _scheduled_async_task_wrapper(task_callable) -> None:
+    """`_scheduled_task_wrapper` for an async callback: awaited, its exceptions logged, never raised."""
+    task_name = getattr(task_callable, "__name__", repr(task_callable))
+    try:
+        logger.debug(f"Executing scheduled task: {task_name}")
+        await task_callable()
+        logger.debug(f"Finished scheduled task: {task_name}")
+    except Exception as e:
+        logger.error(f"Error in scheduled task func='{task_name}': exception='{e}'", exc_info=True)
+
+
 @repeat_every(minutes=MINUTES_DAY, wait_first=False, logger=logger)  # Runs daily; first run is triggered by schedule_daily
 async def run_daily() -> None:  # Made async to align with await in schedule_daily
     """
@@ -226,5 +238,8 @@ async def run_minutely() -> None:  # Made async
         return
 
     for registered_func in SchedulerRegistry._minutely:
-        _scheduled_task_wrapper(registered_func)
+        if asyncio.iscoroutinefunction(registered_func):
+            await _scheduled_async_task_wrapper(registered_func)  # e.g. work it moves off the event loop itself
+        else:
+            _scheduled_task_wrapper(registered_func)
     logger.info(f"Finished processing minutely (every {MINUTES} mins) callbacks.")

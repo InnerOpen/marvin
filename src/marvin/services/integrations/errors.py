@@ -655,7 +655,7 @@ def _arm(session, row, retry: dict, error) -> None:
     if retry.get("on_recovery") and _has_open_alert(session, row.group_id, row.integration_id):
         row.status, row.next_attempt_at = "parked", None
     else:
-        delay = max(_retry_delay(retry, attempt), error_retry_after(error) or 0)
+        delay = max(_retry_delay(retry, attempt), error_retry_after(error) or 0, MIN_RETRY_DELAY)
         row.status, row.next_attempt_at = "pending", _now() + timedelta(seconds=delay)
     row.lease_until = None
 
@@ -765,18 +765,43 @@ def _clear_entry_error(session, group_id, entry_id, slug: str) -> None:
     entry.metadata_json = {**metadata, ERROR_METADATA_KEY: remaining} if remaining else metadata
 
 
+class _RowFailure:
+    """A retry's failure rebuilt from its row, for applying `then` when the run never reached the policy."""
+
+    def __init__(self, row, message: str):
+        self.integration_id, self.integration_slug, self.provider = row.integration_id, row.integration_slug, row.provider
+        self.provider_name = _provider_name(row.provider)
+        self.action_key, self.code, self.detail = row.action, row.code, message
+        self.partial, self.retry_after, self.seed = None, None, row.idempotency_seed
+
+
 def retry_failed_plainly(session, row, message: str) -> None:
-    """A retry run failed without reaching the policy (the connection was disabled or removed, or the
-    workflow broke before the step): count the attempt, then retry again or give up."""
+    """A retry run failed without reaching the policy (the connection was disabled or removed, the
+    workflow broke before the step, or the run kept crashing): count the attempt, then retry again — or
+    end the chain and apply its `then` (notify admins when it has none), so it never ends silently."""
     handle = row.handle or {}
-    if row.attempt < row.max_attempts and handle.get("retry"):
+    retry = handle.get("retry")
+    timed_out = _now() - (_aware(row.created_at) or _now()) >= MAX_CHAIN_AGE
+    if retry and row.attempt < row.max_attempts and not timed_out:
         row.last_error = message[:2000]
-        backoff = handle["retry"]
-        delay = _retry_delay(backoff, row.attempt + 1)
+        delay = max(_retry_delay(retry, row.attempt + 1), MIN_RETRY_DELAY)
         row.status, row.next_attempt_at, row.lease_until = "pending", _now() + timedelta(seconds=delay), None
-    else:
-        _finish(row, "exhausted", error=message)
+        session.commit()
+        return
+    _finish(row, "exhausted", error=message)
     session.commit()
+    then = handle.get("then") or {"notify": True}
+    try:
+        from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+        automation = session.get(WorkspaceAutomationModel, row.automation_id)
+        entry = (row.snapshot or {}).get("entry") or ({"id": str(row.entry_id)} if row.entry_id else None)
+        context = {"entry": entry, "event": (row.snapshot or {}).get("event") or {}, "depth": 0}
+        _effects(session, row.group_id, _RowFailure(row, message), then, automation=automation, context=context, user_id=None)
+        session.commit()
+    except Exception as e:  # noqa: BLE001
+        session.rollback()
+        logger.warning("could not apply the end of retry chain %s: %s", row.id, e)
 
 
 def finish_retry(session, row, status: str, reason: str | None = None) -> None:
@@ -785,26 +810,42 @@ def finish_retry(session, row, status: str, reason: str | None = None) -> None:
     session.commit()
 
 
-def claim_due(session, now: datetime | None = None, limit: int = 25) -> list[IntegrationRetryModel]:
-    """Claim the retries that are due (or whose lease ran out mid-run) for this sweep tick."""
+def claim_next(session, now: datetime | None = None) -> IntegrationRetryModel | None:
+    """Claim the next due retry (or one whose lease ran out mid-run), one at a time so a tick can stop
+    when its time is up and leave the rest pending. Retries of a disabled workflow wait (they run once
+    it is enabled again). A reclaimed lease counts as an attempt, so a run that keeps crashing the
+    process still runs out of retries."""
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
     now = now or _now()
-    rows = (
+    enabled = (
+        session.query(WorkspaceAutomationModel.id)
+        .filter(WorkspaceAutomationModel.id == IntegrationRetryModel.automation_id, WorkspaceAutomationModel.enabled.is_(True))
+        .exists()
+    )
+    row = (
         session.query(IntegrationRetryModel)
         .filter(
             ((IntegrationRetryModel.status == "pending") & (IntegrationRetryModel.next_attempt_at <= now))
-            | ((IntegrationRetryModel.status == "running") & (IntegrationRetryModel.lease_until < now))
+            | ((IntegrationRetryModel.status == "running") & (IntegrationRetryModel.lease_until < now)),
+            enabled,
         )
         .order_by(IntegrationRetryModel.next_attempt_at.asc())
-        .limit(limit)
-        .all()
+        .first()
     )
-    claimed = []
-    for row in rows:
-        if row.status == "pending":
-            row.attempt += 1
-        row.status, row.lease_until = "running", now + RETRY_LEASE
-        claimed.append(row)
+    if row is None:
+        return None
+    row.attempt += 1
+    row.status, row.lease_until = "running", now + RETRY_LEASE
     session.commit()
+    return row
+
+
+def claim_due(session, now: datetime | None = None, limit: int = 25) -> list[IntegrationRetryModel]:
+    """Claim up to ``limit`` due retries (see :func:`claim_next`)."""
+    claimed = []
+    while len(claimed) < limit and (row := claim_next(session, now)) is not None:
+        claimed.append(row)
     return claimed
 
 
@@ -964,7 +1005,30 @@ def _rearm_parked(session, group_id, integration_id, now: datetime) -> None:
     for row in rows:
         retry = (row.handle or {}).get("retry") or {}
         row.status = "pending"
-        row.next_attempt_at = now + timedelta(seconds=_retry_delay(retry, row.attempt + 1))
+        row.next_attempt_at = now + timedelta(seconds=max(_retry_delay(retry, row.attempt + 1), MIN_RETRY_DELAY))
+
+
+def rearm_orphaned_parked(session, now: datetime | None = None) -> int:
+    """Parked retries whose connection has no open alert go back to pending — nothing would ever resolve
+    them (the alert resolved between the failure and the parking, or was never opened)."""
+    now = now or _now()
+    open_alert = (
+        session.query(IntegrationAlertModel.id)
+        .filter(
+            IntegrationAlertModel.group_id == IntegrationRetryModel.group_id,
+            IntegrationAlertModel.integration_id == IntegrationRetryModel.integration_id,
+            IntegrationAlertModel.status == "open",
+        )
+        .exists()
+    )
+    rows = session.query(IntegrationRetryModel).filter(IntegrationRetryModel.status == "parked", ~open_alert).all()
+    for row in rows:
+        retry = (row.handle or {}).get("retry") or {}
+        row.status = "pending"
+        row.next_attempt_at = now + timedelta(seconds=max(_retry_delay(retry, row.attempt + 1), MIN_RETRY_DELAY))
+    if rows:
+        session.commit()
+    return len(rows)
 
 
 def _reminder_hours(session, group_id) -> int:
