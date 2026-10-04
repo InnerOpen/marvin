@@ -10,6 +10,8 @@ A collection has a `target_type` of `entry` (default), `asset` or `resource`. Ma
 
 Every workspace also gets five locked **system** collections (`inbox`, `drafts`, `needs-review`, `approved`, `archive`): smart, status-driven, non-public, and not editable. The only editorial default a new workspace receives is `featured`.
 
+**Visible to sites.** A collection's `is_public` flag (default on) decides whether the [publishing API](publishing-api.md) serves it. The create and edit forms show it as **Visible to sites**. Off, sites can't list the collection, open it, or filter entries by it (`GET /entries?collection=` ignores a private collection, as the collection endpoints do). Its entries stay published and can still appear through other collections, entry lists and their own pages. A private collection carries a **Private** pill in the collections list and on its page. System collections are always private, so their toggle is shown disabled with that explanation.
+
 ### Rule format
 
 `smart_rules` is JSON. Every dimension is optional, but an **empty rule set matches nothing**, so a misconfigured smart collection cannot sweep in the whole workspace.
@@ -45,7 +47,7 @@ Every workspace also gets five locked **system** collections (`inbox`, `drafts`,
 
 ## Where
 
-- Create: `/workspace/collections/new`. Edit: `/workspace/collections/{id}/edit`. Both render `SmartCollectionFields`: a **Smart Collection** toggle, the rules under two tabs, **Builder** and **JSON**, and a **Run Query** button.
+- Create: `/workspace/collections/new`. Edit: `/workspace/collections/{id}/edit`. Both have the **Visible to sites** toggle and render `SmartCollectionFields`: a **Smart Collection** toggle, the rules under two tabs, **Builder** and **JSON**, and a **Run Query** button.
 - Admin: the platform scheduled-tasks list, for `resync_smart_collections`.
 
 ## How to use
@@ -80,7 +82,7 @@ None. The resync cadence is the system task's interval (daily); an admin can adj
 
 ## Since
 
-Builder, **Run Query**, `where` and `POST /preview`: after rc.167. Rolling windows: rc.82 (`142eb6e9`). No default "Recent": rc.83 (`921047ad`). Asset/resource targets, `mime_types` and `tags` predate this release.
+Builder, **Run Query**, `where` and `POST /preview`: rc.169. A scheduled publish joins matching smart collections at once (it fires the usual entry events): rc.171. **Visible to sites**, and private collections ignored by the entries `collection` filter: rc.186. Rolling windows: rc.82 (`142eb6e9`). No default "Recent": rc.83 (`921047ad`). Asset/resource targets, `mime_types` and `tags` predate this release.
 
 ## Related
 

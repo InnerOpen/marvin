@@ -29,7 +29,7 @@ An entry type with `capabilities.submittable: true` is a form: a public POST to 
 
 1. Open the entry type, tick **Submittable**, and fill the submission settings (success message, honeypot, CAPTCHA secret ref, rate limit, title template).
 2. On the site, fetch the form definition and render it from `formSchema`. When `metadata.honeypotField` is non-null, include a hidden input with that name.
-3. POST the field values as a JSON object to the submit URL with an API client token that has `write:public_entries`.
+3. POST the field values as a JSON object to the submit URL with an API client token that has `write:public_entries` (**Submit Public Entries** under **Forms** on the client's form; **Submit Forms**, `write:form_submissions`, is also accepted).
 4. React to `form_submission_received` in a workflow (see [Workflows](workflows.md)); the payload carries `flagged`, `review_reasons`, `status`, `ip_address` and `user_agent`, so a step can skip flagged entries or forward the IP.
 
 ```bash

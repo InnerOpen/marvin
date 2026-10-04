@@ -6,7 +6,7 @@ The public read API serves a workspace's published content to sites and tools th
 
 `/api/publish/{workspace_slug}` is the read-only surface a site builds from. Every request carries an **API client token** (prefix `marvin_sk_`) in `Authorization: Bearer`, created under **Settings → Publishing → Site Clients**. The token identifies one workspace and a `permissions` dict of keys such as `read:published_entries`; each route checks the keys it needs and returns 403 with the missing key named.
 
-Only entries with status `published` are served, and only from entry types whose capabilities allow it. Collections are served only when `is_public` is true; the five system workflow collections are never public.
+Only entries with status `published` are served, and only from entry types whose capabilities allow it. Collections are served only when `is_public` is true (**Visible to sites** on the collection's form, see [Collections](collections.md)); the five system workflow collections are never public. A private collection can't be read through the entries `collection` filter either: it returns an empty list, as for a slug that doesn't exist.
 
 What is new in this release:
 
@@ -16,7 +16,7 @@ What is new in this release:
 ## Where
 
 - Base URL: `/api/publish/{workspace_slug}`.
-- Tokens: **Settings → Publishing → Site Clients** (`/publishing/clients`). The plaintext token is shown once.
+- Tokens: **Settings → Publishing → Site Clients** (`/publishing/clients`). The plaintext token is shown once, in a dialog, when you create the client or rotate its token (see [Auth and tokens → API clients](../auth-and-tokens.md#api-clients-marvin_sk_)).
 - Consumers: `@inneropen/marvin-sdk` ([SDK docs](https://inneropen.github.io/marvin/sdk/)), `marvin-astro`, and the Marvin CLI ([CLI docs](https://inneropen.github.io/marvin/cli/)), whose `marvin publish` command group (site, entries, collections, resources, assets, renderers — shown once you `marvin login --site-token …`) calls this API directly.
 
 ## How to use
@@ -94,10 +94,10 @@ Defined in `src/marvin/core/permissions.py`:
 | `read:resources` | yes | |
 | `write:public_entries` | yes | form submit, entry-type path |
 | `write:form_submissions` | yes | form submit, legacy key existing site tokens hold |
-| `read:draft_entries` | no | defined and offered in the client form, but no publishing route checks it (rc.137) |
+| `read:draft_entries` | no | defined, but no publishing route checks it; the client form stopped offering it in rc.181 (`read:all_entries` is what grants drafts) |
 | `read:forms`, `write:forms`, `read:form_submissions` | no | defined; no route references them |
 
-The client form (`/publishing/clients/new`) offers the first five plus `read:draft_entries`. Full reference: [`../api/`](../api/index.md).
+The create and edit forms (`/publishing/clients/new`, `/publishing/clients/{id}/edit`) offer exactly the keys the routes check, in two groups: **Content** (Read Published Entries, Read All Entries, Read Collections, Read Assets, Read Resources) and **Forms** (**Submit Forms** for `write:form_submissions`, **Submit Public Entries** for `write:public_entries`). A key a client holds that the form doesn't list appears under **Other**, so it can be removed. Full reference: [`../api/`](../api/index.md).
 
 ## Entry page URLs
 
@@ -128,6 +128,8 @@ A static site that builds from this API is usually rebuilt by an outgoing webhoo
 
 A draft saved or moved between workflow collections queues nothing. The requests go into the same per-workspace queue as `request_site_rebuild`, so a burst of edits is one build, and the rebuild still goes out as `webhook_triggered` to the workspace's deploy hook. Without an outgoing webhook on **Webhook Triggered** nothing is built.
 
+**Queued rebuilds.** The request that opens a new batch emits `site_rebuild_queued` once (never per request), with the reason, the first change, the quiet and maximum waits and `expected_send_at`. The admin shows it as "Site rebuild queued — building in about 60 s" with "More changes join this build (sent at the latest 10 min after the first)" (the times come from `SITE_REBUILD_QUIET_SECONDS` and `SITE_REBUILD_MAX_WAIT_SECONDS`), and that toast turns into the **Site rebuild** toast in place when the rebuild is sent. Later requests join the batch without a toast of their own.
+
 **What a rebuild covers.** Each queued rebuild keeps a list of the content changes it covers, worded like the event log ("Entry 'Summer menu' published"). Repeat edits of one thing collapse to its newest line and the list keeps the newest 50; the request count still counts every request. The `webhook_triggered` event carries them in its data as `requestCount` and `changes` (each with `label`, `event`, `entityType`, `entityId`, newest last), and the event catalog lists `request_count` and `changes` as its variables; a deploy hook ignores the body. In the admin, the **Site rebuild** activity toast gets an "N changes ▾" button that opens the list, newest first, with entry changes linked to the entry; when repeats were collapsed or the list was cut, it ends "and K more (repeat or earlier edits)". While the list is open, or the pointer or focus is on the toast, it does not fade. `GET /api/platform/events/feed` returns the newest 20 changes and the `requestCount` on that event.
 
 **Build and deploy status.** A host that can post build or deploy notifications can report back as Marvin events. Point the host at an [incoming webhook](incoming-webhooks.md) (a host that sends a fixed shared secret instead of signing fits the `static_token` scheme), then add workflows on that webhook whose **Emit event** step emits `site_build_*` or `site_deployment_*` (`started`, `completed`, `failed`) with a templated message, failure reason and site URL (see [Workflows → Step kinds](workflows.md#step-kinds)). The events land in the event log and show as activity toasts: started, completed (green) and failed (red, with the reason, staying until dismissed). The mapping is workspace configuration, so any host fits; the Cloudflare Pages integration package declares the webhook and workflows for Cloudflare (see [Integrations](integrations.md)).
@@ -143,7 +145,7 @@ A draft saved or moved between workflow collections queues nothing. The requests
 
 ## Since
 
-Endpoints predate rc.40. `data`/`description` on list items: rc.48 (`fadb3f52`). Non-publishable types never served: rc.62 (`0e676a23`). Site-rebuild coalescing: rc.121; its two settings: rc.122. Automatic rebuilds on published content changes: rc.143. Build and deploy status events: rc.144. The changes a rebuild covers, on `webhook_triggered` and in the **Site rebuild** toast: rc.154; its event-catalog entry: rc.155.
+Endpoints predate rc.40. `data`/`description` on list items: rc.48 (`fadb3f52`). Non-publishable types never served: rc.62 (`0e676a23`). Site-rebuild coalescing: rc.121; its two settings: rc.122. Automatic rebuilds on published content changes: rc.143. Build and deploy status events: rc.144. The changes a rebuild covers, on `webhook_triggered` and in the **Site rebuild** toast: rc.154; its event-catalog entry: rc.155. The **Site rebuild queued** toast (`site_rebuild_queued`): rc.165. Entry page URLs (`url`, `pageUrlPattern`, **View on site**) and placeholder links blocking publishing: rc.172. The client form's **Forms** permissions and an edit page: rc.181. Private collections ignored by the entries `collection` filter: rc.186.
 
 ## Related
 
