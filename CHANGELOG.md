@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.185 (2026-10-04)
+
+### Features
+
+- **ai**: Separate invocation-source toggles for the bubble and the Ask page
+  ([`30e2aa9`](https://github.com/InnerOpen/marvin/commit/30e2aa9a2a9a36ce93ca15ea710db096657b2a4f))
+
+
 ## v1.0.0-rc.184 (2026-10-04)
 
 ### Bug Fixes
