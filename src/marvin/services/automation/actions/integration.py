@@ -66,9 +66,12 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets
 
     try:
-        args = resolve_arg_secrets(args, group_id)  # {{SLUG}} → the secret, for this call only
+        resolved = resolve_arg_secrets(args, group_id)  # {{SLUG}} → the secret, for this call only
     except MissingSecretError as e:
         raise AutomationActionError(str(e)) from e
+    # The values {{SLUG}} resolved to — scrubbed from any error the provider raises, like its credential.
+    arg_secrets = [v for k, v in resolved.items() if isinstance(v, str) and v != args.get(k)]
+    args = resolved
 
     from marvin.services.integrations import errors
 
@@ -84,10 +87,11 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
         # A provider tags its error with a stable `code` (e.g. "blocked") — what its error policy and
         # on_failure steps branch on; anything untagged is "unknown".
         code = errors.error_code(e)
+        detail = errors.redact(str(e), errors.secret_values(secret, *arg_secrets))
         raise IntegrationStepError(
-            f"{row.provider}.{key} failed: {e}",
+            f"{row.provider}.{key} failed: {detail}",
             code=code,
-            detail=str(e),
+            detail=detail,
             integration_id=row.id,
             integration_slug=slug,
             provider=row.provider,

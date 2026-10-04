@@ -109,7 +109,7 @@ class RunIntegrationActionHandler(ScheduledTaskHandler):
             try:
                 result = provider.run_action(action, args, ctx) or {}
             except Exception as e:
-                errors.connection_failed(gid, row.id, provider, action, e, source="scheduled_task", session=session)
+                errors.connection_failed(gid, row.id, provider, action, e, source="scheduled_task", session=session, secrets=(secret,))
                 raise
             errors.connection_succeeded(gid, row.id, session=session)
 

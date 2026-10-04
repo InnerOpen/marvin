@@ -791,3 +791,9 @@ def test_intermediate_retry_failures_are_not_announced(db_session, shop, events)
     _retry_now(db_session, shop, runner)  # runs out: `then` applies
     failed = _failed_events(events)
     assert len(failed) == 2 and failed[-1].data.retry_attempt == 2 and failed[-1].data.handled is True
+
+
+def test_secrets_are_redacted():
+    secrets = errors.secret_values("tok-secret-123", "slack://a/b/c\nmailto://user:pass@example.com", None, "")
+    text = "auth failed for tok-secret-123 via mailto://user:pass@example.com"
+    assert errors.redact(text, secrets) == "auth failed for [redacted] via [redacted]"

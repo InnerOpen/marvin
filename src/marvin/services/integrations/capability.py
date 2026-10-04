@@ -74,7 +74,15 @@ class CapabilityHandler:
         from . import errors
 
         if error is not None:
-            errors.connection_failed(self.group_id, self.integration_id, self._provider, self._action_key, error, source="capability")
+            errors.connection_failed(
+                self.group_id,
+                self.integration_id,
+                self._provider,
+                self._action_key,
+                error,
+                source="capability",
+                secrets=(getattr(self._ctx, "secret", None),),
+            )
             raise error
         errors.connection_succeeded(self.group_id, self.integration_id)
         return output

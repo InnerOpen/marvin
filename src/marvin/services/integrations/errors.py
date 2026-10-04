@@ -99,6 +99,29 @@ def error_retry_after(exc: BaseException) -> float | None:
     return float(value) if isinstance(value, int | float) and not isinstance(value, bool) and value > 0 else None
 
 
+REDACTED = "[redacted]"
+
+
+def secret_values(*values) -> list[str]:
+    """The strings to scrub from an error before it is stored or sent: each secret, and each part of
+    one that holds several (an Apprise credential lists URLs one per line or comma-separated)."""
+    found: set[str] = set()
+    for value in values:
+        if isinstance(value, str) and len(value.strip()) >= 4:
+            found.add(value.strip())
+            found.update(part.strip() for part in value.replace(",", "\n").splitlines() if len(part.strip()) >= 8)
+    return sorted(found, key=len, reverse=True)
+
+
+def redact(text: str, secrets) -> str:
+    """``text`` with every resolved credential / secret value replaced by "[redacted]" — a provider's
+    error may echo the token it was given, and the message goes to alerts, email, Slack and the entry."""
+    for secret in secrets or ():
+        if secret and secret in text:
+            text = text.replace(secret, REDACTED)
+    return text
+
+
 OVERRIDABLE = ("review", "notify")
 """The Handle flags an admin may adjust per connection; retries, backoff and `then` stay the provider's."""
 
@@ -1154,7 +1177,7 @@ def _session_scope(session):
         yield own
 
 
-def connection_failed(group_id, integration_id, provider, action_key: str, exc: BaseException, *, source: str, session=None) -> None:
+def connection_failed(group_id, integration_id, provider, action_key: str, exc: BaseException, *, source: str, session=None, secrets=()) -> None:
     """A provider call outside a workflow failed: apply only the policy's ``notify`` (no review, no
     retry — there is no entry or pipeline to act on). Best-effort, never raises."""
     if _delivering_alert.get() or integration_id is None:
@@ -1175,7 +1198,7 @@ def connection_failed(group_id, integration_id, provider, action_key: str, exc: 
                 integration_slug=row.slug,
                 provider=row.provider,
                 code=code,
-                message=str(exc),
+                message=redact(str(exc), secret_values(*secrets)),
                 action=action_key,
                 source=source,
             )

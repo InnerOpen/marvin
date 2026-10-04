@@ -292,3 +292,30 @@ def test_resolve_endpoint_and_the_list_shows_attention(db_session, shop):
     assert IntegrationsController.resolve_attention(ctrl, shop.integration.id).resolved == 1
     (listed,) = IntegrationsController.list_integrations(ctrl)
     assert listed.attention == []
+
+
+def test_credentials_and_secret_args_never_leave_in_an_error(db_session, shop, monkeypatch):
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.db.models.groups.integration_errors import IntegrationAlertModel
+    from marvin.db.models.groups.integrations import IntegrationModel
+    from marvin.db.models.platform import Entries
+
+    store = {"INTEGRATION_SHOP": "tok-secret-123", "API_KEY": "argsecret-456"}
+    monkeypatch.setattr("marvin.services.secrets.resolver.resolve_secret", lambda ref, gid=None: store.get(ref))
+    db_session.get(IntegrationModel, shop.integration.id).secret_ref = "INTEGRATION_SHOP"
+    automation = db_session.query(WorkspaceAutomationModel).filter_by(group_id=shop.gid).one()
+    step = {**WORKFLOW["actions"][0], "args": {"key": "{{API_KEY}}"}}
+    automation.definition = {**WORKFLOW, "actions": [step]}
+    db_session.commit()
+    shop.provider.failures = [IntegrationError("rejected tok-secret-123 with key argsecret-456", code="invalid")]
+    _Shop.error_policy = {**_Shop.error_policy, "invalid": Handle(review=True, notify=True)}
+    try:
+        _publish(db_session, shop)
+    finally:
+        _Shop.error_policy = {**_Shop.error_policy, "invalid": Handle(review=True)}
+
+    entry = db_session.get(Entries, shop.entry_id)
+    assert entry.metadata_json["integration_error"]["shop"]["message"] == "rejected [redacted] with key [redacted]"
+    assert entry.metadata_json["review_reasons"] == ["Policy Shop · invalid — rejected [redacted] with key [redacted]"]
+    (alert,) = db_session.query(IntegrationAlertModel).filter_by(group_id=shop.gid).all()
+    assert "secret" not in alert.message and "[redacted]" in alert.message

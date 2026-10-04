@@ -1412,7 +1412,9 @@ class IntegrationEventListener(EventListenerBase):
             except Exception as e:  # noqa: BLE001 — one action failing must not affect the others
                 self.logger.warning(f"integration '{sub['name']}' action '{sub['action']}' failed: {e}")
                 if track:  # connection scope: the provider's notify only — no entry to review, nothing to retry
-                    errors.connection_failed(self.group_id, sub.get("integration_id"), provider, sub["action"], e, source="subscription")
+                    errors.connection_failed(
+                        self.group_id, sub.get("integration_id"), provider, sub["action"], e, source="subscription", secrets=(secret,)
+                    )
                 continue
             if track:
                 errors.connection_succeeded(self.group_id, sub.get("integration_id"))
