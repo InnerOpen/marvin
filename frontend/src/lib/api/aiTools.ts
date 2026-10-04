@@ -8,7 +8,15 @@ import { createSdkClient } from "../sdk";
 
 export type { AgentToolInfo };
 
-/** Tools the /agent loop actually binds for the caller (built-in + external MCP), role-filtered. */
-export async function listAgentTools(authToken?: string): Promise<AgentToolInfo[]> {
-  return createSdkClient(authToken).ai.tools.listAgent();
+/** A bound tool as the server lists it today: the SDK's shape plus the permission-matrix fields. */
+export type AgentTool = AgentToolInfo & {
+  /** Its permission-matrix row (see services/ai/tools/categories.py). */
+  category?: string | null;
+  /** "Ask first": each call pauses the run for the user's approval. */
+  asksFirst?: boolean;
+};
+
+/** Tools the bubble's Marvin actually binds for the caller (built-in + external MCP), through Marvin's matrix. */
+export async function listAgentTools(authToken?: string): Promise<AgentTool[]> {
+  return (await createSdkClient(authToken).ai.tools.listAgent()) as AgentTool[];
 }

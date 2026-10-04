@@ -100,7 +100,6 @@ export interface Referral {
   question?: string | null;
   reason?: string | null;
 }
-/** A tool call waiting for the user's decision (an "ask first" tool). */
 /** A big bulk write's approval card: what it would link (see services/ai/tools/bulk_writes.py). */
 export interface BulkWritePreview {
   summary: string;
@@ -113,11 +112,23 @@ export interface BulkWritePreview {
   itemKind: string;
   items: string[];
 }
+/**
+ * A tool call waiting for the user's decision (an "ask first" tool). A specialist's ask carried up through
+ * a hand-off has a path id (`c1/c7` — the hand-off call, then the specialist's call) and says whose it is.
+ */
 export interface PendingCall {
   id: string;
   tool: string;
   arguments: unknown;
   preview?: BulkWritePreview;
+  /** The specialist that asked (innermost, when hand-offs nest); absent on the agent's own asks. */
+  via?: string;
+  viaName?: string;
+  /** Every specialist between the conversation and the ask, outermost first. */
+  viaChain?: string[];
+  /** The specialist's own thread, where its paused run waits. */
+  childThreadId?: string;
+  childExecutionId?: string;
 }
 export interface AgentRunResult {
   answer: string;
@@ -158,14 +169,28 @@ export interface ThreadMessage {
   role: "user" | "assistant";
   content: string;
   stepsJson?: { tool: string; arguments?: unknown; result?: string }[] | null;
-  metaJson?: { sources?: Source[]; totalTokens?: number; handoffs?: Handoff[]; referrals?: Referral[] } | null;
+  metaJson?: {
+    sources?: Source[];
+    totalTokens?: number;
+    handoffs?: Handoff[];
+    referrals?: Referral[];
+    /** A turn closing a paused run that was never decided: a new message arrived, or it expired. */
+    abandoned?: boolean;
+    expired?: boolean;
+    no_longer_permitted?: boolean;
+  } | null;
   executionId?: string | null;
   createdAt?: string | null;
 }
 export interface ThreadDetail extends Thread {
   messages: ThreadMessage[];
-  /** Calls a parked run is waiting on (status "awaiting_approval"); empty otherwise. */
+  /** Calls a parked run is waiting on (status "awaiting_approval"), flattened; empty otherwise. */
   pending: PendingCall[];
+  /**
+   * On a parked specialist's thread: the conversation its decision belongs to. Resuming here forwards
+   * there, and the result is that conversation's (its `threadId` is this id).
+   */
+  rootThreadId?: string | null;
 }
 
 /** `threadId` value that asks a run to open a fresh server-side thread. */
@@ -177,10 +202,15 @@ export interface RunEvent {
   tool?: string;
   arguments?: unknown;
   ok?: boolean;
-  /** Set on `awaiting_approval`: the calls the run is waiting on. */
-  calls?: { id: string; tool: string }[];
-  /** Set on events a delegated child run emitted: the specialist's slug. */
+  /** Set on `awaiting_approval`: the calls the run is waiting on (a specialist's carry its `via`). */
+  calls?: { id: string; tool: string; via?: string }[];
+  /** Set on events a delegated child run emitted: the specialist's slug (the innermost one when nested). */
   via?: string;
+  viaChain?: string[];
+  /** On a `run_agent` tool_result: the specialist paused for the user's approval; its answer comes later. */
+  deferred?: boolean;
+  /** On `declined`: "not_permitted" when an approved call was no longer allowed at decision time. */
+  reason?: string;
   at: number;
 }
 export interface RunProgress {
@@ -292,20 +322,28 @@ export function renameThread(id: string, title: string | null, authToken?: strin
 export function deleteThread(id: string, authToken?: string): Promise<void> {
   return fetchApi<void>(`/api/ai/threads/${encodeURIComponent(id)}`, { method: "DELETE" }, authToken);
 }
+/** The surfaces that decide a paused run; each is gated by its own invocation-source toggle. */
+export type ResumeSource = "ask_page" | "bubble";
+
 /**
- * Decide the calls a parked run is waiting on and continue it, from the Ask page (`ask_page`). Missing
- * ids count as denied. The result has the shape of a run (it may park again:
- * `stoppedReason === "awaiting_approval"`).
+ * Decide the calls a parked run is waiting on and continue it — from the Ask page (`ask_page`, the
+ * default) or the bubble (`bubble`). Missing ids count as denied. The result has the shape of a run (it
+ * may park again: `stoppedReason === "awaiting_approval"`); decided on a specialist's thread, it is the
+ * root conversation's.
  */
 export function resumeThread(
   id: string,
   decisions: Record<string, "approve" | "deny">,
-  opts: { clientRunId?: string } = {},
+  opts: { clientRunId?: string; source?: ResumeSource } = {},
   authToken?: string,
 ): Promise<AgentRunResult> {
   return fetchApi<AgentRunResult>(
     `/api/ai/threads/${encodeURIComponent(id)}/resume`,
-    json({ decisions, source: "ask_page", ...(opts.clientRunId ? { clientRunId: opts.clientRunId } : {}) }),
+    json({
+      decisions,
+      source: opts.source ?? "ask_page",
+      ...(opts.clientRunId ? { clientRunId: opts.clientRunId } : {}),
+    }),
     authToken,
   );
 }

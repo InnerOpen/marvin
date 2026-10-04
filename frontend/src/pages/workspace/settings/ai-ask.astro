@@ -182,6 +182,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     type Thread,
   } from "@/lib/api/aiAgents";
   import { fetchApi } from "@/lib/api/client";
+  import { argsPreview, groupPending, viaText } from "@/lib/approvals";
   import { groupThreads, handOffNote } from "@/lib/askThreads";
   import { renderMarkdown } from "@/lib/marvin/capabilities";
   import { MAIN_AGENT } from "@/lib/marvin/cast";
@@ -486,6 +487,9 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
         clearAttachment();
         for (const m of t.messages) {
           if (m.role === "user") addTurn("user", esc(m.content));
+          else if (m.metaJson?.abandoned || m.metaJson?.expired || m.metaJson?.no_longer_permitted)
+            // A paused run that was never decided: a short notice, not an answer.
+            addTurn("assistant", esc(m.content)).classList.add("notice");
           else
             addTurn(
               "assistant",
@@ -499,7 +503,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
               ),
             );
         }
-        if (t.status === "awaiting_approval" && t.pending?.length) addApprovalCard(t.pending, t.id);
+        if (t.status === "awaiting_approval" && t.pending?.length) addApprovalCard(t.pending, t.id, t.rootThreadId);
         emptyNote.hidden = t.messages.length > 0;
         threadId = t.id;
         threadsPanel.querySelectorAll(".th-row").forEach((r) => r.classList.toggle("active", (r as HTMLElement).dataset.id === t.id));
@@ -654,7 +658,10 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     const PROGRESS_MAX_MISSES = 40;
     // A hand-off shows as "Asked <agent> …" with the specialist's own steps nested under it: child
     // events carry `via` (the specialist's slug) and close the last running row with the same `via`.
+    // When the specialist pauses for approval the hand-off row waits too, and the run's wait names
+    // whose ask each call is ("· via Workshop").
     type StepRow = { label: string; via?: string; state: "running" | "done" | "failed" | "waiting" | "declined" };
+    const viaChip = (slug: string | undefined) => (slug ? ` <span class="via-chip">via ${esc(agentName(slug))}</span>` : "");
     function stepsHtml(events: RunEvent[]): string {
       const rows: StepRow[] = [];
       for (const ev of events) {
@@ -667,23 +674,22 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
           rows.push({ label, via: ev.via, state: "running" });
         } else if (ev.type === "tool_result") {
           const open = [...rows].reverse().find((r) => r.state === "running" && r.via === ev.via);
-          if (open) open.state = ev.ok === false ? "failed" : "done";
+          if (open && ev.deferred) {
+            open.state = "waiting";
+            open.label += ` — waiting for your approval`;
+          } else if (open) open.state = ev.ok === false ? "failed" : "done";
         } else if (ev.type === "awaiting_approval") {
-          for (const c of ev.calls ?? []) rows.push({ label: `Waiting for approval: <code>${esc(c.tool)}</code>`, via: ev.via, state: "waiting" });
+          for (const c of ev.calls ?? [])
+            rows.push({ label: `Waiting for approval: <code>${esc(c.tool)}</code>${viaChip(c.via)}`, via: ev.via, state: "waiting" });
         } else if (ev.type === "declined") {
-          rows.push({ label: `Declined: <code>${esc(ev.tool)}</code>`, via: ev.via, state: "declined" });
+          const what = ev.reason === "not_permitted" ? "No longer permitted" : "Declined";
+          rows.push({ label: `${what}: <code>${esc(ev.tool)}</code>`, via: ev.via, state: "declined" });
         }
       }
       const items = rows.map((r) => `<li class="step ${r.state}${r.via ? " nested" : ""}">${r.label}</li>`);
       const thinking = events.length === 0 || events[events.length - 1]?.type === "thinking";
       const tail = thinking ? `<li class="step thinking">${items.length ? "thinking…" : "starting…"}</li>` : "";
       return `<ul class="steps">${items.join("")}${tail}</ul>`;
-    }
-    function argsPreview(args: unknown): string {
-      if (!args || typeof args !== "object") return "";
-      const parts = Object.entries(args as Record<string, unknown>).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`);
-      const text = parts.join(", ");
-      return text.length > 90 ? `${text.slice(0, 89)}…` : text;
     }
     function watchRun(runId: string, placeholder: HTMLElement): () => void {
       const body = placeholder.querySelector<HTMLElement>(".turn-body")!;
@@ -723,23 +729,39 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
         `<div><span>${esc(p.itemKind)}s (${p.items.length}):</span> ${p.items.map(esc).join(", ")}</div></div>`
       );
     }
-    function approvalCardHtml(pending: PendingCall[]): string {
-      const rows = pending
-        .map(
-          (c) =>
-            `<li class="approval-row"><label><input type="checkbox" checked data-call-id="${esc(c.id)}" /> <code>${esc(c.tool)}</code><span class="step-args">${esc(c.preview ? c.preview.summary : argsPreview(c.arguments))}</span></label>` +
-            (c.preview ? bulkPreviewHtml(c.preview) : "") +
-            `<details class="approval-args"><summary>arguments</summary><pre>${esc(JSON.stringify(c.arguments ?? {}, null, 2))}</pre></details></li>`,
-        )
-        .join("");
+    // A specialist's asks (carried up through a hand-off) are grouped under a "via <agent>" chip; their
+    // ids are paths (`c1/c7`) and go back to the server as they came.
+    function approvalRowHtml(c: PendingCall): string {
       return (
-        `<div class="approval-title">Before I continue, approve these actions:</div><ul class="approval-list">${rows}</ul>` +
+        `<li class="approval-row"><label><input type="checkbox" checked data-call-id="${esc(c.id)}" /> <code>${esc(c.tool)}</code><span class="step-args">${esc(c.preview ? c.preview.summary : argsPreview(c.arguments))}</span></label>` +
+        (c.preview ? bulkPreviewHtml(c.preview) : "") +
+        `<details class="approval-args"><summary>arguments</summary><pre>${esc(JSON.stringify(c.arguments ?? {}, null, 2))}</pre></details></li>`
+      );
+    }
+    function approvalCardHtml(pending: PendingCall[], rootThreadId?: string | null): string {
+      const groups = groupPending(pending)
+        .map((g) => {
+          const head = g.via
+            ? `<div class="approval-via"><span class="via-chip">${esc(viaText(g, agentName))}</span>${
+                g.childThreadId ? ` <button type="button" class="meta-link" data-open-thread="${esc(g.childThreadId)}">its conversation ↗</button>` : ""
+              }</div>`
+            : "";
+          return `${head}<ul class="approval-list">${g.calls.map(approvalRowHtml).join("")}</ul>`;
+        })
+        .join("");
+      // On a specialist's own thread the decision belongs to the conversation that handed off; deciding
+      // here forwards it there, and the answer shows in that conversation.
+      const forwarded = rootThreadId
+        ? `<div class="approval-note">This is part of a hand-off — deciding here continues <button type="button" class="meta-link" data-open-thread="${esc(rootThreadId)}">the conversation it came from ↗</button>.</div>`
+        : "";
+      return (
+        `<div class="approval-title">Before I continue, approve these actions:</div>${forwarded}${groups}` +
         `<div class="approval-actions"><button type="button" class="button small" data-approve>Approve selected</button>` +
         `<button type="button" class="button secondary small" data-deny>Deny all</button></div>`
       );
     }
-    function addApprovalCard(pending: PendingCall[], forThread: string | null): HTMLElement {
-      const el = addTurn("assistant", approvalCardHtml(pending));
+    function addApprovalCard(pending: PendingCall[], forThread: string | null, rootThreadId?: string | null): HTMLElement {
+      const el = addTurn("assistant", approvalCardHtml(pending, rootThreadId));
       el.classList.add("approval");
       if (forThread) el.dataset.threadId = forThread;
       return el;
@@ -787,6 +809,13 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       try {
         const res = await resumeThread(tid, decisions, runId ? { clientRunId: runId } : {});
         stopWatching();
+        // Decided on a specialist's thread: the server continued the conversation it belongs to — show that one.
+        if (res.threadId && res.threadId !== tid) {
+          placeholder.remove();
+          await openThread(res.threadId);
+          if (!threadsPanel.hidden) void loadThreads();
+          return;
+        }
         handleRunResult(res, placeholder, { refreshThreads: true });
       } catch (e) {
         stopWatching();
@@ -1003,6 +1032,13 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   .transcript :global(.approval-args summary) { cursor: pointer; }
   .transcript :global(.approval-args pre) { margin: 4px 0 0; padding: 8px 10px; background: var(--panel-2); border-radius: var(--radius); overflow-x: auto; font-size: 12px; color: var(--ink); white-space: pre-wrap; }
   .transcript :global(.approval-actions) { display: flex; gap: 8px; margin-top: 12px; }
+  .transcript :global(.approval-via) { margin: 10px 0 6px; font-size: 12px; }
+  .transcript :global(.approval-note) { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+  .transcript :global(.via-chip) {
+    display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); font-weight: 400;
+  }
+  .transcript :global(.turn.notice) { opacity: 0.75; font-style: italic; }
   .transcript :global(.step code) { color: var(--ink); font-size: 12px; }
   .transcript :global(.step-args) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* Links in an answer (review-the-draft, citations) must read as links, not body text. */

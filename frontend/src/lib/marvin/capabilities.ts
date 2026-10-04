@@ -11,10 +11,19 @@
 
 import DOMPurify from "dompurify";
 import { marked } from "marked";
-import { getRunProgress, getThread, NEW_THREAD, type RunProgress } from "@/lib/api/aiAgents";
+import {
+  type AgentRunResult,
+  getRunProgress,
+  getThread,
+  NEW_THREAD,
+  type PendingCall,
+  type RunProgress,
+  resumeThread,
+} from "@/lib/api/aiAgents";
 import { askWorkspace, listAgents, runAgent, runAgentAs, sendChat } from "@/lib/api/aiBubble";
 import { getTones } from "@/lib/api/aiTones";
 import { listAgentTools } from "@/lib/api/aiTools";
+import { type ApprovalCard, approvalCardHtml, type Decisions } from "@/lib/approvals";
 import { getActiveContext } from "@/lib/marvin/context";
 import {
   askThreadHref,
@@ -44,6 +53,8 @@ export interface MarvinResult {
   executionId?: string;
   /** The agent run paused for the user's approval rather than answering. */
   parked?: boolean;
+  /** Set with `parked`: the inline approval card's data (kept with the turn, re-rendered once decided). */
+  approval?: ApprovalCard;
 }
 
 export interface Capability {
@@ -241,19 +252,78 @@ async function runBubbleAgent(
     clearPending();
     if (res?.threadId) rememberThread(slug, res.threadId);
   }
-  if (res?.stoppedReason === "awaiting_approval") {
-    return {
-      html: parkedHtml(
-        res.threadId,
-        (res.pending ?? []).map((c: any) => c.tool),
-      ),
-      parked: true,
-    };
-  }
+  return runResult(res, slug);
+}
+
+/** A run's (or a resumed run's) response as a bubble reply: the answer, or an approval card when it parked. */
+function runResult(res: AgentRunResult | undefined, slug: string): MarvinResult {
+  if (res?.stoppedReason === "awaiting_approval" && res.threadId)
+    return parkedResult(res.threadId, slug, res.pending ?? []);
   return {
     html: agentReplyHtml(res?.answer ?? "(no answer — the void stares back)", res?.steps ?? []),
     executionId: res?.executionId,
   };
+}
+
+// Whether the Ask page is switched on (its own invocation source), set by the bubble from the workspace's
+// AI settings. While it is off, the card has no "Open on Ask page" link: the bubble is where you decide.
+let askPageOn = true;
+
+export function setAskPageAllowed(on: boolean): void {
+  askPageOn = on;
+}
+
+/** An "ask first" call paused the run: the inline approval card (Marvin's own asks and its specialists'). */
+function parkedResult(threadId: string, agent: string, pending: PendingCall[]): MarvinResult {
+  const approval: ApprovalCard = {
+    cardId: newRunId(),
+    threadId,
+    agent,
+    pending,
+    askHref: askPageOn ? askThreadHref(threadId) : null,
+  };
+  return { html: approvalCardHtml(approval, esc), parked: true, approval };
+}
+
+/** The card for a thread that is waiting on the user — how a toast opens the bubble on it. Null when nothing waits. */
+export async function parkedCardFor(threadId: string): Promise<MarvinResult | null> {
+  const thread = await getThread(threadId);
+  if (thread.status !== "awaiting_approval" || !thread.pending?.length) return null;
+  // On a specialist's own thread the ids are its own; the server forwards the decision to the root.
+  return parkedResult(thread.id, thread.agentSlug, thread.pending);
+}
+
+/**
+ * Decide a parked run from its card and continue it (source `bubble`, so it works with the Ask page
+ * switched off). Tracked like a run: progress drives the character, and the answer is recovered after a
+ * navigation (it lands on the same execution, which is what findReply looks for). The reply may be
+ * another card — the run can ask again.
+ */
+export async function resumeBubbleRun(card: ApprovalCard, decisions: Decisions): Promise<MarvinResult> {
+  const run: PendingRun = {
+    clientRunId: newRunId(),
+    agent: card.agent,
+    message: "",
+    sentAt: Date.now(),
+    threadId: card.threadId,
+  };
+  savePending(run);
+  const stopLearning = learnWhileInFlight(run, pendingDeps(run));
+  let res: AgentRunResult;
+  try {
+    res = await resumeThread(card.threadId, decisions, { source: "bubble", clientRunId: run.clientRunId });
+  } catch (err) {
+    stopLearning();
+    if (ownsPending(run)) clearPending();
+    throw err;
+  }
+  stopLearning();
+  if (ownsPending(run)) {
+    clearPending();
+    // A decision taken on a specialist's thread answers on the root conversation, which isn't this agent's.
+    if (res.threadId === card.threadId) rememberThread(card.agent, res.threadId);
+  }
+  return runResult(res, card.agent);
 }
 
 async function serverStillHas(run: PendingRun): Promise<boolean> {
@@ -302,22 +372,13 @@ export async function resumePendingRun(run: PendingRun): Promise<MarvinResult | 
     const m = outcome.message;
     return { html: agentReplyHtml(m.content, m.stepsJson ?? []), executionId: m.executionId ?? undefined };
   }
-  if (outcome.kind === "parked") return { html: parkedHtml(outcome.threadId, outcome.tools), parked: true };
+  if (outcome.kind === "parked") return parkedResult(outcome.threadId, run.agent, outcome.pending);
   const where = `<a href="${esc(askThreadHref(outcome.threadId))}">${outcome.threadId ? "the conversation on the Ask page" : "the Ask page"}</a>`;
   return {
     html: outcome.timedOut
       ? `<div class="mv-answer">Still no answer after ${PENDING_RUN_TIMEOUT_MS / 60_000} minutes, so I've stopped waiting. It may yet finish — check ${where}.</div>`
       : `<div class="mv-answer">I lost track of that request — the server no longer knows about it (restarted, or it never got there). Check ${where}, or ask again.</div>`,
   };
-}
-
-/**
- * An "ask first" tool paused the run. Approving happens on the Ask page, where the thread shows
- * the pending calls; the bubble just says so instead of waiting on a decision it can't take.
- */
-function parkedHtml(threadId: string, tools: string[]): string {
-  const what = [...new Set(tools)].map((t) => `<code>${esc(t)}</code>`).join(", ");
-  return `<div class="mv-answer">I need your go-ahead first${what ? ` (${what})` : ""}. <a href="${esc(askThreadHref(threadId))}">Approve or deny it on the Ask page</a> — the answer will be in that conversation.</div>`;
 }
 
 /** An agent answer as bubble HTML: the answer, image thumbnails, drafts it composed, tools it used. */
@@ -426,14 +487,14 @@ const tools: Capability = {
         const rows = ts
           .map(
             (t) =>
-              `<li><code>${esc(t.name)}</code> <span title="${esc(t.description)}">${esc(short(t.description))}</span></li>`,
+              `<li><code>${esc(t.name)}</code>${t.asksFirst ? ` <em class="mv-ask-first" title="I pause and ask you before each call">asks first</em>` : ""} <span title="${esc(t.description)}">${esc(short(t.description))}</span></li>`,
           )
           .join("");
         return `<div class="mv-tools-group"><span class="mv-tools-head">${esc(name)}</span><ul>${rows}</ul></div>`;
       })
       .join("");
     return {
-      html: `<div class="mv-tools">Here's what I can reach right now — I pick from these when you give me a goal:${sections}</div>`,
+      html: `<div class="mv-tools">Here's what I can reach right now — I pick from these when you give me a goal${all.some((t) => t.asksFirst) ? " (the ones marked <em>asks first</em> wait for your go-ahead)" : ""}:${sections}</div>`,
     };
   },
 };

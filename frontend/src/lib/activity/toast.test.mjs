@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { describe, mock, test } from "node:test";
 
 import {
+  approvalTarget,
   changeHref,
   changesLabel,
   dismissTimer,
@@ -351,4 +352,34 @@ describe("keyedToasts", () => {
       assert.deepEqual(expired.mock.calls[0].arguments, ["second"]);
     }),
   );
+});
+
+describe("approvalTarget", () => {
+  const askHref = (id) => (id ? `/ask?thread=${id}` : "/ask");
+  const event = { eventType: "approval_requested", userId: "u1", entityType: "ai_thread", entityId: "root-1" };
+
+  test("test_approval_toast_links_the_owner_to_the_ask_thread", () => {
+    assert.deepEqual(approvalTarget(event, "u1", true, askHref), {
+      threadId: "root-1",
+      href: "/ask?thread=root-1",
+      openBubble: false,
+    });
+  });
+
+  test("test_approval_toast_is_only_for_the_threads_owner", () => {
+    assert.equal(approvalTarget(event, "someone-else", true, askHref), null);
+    assert.equal(approvalTarget(event, null, true, askHref), null);
+  });
+
+  test("test_approval_toast_opens_the_bubble_while_the_ask_page_is_off", () => {
+    assert.deepEqual(approvalTarget(event, "u1", false, askHref), { threadId: "root-1", href: null, openBubble: true });
+  });
+
+  test("test_approval_toast_without_a_thread_links_the_ask_page", () => {
+    assert.deepEqual(approvalTarget({ ...event, entityId: null }, "u1", true, askHref), {
+      threadId: null,
+      href: "/ask",
+      openBubble: false,
+    });
+  });
 });

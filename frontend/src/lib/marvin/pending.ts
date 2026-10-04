@@ -11,7 +11,7 @@
  * (pending.test.ts); storage and network are passed in.
  */
 
-import type { RunProgress, ThreadDetail, ThreadMessage } from "@/lib/api/aiAgents";
+import type { PendingCall, RunProgress, ThreadDetail, ThreadMessage } from "@/lib/api/aiAgents";
 
 const PENDING_KEY = "marvin.pending";
 /** The bubble's current thread per agent — a thread belongs to one agent, so `/use` switches threads too. */
@@ -57,7 +57,8 @@ export interface PendingRun {
 export type Recovery =
   | { kind: "wait" }
   | { kind: "reply"; message: ThreadMessage; threadId: string }
-  | { kind: "parked"; threadId: string; tools: string[] }
+  // `pending` feeds the bubble's approval card; a specialist's asks keep their `via`.
+  | { kind: "parked"; threadId: string; tools: string[]; pending: PendingCall[] }
   | { kind: "failed"; error: string; threadId?: string }
   | { kind: "lost"; timedOut: boolean; threadId?: string }
   | { kind: "cancelled" };
@@ -169,9 +170,14 @@ function isParkedOn(thread: ThreadDetail, run: PendingRun): boolean {
   return thread.status === "awaiting_approval" && last?.role === "user" && last.content === run.message;
 }
 
-function parkedTools(progress: RunProgress): string[] {
+/** What the run's last `awaiting_approval` event names — ids, tools and `via`, but no arguments. */
+function parkedCalls(progress: RunProgress): PendingCall[] {
   const ev = [...progress.events].reverse().find((e) => e.type === "awaiting_approval");
-  return (ev?.calls ?? []).map((c) => c.tool);
+  return (ev?.calls ?? []).map((c) => ({ id: c.id, tool: c.tool, arguments: {}, ...(c.via ? { via: c.via } : {}) }));
+}
+
+function parked(threadId: string, pending: PendingCall[]): Recovery {
+  return { kind: "parked", threadId, tools: pending.map((c) => c.tool), pending };
 }
 
 export interface Observation {
@@ -192,11 +198,9 @@ export function assess(run: PendingRun, obs: Observation): Recovery {
   if (thread) {
     const reply = findReply(thread, run);
     if (reply) return { kind: "reply", message: reply, threadId: thread.id };
-    if (isParkedOn(thread, run))
-      return { kind: "parked", threadId: thread.id, tools: (thread.pending ?? []).map((c) => c.tool) };
+    if (isParkedOn(thread, run)) return parked(thread.id, thread.pending ?? []);
   }
-  if (progress?.status === "awaiting_approval" && threadId)
-    return { kind: "parked", threadId, tools: parkedTools(progress) };
+  if (progress?.status === "awaiting_approval" && threadId) return parked(threadId, parkedCalls(progress));
   if (now - run.sentAt > PENDING_RUN_TIMEOUT_MS) return { kind: "lost", timedOut: true, threadId };
   if (!progress && missingSince !== null && now - missingSince > PROGRESS_MISSING_GRACE_MS) {
     return { kind: "lost", timedOut: false, threadId };

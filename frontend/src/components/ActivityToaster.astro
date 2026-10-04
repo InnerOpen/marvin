@@ -11,23 +11,27 @@
 interface Props {
   /** The signed-in user — their own content edits aren't echoed back to them. */
   userId?: string | null;
+  /** Whether the Ask page is switched on: an agent waiting for approval links there, else opens the bubble. */
+  askPage?: boolean;
 }
-const { userId = null } = Astro.props;
+const { userId = null, askPage = true } = Astro.props;
 ---
 
-<button type="button" class="button secondary activity-bell" id="activity-bell" data-user-id={userId ?? ""} aria-live="polite">
+<button type="button" class="button secondary activity-bell" id="activity-bell" data-user-id={userId ?? ""} data-ask-page={askPage ? "1" : "0"} aria-live="polite">
   <span aria-hidden="true" data-icon>🔔</span><span class="sr-only" data-label>Activity: all</span>
 </button>
 <div class="activity-stack" id="activity-stack" role="log" aria-live="polite" aria-label="Recent activity"></div>
 
 <script>
   import {
+    approvalTarget,
     type ChangeList,
     changesLabel,
     type DismissTimer,
     dismissTimer,
     keyedToasts,
     moreLabel,
+    OPEN_BUBBLE_EVENT,
     planToasts,
     type RebuildChange,
     STICKY_TONES,
@@ -36,6 +40,7 @@ const { userId = null } = Astro.props;
     toastView,
   } from "@/lib/activity/toast";
   import { fetchApi } from "@/lib/api/client";
+  import { askThreadHref } from "@/lib/marvin/pending";
   import { entityHref } from "@/lib/eventEntity";
 
   type FeedEvent = {
@@ -62,8 +67,12 @@ const { userId = null } = Astro.props;
   type Kind = {
     tone: Tone; // warn and err stay until dismissed and show in "failures only"
     label: string;
-    href?: (e: FeedEvent) => string;
+    href?: (e: FeedEvent) => string | null;
+    /** Instead of a link: what clicking the toast does (e.g. open the bubble). */
+    onClick?: (e: FeedEvent) => (() => void) | null;
     othersOnly?: boolean;
+    /** Only for the user the event is about (e.g. the owner of a paused agent run). */
+    selfOnly?: boolean;
     skip?: (e: FeedEvent) => boolean;
   };
 
@@ -115,6 +124,19 @@ const { userId = null } = Astro.props;
     entry_created: { tone: "info", label: "Created", href: entryHref, othersOnly: true },
     entry_updated: { tone: "info", label: "Updated", href: entryHref, othersOnly: true },
     entry_deleted: { tone: "info", label: "Deleted", othersOnly: true },
+    // An agent run paused on an "ask first" call (its own, or a specialist's it handed off to): only its
+    // owner can decide, so only they see it — sticky until dismissed, since the run waits on them.
+    approval_requested: {
+      tone: "warn",
+      label: "Waiting for your approval",
+      selfOnly: true,
+      href: (e) => approvalTarget(e, me, askPageOn, askThreadHref)?.href ?? null,
+      onClick: (e) => {
+        const target = approvalTarget(e, me, askPageOn, askThreadHref);
+        if (!target?.openBubble) return null;
+        return () => document.dispatchEvent(new CustomEvent(OPEN_BUBBLE_EVENT, { detail: { threadId: target.threadId } }));
+      },
+    },
   };
 
   const bell = document.getElementById("activity-bell") as HTMLButtonElement;
@@ -138,6 +160,7 @@ const { userId = null } = Astro.props;
   placeStack();
   window.addEventListener("resize", placeStack);
   const me = bell.dataset.userId || null;
+  const askPageOn = bell.dataset.askPage !== "0";
 
   function readMode(): Mode {
     try {
@@ -170,6 +193,7 @@ const { userId = null } = Astro.props;
     if (!kind || mode === "off") return false;
     if (mode === "failures" && !STICKY_TONES.has(kind.tone)) return false;
     if (kind.othersOnly && me && e.userId === me) return false;
+    if (kind.selfOnly && (!me || e.userId !== me)) return false;
     if (kind.skip?.(e)) return false;
     return true;
   }
@@ -233,9 +257,27 @@ const { userId = null } = Astro.props;
     const changes = summarizeChanges(e.changes, e.requestCount);
     // A toast with its own links inside can't itself be a link.
     const link = kind.href && !changes ? kind.href(e) : null;
+    const action = !link && kind.onClick ? kind.onClick(e) : null;
     const el = document.createElement(link ? "a" : "div");
-    el.className = `activity-toast ${view.tone}${opts.replace ? " updated" : ""}`;
+    el.className = `activity-toast ${view.tone}${opts.replace ? " updated" : ""}${action ? " actionable" : ""}`;
     if (link) (el as HTMLAnchorElement).href = link;
+    if (action) {
+      // A div, not a button: the toast holds its own close button.
+      el.setAttribute("role", "button");
+      el.tabIndex = 0;
+      const act = () => {
+        action();
+        dismiss(el);
+      };
+      el.addEventListener("click", act);
+      el.addEventListener("keydown", (ev) => {
+        const key = (ev as KeyboardEvent).key;
+        if (ev.target === el && (key === "Enter" || key === " ")) {
+          ev.preventDefault();
+          act();
+        }
+      });
+    }
 
     const head = document.createElement("div");
     head.className = "activity-head";
@@ -399,6 +441,7 @@ const { userId = null } = Astro.props;
   }
   .activity-stack :global(.activity-toast.ok) { border-left-color: #16a34a; }
   .activity-stack :global(.activity-toast.warn) { border-left-color: #d97706; }
+  .activity-stack :global(.activity-toast.actionable) { cursor: pointer; }
   .activity-stack :global(.activity-toast.err) { border-left-color: #dc2626; }
   .activity-stack :global(.activity-toast.leaving) { opacity: 0; transform: translateY(-6px); }
   .activity-stack :global(a.activity-toast:hover) { border-color: var(--muted); }

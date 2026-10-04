@@ -259,3 +259,30 @@ export function keyedToasts<T>(onExpire: (handle: T) => void): KeyedToasts<T> {
     has: (key) => slots.has(key),
   };
 }
+
+// ── Ask first: a paused agent run waiting on you ─────────────────────────────────────────────────
+
+/** Where an `approval_requested` toast takes its owner: the Ask thread, or the bubble on that thread. */
+export type ApprovalTarget = { threadId: string | null; href: string | null; openBubble: boolean };
+
+/**
+ * An `approval_requested` event's toast target, or null when it isn't the viewer's to decide — only the
+ * thread's owner can approve, so nobody else is nagged. With the Ask page switched off the bubble is the
+ * only place to decide, so the toast opens it instead of linking to a page that says Ask is off.
+ * `askHref` builds the Ask page link for a thread (lib/marvin/pending askThreadHref).
+ */
+export function approvalTarget(
+  e: { userId?: string | null; entityType?: string | null; entityId?: string | null },
+  me: string | null,
+  askPageOn: boolean,
+  askHref: (threadId?: string) => string,
+): ApprovalTarget | null {
+  if (!me || e.userId !== me) return null;
+  const threadId = e.entityType === "ai_thread" && e.entityId ? e.entityId : null;
+  return askPageOn
+    ? { threadId, href: askHref(threadId ?? undefined), openBubble: false }
+    : { threadId, href: null, openBubble: true };
+}
+
+/** The event the bubble listens for to open itself, on a thread when one is given (components/Marvin.astro). */
+export const OPEN_BUBBLE_EVENT = "marvin:open";

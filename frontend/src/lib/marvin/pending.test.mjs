@@ -111,7 +111,18 @@ describe("assess", () => {
       kind: "parked",
       threadId: "th-1",
       tools: ["attach_tag"],
+      pending: [{ id: "c1", tool: "attach_tag", arguments: {} }],
     });
+  });
+
+  test("test_assess_keeps_a_specialists_via_from_the_progress_event", () => {
+    const p = progress("awaiting_approval", {
+      threadId: "th-1",
+      events: [{ type: "awaiting_approval", calls: [{ id: "c1/c7", tool: "run_workflow", via: "workshop" }], at: 1 }],
+    });
+    assert.deepEqual(assess(run(), observe({ progress: p })).pending, [
+      { id: "c1/c7", tool: "run_workflow", arguments: {}, via: "workshop" },
+    ]);
   });
 
   test("test_assess_sees_a_park_in_the_thread_when_progress_is_gone", () => {
@@ -123,7 +134,20 @@ describe("assess", () => {
       kind: "parked",
       threadId: "th-1",
       tools: ["compose_entry"],
+      pending: [{ id: "c1", tool: "compose_entry" }],
     });
+  });
+
+  test("test_assess_hands_the_threads_full_pending_calls_to_the_card", () => {
+    const call = {
+      id: "c1/c7",
+      tool: "run_workflow",
+      arguments: { name: "nightly" },
+      via: "workshop",
+      viaName: "Workshop",
+    };
+    const t = thread([msg(1, "user", "what changed?")], { status: "awaiting_approval", pending: [call] });
+    assert.deepEqual(assess(run({ threadId: "th-1" }), observe({ thread: t })).pending, [call]);
   });
 
   test("test_assess_waits_through_a_short_unknown_spell_then_calls_the_run_lost", () => {

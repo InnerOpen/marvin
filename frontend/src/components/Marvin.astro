@@ -50,13 +50,15 @@ try {
 
 <script>
   import { fetchApi } from '@/lib/api/client';
-  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent, getSessionTone, setSessionTone, TONE_EVENT } from '@/lib/marvin/capabilities';
+  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent, getSessionTone, setSessionTone, TONE_EVENT, setAskPageAllowed, resumeBubbleRun, parkedCardFor, type MarvinResult } from '@/lib/marvin/capabilities';
+  import { type ApprovalCard, approvalCardHtml, decisionsFrom } from '@/lib/approvals';
+  import { OPEN_BUBBLE_EVENT } from '@/lib/activity/toast';
   import { createCast, type Cast } from '@/lib/marvin/cast';
   import { createCharacter, dragDirection, type Character, type CharacterEvent, type CharacterStates } from '@/lib/marvin/character';
   import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
-  import { bubbleAllowed } from '@/lib/marvin/gate';
+  import { askPageAllowed, bubbleAllowed } from '@/lib/marvin/gate';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
-  import { forgetConversation, loadPending, scoped, setStorageScope } from '@/lib/marvin/pending';
+  import { forgetConversation, loadPending, rememberThread, scoped, setStorageScope, threadFor } from '@/lib/marvin/pending';
   import { type BubbleSpot, clampSpot, DEFAULT_SPOT, parseSpot, spotFromRect } from '@/lib/marvin/position';
 
   const root = document.getElementById('marvin-root');
@@ -67,6 +69,7 @@ try {
       try {
         const settings = await fetchApi<any>('/api/groups/ai-settings');
         if (!bubbleAllowed(settings)) { root.remove(); return; } // AI off, or the bubble switched off
+        setAskPageAllowed(askPageAllowed(settings)); // with the Ask page off, approval cards don't link to it
         applyIdentity(settings);
         root.removeAttribute('hidden');
       } catch {
@@ -215,7 +218,8 @@ try {
     const MEM_KEY = scoped('marvin.transcript');
     const MEM_CAP = 60; // keep the last N turns; guards both quota and scrollback bloat
     // `executionId` marks an agent reply, so one recovered from the server isn't appended twice.
-    type Turn = { who: 'user' | 'marvin'; html: string; executionId?: string };
+    // `approval` is a parked run's card as data: deciding re-renders the turn from it.
+    type Turn = { who: 'user' | 'marvin'; html: string; executionId?: string; approval?: ApprovalCard };
     let transcript: Turn[] = [];
     try {
       const saved = JSON.parse(sessionStorage.getItem(MEM_KEY) || '[]');
@@ -241,18 +245,19 @@ try {
 
     // Add a message to the log. Committed turns persist; pass persist=false for the transient
     // "thinking…" placeholder (its final answer is committed via commitReply once it resolves).
-    function addMsg(who: 'user' | 'marvin', html: string, persist = true): HTMLElement {
+    function addMsg(who: 'user' | 'marvin', html: string, persist = true, approval?: ApprovalCard): HTMLElement {
       const div = appendNode(who, html);
-      if (persist) { transcript.push({ who, html }); saveTranscript(); }
+      if (persist) { transcript.push({ who, html, ...(approval ? { approval } : {}) }); saveTranscript(); }
       return div;
     }
 
     // Commit a marvin reply that replaced a "thinking…" node in place.
-    function commitReply(node: HTMLElement, html: string, executionId?: string) {
+    function commitReply(node: HTMLElement, html: string, executionId?: string, approval?: ApprovalCard) {
       node.innerHTML = html;
-      transcript.push({ who: 'marvin', html, ...(executionId ? { executionId } : {}) });
+      transcript.push({ who: 'marvin', html, ...(executionId ? { executionId } : {}), ...(approval ? { approval } : {}) });
       saveTranscript();
     }
+    const commitResult = (node: HTMLElement, res: MarvinResult) => commitReply(node, res.html, res.executionId, res.approval);
 
     function thinkingHtml() {
       return `<span class="mv-thinking">${esc(pick(voice.emotes) + ' ' + pick(voice.thinking))}</span>`;
@@ -299,7 +304,7 @@ try {
         if (gen !== generation) return;
         const seen = res?.executionId && transcript.some((t) => t.executionId === res.executionId);
         if (!res || seen) { thinking.remove(); finish('rest'); }
-        else { commitReply(thinking, res.html, res.executionId); finish(res.parked ? 'parked' : 'reply'); }
+        else { commitResult(thinking, res); finish(res.parked ? 'parked' : 'reply'); }
       } catch (err: any) {
         if (gen === generation) { commitReply(thinking, errorHtml(err)); finish('error'); }
       } finally {
@@ -479,6 +484,83 @@ try {
       form.requestSubmit();
     });
 
+    // ── Ask first: the inline approval card ──
+    // A parked run's reply is a card (@/lib/approvals). Deciding re-renders its turn as decided, then
+    // resumes the run from the bubble — the reply is the answer, or another card if it asks again.
+    function cardTurn(cardId: string | undefined): Turn | undefined {
+      return cardId ? transcript.find((t) => t.approval?.cardId === cardId) : undefined;
+    }
+    function renderCard(turn: Turn, node: Element | null) {
+      turn.html = approvalCardHtml(turn.approval!, esc);
+      if (node) node.innerHTML = turn.html;
+      saveTranscript();
+    }
+    function cardNode(cardId: string): Element | null {
+      return log.querySelector(`[data-card-id="${CSS.escape(cardId)}"]`)?.closest('.mv-msg') ?? null;
+    }
+    function supersedeCards(threadId: string | undefined) {
+      if (!threadId) return;
+      for (const t of transcript) {
+        if (t.approval && !t.approval.decided && t.approval.threadId === threadId) {
+          t.approval.decided = 'superseded';
+          renderCard(t, cardNode(t.approval.cardId));
+        }
+      }
+    }
+
+    log.addEventListener('click', async (e) => {
+      const btn = (e.target as HTMLElement).closest<HTMLElement>('[data-mv-approve], [data-mv-deny]');
+      const cardEl = btn?.closest<HTMLElement>('.mv-approval');
+      const turn = cardTurn(cardEl?.dataset.cardId);
+      if (!btn || !cardEl || !turn?.approval || turn.approval.decided || busy) return;
+      const card = turn.approval;
+      const choices = [...cardEl.querySelectorAll<HTMLInputElement>('input[data-call-id]')].map((cb) => ({ id: cb.dataset.callId!, checked: cb.checked }));
+      const decisions = decisionsFrom(choices, btn.hasAttribute('data-mv-deny'));
+      card.decided = decisions;
+      renderCard(turn, cardEl.closest('.mv-msg'));
+
+      busy = true;
+      const gen = generation;
+      const thinking = addMsg('marvin', thinkingHtml(), false);
+      cue('send');
+      try {
+        const res = await resumeBubbleRun(card, decisions);
+        if (gen === generation) { commitResult(thinking, res); finish(res.parked ? 'parked' : 'reply'); }
+      } catch (err: any) {
+        if (gen !== generation) return;
+        // Not decided after all (e.g. the server refused): put the card back so it can be tried again.
+        card.decided = undefined;
+        renderCard(turn, cardNode(card.cardId));
+        commitReply(thinking, errorHtml(err));
+        finish('error');
+      } finally {
+        if (gen === generation) busy = false;
+        log.scrollTop = log.scrollHeight;
+      }
+    });
+
+    // Public hook: open the bubble, optionally on a thread that waits for the user's approval — the
+    // activity toast uses it while the Ask page is switched off (the bubble is then where you decide).
+    //   document.dispatchEvent(new CustomEvent('marvin:open', { detail: { threadId } }))
+    document.addEventListener(OPEN_BUBBLE_EVENT, async (e) => {
+      if (root.hasAttribute('hidden')) return; // gated off
+      const threadId = String((e as CustomEvent).detail?.threadId ?? '');
+      if (!panel.classList.contains('open')) openPanel();
+      if (!threadId || busy) return;
+      // Already showing an undecided card for it: nothing to add.
+      if (transcript.some((t) => t.approval && !t.approval.decided && t.approval.threadId === threadId)) return;
+      try {
+        const res = await parkedCardFor(threadId);
+        if (!res?.approval) return;
+        // Continue that conversation here too, so the answer and any follow-up land in it.
+        rememberThread(res.approval.agent, res.approval.threadId);
+        addMsg('marvin', res.html, true, res.approval);
+        finish('parked');
+      } catch (err: any) {
+        addMsg('marvin', errorHtml(err), false);
+      }
+    });
+
     close.addEventListener('click', closePanel);
     clear.addEventListener('click', clearTranscript);
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePanel(); });
@@ -498,6 +580,8 @@ try {
       }
       if (!arg && !cap.noArg) { addMsg('marvin', "You'll have to give me something to work with."); return; }
 
+      // A new message to the agent on a thread that is waiting denies what it waits on (server-side).
+      if (cap.id === 'agent') supersedeCards(threadFor(getActiveAgent()));
       busy = true;
       const gen = generation;
       const thinking = addMsg('marvin', thinkingHtml(), false);
@@ -505,7 +589,7 @@ try {
       try {
         const res = await cap.run(arg);
         // After `/use`, the agent now talking may have a character of its own.
-        if (gen === generation) { commitReply(thinking, res.html, res.executionId); finish(res.parked ? 'parked' : 'reply'); }
+        if (gen === generation) { commitResult(thinking, res); finish(res.parked ? 'parked' : 'reply'); }
       } catch (err: any) {
         if (gen === generation) { commitReply(thinking, errorHtml(err)); finish('error'); }
       } finally {
@@ -672,6 +756,26 @@ try {
     font-size: 12px; background: var(--panel); border: 1px solid var(--line);
     border-radius: 4px; padding: 1px 5px; font-family: ui-monospace, monospace; flex: none;
   }
+  .marvin-log :global(.mv-ask-first) { font-size: 11px; color: var(--warn, #b7791f); font-style: normal; flex: none; }
+  /* Ask first: the inline approval card */
+  .marvin-log :global(.mv-approval-title) { font-weight: 600; margin-bottom: 6px; }
+  .marvin-log :global(.mv-approval-list) { list-style: none; margin: 0 0 6px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+  .marvin-log :global(.mv-approval-list label) { display: flex; gap: 6px; align-items: baseline; font-size: 13px; cursor: pointer; }
+  .marvin-log :global(.mv-approval-args) { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .marvin-log :global(.mv-approval-via) { margin: 6px 0 4px; }
+  .marvin-log :global(.mv-chip) {
+    display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--muted);
+  }
+  .marvin-log :global(.mv-approval-actions) { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+  .marvin-log :global(.mv-btn) {
+    font-size: 12px; padding: 5px 10px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  }
+  .marvin-log :global(.mv-btn.secondary) { background: none; color: var(--ink); border-color: var(--line); }
+  .marvin-log :global(.mv-approval-open) { font-size: 12px; color: var(--accent); text-decoration: none; }
+  .marvin-log :global(.mv-approval.resolved) { opacity: 0.7; }
+  .marvin-log :global(.mv-approval-done) { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .marvin-log :global(.mv-thinking) { color: var(--muted); font-style: italic; }
   .marvin-log :global(.mv-error) { color: var(--color-error); }
 </style>
