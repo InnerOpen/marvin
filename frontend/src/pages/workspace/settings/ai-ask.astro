@@ -1049,6 +1049,9 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
 
   .composer { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
   .attachment { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 4px 10px; border: 1px dashed var(--line); border-radius: 999px; margin-bottom: 8px; }
+  /* A class that sets `display` beats the `hidden` attribute's UA style; without these the empty
+     attachment chip, the empty suggestions row and an unsupported mic button all show. */
+  .attachment[hidden], .suggestions[hidden], .button[hidden] { display: none; }
   .link-btn { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 2px; }
   .question-input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 15px; font-family: inherit; line-height: 1.5; resize: vertical; background: var(--bg); color: var(--ink); box-sizing: border-box; }
   .question-input:focus { border-color: var(--accent); outline: none; }
