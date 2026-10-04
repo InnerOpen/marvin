@@ -1141,6 +1141,14 @@ class EmailEventListener(EventListenerBase):
 
         with self.ensure_repos(self.group_id) as repos:
             workspace_subs = repos.email_event_subscriptions.multi_query({"event_type": event.event_type.name, "enabled": True})
+            # A connection's "working again" notice also goes to every email route that delivered its alert.
+            from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
+            from marvin.services.integrations.errors import resolved_channel_rows
+
+            delivered = resolved_channel_rows(repos.session, self.group_id, event, EmailEventSubscriptionModel, "email")
+            if delivered:
+                known = {sub.id for sub in workspace_subs}
+                workspace_subs = [*workspace_subs, *(row for row in delivered if row.id not in known)]
 
             # Check for system template mapping for this event
             system_template_type = get_template_type_for_event(event.event_type.name)
@@ -1345,6 +1353,15 @@ class IntegrationEventListener(EventListenerBase):
                 )
                 .all()
             )
+            # A connection's "working again" notice also goes to every route that delivered its alert.
+            from marvin.services.integrations.errors import resolved_channel_rows
+
+            known = {row.id for row in rows}
+            rows += [
+                row
+                for row in resolved_channel_rows(session, self.group_id, event, IntegrationEventSubscriptionModel, "integration")
+                if row.id not in known
+            ]
             for row in rows:
                 integ = session.get(IntegrationModel, row.integration_id)
                 if not integ or not integ.enabled:
@@ -1352,6 +1369,7 @@ class IntegrationEventListener(EventListenerBase):
                 # Snapshot everything needed so publish_to_subscribers is session-independent.
                 subs.append(
                     {
+                        "integration_id": integ.id,
                         "name": integ.name,
                         "provider": integ.provider,
                         "config": integ.config or {},
@@ -1372,9 +1390,13 @@ class IntegrationEventListener(EventListenerBase):
             from marvin.services.integrations import IntegrationContext, build_http, get_provider
         except ImportError:
             return
+        from marvin.services.integrations import errors
         from marvin.services.secrets.resolver import resolve_secret
 
         ctx_data = self._event_context(event)
+        # Loop guard: delivering an integration alert never opens, bumps or resolves one — a broken
+        # Slack connection must not alert about itself through itself.
+        track = event.event_type.name not in errors.ALERT_EVENTS
         for sub in subscribers:
             try:
                 provider = get_provider(sub["provider"])
@@ -1389,6 +1411,11 @@ class IntegrationEventListener(EventListenerBase):
                 self.logger.info(f"integration '{sub['name']}' ran '{sub['action']}' on {event.event_type.name}")
             except Exception as e:  # noqa: BLE001 — one action failing must not affect the others
                 self.logger.warning(f"integration '{sub['name']}' action '{sub['action']}' failed: {e}")
+                if track:  # connection scope: the provider's notify only — no entry to review, nothing to retry
+                    errors.connection_failed(self.group_id, sub.get("integration_id"), provider, sub["action"], e, source="subscription")
+                continue
+            if track:
+                errors.connection_succeeded(self.group_id, sub.get("integration_id"))
 
     def _event_context(self, event: Event) -> dict:
         """Flatten the event into a dict of {{placeholder}} values for action args."""

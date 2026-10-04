@@ -102,8 +102,16 @@ class RunIntegrationActionHandler(ScheduledTaskHandler):
                 args[arg_name] = _load_input(session, gid, spec)
 
             # A ValueError from the provider propagates: the scheduler logs a failed execution
-            # with the message, which is exactly what an operator wants to see.
-            result = provider.run_action(action, args, ctx) or {}
+            # with the message, which is exactly what an operator wants to see. The provider's error
+            # policy may also alert admins (connection scope: notify only, no review or retry).
+            from marvin.services.integrations import errors
+
+            try:
+                result = provider.run_action(action, args, ctx) or {}
+            except Exception as e:
+                errors.connection_failed(gid, row.id, provider, action, e, source="scheduled_task", session=session)
+                raise
+            errors.connection_succeeded(gid, row.id, session=session)
 
             created = _persist_records(session, gid, cfg.get("outputs") or {}, result.get("records") or [])
             if result.get("secret_update"):

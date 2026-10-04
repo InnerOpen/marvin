@@ -69,8 +69,14 @@ class CapabilityHandler:
         elapsed_ms = int((time.monotonic() - start) * 1000)
 
         self._log_execution(inputs, output, elapsed_ms, error)
+        # Connection scope: the provider's error policy may alert admins (notify only — nothing to
+        # review or retry here); a success resolves the connection's open alerts.
+        from . import errors
+
         if error is not None:
+            errors.connection_failed(self.group_id, self.integration_id, self._provider, self._action_key, error, source="capability")
             raise error
+        errors.connection_succeeded(self.group_id, self.integration_id)
         return output
 
     @staticmethod
