@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.172 (2026-10-04)
+
+### Features
+
+- **entries**: A page URL pattern per entry type gives each entry its site URL
+  ([`f11a641`](https://github.com/InnerOpen/marvin/commit/f11a6412674ba29036bfd8cb38ad738655840eb4))
+
+- **entries**: Placeholder links like [title](#) block publishing
+  ([`153d9da`](https://github.com/InnerOpen/marvin/commit/153d9daba1cc9486831d4158ebce423c0456a874))
+
+
 ## v1.0.0-rc.171 (2026-10-03)
 
 ### Bug Fixes
