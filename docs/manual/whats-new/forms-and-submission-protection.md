@@ -21,7 +21,7 @@ An entry type with `capabilities.submittable: true` is a form: a public POST to 
 | Surface | Path |
 |---|---|
 | Entry type editor, "Submission settings" fieldset (shown while **Submittable** is checked) | `/workspace/entry-types/{id}` |
-| Platform defaults (admin sidebar **Submission Protection**) | `/admin/submission-protection` |
+| Platform defaults (**Admin → Settings → Submission Protection**) | `/admin/submission-protection` |
 | Workspace override (**Settings → Publishing → Submission Protection**), with a per-field **Use platform default** checkbox | `/workspace/settings/submission-protection` |
 | Submissions | Entries list, status `inbox` or `needs_review` |
 

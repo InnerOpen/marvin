@@ -86,7 +86,7 @@ Calls `provider.run_action(action, args, ctx)` for one workspace integration, fe
 ## Where
 
 - Workspace: **Settings → Automation → Scheduler** (`/workspace/scheduled-tasks`), with `/new`, `/{id}` (edit, **Run Now**) and `/log` (**Activity Log**).
-- Platform-wide (system tasks): **Admin Settings → Scheduler** (`/admin/scheduled-tasks`) with the same sub-pages.
+- Platform-wide (system tasks): **Admin → Operations → Scheduled Tasks** (`/admin/scheduled-tasks`) with the same sub-pages.
 
 !!! note "`task_config` is not editable in the UI"
     The create form sends `task_config: {}` and the edit form has no field for it. Set it with `PATCH /api/scheduled-tasks/{id_or_slug}` (or the admin route), or apply a blueprint or seed script.
