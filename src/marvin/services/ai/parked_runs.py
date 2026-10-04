@@ -29,18 +29,22 @@ EXECUTION_STATUS_AWAITING = "awaiting_approval"
 REASON_ABANDONED = "abandoned"
 REASON_EXPIRED = "expired"
 REASON_NOT_PERMITTED = "no_longer_permitted"
+REASON_FAILED = "failed"
 
 ABANDONED_MESSAGE = "I stopped here — the pending actions were not approved."
 ABANDONED_ERROR = "abandoned: a new message arrived while awaiting approval"
 EXPIRED_MESSAGE = "This request expired before it was approved, so I didn't do it. Ask again if you still need it."
 EXPIRED_ERROR = "expired: not approved in time"
-NOT_PERMITTED_MESSAGE = "I stopped here — you may no longer use this agent."
-NOT_PERMITTED_ERROR = "no longer permitted: the caller may no longer talk to this agent"
+NOT_PERMITTED_MESSAGE = "I stopped here — this request is no longer permitted."
+NOT_PERMITTED_ERROR = "no longer permitted: the caller may no longer use this agent or hand-off"
+FAILED_MESSAGE = "I stopped here — I couldn't continue after your decision."
+FAILED_ERROR = "failed: the paused run could not be resumed"
 
 _END = {
     REASON_ABANDONED: (ABANDONED_MESSAGE, ABANDONED_ERROR),
     REASON_EXPIRED: (EXPIRED_MESSAGE, EXPIRED_ERROR),
     REASON_NOT_PERMITTED: (NOT_PERMITTED_MESSAGE, NOT_PERMITTED_ERROR),
+    REASON_FAILED: (FAILED_MESSAGE, FAILED_ERROR),
 }
 # Guards a corrupt parent chain from looping forever; far above any configurable hand-off depth.
 MAX_TREE_DEPTH = 16

@@ -220,6 +220,7 @@ class _Provider:
 
     def __init__(self):
         self.handoff = ["workshop"]
+        self.marvin_asks = False  # Marvin also asks before an MCP send in the same batch
         self.asks = {"workshop": 1, "materials": 1}
         self.nested = {}  # specialist → the agent it hands off to (depth 2)
         self.model_calls = {}
@@ -238,6 +239,7 @@ class _Provider:
             if not results:
                 return _completion(
                     calls=[ToolCall(id=self._id(), name="run_agent", arguments={"agent": a, "message": "please"}) for a in self.handoff]
+                    + ([ToolCall(id=self._id(), name="mcp__x__send", arguments={})] if self.marvin_asks else [])
                 )
             return _completion(
                 content="Marvin: " + " | ".join(json.loads(r.content).get("answer") or json.loads(r.content).get("error", "") for r in results)
@@ -288,6 +290,8 @@ def ctl(db_session, monkeypatch):
                     category="agents_run",
                 )
             )
+        if agent.slug == "marvin" and park_allowed:
+            tools.append(AgentTool(name="mcp__x__send", description="", input_schema={}, run=lambda a: "{}", category="mcp", requires_approval=True))
         if agent.slug != "marvin" and park_allowed and "run_workflow" not in c.revoked_tools:
             tools.append(
                 AgentTool(
@@ -708,3 +712,48 @@ def test_the_hourly_task_expires_and_records_the_rejection(ctl, monkeypatch):
     assert data.decisions == {res["pending"][0]["id"]: "deny"} and data.via_agent == "workshop"
     assert event["user_id"] == ctl.user.id and "expired" in event["message"]
     assert _thread(ctl, res["threadId"]).status == "open"
+
+
+# ── Review follow-ups ────────────────────────────────────────────────────────
+
+
+def test_a_specialist_that_fails_before_its_resume_starts_is_ended_not_left_waiting(ctl, monkeypatch):
+    res = _ask(ctl)
+    real = ctl._resume_leg
+
+    def leg(thread, *a, **kw):
+        if thread.agent_slug == "workshop":
+            raise HTTPException(400, "No model configured. Set a default model on the provider.")
+        return real(thread, *a, **kw)
+
+    monkeypatch.setattr(ctl, "_resume_leg", leg, raising=False)
+    out = _resume(ctl, res["threadId"], {res["pending"][0]["id"]: "approve"})
+
+    assert out["stoppedReason"] == "complete" and "could not continue" in out["answer"] and ctl.workflow_runs == []
+    child_exec = _execution(ctl, res["pending"][0]["childExecutionId"])
+    assert child_exec.status == "failed" and child_exec.completed_at is not None
+    assert child_exec.metadata_json["approvals"][-1]["reason"] == "failed"
+    child = _child_of(ctl, res["threadId"])
+    assert child.status == "open" and [m.role for m in child.messages] == ["user", "assistant"]
+
+
+def test_a_handoff_the_router_may_no_longer_make_does_not_resume_the_specialist(ctl):
+    res = _ask(ctl)
+    ctl.max_depth = 0  # hand-offs switched off while the specialist waited
+    out = _resume(ctl, res["threadId"], {res["pending"][0]["id"]: "approve"})
+    assert ctl.workflow_runs == [] and "no longer permitted" in out["answer"]
+    assert _execution(ctl, res["pending"][0]["childExecutionId"]).metadata_json["approvals"][-1]["reason"] == "no_longer_permitted"
+
+
+def test_deciding_on_a_specialists_thread_is_refused_when_marvin_waits_on_more(ctl):
+    ctl.provider.marvin_asks = True
+    res = _ask(ctl)
+    assert sorted(c.get("via", "") for c in res["pending"]) == ["", "workshop"]
+    child = _child_of(ctl, res["threadId"])
+    with pytest.raises(HTTPException) as e:
+        _resume(ctl, child.id, {child.pending_json["calls"][0]["id"]: "approve"})
+    assert e.value.status_code == 409 and res["threadId"] in e.value.detail
+    assert _thread(ctl, res["threadId"]).status == "awaiting_approval" and ctl.event_bus.of(EventTypes.approval_granted) == []
+    # on the root, both decide together
+    out = _resume(ctl, res["threadId"], {c["id"]: "approve" for c in res["pending"]})
+    assert out["stoppedReason"] == "complete" and ctl.workflow_runs == [("workshop", {"n": 0})]

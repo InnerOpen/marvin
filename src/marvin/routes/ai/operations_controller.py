@@ -1113,6 +1113,13 @@ class AIOperationsController(BaseUserController):
         self._require_tool_capable(self._agent_provider(), model)
 
         flat = flatten_pending(pending.get("calls"))
+        if prefix and any(not str(c["id"]).startswith(prefix) for c in flat):
+            # Decided on a specialist's thread, but the conversation above waits on more than this
+            # specialist: deciding here would deny actions the user never saw. Decide them all there.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"This decision belongs to the conversation that handed off ({root.id}), which waits on other actions too; decide there.",
+            )
         decisions = {str(c["id"]): (DECISION_APPROVE if requested.get(str(c["id"])) == DECISION_APPROVE else DECISION_DENY) for c in flat}
         execution = execution_of(self.session, pending)
         for kind, event_type in ((DECISION_APPROVE, EventTypes.approval_granted), (DECISION_DENY, EventTypes.approval_rejected)):
@@ -1169,7 +1176,7 @@ class AIOperationsController(BaseUserController):
             split_decisions,
         )
         from marvin.services.ai.base import deserialize_messages
-        from marvin.services.ai.parked_runs import execution_of, own_calls, record_approvals
+        from marvin.services.ai.parked_runs import REASON_NOT_PERMITTED, execution_of, own_calls, record_approvals
         from marvin.services.ai.threads import clear_pending
 
         spec = self._agent_or_404(thread.agent_slug)
@@ -1184,23 +1191,30 @@ class AIOperationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No model configured. Set a default model on the provider.")
         self._require_tool_capable(provider, model)
 
+        # Rebound first, at the caller's current role: a hand-off this run may no longer make (its matrix now
+        # blocks run_agent, or AI_HANDOFF_MAX_DEPTH was lowered) does not resume the specialist.
+        tools, ctx = self._bind_agent_tools(provider, agent=spec, role=role, depth=depth, park_allowed=True)
+        may_hand_off = "run_agent" in {t.name for t in tools}
         calls = deserialize_pending(pending.get("calls"))
         outputs: dict[str, str] = {}
         for call in calls:
-            if call.kind != PENDING_CALL:
+            if call.kind == PENDING_CALL:
+                continue
+            if may_hand_off:
                 outcome = self._resume_child(
                     call, split_decisions(decisions, call.id), depth=depth + 1, on_event=on_event, surface=surface, chain=(*chain, spec.slug)
                 )
-                if outcome is not None:
-                    outputs[call.id] = self._json(outcome)
+            else:
+                outcome = self._end_child(call, REASON_NOT_PERMITTED, surface, "hand-offs are no longer permitted here")
+            if outcome is not None:
+                outputs[call.id] = self._json(outcome)
         own = {c.id: (DECISION_APPROVE if decisions.get(c.id) == DECISION_APPROVE else DECISION_DENY) for c in calls if c.kind == PENDING_CALL}
         record_approvals(execution, own_calls(pending), own, decided_by=self.user.id, surface=surface)
 
         body = self._resume_body(thread, run, client_run_id=None)
-        tools, ctx = self._bind_agent_tools(provider, agent=spec, role=role, depth=depth, park_allowed=True)
         ctx.execution_id = str(execution.id)
         ctx.tone_register = self._effective_register(run.get("register"), spec)
-        if depth < self._handoff_max_depth() and "run_agent" in {t.name for t in tools}:
+        if depth < self._handoff_max_depth() and may_hand_off:
             ctx.delegate = self._delegate_runner(
                 parent_thread=thread, parent_body=body, parent_execution=execution, on_event=on_event, depth=depth, chain=(*chain, spec.slug)
             )
@@ -1259,8 +1273,8 @@ class AIOperationsController(BaseUserController):
         again — `call.child` then holds its fresh snapshot."""
         from marvin.db.models.groups.ai_threads import AIThreadModel
         from marvin.services.ai.agents import may_talk, resolve_agent
-        from marvin.services.ai.parked_runs import REASON_NOT_PERMITTED, end_tree
-        from marvin.services.ai.threads import clear_pending, pending_state
+        from marvin.services.ai.parked_runs import REASON_FAILED, REASON_NOT_PERMITTED
+        from marvin.services.ai.threads import pending_state
 
         child = call.child or {}
         slug = str(child.get("agent") or "")
@@ -1272,22 +1286,39 @@ class AIOperationsController(BaseUserController):
         spec = resolve_agent(self.session, self.group_id, slug)
         ok, reason = may_talk(spec, self._user_role(), "agent") if spec is not None else (False, "the agent no longer exists")
         if not ok:
-            end_tree(self.session, thread, REASON_NOT_PERMITTED, decided_by=self.user.id, surface=surface)
-            self.session.commit()
-            return {"error": f"{name} is no longer permitted for this user ({reason}); nothing it asked for was done", "agent": slug}
+            return self._end_child(call, REASON_NOT_PERMITTED, surface, reason)
         try:
             res = self._resume_leg(
                 thread, record, decisions, depth=depth, on_event=self._via_listener(on_event, spec.slug), run_id=None, surface=surface, chain=chain
             )
         except HTTPException as e:
+            detail = e.detail if isinstance(e.detail, str) else self._json(e.detail)
             if pending_state(thread) is not None:
-                clear_pending(thread)
-                self.session.commit()
-            return {"error": e.detail if isinstance(e.detail, str) else self._json(e.detail), "agent": spec.slug}
+                # It failed before its own resume began (no model, agent disabled, …): end the park properly
+                # rather than leave its execution waiting forever.
+                return self._end_child(call, REASON_FAILED, surface, detail)
+            return {"error": detail, "agent": spec.slug}
         if res.get("stoppedReason") == "awaiting_approval":
             call.child = self._handoff_record(spec, res)
             return None
         return self._handoff_output(spec, res)
+
+    def _end_child(self, call, reason: str, surface: str, why: str) -> dict:
+        """End the parked tree under a hand-off call without running it; the router hears why."""
+        from marvin.db.models.groups.ai_threads import AIThreadModel
+        from marvin.services.ai.parked_runs import REASON_NOT_PERMITTED, end_tree
+        from marvin.services.ai.threads import pending_state
+
+        child = call.child or {}
+        slug = str(child.get("agent") or "")
+        name = child.get("name") or slug
+        thread = self.session.get(AIThreadModel, self._uuid_or_none(child.get("thread_id")))
+        if thread is not None and pending_state(thread) is not None:
+            end_tree(self.session, thread, reason, decided_by=self.user.id, surface=surface)
+            self.session.commit()
+        if reason == REASON_NOT_PERMITTED:
+            return {"error": f"{name} is no longer permitted for this user ({why}); nothing it asked for was done", "agent": slug}
+        return {"error": f"{name} could not continue ({why}); nothing it asked for was done", "agent": slug}
 
     @staticmethod
     def _json(value) -> str:
