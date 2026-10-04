@@ -37,6 +37,7 @@ def test_orphaned_row_reads_as_unavailable():
         status="ok",
         last_checked_at=None,
         last_error=None,
+        error_overrides=None,
     )
     read = _to_read(row)
     assert read.status == "unavailable"
@@ -242,6 +243,7 @@ def test_installed_provider_reads_normally():
             status="ok",
             last_checked_at=None,
             last_error=None,
+            error_overrides=None,
         )
         read = _to_read(row)
         assert read.status == "ok"

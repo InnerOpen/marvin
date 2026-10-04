@@ -73,5 +73,6 @@ def test_read_shows_which_workspace_secret_it_uses():
         status="ok",
         last_checked_at=None,
         last_error=None,
+        error_overrides=None,
     )
     assert ic._to_read(row).credential_secret == "SQUARE_TOKEN"

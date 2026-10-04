@@ -26,6 +26,19 @@ class IntegrationUpdate(_MarvinModel):
     credential: SecretStr | None = None
 
 
+class IntegrationAttention(_MarvinModel):
+    """An open alert on a connection — "Needs attention" on its card. One per error code, counted."""
+
+    id: UUID4
+    code: str
+    message: str | None = None
+    count: int = 1
+    first_at: datetime | None = None
+    last_at: datetime | None = None
+    samples: list[dict] = Field(default_factory=list)
+    """The last few failures: {at, message, action, entry_id, automation_slug, source}."""
+
+
 class IntegrationRead(_MarvinModel):
     """An integration as returned by the API. Never carries the credential value."""
 
@@ -40,6 +53,10 @@ class IntegrationRead(_MarvinModel):
     status: str
     last_checked_at: datetime | None = None
     last_error: str | None = None
+    attention: list[IntegrationAttention] = Field(default_factory=list)
+    """Open alerts (the connection needs attention); empty when it is healthy."""
+    error_overrides: dict = Field(default_factory=dict)
+    """An admin's adjustments to the provider's error policy: {code: {review?, notify?}}."""
 
 
 class ProviderCredentialInfo(_MarvinModel):
@@ -72,6 +89,8 @@ class ProviderActionInfo(_MarvinModel):
     priority: int = 0
     cost_hint: str | None = None
     requires_approval: bool = False
+    error_policy: dict = Field(default_factory=dict)
+    """This action's own error policy: {code: Handle.to_dict()} (SDK 0.5.0+)."""
 
 
 class IntegrationProviderInfo(_MarvinModel):
@@ -87,6 +106,9 @@ class IntegrationProviderInfo(_MarvinModel):
     credentials: list[ProviderCredentialInfo] = Field(default_factory=list)
     emits: list[ProviderEventInfo] = Field(default_factory=list)
     actions: list[ProviderActionInfo] = Field(default_factory=list)
+    error_policy: dict | None = None
+    """How the provider handles its errors — {"provider": {code: Handle}, "actions": {key: {code: Handle}}}
+    (SDK 0.5.0+; None on an older SDK). Each Handle carries a human `summary`."""
 
 
 class IntegrationPluginInfo(_MarvinModel):
@@ -139,3 +161,42 @@ class IntegrationEventSubscriptionRead(_MarvinModel):
     action: str
     args: dict | None = None
     enabled: bool
+
+
+class IntegrationErrorOverrides(_MarvinModel):
+    """Per-connection adjustments to the provider's error policy. Only `review` and `notify` per code
+    (or "*"); a code left out uses the provider's default."""
+
+    overrides: dict[str, dict[str, bool]] = Field(default_factory=dict)
+
+
+class IntegrationResolveResult(_MarvinModel):
+    resolved: int
+
+
+class AlertRoutingTarget(_MarvinModel):
+    """A connection that can carry integration alerts (a chat or notification provider)."""
+
+    integration_id: UUID4
+    name: str
+    provider: str
+    action: str
+    enabled: bool = False
+    """Whether alerts currently go to it."""
+
+
+class AlertRouting(_MarvinModel):
+    """Where integration alerts go besides the bell (which always gets them)."""
+
+    email_admins: bool = False
+    """Email the workspace's owners and admins (the "Integration Alert" system template)."""
+    targets: list[AlertRoutingTarget] = Field(default_factory=list)
+    reminder_hours: int = 24
+    """An open alert is announced again after this many hours; 0 = never."""
+
+
+class AlertRoutingUpdate(_MarvinModel):
+    email_admins: bool = False
+    integration_ids: list[UUID4] = Field(default_factory=list)
+    """The connections alerts go to (each must be one of the routing's targets)."""
+    reminder_hours: int = Field(default=24, ge=0, le=24 * 30)

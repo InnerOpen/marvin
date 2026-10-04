@@ -18,16 +18,22 @@ from marvin.core.root_logger import get_logger
 from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
 from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_admin
 from marvin.schemas.group.integration import (
+    AlertRouting,
+    AlertRoutingUpdate,
     IntegrationActionResult,
+    IntegrationAttention,
     IntegrationCheckResult,
     IntegrationCreate,
+    IntegrationErrorOverrides,
     IntegrationEventSubscriptionCreate,
     IntegrationEventSubscriptionRead,
     IntegrationEventSubscriptionUpdate,
     IntegrationPluginInfo,
     IntegrationProviderInfo,
     IntegrationRead,
+    IntegrationResolveResult,
     IntegrationUpdate,
 )
 from marvin.services.integrations import (
@@ -35,6 +41,7 @@ from marvin.services.integrations import (
     IntegrationContext,
     IntegrationProvider,
     build_http,
+    errors,
     get_provider,
     list_providers,
     load_reports,
@@ -76,7 +83,7 @@ def _owns_secret(row: IntegrationModel) -> bool:
     return row.secret_ref == _secret_ref(row.slug)
 
 
-def _to_read(row: IntegrationModel) -> IntegrationRead:
+def _to_read(row: IntegrationModel, alerts: list | None = None) -> IntegrationRead:
     # If the provider's package was uninstalled, the row is orphaned — surface that instead of a
     # stale "ok", so the UI can grey it out rather than pretend it still works.
     available = row.provider in INTEGRATION_REGISTRY
@@ -92,6 +99,13 @@ def _to_read(row: IntegrationModel) -> IntegrationRead:
         status=row.status if available else "unavailable",
         last_checked_at=row.last_checked_at,
         last_error=row.last_error if available else f"Provider '{row.provider}' is not installed.",
+        attention=[
+            IntegrationAttention(
+                id=a.id, code=a.code, message=a.message, count=a.count, first_at=a.first_at, last_at=a.last_at, samples=a.samples or []
+            )
+            for a in alerts or []
+        ],
+        error_overrides=row.error_overrides or {},
     )
 
 
@@ -141,6 +155,29 @@ class IntegrationsController(BaseUserController):
     def list_plugins(self):
         """Installed provider sources — built-ins and plugin packages — with load status/version."""
         return [IntegrationPluginInfo(**asdict(r)) for r in load_reports()]
+
+    # ---- integration alert routing ------------------------------------------------
+
+    @router.get("/alert-routing", response_model=AlertRouting)
+    def get_alert_routing(self):
+        """Where integration alerts go besides the bell: admins by email, chat/notification connections."""
+        require_workspace_admin(self.user, self.group_id)
+        from marvin.services.integrations.alert_routing import get_routing
+
+        return AlertRouting(**get_routing(self.session, self.group_id))
+
+    @router.put("/alert-routing", response_model=AlertRouting)
+    def set_alert_routing(self, data: AlertRoutingUpdate):
+        require_workspace_admin(self.user, self.group_id)
+        from marvin.services.integrations.alert_routing import set_routing
+
+        try:
+            routing = set_routing(
+                self.session, self.group_id, email_admins=data.email_admins, integration_ids=data.integration_ids, reminder_hours=data.reminder_hours
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+        return AlertRouting(**routing)
 
     # ---- event connections (integration action ⇄ event) -------------------------
 
@@ -219,7 +256,8 @@ class IntegrationsController(BaseUserController):
     def list_integrations(self):
         """List this workspace's configured integrations."""
         rows = self.session.query(IntegrationModel).filter(IntegrationModel.group_id == self.group_id).order_by(IntegrationModel.name).all()
-        return [_to_read(r) for r in rows]
+        alerts = errors.open_alerts(self.session, self.group_id)
+        return [_to_read(r, alerts.get(r.id)) for r in rows]
 
     @router.post("", response_model=IntegrationRead, status_code=status.HTTP_201_CREATED)
     def create_integration(self, data: IntegrationCreate):
@@ -263,7 +301,7 @@ class IntegrationsController(BaseUserController):
 
         # Run an initial health check so the row lands with a real status.
         self._run_check(row)
-        return _to_read(row)
+        return _to_read(row, errors.open_alerts(self.session, self.group_id).get(row.id))
 
     @router.patch("/{integration_id}", response_model=IntegrationRead)
     def update_integration(self, integration_id: UUID4, data: IntegrationUpdate):
@@ -301,7 +339,7 @@ class IntegrationsController(BaseUserController):
         self.session.refresh(row)
         if provider is not None:
             self._run_check(row)
-        return _to_read(row)
+        return _to_read(row, errors.open_alerts(self.session, self.group_id).get(row.id))
 
     @router.delete("/{integration_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_integration(self, integration_id: UUID4):
@@ -327,6 +365,8 @@ class IntegrationsController(BaseUserController):
         row.last_error = err
         row.last_checked_at = datetime.now(UTC)
         self.session.commit()
+        if status_str == "ok":  # a passing check resolves the connection's open alerts (and re-arms parked retries)
+            errors.connection_succeeded(self.group_id, row.id, resolution="check", session=self.session, user_id=self.user.id)
         self.session.refresh(row)
 
     @router.post("/{integration_id}/check", response_model=IntegrationCheckResult)
@@ -335,6 +375,42 @@ class IntegrationsController(BaseUserController):
         row = self._get_or_404(integration_id)
         self._run_check(row)
         return IntegrationCheckResult(status=row.status, last_error=row.last_error, last_checked_at=row.last_checked_at)
+
+    # ---- error handling ----------------------------------------------------------
+
+    @router.post("/{integration_id}/resolve", response_model=IntegrationResolveResult)
+    def resolve_attention(self, integration_id: UUID4, alert_id: UUID4 | None = None):
+        """Mark the connection's open alerts (or one, by `alert_id`) resolved — "I fixed it". Announces
+        the resolution through the channels that delivered each alert and re-arms parked retries."""
+        require_workspace_admin(self.user, self.group_id)
+        row = self._get_or_404(integration_id)
+        count = errors.resolve_alerts(self.session, self.group_id, row.id, resolution="manual", user_id=self.user.id, alert_id=alert_id)
+        return IntegrationResolveResult(resolved=count)
+
+    @router.put("/{integration_id}/error-overrides", response_model=IntegrationRead)
+    def set_error_overrides(self, integration_id: UUID4, data: IntegrationErrorOverrides):
+        """Adjust the provider's error policy for this connection: per declared code (or "*"), whether
+        a failure sends the entry to review and whether it alerts admins. Retries stay the provider's."""
+        require_workspace_admin(self.user, self.group_id)
+        row = self._get_or_404(integration_id)
+        provider = self._provider_or_none(row.provider)
+        if provider is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Provider '{row.provider}' is not installed.")
+        declared = errors.declared_codes(provider) | {"*"}
+        unknown = sorted(code for code in data.overrides if code not in declared)
+        if unknown:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"'{row.provider}' declares no error code {', '.join(unknown)}."
+            )
+        bad = sorted({flag for flags in data.overrides.values() for flag in flags if flag not in errors.OVERRIDABLE})
+        if bad:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Only review and notify can be adjusted, not {', '.join(bad)}."
+            )
+        row.error_overrides = errors.clean_overrides(data.overrides) or None
+        self.session.commit()
+        self.session.refresh(row)
+        return _to_read(row, errors.open_alerts(self.session, self.group_id).get(row.id))
 
     # ---- action test-fire --------------------------------------------------------
 

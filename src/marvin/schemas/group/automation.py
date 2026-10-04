@@ -187,6 +187,8 @@ class AutomationActionExecutionRead(_MarvinModel):
     error: str | None = None
     duration_ms: int | None = None
     output_snapshot: dict | None = None
+    handling: dict | None = None
+    """How the integration's error policy handled this failed step: {code, applied, summary, retry?}."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -211,6 +213,30 @@ class AutomationExecutionRead(_MarvinModel):
     error: str | None = None
     correlation_id: str | None = None
     triggered_by: UUID4 | None = None
+    handled: bool = False
+    """A failed run whose every failure an integration's error policy took in hand (review, retry, …)."""
+    retry_of_id: UUID4 | None = None
+    """On a retry run: the run whose failed step it resumed."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class IntegrationRetryRead(_MarvinModel):
+    """A failed integration step's retry chain — pending, parked (waiting for the connection), or done."""
+
+    id: UUID4
+    status: str
+    integration_slug: str
+    action: str
+    code: str
+    step_index: int
+    entry_id: UUID4 | None = None
+    attempt: int = 0
+    max_attempts: int = 0
+    next_attempt_at: datetime | None = None
+    finished_at: datetime | None = None
+    last_error: str | None = None
+    origin_execution_id: UUID4 | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -220,5 +246,9 @@ class AutomationExecutionDetail(AutomationExecutionRead):
 
     definition_snapshot: dict | None = None
     actions: list[AutomationActionExecutionRead] = []
+    retry_chain: list[AutomationExecutionRead] = []
+    """The original run and each retry of it, oldest first — just this run when it has none."""
+    retries: list[IntegrationRetryRead] = []
+    """The retry chains its failures started (what happens next, or how it ended)."""
 
     model_config = ConfigDict(from_attributes=True)

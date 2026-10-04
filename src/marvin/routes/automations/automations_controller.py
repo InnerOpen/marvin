@@ -33,6 +33,7 @@ from marvin.schemas.group.automation import (
     AutomationValidateRequest,
     AutomationValidateResult,
     AutomationWebhookOption,
+    IntegrationRetryRead,
 )
 
 router = APIRouter(prefix="/automations", route_class=MarvinCrudRoute)
@@ -44,6 +45,30 @@ _require_admin = require_workspace_admin
 def _slugify(name: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
     return s or "automation"
+
+
+def _retry_chain(session, row, limit: int = 50) -> list:
+    """The run's retry chain, oldest first: back through `retry_of_id` to the original run, then
+    forward through every retry of it (bounded — a chain is a handful of runs)."""
+    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
+
+    root = row
+    for _ in range(limit):
+        parent = session.get(AutomationExecutionModel, root.retry_of_id) if root.retry_of_id else None
+        if parent is None or parent.group_id != row.group_id:
+            break
+        root = parent
+    chain, frontier = [root], [root.id]
+    while frontier and len(chain) < limit:
+        children = (
+            session.query(AutomationExecutionModel)
+            .filter(AutomationExecutionModel.group_id == row.group_id, AutomationExecutionModel.retry_of_id.in_(frontier))
+            .order_by(AutomationExecutionModel.started_at)
+            .all()
+        )
+        chain += children
+        frontier = [c.id for c in children]
+    return chain[:limit]  # breadth-first from the original run: chronological for a chain
 
 
 def _get_or_404(session, automation_id: UUID4, group_id: UUID4) -> WorkspaceAutomationModel:
@@ -241,7 +266,20 @@ class AutomationsController(BaseUserController):
         row = self.session.get(AutomationExecutionModel, execution_id)
         if not row or row.group_id != self.group_id or row.automation_id != automation_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found.")
-        return AutomationExecutionDetail.model_validate(row)
+        detail = AutomationExecutionDetail.model_validate(row)
+        chain = _retry_chain(self.session, row)
+        if len(chain) > 1:
+            detail.retry_chain = [AutomationExecutionRead.model_validate(r) for r in chain]
+        from marvin.db.models.groups.integration_errors import IntegrationRetryModel
+
+        retries = (
+            self.session.query(IntegrationRetryModel)
+            .filter(IntegrationRetryModel.group_id == self.group_id, IntegrationRetryModel.origin_execution_id.in_([r.id for r in chain]))
+            .order_by(IntegrationRetryModel.created_at)
+            .all()
+        )
+        detail.retries = [IntegrationRetryRead.model_validate(r) for r in retries]
+        return detail
 
     @router.get("/{automation_id}/samples", summary="Events a dry run can test against")
     def list_samples(self, automation_id: UUID4, limit: int = 10) -> dict:
