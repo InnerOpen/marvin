@@ -328,6 +328,16 @@ select {
   border-color: var(--muted);
 }
 
+/* A button that can't act yet (e.g. View on site before publishing): greyed, its title says why. */
+.button.is-disabled,
+.button.is-disabled:hover {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  background: var(--panel);
+  border-color: var(--line);
+}
+
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

@@ -109,7 +109,7 @@ Marvin does not know your site's routes, so by default it cannot say where an en
 With a pattern set, each entry of that type gets a URL:
 
 - the publishing API adds `url` to entries in lists and in entry detail (absolute when the Canonical URL is set, otherwise the site path) and `pageUrlPattern` to `GET /entry-types`. Both are null when not configured, and nothing else in the payload changes;
-- Entry Details in the admin shows a **View on site** button (absolute URLs only, so the Canonical URL must be set), noting "Not live until this entry is published" on a draft;
+- Entry Details in the admin shows a **View on site** button (absolute URLs only, so the Canonical URL must be set), enabled once the entry is published; before that it is greyed out and says "Available once published";
 - agents get the `url` from their entry tools (see [Agents and Ask → Linking to entries](agents-and-ask.md)).
 
 The URL is built whatever the entry's status, because a draft's link is where it will live; the publishing API serves only published entries anyway. Entry types shared by every workspace (system types with no workspace) can't hold a pattern; the copies a workspace starts with can. The pattern travels with workspace exports and imports.
@@ -145,7 +145,7 @@ A draft saved or moved between workflow collections queues nothing, and neither 
 
 ## Since
 
-Endpoints predate rc.40. `data`/`description` on list items: rc.48 (`fadb3f52`). Non-publishable types never served: rc.62 (`0e676a23`). Site-rebuild coalescing: rc.121; its two settings: rc.122. Automatic rebuilds on published content changes: rc.143. Build and deploy status events: rc.144. The changes a rebuild covers, on `webhook_triggered` and in the **Site rebuild** toast: rc.154; its event-catalog entry: rc.155. The **Site rebuild queued** toast (`site_rebuild_queued`): rc.165. Entry page URLs (`url`, `pageUrlPattern`, **View on site**) and placeholder links blocking publishing: rc.172. The client form's **Forms** permissions and an edit page: rc.181. Private collections ignored by the entries `collection` filter: rc.186.
+Endpoints predate rc.40. `data`/`description` on list items: rc.48 (`fadb3f52`). Non-publishable types never served: rc.62 (`0e676a23`). Site-rebuild coalescing: rc.121; its two settings: rc.122. Automatic rebuilds on published content changes: rc.143. Build and deploy status events: rc.144. The changes a rebuild covers, on `webhook_triggered` and in the **Site rebuild** toast: rc.154; its event-catalog entry: rc.155. The **Site rebuild queued** toast (`site_rebuild_queued`): rc.165. Entry page URLs (`url`, `pageUrlPattern`, **View on site**) and placeholder links blocking publishing: rc.172. **View on site** disabled until the entry is published: not yet in a release (after rc.192). The client form's **Forms** permissions and an edit page: rc.181. Private collections ignored by the entries `collection` filter: rc.186.
 
 ## Related
 

@@ -93,3 +93,17 @@ export function withSubmittedValues<E extends Record<string, any>>(
   }
   return out as E;
 }
+
+export const VIEW_ON_SITE_HINT = "Available once published";
+
+/**
+ * The Entry Details "View on site" button: none without a page URL (the type has no pattern), a link once the
+ * entry is published, and otherwise a disabled button saying why — the URL exists but nothing is live there yet.
+ */
+export function viewOnSite(
+  pageUrl: string | null | undefined,
+  status: string | null | undefined,
+): { href: string } | { disabled: true; hint: string } | null {
+  if (!pageUrl) return null;
+  return status === "published" ? { href: pageUrl } : { disabled: true, hint: VIEW_ON_SITE_HINT };
+}

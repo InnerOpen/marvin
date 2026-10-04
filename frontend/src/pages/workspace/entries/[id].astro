@@ -10,7 +10,7 @@ import { getAssets } from "@/lib/api/platform";
 import { listResources } from "@/lib/api/resources";
 import { createTag, listTags, type TagRead } from "@/lib/api/tags";
 import { keysHint } from "@/lib/disclosure";
-import { withSubmittedValues } from "@/lib/entryForm";
+import { viewOnSite, withSubmittedValues } from "@/lib/entryForm";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
 import { createSdkClient } from "@/lib/sdk";
@@ -216,6 +216,8 @@ if (!id) {
 
 // The page title, slug lock and "not live yet" note follow what's stored, not a failed save.
 const storedStatus = entry?.status;
+// View on site: a link once published; before that a disabled button (the type has a page URL, nothing is live yet).
+const siteLink = viewOnSite(entry?.pageUrl, storedStatus);
 const storedTitle = entry?.title;
 if (entry && submitted) {
   entry = withSubmittedValues(entry, submitted, {
@@ -563,10 +565,16 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </small>
             </div>
 
-            {entry.pageUrl && (
+            {siteLink && (
               <div class="form-group">
-                <a href={entry.pageUrl} target="_blank" rel="noopener noreferrer" class="button secondary">View on site ↗</a>
-                {storedStatus !== "published" && <p class="form-help">Not live until this entry is published</p>}
+                {"href" in siteLink ? (
+                  <a href={siteLink.href} target="_blank" rel="noopener noreferrer" class="button secondary">View on site ↗</a>
+                ) : (
+                  <>
+                    <a class="button secondary is-disabled" role="link" aria-disabled="true" title={siteLink.hint}>View on site ↗</a>
+                    <p class="form-help">{siteLink.hint}</p>
+                  </>
+                )}
               </div>
             )}
 

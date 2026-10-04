@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { withSubmittedValues } from "./entryForm.ts";
+import { viewOnSite, withSubmittedValues } from "./entryForm.ts";
 
 const stored = {
   id: "e1",
@@ -150,5 +150,22 @@ describe("withSubmittedValues", () => {
     withSubmittedValues(stored, { title: "Changed", tag_ids: [] }, lookups);
 
     assert.deepEqual([stored.title, stored.tags], ["October newsletter", ["news"]]);
+  });
+});
+
+describe("viewOnSite", () => {
+  test("is a link once the entry is published", () => {
+    assert.deepEqual(viewOnSite("https://site.test/notes/a", "published"), { href: "https://site.test/notes/a" });
+  });
+
+  test("is disabled with a hint for any other status", () => {
+    for (const status of ["inbox", "draft", "needs_review", "approved", "archived"]) {
+      assert.deepEqual(viewOnSite("/notes/a", status), { disabled: true, hint: "Available once published" }, status);
+    }
+  });
+
+  test("is absent without a page URL", () => {
+    assert.equal(viewOnSite(null, "published"), null);
+    assert.equal(viewOnSite("", "draft"), null);
   });
 });
