@@ -553,6 +553,174 @@ Full backend suite, frontend tests, Biome and ruff green; `astro check` 50 error
 the base. Browser-checked on SQLite + astro dev (headless Chromium): preview parts for frame / everywhere / drop,
 JSON panels collapsed, collapsed metadata still saved, invalid metadata reopens its panel, no empty Ask chip.
 
+# n8n integration (plan, 2026-10-04)
+
+**Goal:** n8n becomes a first-class place Marvin hands work to and hears back from. A workflow step triggers an
+n8n workflow with signed, expiring auth. Failures carry n8n-specific codes that the provider's error policy
+handles (retry / review / notify). The card can list n8n's webhook workflows and read an execution's status. n8n
+reports results back through a Marvin incoming webhook, and a smart collection shows what failed. n8n acting on
+Marvin stays plain HTTP plus a personal token (documented), not a custom node, in v1.
+
+**Today (origin/develop `67ad0763`, SDK 0.4.0; 0.5.0 on `feat/error-policy` `229eda4`):**
+- Marvin → n8n already works with generic webhooks. The inquiry desk uses `event_driven` webhook `1fc99f25…`
+  (`form_submission_received` → `http://n8n.n8n.svc.cluster.local:5678/webhook/marvin/inquiry`, static header
+  `X-Marvin-Hook`). There is also the `workflow` webhook type and its "Call webhook" step (`actions/webhook.py`:
+  15 s, no retries, response body → `$steps.<id>.output.body`). Gaps: no signing (the header *is* the secret); no
+  error `code` (the SDK 0.5 policy only applies to integrations); no workflow picker; no execution read-back.
+- SSRF: the integration HTTP helper (`services/integrations/http_client.py::_guard`) refuses private, loopback,
+  link-local and reserved hosts, re-checks redirects and has **no allowlist**. All three n8n routes are unreachable
+  from an integration: the in-cluster svc, `n8n-n8n.apps.ocp4…` (LAN IP), and `n8n.iwobble.com` (split-horizon,
+  off-LAN only). The generic webhook paths are weaker: the `webhook` step is raw httpx; the event bus uses
+  `requests`, which follows redirects. The only check is save-time, literal-IP only, `PRODUCTION=true` only
+  (`schemas/group/webhook.py`). That is why the in-cluster webhook works today.
+- n8n → Marvin already works with no code. **Personal tokens** (`marvin_tk_`, `get_current_user`) act as the user
+  with no scopes, so the "log in every run, JWT lives 48 h" pattern in the n8n designs is out of date. **Incoming
+  webhooks** + the `incoming_webhook` trigger are "run a Marvin workflow with data". Also
+  `POST /api/ai/agents/{slug}/run`, `/api/ai/operations/{slug}/execute`, `/api/platform/entries`. Gaps: a personal
+  token works in the user's *active* workspace (`BaseUserController.group_id`); MarvinMCP is stdio-only
+  (`src/index.ts`), so n8n's MCP Client node can't reach it; `POST /api/automations/{id}/run` is ADMIN and takes no
+  input.
+- Core stores **one credential per integration**. `{{SECRET}}` args resolve for Run action + workflow steps
+  (`arg_secrets.py`), not for event subscriptions. Integration step outputs are stored in run history as returned.
+- n8n facts: live instance `ghcr.io/n8n-io/n8n:latest` (2.38.7 on 2026-09-13), ns `n8n`. The public API
+  (`X-N8N-API-KEY`, `/api/v1`) has workflows and executions (list, get, stop, retry) but **no run endpoint** — the
+  Webhook node is the trigger. Webhook node auth: None, Basic, Header, JWT (HS256 passphrase); no native HMAC check.
+
+## Design
+1. **Package `marvin-integration-n8n`** (repo `InnerOpen/marvin-integration-n8n`, local `MarvinIntegrationN8n`,
+   module `marvin_integration_n8n`, slug `n8n`, category destination), copied from Buttondown's layout:
+   `provider.py`, `content.py`, `auth.py`, tests with the stub `_Http`. Depends on `marvin-integration-sdk>=0.5,<1`.
+   Raises `IntegrationError(code, retry_after)`; on a core without the error engine that is still a `ValueError`
+   with `.code`, so `on_failure` steps read `${error.code}`.
+2. **Connection.** Credential `api_key`: the n8n API key, **optional** (without it the connection is
+   "webhook-only"). Config: `base_url` (required; webhook + API base, e.g. `http://n8n.n8n.svc.cluster.local:5678`);
+   `editor_url` (optional public URL, only for links people click, e.g. `https://n8n.iwobble.com`);
+   `webhook_prefix` (default `webhook`); `default_auth` (`jwt` | `header` | `hmac` | `none`, default `jwt`);
+   `auth_header` (header mode, default `X-Marvin-Hook`); `timeout_seconds` (default 15, max 30);
+   `allow_test_webhooks` (default false; permits `/webhook-test/`). `check()`: with a key
+   `GET /api/v1/workflows?limit=1` (401 → "API key rejected"); without one `GET /healthz`.
+3. **Actions.**
+   - `trigger_workflow`. Args: `path` (Webhook node path; relative, no scheme/`..`/`?`/`#`); `method` (POST | PUT |
+     GET, default POST); `data` (object); `entry_id`, `meta` (optional, in the envelope); `auth` (overrides
+     `default_auth`); `secret` (a `{{N8N_WEBHOOK_SECRET}}` reference, required unless `auth: none`); `test` (bool,
+     refused unless allowed). Body serialised once and sent as bytes, so the signed bytes are the sent bytes:
+     `{"marvin": {entry_id, meta, idempotency_key, sent_at}, "data": {…}}`. Headers `X-Marvin-Idempotency-Key`
+     (`ctx.idempotency_key(path, entry_id)`, stable across one retry chain) and `X-Marvin-Timestamp`. Auth: `jwt` =
+     HS256, no dependency, claims `iss=marvin`, `aud=<path>`, `iat`, `exp=iat+60`, `jti=<idempotency key>`,
+     `body_sha256`, as `Authorization: Bearer …` (n8n's JWT Auth credential checks it — nothing to code in n8n);
+     `header` = `<auth_header>: <secret>`; `hmac` = `X-Marvin-Signature: t=<ts>,v1=<hex HMAC-SHA256 of "{t}.{body}">`.
+     Returns `{ok, status_code, path, response (JSON or text ≤2000 chars), execution_id, execution_url}`; never
+     headers, token or secret.
+   - `list_workflows` (needs the key): filters `active` (default true), `tag`, `name`; follows `nextCursor` up to 10
+     pages, `excludePinnedData=true`; projects to `{id, name, active, tags, webhooks: [{path, method, auth,
+     respond_mode, production_url}]}` from `n8n-nodes-base.webhook` nodes. The picker: run it from the card.
+   - `get_execution` (needs the key): `execution_id`, `include_error` (default true) → `{id, status, workflow_id,
+     started_at, stopped_at, retry_of, url}`; with `include_error` only `lastNodeExecuted` + the error message
+     trimmed to 300 chars. Execution data is never passed through.
+4. **Error codes + policy** (provider policy; read actions override `"*"` with `Handle()`):
+
+   | code | when | Handle |
+   |---|---|---|
+   | `auth` | 401/403 from a webhook or the API | notify, retry on recovery ×3, then review |
+   | `not_found` | 404: webhook not registered (inactive workflow / wrong path) | notify, retry (5m, 30m), then review |
+   | `rate_limited` | 429 (honour `Retry-After`) | retry (30s, 2m, 10m), then notify + review |
+   | `unavailable` | connect refused, DNS, 502/503/504, 500 with a non-n8n body | retry (1m, 5m, 30m, 2h), then notify + review |
+   | `timeout` | read timeout; n8n may have run it | review, **no retry** (avoids double runs) |
+   | `workflow_error` | 500 with n8n's `{"message": …}` | review only (n8n's error workflow already alerts) |
+   | `rejected` | other 4xx (a Respond to Webhook node said no) | review |
+   | `blocked` | SSRF guard refused the host | notify |
+   | `invalid` | bad args/config | notify |
+   | `response_too_large` | reply exceeded `INTEGRATION_HTTP_MAX_BYTES` | succeed (the request landed) |
+   | `*` | anything else | review + notify |
+5. **Core: private-host allowlist** (needed for v1 on iwobble). `INTEGRATION_HTTP_ALLOWED_PRIVATE_HOSTS`, platform
+   env only, comma-separated `<provider>=<host>[:<port>]` (e.g. `n8n=n8n.n8n.svc.cluster.local:5678`).
+   `build_http(provider=…)` passes the slug; `_guard` allows a private address only for an exact host(+port) listed
+   for that provider. Link-local/metadata addresses (169.254.0.0/16, fd00:ec2::254) stay refused even if listed.
+   Redirects re-check with the same rule. Workspace admins can't widen it; `/admin/plugins` shows it read-only.
+6. **Content (all created off; nothing required).**
+   - `incoming_webhook` `n8n`: where n8n reports results. Scheme `static_token`, header `X-Marvin-Token`, secret
+     `N8N_CALLBACK_TOKEN`.
+   - `workflow` `n8n-hand-off-form-submission` (params `integration`, `entry_type` default `inquiry`, `path` default
+     `marvin/inquiry`): trigger `form_submission_received` (type = param, `event.flagged neq true`) →
+     `trigger_workflow` (`data` = submission fields + ids, `entry_id: ${event.entry_id}`,
+     `secret: {{N8N_WEBHOOK_SECRET}}`) → `set_metadata` `n8n_status: sent`, `n8n_sent_at`, `n8n_execution_id`.
+   - `workflow` `n8n-send-published-entry`: same shape on `entry_published` (id, slug, title, `${entry.url}`, type).
+   - `workflow` `n8n-record-result`: trigger `incoming_webhook` `n8n`; condition
+     `event.payload.marvin.entry_id exists`; `set_metadata` on `entity_id: $event.payload.marvin.entry_id` with flat
+     keys (smart rules read only top-level metadata): `n8n_status` (`success` | `error` | `waiting`),
+     `n8n_execution_id`, `n8n_workflow`, `n8n_finished_at`, `n8n_message`.
+   - `collection` `n8n-failed` (suggestion, smart, private): `where metadata.n8n_status eq error` — smart
+     collection, not a routing workflow.
+   - `collection` `n8n-in-flight` (suggestion, smart, private): `where metadata.n8n_status in [sent, waiting]`.
+7. **n8n → Marvin (docs + templates, no new code).** One Marvin user per workspace (e.g. `n8n`, EDITOR) + a personal
+   token in an n8n Header Auth credential (`Authorization: Bearer marvin_tk_…`). HTTP Request nodes against
+   `/api/platform/entries`, `/api/ai/operations/{slug}/execute`, `/api/ai/agents/{slug}/run`. Starting Marvin
+   workflows with data: POST to a Marvin incoming webhook. Marvin agents calling n8n: n8n's MCP Server Trigger as a
+   workspace MCP server (works today). Templates in `iWobble/n8n-workflows` `marvin/templates/`: "receive from
+   Marvin" (Webhook with JWT Auth → Remove Duplicates on `X-Marvin-Idempotency-Key` → Respond to Webhook
+   `{executionId: $execution.id}`) and "report back to Marvin" (HTTP Request → `/api/hooks/<token>` with
+   `X-Marvin-Token` and `{marvin: {entry_id}, status, execution_id, workflow, message}`).
+8. **Security / run history.** Secrets only as `{{SLUG}}` in stored args; the dry run shows the reference. The
+   provider never puts the secret, the JWT or request headers in results, errors or logs (sentinel test). JWT is the
+   default because n8n saves Webhook request headers in execution data (verify on 2.38): a 60-second JWT is useless
+   once expired. Execution data is never copied into Marvin. The n8n API key should be read-only where n8n offers
+   scopes (`workflow:read`, `execution:read`). The integration step stays ADMIN (`INTEGRATION_ACTION_MIN_ROLE`).
+
+## Checklist
+- [ ] Prereq: SDK 0.5.0 merged to develop + tagged (the init container installs the SDK `develop` tarball)
+- [ ] Core: `INTEGRATION_HTTP_ALLOWED_PRIVATE_HOSTS` (settings + validator), `build_http(provider=)`, `_guard`
+      allowlist with metadata-IP hard deny, redirect re-check; callers pass the slug (`actions/integration.py`,
+      `integrations_controller.py` run action/check, `IntegrationEventListener`, scheduled task, `capability.py`).
+      Tests: allowed host, same host wrong port, other provider, metadata IP listed but refused, redirect to an
+      unlisted private host
+- [ ] Package scaffold from Template: pyproject (entry point `n8n = "marvin_integration_n8n:N8nProvider"`, SDK
+      `>=0.5`), CI copied from Buttondown, ruff
+- [ ] `auth.py`: HS256 JWT, HMAC signer, header mode. Tests: JWT verifies (PyJWT dev-only), `exp`/`aud`/
+      `body_sha256` match sent bytes, HMAC format
+- [ ] `trigger_workflow` + URL builder + envelope + idempotency header + status → code mapping. Tests: every code
+      row (incl. `Retry-After`, URLError vs timeout, SsrfError, oversize), path validation, test-webhook gate,
+      sent bytes == signed bytes, secret sentinel absent from result/message/logs
+- [ ] `list_workflows` (projection, pagination cap, no pinned data) + `get_execution` (no data passthrough, trimmed
+      error) + `check()` both modes. Tests with recorded n8n JSON fixtures
+- [ ] `error_policy` + read-action overrides. Tests: registers, shows in `info()`, `resolve_policy` per code
+- [ ] `content.py` blueprints (webhook, 3 workflows, 2 smart collections). Tests: shape, parameters,
+      `{{N8N_WEBHOOK_SECRET}}` survives `substitute`, smart rules use only top-level `metadata.<key>`
+- [ ] E2E against a throwaway n8n 2.x (Docker harness from `n8n-workflows` `test/e2e`): JWT accepted and an
+      **expired one rejected**; header mode; 404 for an inactive workflow; 500 body shape; executionId round trip
+- [ ] Docs: package README; manual `integrations.md` row + "Workflows with n8n"; `whats-new/n8n.md`; settings row
+      for the allowlist; `marvin-chart/README.md` plugin example; `INTEGRATIONS_PLUGIN_ARCHITECTURE.md`
+- [ ] Rollout: `values-iwobble.yaml` tarball + `INTEGRATION_HTTP_ALLOWED_PRIVATE_HOSTS=n8n=n8n.n8n.svc.cluster.local:5678`;
+      restart; connect in `mash-burn-co` (in-cluster `base_url`, public `editor_url`, key from pass); n8n JWT
+      credential from a new `N8N_WEBHOOK_SECRET`; smoke: `list_workflows` → `trigger_workflow` → `n8n-record-result`
+      writes metadata → entry shows in `n8n-failed` when forced to error
+- [ ] Brain: update "n8n Workflow Designs" (personal token, JWT template) and "Marvin Integrations"
+
+## Later
+- Core: same guard + allowlist for the `webhook` step and event-bus delivery (and no redirects in `requests`) —
+  only after the allowlist lists the n8n host, or the inquiry webhook breaks.
+- Core: outgoing-webhook signing (JWT/HMAC) for every webhook; `{{SECRET}}` in event-subscription args.
+- Workflow picker in the step editor (`x-marvin-options` from `list_workflows`).
+- `retry_execution` / `stop_execution`; a scheduled poll of `n8n-in-flight` via `get_execution`.
+- `n8n-nodes-marvin` community node (credential `MarvinApi`, a Marvin Trigger that registers/deletes an
+  `event_driven` webhook, operations from `/openapi.json`; verified nodes: no runtime deps, provenance via GH Actions).
+- MarvinMCP streamable-HTTP transport (n8n MCP Client Tool → Marvin).
+- Personal-token workspace header (`X-Marvin-Workspace`, membership-checked) and token scopes.
+- DNS pinning in `_guard` to close the rebinding window.
+
+**Risks:** n8n may keep request headers in execution data (verify on 2.38; JWT mitigates); n8n JWT `exp` enforcement
+unverified (e2e is load-bearing); synchronous steps hold a worker up to `timeout_seconds` (blueprints use
+respond-immediately + callback); a read timeout may mean n8n ran it (`timeout` → review + idempotency header);
+`auth` retry-on-recovery can re-arm when only the webhook secret is wrong (capped at 3, then review); the allowlist
+widens what every workspace's n8n connection may reach (fine single-tenant; documented); waits on SDK 0.5.0 + the
+core error engine (until then codes only reach `on_failure`).
+
+**Open questions:** 1) webhook secret location given one credential per connection (rec. credential = optional API
+key; secret as a `{{N8N_WEBHOOK_SECRET}}` step arg — workflows only until core resolves secrets in subscriptions)
+2) default auth `jwt`, keep `header` for the deployed `X-Marvin-Hook`? (rec. yes) 3) allowlist per provider or plain
+host list? (rec. per provider, platform env only) 4) guard core webhooks now or later? (rec. later, separate commit)
+5) community node in v1? (rec. no) 6) migrate the inquiry desk webhook onto `n8n-hand-off-form-submission`? (rec. not
+in v1) 7) `workflow_error` → review only, no Marvin notify? (rec. yes)
+
 # Integration-owned error handling (plan, 2026-10-04)
 
 **Goal:** when an integration step fails, Marvin looks up the provider's declared policy for that error code
