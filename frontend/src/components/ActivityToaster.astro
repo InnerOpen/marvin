@@ -37,6 +37,7 @@ const { userId = null, askPage = true } = Astro.props;
     STICKY_TONES,
     summarizeChanges,
     type Tone,
+    refineKind,
     toastView,
   } from "@/lib/activity/toast";
   import { fetchApi } from "@/lib/api/client";
@@ -58,6 +59,7 @@ const { userId = null, askPage = true } = Astro.props;
     workspaceId?: string | null;
     runId?: string | null;
     workflowName?: string | null;
+    handled?: boolean | null;
     targetCount?: number | null;
     quietSeconds?: number | null;
     maxWaitSeconds?: number | null;
@@ -93,7 +95,11 @@ const { userId = null, askPage = true } = Astro.props;
   const KINDS: Record<string, Kind> = {
     automation_started: { tone: "info", label: "Workflow", href: subjectHref("/automation/workflows") },
     automation_ran: { tone: "ok", label: "Workflow", href: subjectHref("/automation/workflows") },
+    // A run whose failures the integration's error policy handled is softened to a warning (refineKind).
     automation_failed: { tone: "err", label: "Workflow failed", href: subjectHref("/automation/workflows") },
+    // One per connection + error code, never one per item; sticky until dismissed.
+    integration_attention_needed: { tone: "warn", label: "Integration needs attention", href: () => "/workspace/settings/integrations" },
+    integration_attention_resolved: { tone: "ok", label: "Integration working again", href: () => "/workspace/settings/integrations" },
     incoming_webhook: { tone: "info", label: "Webhook received", href: () => "/automation/incoming-webhooks" },
     site_rebuild_queued: { tone: "info", label: "Site rebuild" },
     webhook_triggered: { tone: "info", label: "Site rebuild" },
@@ -352,7 +358,8 @@ const { userId = null, askPage = true } = Astro.props;
   // A poll's new events, oldest first: a start whose end is in the same poll shows only the end.
   function land(events: FeedEvent[]) {
     for (const { event: e, key, action } of planToasts(events, pending.has)) {
-      const kind = KINDS[e.eventType];
+      const base = KINDS[e.eventType];
+      const kind = base && refineKind(e, base);
       const visible = shouldShow(e, kind);
       const prior = action === "update" && key ? pending.take(key) : undefined;
       if (visible) show(e, kind, { replace: prior, key: key ?? undefined });

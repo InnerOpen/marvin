@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { reviewReasons } from "./reviewReasons.ts";
+import { integrationErrors, reviewReasons } from "./reviewReasons.ts";
 
 describe("reviewReasons", () => {
   test("lists a flagged submission's reasons, then a workflow's", () => {
@@ -26,5 +26,30 @@ describe("reviewReasons", () => {
   test("an entry with no metadata has no reasons", () => {
     assert.deepEqual(reviewReasons(null), []);
     assert.deepEqual(reviewReasons({ submission: "odd", review_reasons: "not a list" }), []);
+  });
+});
+
+describe("integrationErrors", () => {
+  test("names the provider, the error code and its message", () => {
+    const metadata = {
+      integration_error: { shop: { provider_name: "Square", code: "invalid", message: "price must be positive" } },
+    };
+
+    assert.deepEqual(integrationErrors(metadata), ["Square · invalid — price must be positive"]);
+  });
+
+  test("falls back to the connection's slug and skips empty notes", () => {
+    assert.deepEqual(integrationErrors({ integration_error: { news: { code: "blocked" }, junk: {}, bad: "x" } }), [
+      "news · blocked",
+    ]);
+  });
+
+  test("are listed after the other review reasons", () => {
+    const metadata = {
+      review_reasons: ["flagged"],
+      integration_error: { shop: { provider_name: "Square", code: "auth" } },
+    };
+
+    assert.deepEqual(reviewReasons(metadata), ["flagged", "Square · auth"]);
   });
 });

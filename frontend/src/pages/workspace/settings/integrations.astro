@@ -1,15 +1,16 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
-import type { Integration, IntegrationPluginInfo, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
+import type { IntegrationPluginInfo, IntegrationWithHealth, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
 import { listIntegrations, listPlugins, listProviders } from "@/lib/api/integrations";
+import { policyRows } from "@/lib/integrationPolicy";
 import type { Blueprint } from "@/lib/api/blueprints";
 import { listBlueprints } from "@/lib/api/blueprints";
 
 const authToken = getAuthToken(Astro.cookies);
 
 let providers: ProviderInfo[] = [];
-let integrations: Integration[] = [];
+let integrations: IntegrationWithHealth[] = [];
 let plugins: IntegrationPluginInfo[] = [];
 let blueprints: Blueprint[] = [];
 let error: string | null = null;
@@ -70,6 +71,10 @@ const CATEGORY_LABEL: Record<string, string> = {
   notify: "Notify",
 };
 
+function when(iso: string | null | undefined): string {
+  return iso ? new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "";
+}
+
 function statusMeta(status: string): { text: string; cls: string } {
   if (status === "ok") return { text: "Connected", cls: "ok" };
   if (status === "error") return { text: "Error", cls: "err" };
@@ -116,6 +121,7 @@ function statusMeta(status: string): { text: string; cls: string } {
                 </div>
                 <div class="conn-status">
                   <span class={`badge ${st.cls}`}>{st.text}</span>
+                  {(it.attention?.length ?? 0) > 0 && <span class="badge warn">Needs attention</span>}
                   <label class="toggle" title={it.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}>
                     <input type="checkbox" class="js-toggle" checked={it.enabled} data-id={it.id} />
                     <span class="toggle-track"><span class="toggle-thumb"></span></span>
@@ -123,6 +129,26 @@ function statusMeta(status: string): { text: string; cls: string } {
                 </div>
               </div>
               {it.lastError && <p class="conn-error">{it.lastError}</p>}
+              {(it.attention?.length ?? 0) > 0 && (
+                <div class="attention" role="status">
+                  {(it.attention ?? []).map((a) => (
+                    <p class="attention-line">
+                      <code>{a.code}</code> {a.message}
+                      <span class="attention-count">
+                        {" "}· {a.count} {a.count === 1 ? "failure" : "failures"} since {when(a.firstAt)}
+                      </span>
+                    </p>
+                  ))}
+                  <div class="attention-btns">
+                    <button type="button" class="button small secondary js-check" data-id={it.id} title="Run the health check — a pass resolves this">
+                      Test
+                    </button>
+                    <button type="button" class="button small js-resolve" data-id={it.id} title="I fixed it: resolve, and retry what was waiting for it">
+                      Resolve
+                    </button>
+                  </div>
+                </div>
+              )}
               {(it as { credentialSecret?: string }).credentialSecret && (
                 <p class="conn-meta">Credential: workspace secret <code>{`{{${(it as { credentialSecret?: string }).credentialSecret}}}`}</code></p>
               )}
@@ -296,6 +322,58 @@ function statusMeta(status: string): { text: string; cls: string } {
                 );
               })()}
 
+              {(() => {
+                const labels = Object.fromEntries((prov?.actions ?? []).map((a) => [a.key, a.label]));
+                const rows = policyRows(prov?.errorPolicy, labels, it.errorOverrides);
+                if (rows.length === 0) return null;
+                return (
+                  <details class="needs possibilities policy" data-id={it.id}>
+                    <summary>
+                      How errors are handled
+                      <span class="badge">{rows.length} {rows.length === 1 ? "error" : "errors"}</span>
+                      {rows.some((r) => r.overridden) && <span class="badge warn js-policy-adjusted">adjusted</span>}
+                    </summary>
+                    <table class="policy-table">
+                      <thead>
+                        <tr>
+                          <th>Error</th>
+                          <th>What {prov?.name ?? it.provider} does</th>
+                          <th title="Send the entry to Needs review">Review</th>
+                          <th title="Mark this connection Needs attention and alert admins">Alert</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((r) => (
+                          <tr data-code={r.code} data-default-review={String(r.defaults.review)} data-default-notify={String(r.defaults.notify)}>
+                            <td><code>{r.label}</code></td>
+                            <td>
+                              {r.declared.map((d) => (
+                                <div class="policy-what"><span class="policy-scope">{d.scope}:</span> {d.summary}</div>
+                              ))}
+                            </td>
+                            {(["review", "notify"] as const).map((flag) => (
+                              <td class="policy-flag">
+                                <input type="checkbox" class="js-policy" data-flag={flag} checked={r.effective[flag]} aria-label={`${flag === "review" ? "Review" : "Alert"} on ${r.label}`} />
+                                <span class="policy-default">default {r.defaults[flag] ? "on" : "off"}</span>
+                              </td>
+                            ))}
+                            <td><button type="button" class="link-btn js-policy-reset" hidden={!r.overridden}>Reset to default</button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p class="needs-note">
+                      <strong>Review</strong> sends the entry to Needs review with the reason. <strong>Alert</strong> marks this
+                      connection "Needs attention" and tells admins once per error, not once per item (where it goes: Settings →
+                      Integrations → Integration alerts). Retries stay as {prov?.name ?? it.provider} declares them. A workflow with
+                      its own on-failure steps, or with <code>integration_errors: "fail"</code>, handles failures itself — the alert
+                      still fires.
+                    </p>
+                  </details>
+                );
+              })()}
+
               <div class="conn-foot">
                 <code class="conn-slug" title="Reference this integration from automations">{it.slug}</code>
                 <div class="conn-btns">
@@ -436,8 +514,11 @@ function statusMeta(status: string): { text: string; cls: string } {
     deleteIntegration,
     updateIntegration,
     checkIntegration,
+    resolveAttention,
     runIntegrationAction,
+    setErrorOverrides,
   } from "@/lib/api/integrations";
+  import { overridesFrom } from "@/lib/integrationPolicy";
   import { applyBlueprints, updateBlueprint } from "@/lib/api/blueprints";
   import type { IntegrationProviderInfo } from "@/lib/api/integrations";
 
@@ -649,6 +730,65 @@ function statusMeta(status: string): { text: string; cls: string } {
       }
     }),
   );
+
+  // ---- integration error handling: resolve an alert, adjust the policy ----
+  document.querySelectorAll<HTMLButtonElement>(".js-resolve").forEach((b) =>
+    b.addEventListener("click", async () => {
+      b.disabled = true;
+      try {
+        await resolveAttention(b.dataset.id!);
+        reload();
+      } catch (err) {
+        toast(errorMessage(err), false);
+        b.disabled = false;
+      }
+    }),
+  );
+
+  function policyState(details: HTMLElement) {
+    return [...details.querySelectorAll<HTMLTableRowElement>("tr[data-code]")].map((tr) => {
+      const flag = (name: string) => (tr.querySelector(`.js-policy[data-flag="${name}"]`) as HTMLInputElement).checked;
+      return {
+        tr,
+        code: tr.dataset.code!,
+        defaults: { review: tr.dataset.defaultReview === "true", notify: tr.dataset.defaultNotify === "true" },
+        review: flag("review"),
+        notify: flag("notify"),
+      };
+    });
+  }
+
+  async function savePolicy(details: HTMLElement) {
+    const rows = policyState(details);
+    try {
+      await setErrorOverrides(details.dataset.id!, overridesFrom(rows));
+    } catch (err) {
+      toast(errorMessage(err), false);
+      return;
+    }
+    let adjusted = false;
+    for (const row of rows) {
+      const changed = row.review !== row.defaults.review || row.notify !== row.defaults.notify;
+      (row.tr.querySelector(".js-policy-reset") as HTMLButtonElement).hidden = !changed;
+      adjusted ||= changed;
+    }
+    details.querySelector(".js-policy-adjusted")?.toggleAttribute("hidden", !adjusted);
+    toast("Error handling saved");
+  }
+
+  document.querySelectorAll<HTMLElement>("details.policy").forEach((details) => {
+    details.querySelectorAll<HTMLInputElement>(".js-policy").forEach((box) => box.addEventListener("change", () => savePolicy(details)));
+    details.querySelectorAll<HTMLButtonElement>(".js-policy-reset").forEach((b) =>
+      b.addEventListener("click", () => {
+        const tr = b.closest("tr") as HTMLTableRowElement;
+        for (const name of ["review", "notify"]) {
+          const box = tr.querySelector(`.js-policy[data-flag="${name}"]`) as HTMLInputElement;
+          box.checked = tr.dataset[name === "review" ? "defaultReview" : "defaultNotify"] === "true";
+        }
+        savePolicy(details);
+      }),
+    );
+  });
 
   // ---- action test-fire (collects inputs first when the action declares any) ----
   const actionOverlay = document.getElementById("action-overlay") as HTMLElement;
@@ -941,6 +1081,26 @@ function statusMeta(status: string): { text: string; cls: string } {
   .conn-status { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 
   .conn-error { margin: 10px 0 0; font-size: 13px; color: var(--color-error); }
+  /* A connection that needs attention: open alerts from the provider's error policy. */
+  .attention {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    border-left: 3px solid var(--warn);
+    background: color-mix(in srgb, var(--warn) 10%, transparent);
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .attention-line { margin: 0 0 4px; }
+  .attention-count { color: var(--muted); }
+  .attention-btns { display: flex; gap: 8px; margin-top: 6px; }
+  /* "How errors are handled" */
+  .policy-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+  .policy-table th { text-align: left; font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  .policy-table td { padding: 6px; vertical-align: top; border-bottom: 1px solid var(--line); }
+  .policy-scope { opacity: 0.7; }
+  .policy-flag { white-space: nowrap; }
+  .policy-default { display: block; font-size: 11px; opacity: 0.65; }
+  .link-btn { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; cursor: pointer; font-size: 12px; }
 
   .conn-foot {
     display: flex;

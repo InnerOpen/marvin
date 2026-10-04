@@ -121,7 +121,19 @@ export type ProgressEvent = {
   maxWaitSeconds?: number | null;
   requestCount?: number | null;
   changes?: RebuildChange[] | null;
+  /** A failed workflow run whose failures an integration's error policy took in hand (automation_failed). */
+  handled?: boolean | null;
 };
+
+/**
+ * The toast kind for one event: its type's kind, softened where the event says so — a failed run the
+ * integration's error policy handled (sent to review, retry scheduled, …) is a warning, not an error.
+ */
+export function refineKind<K extends { tone: Tone; label: string }>(e: ProgressEvent, kind: K): K {
+  if (e.eventType === "automation_failed" && e.handled)
+    return { ...kind, tone: "warn", label: "Workflow failed — handled" };
+  return kind;
+}
 
 /** The toast slot an event opens or ends: one per workspace for a rebuild, one per workflow run. */
 export function toastKey(e: ProgressEvent): { key: string; opens: boolean } | null {

@@ -11,7 +11,7 @@ import { listResources } from "@/lib/api/resources";
 import { createTag, listTags, type TagRead } from "@/lib/api/tags";
 import { keysHint } from "@/lib/disclosure";
 import { viewOnSite, withSubmittedValues } from "@/lib/entryForm";
-import { reviewReasons } from "@/lib/reviewReasons";
+import { integrationErrors, reviewReasons } from "@/lib/reviewReasons";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
 import { createSdkClient } from "@/lib/sdk";
@@ -231,8 +231,12 @@ if (entry && submitted) {
 // Why the Publish Scheduled Entries task is holding this entry back, if it is (set by the task,
 // cleared when the entry publishes or is rescheduled).
 const scheduledBlock = entry?.scheduledPublishBlocked ?? null;
-// Why the entry is in Needs review (a flagged submission, or a workflow's request_review step).
+// Why the entry is in Needs review (a flagged submission, a workflow's request_review step, or an
+// integration whose error policy sent it here — "Square · invalid — <message>").
 const pendingReviewReasons = entry?.status === "needs_review" ? reviewReasons(entry.metadataJson) : [];
+// An integration failure on an entry that isn't in review — a published entry stays published (a
+// failing shop or newsletter never takes it off the site), so the problem is shown here instead.
+const integrationProblems = entry && entry.status !== "needs_review" ? integrationErrors(entry.metadataJson) : [];
 
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
 const sortedCollections = collections.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -519,6 +523,17 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 <ul>
                   {pendingReviewReasons.map((reason) => (
                     <li>{reason}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {integrationProblems.length > 0 && (
+              <div class="schedule-waiting review-reasons" role="status">
+                <p class="schedule-waiting-title">An integration failed on this entry:</p>
+                <ul>
+                  {integrationProblems.map((problem) => (
+                    <li>{problem}</li>
                   ))}
                 </ul>
               </div>

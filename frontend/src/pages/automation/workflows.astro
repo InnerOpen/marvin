@@ -873,8 +873,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const dur = r.durationMs != null ? ` · ${r.durationMs}ms` : "";
     const targets = (r.targetsMatched > 1 || r.capped) ? ` · ${r.targetsRun}/${r.targetsMatched}${r.capped ? "+" : ""} targets` : "";
     const steps = ` · ${r.stepsOk}✓${r.stepsFailed ? ` ${r.stepsFailed}✗` : ""}`;
+    // A failure the integration's error policy took in hand (review, retry, …), and a retry run.
+    const handled = r.handled ? ` <span class="run-tag handled" title="An integration's error policy handled the failure">handled</span>` : "";
+    const retry = r.retryOfId ? ` <span class="run-tag">retry</span>` : "";
     return `<div class="run-row" data-exec="${esc(r.id)}">
-        <span class="run-status status-${esc(r.status)}">${esc(r.status)}</span>
+        <span class="run-status status-${esc(r.status)}">${esc(r.status)}</span>${handled}${retry}
         <span class="run-when">${esc(when)}</span>
         <span class="run-meta muted">${esc(r.triggerType)}${esc(targets)}${esc(steps)}${esc(dur)}</span>
       </div>
@@ -884,10 +887,30 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const ent = a.targetEntityId ? ` <span class="muted">→ ${esc(String(a.targetEntityId).slice(0, 8))}</span>` : "";
     const err = a.error ? ` <span class="run-err">${esc(a.error)}</span>` : "";
     const dur = a.durationMs != null ? ` <span class="muted">${a.durationMs}ms</span>` : "";
+    const handling = a.handling?.summary ? `<div class="act-handling">↳ ${esc(a.handling.summary)}</div>` : "";
     return `<div class="act-row">
       <span class="status-${esc(a.status)}">${a.status === "success" ? "✓" : "✗"}</span>
       <span>${esc(a.kind)}${a.label ? ` · ${esc(a.label)}` : ""}</span>${ent}${err}${dur}
-    </div>`;
+    </div>${handling}`;
+  }
+  // The original run and each retry of it, this one marked; then what its retry chains are doing.
+  function retryChain(ex: any): string {
+    const runs: any[] = ex.retryChain ?? [];
+    const chain = runs.length > 1
+      ? `<div class="run-chain hint small">retries: ${runs
+          .map((r, i) => {
+            const label = i === 0 ? "original" : `retry ${i}`;
+            const text = `${label} <span class="status-${esc(r.status)}">${esc(r.status)}</span>`;
+            return r.id === ex.id ? `<strong>${text}</strong>` : text;
+          })
+          .join(" → ")}</div>`
+      : "";
+    const pending = (ex.retries ?? []).map((t: any) => {
+      const next = t.nextAttemptAt ? ` · next ${esc(new Date(t.nextAttemptAt).toLocaleString())}` : "";
+      const status = t.status === "parked" ? "waiting for the connection to recover" : t.status;
+      return `<div class="run-chain hint small">${esc(t.integrationSlug)}.${esc(t.action)} <code>${esc(t.code)}</code>: ${esc(status)} · ${t.attempt} of ${t.maxAttempts} retries${next}</div>`;
+    });
+    return chain + pending.join("");
   }
   async function toggleHistory(card: Element, id: string) {
     const panel = card.querySelector(".wf-history") as HTMLElement;
@@ -910,7 +933,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
             // The chain id lets you trace the whole cascade this run belongs to in the event log.
             const chain = ex.correlationId
               ? `<div class="run-chain hint small">chain <code>${esc(ex.correlationId)}</code></div>` : "";
-            detail.innerHTML = chain + (acts.length ? acts.map(execActionRow).join("") : `<span class="hint">No step records.</span>`);
+            detail.innerHTML =
+              chain + retryChain(ex) + (acts.length ? acts.map(execActionRow).join("") : `<span class="hint">No step records.</span>`);
           } catch (e: any) { detail.innerHTML = `<span class="hint error">${esc(e?.message ?? e)}</span>`; }
         });
       });
@@ -1179,6 +1203,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.run-detail[hidden]) { display: none; }
   .workflows-page :global(.act-row) { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); font-family: var(--mono, monospace); }
   .workflows-page :global(.run-err) { color: var(--color-error); }
+  .workflows-page :global(.run-tag) { font-size: 10.5px; padding: 0 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .workflows-page :global(.run-tag.handled) { border-color: var(--warn); color: var(--warn); }
+  .workflows-page :global(.act-handling) { margin: 0 0 2px 22px; font-size: 11.5px; color: var(--warn); }
   .workflows-page :global(.run-chain) { margin: 0 0 6px 18px; }
   .workflows-page :global(.run-chain code) { font-family: var(--mono, monospace); font-size: 11px; background: color-mix(in srgb, var(--ink) 8%, transparent); padding: 1px 5px; border-radius: 4px; }
   .workflows-page :global(.plan-json) { margin: 0 0 6px 26px; padding: 6px 8px; font-size: 11px; font-family: var(--mono, monospace); color: var(--muted); background: color-mix(in srgb, var(--ink) 4%, transparent); border-radius: 6px; overflow-x: auto; white-space: pre; }

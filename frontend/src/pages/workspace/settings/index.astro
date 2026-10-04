@@ -1,7 +1,9 @@
 ---
+import IntegrationAlertsPanel from "@/components/IntegrationAlertsPanel.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { ApiRequestError, fetchApi, getAuthToken } from "@/lib/api/client";
 import { listEntries } from "@/lib/api/entries";
+import { type AlertRouting, getAlertRouting } from "@/lib/api/integrations";
 import { getAssets, getSiteClients } from "@/lib/api/platform";
 import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
@@ -32,6 +34,15 @@ if (currentTab === "integrations") {
     } else {
       console.error("[workspace/settings] Error probing integrations availability:", e);
     }
+  }
+}
+// Where integration alerts go (admins only — null hides the panel for everyone else).
+let alertRouting: AlertRouting | null = null;
+if (currentTab === "integrations" && integrationsAvailable) {
+  try {
+    alertRouting = await nullIfForbidden(getAlertRouting(authToken));
+  } catch (e) {
+    console.error("[workspace/settings] Error loading integration alert routing:", e);
   }
 }
 
@@ -294,7 +305,9 @@ const tabs = [
                 <p>Add and configure external service connections</p>
               </a>
             </div>
-          ) : (
+          ) : null}
+          {integrationsAvailable && alertRouting ? <IntegrationAlertsPanel routing={alertRouting} /> : null}
+          {integrationsAvailable ? null : (
             <div class="integrations-banner">
               <span class="integrations-banner-icon">🔌</span>
               <div class="integrations-banner-body">

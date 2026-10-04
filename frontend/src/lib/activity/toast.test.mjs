@@ -14,6 +14,7 @@ import {
   moreLabel,
   planToasts,
   QUEUED_GRACE_S,
+  refineKind,
   RESUME_MIN_MS,
   RUNNING_CAP_MS,
   summarizeChanges,
@@ -381,5 +382,21 @@ describe("approvalTarget", () => {
       href: "/ask",
       openBubble: false,
     });
+  });
+});
+
+describe("refineKind", () => {
+  const failed = { tone: "err", label: "Workflow failed", href: () => null };
+
+  test("a failed run the integration's error policy handled is a warning", () => {
+    const kind = refineKind({ eventType: "automation_failed", messageTitle: "x", handled: true }, failed);
+    assert.equal(kind.tone, "warn");
+    assert.equal(kind.label, "Workflow failed — handled");
+    assert.equal(kind.href, failed.href);
+  });
+
+  test("an unhandled failure stays red, and other events are untouched", () => {
+    assert.equal(refineKind({ eventType: "automation_failed", messageTitle: "x", handled: false }, failed), failed);
+    assert.equal(refineKind({ eventType: "site_build_failed", messageTitle: "x", handled: true }, failed), failed);
   });
 });
