@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.176 (2026-10-04)
+
+### Features
+
+- **frontend**: Refused saves show why and keep your edits; a waiting scheduled publish is shown
+  ([`69a0884`](https://github.com/InnerOpen/marvin/commit/69a088418ff027176cb70279bff7f9515b8107da))
+
+- **scheduler**: A held-back scheduled publish says why, once, and can wait for approval
+  ([`28e62c8`](https://github.com/InnerOpen/marvin/commit/28e62c898b5e3ef994ef9e714679e5474a9076bf))
+
+
 ## v1.0.0-rc.175 (2026-10-04)
 
 ### Bug Fixes
