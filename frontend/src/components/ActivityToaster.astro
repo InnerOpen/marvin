@@ -117,13 +117,17 @@ const { userId = null } = Astro.props;
   // block for position: fixed, pinning the stack to the bar instead of the window. Lift it out.
   document.body.appendChild(stack);
 
-  // Hang the stack off the bell like a speech bubble: right-aligned under it, the tail pointing at
-  // its middle. The bell lives in the sticky top bar, so this only changes when the window does.
+  // Hang the stack off the bell like a speech bubble: under it, the tail pointing at its middle.
+  // This only reports where the bell is; the CSS keeps the stack inside the viewport's gutters
+  // however far left the bell sits (on a phone the stack spans the screen). On phones the top
+  // bar scrolls away, so a toast that lands then is pinned to the top edge with no tail.
   function placeStack() {
     const b = bell.getBoundingClientRect();
-    stack.style.top = `${Math.round(b.bottom) + 10}px`;
-    stack.style.right = `${Math.max(8, Math.round(window.innerWidth - b.right))}px`;
-    stack.style.setProperty("--tail-right", `${Math.round(b.width / 2 - 7)}px`);
+    const detached = b.bottom <= 0;
+    stack.toggleAttribute("data-detached", detached);
+    stack.style.setProperty("--bell-bottom", `${detached ? 0 : Math.round(b.bottom)}px`);
+    stack.style.setProperty("--bell-right", `${Math.round(window.innerWidth - b.right)}px`);
+    stack.style.setProperty("--bell-mid-right", `${Math.round(window.innerWidth - (b.left + b.width / 2))}px`);
   }
   placeStack();
   window.addEventListener("resize", placeStack);
@@ -289,6 +293,7 @@ const { userId = null } = Astro.props;
       opts.replace.countdown?.cancel();
       opts.replace.el.replaceWith(el);
     } else {
+      if (!stack.children.length) placeStack(); // the page may have scrolled since the last toast
       stack.prepend(el);
       while (stack.children.length > MAX_TOASTS) stack.lastElementChild?.remove();
     }
@@ -356,18 +361,27 @@ const { userId = null } = Astro.props;
   .activity-bell { padding: 6px 10px; line-height: 1; }
   .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
+  /* Placed from the bell's position (set by placeStack), clamped so the stack always sits within
+     the 16px gutters — or the safe-area insets, where larger — and is never wider than the screen. */
   .activity-stack {
-    position: fixed; top: 72px; right: 16px; z-index: 1100;
+    --gutter-l: max(16px, env(safe-area-inset-left, 0px));
+    --gutter-r: max(16px, env(safe-area-inset-right, 0px));
+    --stack-w: min(380px, calc(100vw - var(--gutter-l) - var(--gutter-r)));
+    --stack-right: clamp(var(--gutter-r), var(--bell-right, 16px), calc(100vw - var(--gutter-l) - var(--stack-w)));
+    position: fixed; z-index: 1100;
+    top: max(var(--bell-bottom, 62px) + 10px, env(safe-area-inset-top, 0px) + 16px);
+    right: var(--stack-right); width: var(--stack-w);
     display: flex; flex-direction: column; gap: 8px;
-    width: min(380px, calc(100vw - 16px)); pointer-events: none;
+    pointer-events: none;
   }
   /* The bubble's tail, drawn over the newest toast's top edge and pointing up at the bell. */
   .activity-stack::before {
-    content: ""; position: absolute; top: -7px; right: var(--tail-right, 14px); z-index: 1;
+    content: ""; position: absolute; top: -7px; z-index: 1;
+    right: clamp(12px, calc(var(--bell-mid-right, 36px) - var(--stack-right) - 6px), calc(var(--stack-w) - 24px));
     width: 12px; height: 12px; transform: rotate(45deg);
     background: var(--panel, var(--bg)); border-top: 1px solid var(--line); border-left: 1px solid var(--line);
   }
-  .activity-stack:empty::before { display: none; }
+  .activity-stack:empty::before, .activity-stack[data-detached]::before { display: none; }
   .activity-stack :global(.activity-toast) {
     position: relative; display: block; pointer-events: auto;
     padding: 10px 32px 10px 12px; border-radius: 10px;
@@ -383,6 +397,7 @@ const { userId = null } = Astro.props;
   .activity-stack :global(.activity-toast.leaving) { opacity: 0; transform: translateY(-6px); }
   .activity-stack :global(a.activity-toast:hover) { border-color: var(--muted); }
   .activity-stack :global(.activity-head) { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; }
+  .activity-stack :global(.activity-head strong) { min-width: 0; overflow-wrap: anywhere; }
   .activity-stack :global(.activity-head time) { color: var(--muted); font-size: 11px; white-space: nowrap; }
   .activity-stack :global(.activity-body) { overflow-wrap: anywhere; }
   .activity-stack :global(.activity-toast.updated) { animation: none; }
