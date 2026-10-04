@@ -1761,13 +1761,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     font-family: monospace;
   }
 
+  /* Stacked: the content first, then Entry Details and the rest of the sidebar. */
   @media (max-width: 1024px) {
     .editor-layout {
-      grid-template-columns: 1fr;
-    }
-
-    .sidebar-editor {
-      order: -1;
+      grid-template-columns: minmax(0, 1fr);
     }
   }
   .label-row {

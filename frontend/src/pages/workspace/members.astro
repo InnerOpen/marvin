@@ -538,6 +538,18 @@ const ownerCount = members.filter((m) => m.workspaceRole === "OWNER").length;
     min-width: 0;
   }
 
+  /* Phones: who they are on one row, the role and actions under it. */
+  @media (max-width: 560px) {
+    .member-card {
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .member-info {
+      flex-basis: 100%;
+    }
+  }
+
   .member-avatar {
     width: 40px;
     height: 40px;

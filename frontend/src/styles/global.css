@@ -256,6 +256,8 @@ select {
 .content {
   padding: 28px;
   display: grid;
+  /* minmax(0, …) so one wide child (a table, a tab strip) can't stretch the column past the screen. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
 }
 
@@ -265,6 +267,12 @@ select {
   gap: 10px;
   align-items: center;
   justify-content: space-between;
+}
+
+/* The pages' action groups (filters + a "New" button) are inline-styled flex rows; let them wrap. */
+.toolbar > div {
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
 .segmented {
@@ -508,38 +516,140 @@ code {
   margin: 0;
 }
 
+/* ── Compact navigation: the sidebar becomes an off-canvas drawer ──────────────
+   NavDrawerToggle (in the top bar) opens it by putting .nav-open on <html>. */
+.nav-toggle {
+  display: none;
+}
+
+.nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1150;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.nav-backdrop[hidden] {
+  display: none;
+}
+
 @media (max-width: 920px) {
   .app-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sidebar {
-    position: static;
-    height: auto;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 1200;
+    width: min(300px, 85vw);
+    height: auto; /* the inset pins it to the visible viewport, browser toolbars and all */
+    padding-left: max(20px, env(safe-area-inset-left));
+    padding-bottom: max(20px, env(safe-area-inset-bottom));
+    box-shadow: 0 0 40px rgb(0 0 0 / 0.25);
+    transform: translateX(-100%);
+    /* visibility keeps the closed drawer out of the tab order and the accessibility tree. It flips
+       to hidden only after the slide-out, and to visible at once on open so focus can move in. */
+    visibility: hidden;
+    transition:
+      transform 0.2s ease-out,
+      visibility 0s linear 0.2s;
   }
 
-  .nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  html.nav-open .sidebar {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.2s ease-out;
+  }
+
+  /* Descendants with `transition: all` (the nav links) would otherwise ease their inherited
+     visibility too, staying unfocusable for the first frame after opening. */
+  html.nav-open .sidebar * {
+    transition: none;
+  }
+
+  html.nav-open,
+  html.nav-open body {
+    overflow: hidden;
+  }
+
+  .nav-toggle {
+    display: inline-flex;
+    flex: none;
+    justify-content: center;
+    width: 40px;
+    padding: 0;
+  }
+
+  .topbar-left {
+    gap: 12px;
+    min-width: 0;
   }
 
   .stats,
   .grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Wide tables scroll sideways inside their own box instead of widening the page. */
+  .table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 920px) and (prefers-reduced-motion: reduce) {
+  .sidebar,
+  html.nav-open .sidebar {
+    transition: none;
   }
 }
 
 @media (max-width: 560px) {
-  .topbar,
   .content {
-    padding: 18px;
+    padding: 18px 16px;
   }
 
-  .nav {
-    grid-template-columns: 1fr;
+  /* Phones: the actions wrap under the title rather than pushing the page sideways. The bar
+     scrolls with the page here — two sticky rows would take a large bite of a phone screen. */
+  .topbar {
+    position: static;
+    flex-wrap: wrap;
+    row-gap: 10px;
+    padding: 12px 16px;
+  }
+
+  .topbar-left {
+    flex: 1 1 auto;
+  }
+
+  .topbar-title {
+    min-width: 0;
+  }
+
+  .topbar h1 {
+    font-size: 19px;
+    overflow-wrap: anywhere;
+  }
+
+  .topbar p {
+    margin-top: 0;
+    font-size: 12px;
+  }
+
+  .topbar-actions {
+    flex-wrap: wrap;
+    margin-left: auto;
+    gap: 0.5rem;
+  }
+
+  .toolbar > * {
+    flex: 1 1 100%;
   }
 
   .form-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .span-2 {

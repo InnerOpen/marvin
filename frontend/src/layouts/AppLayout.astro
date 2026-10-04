@@ -3,6 +3,7 @@ import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
 import ActivityToaster from "@/components/ActivityToaster.astro";
 import Marvin from "@/components/Marvin.astro";
+import NavDrawerToggle from "@/components/NavDrawerToggle.astro";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import UpdateBanner from "@/components/UpdateBanner.astro";
 import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
@@ -146,7 +147,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
     data-entity-label={entityLabel}
   >
     <div class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" id="app-sidebar" aria-label="Navigation">
         <div class="sidebar-header">
           <WorkspaceSwitcher />
         </div>
@@ -172,6 +173,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
       <main class="main">
         <header class="topbar">
           <div class="topbar-left">
+            <NavDrawerToggle controls="app-sidebar" />
             <div class="topbar-title">
               <p>{eyebrow}</p>
               <h1>{title}</h1>

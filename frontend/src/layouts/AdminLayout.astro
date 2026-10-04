@@ -1,6 +1,7 @@
 ---
 import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
+import NavDrawerToggle from "@/components/NavDrawerToggle.astro";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import UpdateBanner from "@/components/UpdateBanner.astro";
 import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
@@ -101,7 +102,7 @@ function isActive(item: AdminNavItem, currentPath: string): boolean {
   </head>
   <body>
     <div class="app-shell">
-      <aside class="sidebar admin-sidebar">
+      <aside class="sidebar admin-sidebar" id="app-sidebar" aria-label="Navigation">
         <a class="brand" href="/admin">
           <strong>Marvin Admin</strong>
           <span>Platform administration</span>
@@ -125,6 +126,7 @@ function isActive(item: AdminNavItem, currentPath: string): boolean {
       <main class="main">
         <header class="topbar">
           <div class="topbar-left">
+            <NavDrawerToggle controls="app-sidebar" />
             <div class="topbar-title">
               <p>{eyebrow}</p>
               <h1>{title}</h1>
