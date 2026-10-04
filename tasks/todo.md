@@ -218,7 +218,7 @@ built-ins, fallback, 409/reassign, column length, round-trip).
 **Risks:** per-step prompt cost (shown in the editor); weak models may blur "everywhere" — steer client-facing
 tones to "drop"; tone text is admin-only (same trust as persona); explicit tones propagate to hand-off specialists.
 
-**Open questions:** 1) apply to compose/revise drafts? 2) built-ins hide-only or editable? 3) section on AI
+**Decisions (Jared 2026-10-04):** 1) tones apply to compose/revise drafts too, but the entry type's own voice (recipe `enrichment.voice`) takes precedence — the tone is used only where the entry type has no voice; 2) built-ins are hide-only, not editable; 3) the editor is a section on AI settings; 4) bubble gets a `/tone` command (no picker); 5) deleting a tone that agents use is blocked (409 listing the agents); 6) free-text instructions only for v1; 7) anyone can pick a tone per call, only admins create/edit tones.
 settings or own page? 4) bubble `/tone` command enough, or a visible chip? 5) deleting an in-use tone: block or
 reset agents? 6) free-text only for v1, or structured knobs (max length, no emoji)? 7) non-admins pick per call
 (yes) / create personal tones (no)?
