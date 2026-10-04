@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.196 (2026-10-04)
+
+### Features
+
+- **admin**: The entry page says why an entry is waiting for review
+  ([`41137fc`](https://github.com/InnerOpen/marvin/commit/41137fc9c950aad5eecf1ac7dd1a724c46e22f59))
+
+
 ## v1.0.0-rc.195 (2026-10-04)
 
 ### Features
