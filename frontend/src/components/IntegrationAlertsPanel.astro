@@ -13,12 +13,12 @@ interface Props {
 const { routing } = Astro.props;
 ---
 
-<section class="alerts-panel" id="integration-alerts">
-  <h3>Integration alerts</h3>
-  <p class="section-description">
-    When a connection fails in a way its provider says needs a person — expired credentials, a misconfigured account —
-    Marvin marks it <strong>Needs attention</strong> and tells you once (not once per item), reminds you while it stays
-    open, and says so when it works again. The bell always gets these. Also send them to:
+<section class="alerts-card" id="integration-alerts" aria-labelledby="integration-alerts-title">
+  <strong class="alerts-title" id="integration-alerts-title">Integration alerts</strong>
+  <p class="alerts-desc">
+    When a connection needs a person — expired credentials, a misconfigured account — Marvin marks it
+    <strong>Needs attention</strong>, tells you once (not once per item), reminds you while it stays open, and says so
+    when it works again. The bell always gets these. Also send them to:
   </p>
   <form class="alerts-form" id="alerts-form">
     <label class="alerts-row">
@@ -72,9 +72,20 @@ const { routing } = Astro.props;
 </script>
 
 <style>
-  .alerts-panel { margin-top: 24px; }
-  .alerts-panel h3 { margin: 0 0 6px; }
-  .alerts-form { display: grid; gap: 8px; max-width: 640px; }
+  /* Same card shell as the Settings link cards above it, without the hover lift (it's a form, not a link). */
+  .alerts-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 16px;
+    padding: 20px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .alerts-title { font-size: 15px; font-weight: 600; }
+  .alerts-desc { margin: 0; font-size: 13px; color: var(--muted); max-width: 72ch; }
+  .alerts-form { display: grid; gap: 8px; }
   .alerts-row { display: flex; align-items: center; gap: 8px; }
   .alerts-sub { color: var(--muted); font-size: 13px; }
   .alerts-hours { width: 5em; }
