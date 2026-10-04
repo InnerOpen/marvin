@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.175 (2026-10-04)
+
+### Bug Fixes
+
+- **scheduler**: Expiry consumes the expiration date, and a passed one blocks publishing
+  ([`b2952b3`](https://github.com/InnerOpen/marvin/commit/b2952b3669869f50245e68d9dc6d0f988a0b9651))
+
+### Features
+
+- **frontend**: The entry editor flags an expiration date that has passed
+  ([`890afc3`](https://github.com/InnerOpen/marvin/commit/890afc379da64bee8ff27da747133ccaf2da2783))
+
+
 ## v1.0.0-rc.174 (2026-10-04)
 
 ### Bug Fixes
