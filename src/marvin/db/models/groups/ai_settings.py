@@ -1,5 +1,6 @@
 """SQLAlchemy model for per-workspace AI workflow policy settings."""
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sa
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
+from .._model_utils.datetime import NaiveDateTime
 from .._model_utils.guid import GUID
 
 if TYPE_CHECKING:
@@ -59,6 +61,15 @@ class WorkspaceAISettingsModel(SqlAlchemyBase, BaseMixins):
     assistant_character: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     # Free-text voice/tone instruction appended to the system prompt.
     persona_prompt: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    # The bubble's canned lines in the workspace's own voice — {greetings, taglines, thinking, errors,
+    # emotes}, each a list of strings — generated from the persona or hand-edited; see
+    # services/ai/bubble_lines.py. Unset → the bubble's built-in lines.
+    bubble_lines: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    # "generated" | "edited": a persona change regenerates generated lines, never edited ones.
+    bubble_lines_source: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    bubble_lines_updated_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)
+    # Why the last generation failed (the previous lines were kept); cleared by the next success.
+    bubble_lines_warning: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     # Default tone register for agent runs — a SEPARATE axis from persona (axis B). Persona is how
     # the assistant addresses you; register is how work product reads. "professional" suppresses
     # the persona for the run. "auto" | "professional" | "playful". A per-call register overrides it.

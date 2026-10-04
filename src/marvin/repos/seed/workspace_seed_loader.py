@@ -855,6 +855,8 @@ class WorkspaceSeedLoader:
             "assistantName": "assistant_name",
             "assistantIcon": "assistant_icon",
             "personaPrompt": "persona_prompt",
+            "bubbleLines": "bubble_lines",
+            "bubbleLinesSource": "bubble_lines_source",
             "defaultRegister": "default_register",
         }
 

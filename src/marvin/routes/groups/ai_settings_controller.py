@@ -15,6 +15,8 @@ from marvin.schemas.group.ai_settings import (
     AssistantCharacterLibraryChoice,
     AssistantCharacterState,
     AssistantCharacterUpload,
+    BubbleLines,
+    BubbleLinesState,
     CharacterPackSummary,
     WorkspaceAISettingsRead,
     WorkspaceAISettingsUpdate,
@@ -22,6 +24,12 @@ from marvin.schemas.group.ai_settings import (
 )
 
 router = APIRouter(prefix="/groups/ai-settings", route_class=MarvinCrudRoute)
+
+
+def _bubble_lines_generating(group_id) -> bool:
+    from marvin.services.ai.bubble_lines import is_generating
+
+    return is_generating(group_id)
 
 
 @controller(router)
@@ -91,6 +99,7 @@ class AISettingsController(BaseUserController):
         result.allow_workspace_credentials = allow_ws
         result.assistant_character = self._effective_character(row)
         result.agent_characters = agent_characters
+        result.bubble_lines_generating = _bubble_lines_generating(self.group_id)
         return result
 
     @router.patch("", response_model=WorkspaceAISettingsRead, summary="Update AI Workflow Settings")
@@ -147,6 +156,8 @@ class AISettingsController(BaseUserController):
                 )
 
         row = self._settings_row()
+        persona_set = bool({"assistant_name", "persona_prompt"} & data.model_fields_set)
+        before_name, before_persona = row.assistant_name, row.persona_prompt
 
         updates = data.model_dump(exclude_unset=True)
         updates.pop("assistant_character", None)  # merged below: the file list isn't the caller's to set
@@ -177,8 +188,14 @@ class AISettingsController(BaseUserController):
             store = self._character_store()
             delete_character_files(store, previous_character, keep=character_file_ids(store, row.assistant_character))
 
+        if persona_set:
+            from marvin.services.ai.bubble_lines import on_persona_saved
+
+            on_persona_saved(self.session, row, before_name, before_persona, self.user.id)
+
         result = WorkspaceAISettingsRead.model_validate(row)
         result.assistant_character = self._effective_character(row)
+        result.bubble_lines_generating = _bubble_lines_generating(self.group_id)
         if warnings:
             self.logger.warning("AI settings saved with warnings: %s", "; ".join(warnings))
         return result
@@ -290,3 +307,56 @@ class AISettingsController(BaseUserController):
         if not row or not row.assistant_character:
             return
         save_character(self.session, row, "assistant_character", None, self._character_store())
+
+    # --- the bubble's canned lines (services/ai/bubble_lines.py) ----------------------------------
+
+    def _bubble_lines_state(self) -> BubbleLinesState:
+        row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
+        state = BubbleLinesState.model_validate(row) if row else BubbleLinesState()
+        state.bubble_lines_generating = _bubble_lines_generating(self.group_id)
+        return state
+
+    @router.get("/bubble-lines", response_model=BubbleLinesState, summary="The bubble's lines")
+    def get_bubble_lines(self) -> BubbleLinesState:
+        """The workspace's bubble lines, where they came from, and whether a generation is running."""
+        return self._bubble_lines_state()
+
+    @router.put("/bubble-lines", response_model=BubbleLinesState, summary="Edit the bubble's lines")
+    def edit_bubble_lines(self, data: BubbleLines) -> BubbleLinesState:
+        """Save hand-edited lines; a persona change won't overwrite them. All lists empty → the built-in lines."""
+        from marvin.services.ai.bubble_lines import SOURCE_EDITED, BubbleLinesError, clean_edited, store
+
+        self._require_admin()
+        try:
+            lines = clean_edited(data.model_dump())
+        except BubbleLinesError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+        store(self._settings_row(), lines, SOURCE_EDITED)
+        self.session.commit()
+        return self._bubble_lines_state()
+
+    @router.delete("/bubble-lines", response_model=BubbleLinesState, summary="Back to the built-in bubble lines")
+    def clear_bubble_lines(self) -> BubbleLinesState:
+        """Drop the workspace's lines; the bubble uses its built-in ones again."""
+        from marvin.services.ai.bubble_lines import store
+
+        self._require_admin()
+        row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
+        if row:
+            store(row, None, None)
+            self.session.commit()
+        return self._bubble_lines_state()
+
+    @router.post(
+        "/bubble-lines/generate", response_model=BubbleLinesState, status_code=status.HTTP_202_ACCEPTED, summary="Regenerate the bubble's lines"
+    )
+    def regenerate_bubble_lines(self) -> BubbleLinesState:
+        """Write the lines from the persona again, in the background — replacing hand-edited ones too."""
+        from marvin.services.ai.bubble_lines import preflight, start
+
+        self._require_admin()
+        if reason := preflight(self.session, self.group_id):
+            code = status.HTTP_429_TOO_MANY_REQUESTS if reason.startswith("AI budget") else status.HTTP_422_UNPROCESSABLE_ENTITY
+            raise HTTPException(status_code=code, detail=reason)
+        start(self.group_id, self.user.id, force=True)
+        return self._bubble_lines_state()

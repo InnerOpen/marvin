@@ -1,10 +1,33 @@
 """Pydantic schemas for per-workspace AI workflow policy settings."""
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import UUID4, ConfigDict
 
 from marvin.schemas._marvin import _MarvinModel
+
+
+class BubbleLines(_MarvinModel):
+    """The Ask bubble's canned lines in the workspace's voice — see services/ai/bubble_lines.py. An empty
+    list falls back to the built-in lines for that list."""
+
+    greetings: list[str] = []
+    taglines: list[str] = []
+    thinking: list[str] = []
+    errors: list[str] = []
+    emotes: list[str] = []
+
+
+class BubbleLinesState(_MarvinModel):
+    """The bubble lines as AI settings → Persona shows them."""
+
+    bubble_lines: BubbleLines | None = None
+    bubble_lines_source: str | None = None  # "generated" | "edited"; None = the built-in lines
+    bubble_lines_updated_at: datetime | None = None
+    bubble_lines_warning: str | None = None  # why the last generation failed (the previous lines were kept)
+    bubble_lines_generating: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class WorkspaceAISettingsCreate(_MarvinModel):
@@ -65,7 +88,8 @@ class WorkspaceAISettingsUpdate(_MarvinModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class WorkspaceAISettingsRead(WorkspaceAISettingsCreate):
+class WorkspaceAISettingsRead(BubbleLinesState, WorkspaceAISettingsCreate):
+    # Bubble lines (from BubbleLinesState) are read-only here: they're set through /bubble-lines.
     id: UUID4 | None = None
     group_id: UUID4 | None = None
     # Read-only platform policy (from AppSettings), surfaced so the UI can gate the

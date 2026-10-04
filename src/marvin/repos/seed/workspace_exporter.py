@@ -553,6 +553,8 @@ class WorkspaceExporter:
             "assistantName": row.assistant_name,
             "assistantIcon": row.assistant_icon,
             "personaPrompt": row.persona_prompt,
+            "bubbleLines": row.bubble_lines,
+            "bubbleLinesSource": row.bubble_lines_source,
             "defaultRegister": row.default_register,
         }
 
