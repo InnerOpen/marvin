@@ -100,7 +100,8 @@ initContainers:
         https://github.com/InnerOpen/marvin-integration-instagram/archive/refs/heads/main.tar.gz
         https://github.com/InnerOpen/marvin-integration-square/archive/refs/heads/main.tar.gz
         https://github.com/InnerOpen/marvin-integration-cloudflare-pages/archive/refs/heads/main.tar.gz
-        https://github.com/InnerOpen/marvin-integration-buttondown/archive/refs/heads/main.tar.gz;
+        https://github.com/InnerOpen/marvin-integration-buttondown/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-n8n/archive/refs/heads/main.tar.gz;
         echo "--- installed into /plugins ---";
         ls -1 /plugins
     volumeMounts:
