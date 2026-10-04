@@ -6,6 +6,7 @@ import { getAssets, getSiteClients } from "@/lib/api/platform";
 import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
+import { nullIfForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -54,7 +55,8 @@ if (currentTab === "statistics" && workspace?.id) {
       listWorkspaceMembers(workspace.id, authToken),
       listEntries(authToken),
       getAssets(authToken),
-      getSiteClients(authToken),
+      // Admin-only: a member's 403 shows the count as "—" instead of blanking every stat.
+      nullIfForbidden(getSiteClients(authToken)),
       fetchApi<any>("/api/platform/stats", { method: "GET" }, authToken).catch(() => null),
     ]);
 
@@ -63,7 +65,7 @@ if (currentTab === "statistics" && workspace?.id) {
       groups_count: 1, // Current workspace
       entries_count: entries.length,
       assets_count: assets.length,
-      api_tokens_count: apiClients.length,
+      api_tokens_count: apiClients?.length,
       webhooks_count: platformStats?.webhooks ?? 0,
       ai_executions_count: platformStats?.aiExecutions ?? platformStats?.ai_executions ?? 0,
       ai_embeddings_count: platformStats?.aiEmbeddings ?? platformStats?.ai_embeddings ?? 0,

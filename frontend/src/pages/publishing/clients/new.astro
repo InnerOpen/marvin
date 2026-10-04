@@ -1,6 +1,17 @@
 ---
 import ApiClientPermissionFields from "@/components/ApiClientPermissionFields.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+import { API_CLIENTS_ADMIN_ONLY } from "@/lib/workspaceRole";
+
+// If the role lookup fails, show the form anyway: the API still refuses non-admins.
+let canManage = true;
+try {
+  canManage = await canManageCurrentWorkspace(getAuthToken(Astro.cookies));
+} catch (e) {
+  console.error("[clients/new] Error checking role:", e);
+}
 ---
 
 <AppLayout title="New API Client" eyebrow="Publishing">
@@ -12,45 +23,49 @@ import AppLayout from "@/layouts/AppLayout.astro";
     <a class="button secondary" href="/publishing/clients">Back to Clients</a>
   </div>
 
-  <form method="POST" action="/api/api-clients" class="create-form" id="create-client-form">
-    <section class="form-section">
-      <h3>Client Details</h3>
-      <div class="form-grid">
-        <label class="span-2">
-          <span>Name <span class="required">*</span></span>
-          <input
-            type="text"
-            name="name"
-            required
-            placeholder="e.g., Production Site, Staging, Mobile App"
-            autofocus
-          />
-          <small>Slug will be auto-generated from the name</small>
-        </label>
+  {!canManage ? (
+    <div class="alert alert-info" role="status">{API_CLIENTS_ADMIN_ONLY}</div>
+  ) : (
+    <form method="POST" action="/api/api-clients" class="create-form" id="create-client-form">
+      <section class="form-section">
+        <h3>Client Details</h3>
+        <div class="form-grid">
+          <label class="span-2">
+            <span>Name <span class="required">*</span></span>
+            <input
+              type="text"
+              name="name"
+              required
+              placeholder="e.g., Production Site, Staging, Mobile App"
+              autofocus
+            />
+            <small>Slug will be auto-generated from the name</small>
+          </label>
 
-        <label class="span-2">
-          <span>Description</span>
-          <textarea
-            name="description"
-            rows="3"
-            placeholder="Optional: where this client is used, what it's for"
-          ></textarea>
-        </label>
+          <label class="span-2">
+            <span>Description</span>
+            <textarea
+              name="description"
+              rows="3"
+              placeholder="Optional: where this client is used, what it's for"
+            ></textarea>
+          </label>
+        </div>
+      </section>
+
+      <ApiClientPermissionFields />
+
+      <div class="form-actions">
+        <button type="submit" class="button">Create Client</button>
+        <a href="/publishing/clients" class="button secondary">Cancel</a>
       </div>
-    </section>
 
-    <ApiClientPermissionFields />
-
-    <div class="form-actions">
-      <button type="submit" class="button">Create Client</button>
-      <a href="/publishing/clients" class="button secondary">Cancel</a>
-    </div>
-
-    <div class="info-box">
-      <strong>⚠️ Important:</strong> The API token will only be shown once after creation.
-      Copy it immediately and store it securely.
-    </div>
-  </form>
+      <div class="info-box">
+        <strong>⚠️ Important:</strong> The API token will only be shown once after creation.
+        Copy it immediately and store it securely.
+      </div>
+    </form>
+  )}
 </AppLayout>
 
 <script>
@@ -144,6 +159,19 @@ import AppLayout from "@/layouts/AppLayout.astro";
     margin: 8px 0 0;
     color: var(--muted);
     font-size: 14px;
+  }
+
+  .alert {
+    max-width: 700px;
+    padding: 16px;
+    border-radius: var(--radius);
+    font-size: 14px;
+  }
+
+  .alert-info {
+    background: rgb(47 111 115 / 0.1);
+    color: var(--accent-2);
+    border: 1px solid var(--accent-2);
   }
 
   .create-form {

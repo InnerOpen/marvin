@@ -8,6 +8,7 @@ import { getSiteClients } from "@/lib/api/platform";
 import { listResources } from "@/lib/api/resources";
 import type { APIClientRead, CollectionRead, EntryRead, EntryTypeRead, ResourceRead } from "@/lib/api/types";
 import { requireAuth } from "@/lib/auth";
+import { nullIfForbidden } from "@/lib/workspaceRole";
 
 // Require authentication
 await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
@@ -15,6 +16,8 @@ const authToken = getAuthToken(Astro.cookies);
 
 let entries: EntryRead[] = [];
 let siteClients: APIClientRead[] = [];
+// API clients are admin-only; for everyone else the dashboard leaves them out instead of failing.
+let canSeeClients = true;
 let collections: CollectionRead[] = [];
 let entryTypes: EntryTypeRead[] = [];
 let resources: ResourceRead[] = [];
@@ -24,13 +27,16 @@ if (!authToken) {
   error = "Authentication required";
 } else {
   try {
-    [entries, siteClients, collections, entryTypes, resources] = await Promise.all([
+    let clients: APIClientRead[] | null;
+    [entries, clients, collections, entryTypes, resources] = await Promise.all([
       listEntries(authToken),
-      getSiteClients(authToken),
+      nullIfForbidden(getSiteClients(authToken)),
       listCollections(authToken),
       listEntryTypes(authToken),
       listResources(authToken),
     ]);
+    siteClients = clients ?? [];
+    canSeeClients = clients !== null;
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
     console.error("[Dashboard] Failed to load data:", error);
@@ -249,10 +255,12 @@ function getStatusClass(status: string): string {
               <strong>{resources.length}</strong>
               <span>Resources</span>
             </div>
-            <div class="pub-stat">
-              <strong>{publishingStats.activeClients}</strong>
-              <span>Active Clients</span>
-            </div>
+            {canSeeClients && (
+              <div class="pub-stat">
+                <strong>{publishingStats.activeClients}</strong>
+                <span>Active Clients</span>
+              </div>
+            )}
           </div>
 
           <div class="publishing-activity">
@@ -270,7 +278,7 @@ function getStatusClass(status: string): string {
               <p class="muted-text">No published entries yet</p>
             )}
 
-            {siteClients.length > 0 ? (
+            {!canSeeClients ? null : siteClients.length > 0 ? (
               <div class="activity-item">
                 <div class="activity-icon">⚡</div>
                 <div class="activity-content">

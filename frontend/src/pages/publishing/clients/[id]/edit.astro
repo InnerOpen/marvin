@@ -4,9 +4,11 @@ import ApiClientPermissionFields from "@/components/ApiClientPermissionFields.as
 import SaveErrorBanner from "@/components/SaveErrorBanner.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 import { permissionsFromChecked } from "@/lib/apiClientPermissions";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { createSdkClient } from "@/lib/sdk";
+import { API_CLIENTS_ADMIN_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -16,11 +18,21 @@ let client: PlatformAPIClient | null = null;
 let loadError: string | null = null;
 let saveError: SaveError | null = null;
 
+// If the role lookup fails, try the load anyway: the API still refuses non-admins.
+let canManage = true;
 try {
-  client = await sdk.apiClients.get(id);
+  canManage = await canManageCurrentWorkspace(authToken);
 } catch (e) {
-  console.error("[clients/edit] Error loading:", e);
-  loadError = e instanceof Error ? e.message : String(e);
+  console.error("[clients/edit] Error checking role:", e);
+}
+
+if (canManage) {
+  try {
+    client = await sdk.apiClients.get(id);
+  } catch (e) {
+    console.error("[clients/edit] Error loading:", e);
+    loadError = e instanceof Error ? e.message : String(e);
+  }
 }
 
 let name = client?.name ?? "";
@@ -56,7 +68,9 @@ if (client && Astro.request.method === "POST") {
     <a class="button secondary" href="/publishing/clients">Back to Clients</a>
   </div>
 
-  {loadError || !client ? (
+  {!canManage ? (
+    <div class="alert alert-info" role="status">{API_CLIENTS_ADMIN_ONLY}</div>
+  ) : loadError || !client ? (
     <div class="alert alert-error">
       <strong>Error:</strong> {loadError ?? "API client not found."}
     </div>
@@ -122,6 +136,12 @@ if (client && Astro.request.method === "POST") {
     background: var(--color-error-bg);
     color: var(--color-error);
     border: 1px solid var(--color-error);
+  }
+
+  .alert-info {
+    background: rgb(47 111 115 / 0.1);
+    color: var(--accent-2);
+    border: 1px solid var(--accent-2);
   }
 
   .edit-form {

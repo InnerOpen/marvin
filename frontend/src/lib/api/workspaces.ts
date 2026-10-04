@@ -9,6 +9,7 @@ import type {
   WorkspaceWithMembership,
 } from "@inneropen/marvin-sdk/platform";
 import { createSdkClient } from "../sdk";
+import { canManageWorkspace } from "../workspaceRole";
 
 /**
  * Get the user's currently active workspace
@@ -26,6 +27,16 @@ export async function getCurrentWorkspace(authToken: string): Promise<Workspace>
 export async function listWorkspaces(authToken: string): Promise<WorkspaceWithMembership[]> {
   const sdk = createSdkClient(authToken);
   return sdk.workspaces.list();
+}
+
+/**
+ * Whether the caller may manage the active workspace's configuration (OWNER/ADMIN, super admin,
+ * legacy admin) — the same gate the backend applies to API clients, webhooks and the like.
+ */
+export async function canManageCurrentWorkspace(authToken: string): Promise<boolean> {
+  const sdk = createSdkClient(authToken);
+  const [memberships, user] = await Promise.all([sdk.workspaces.list(), sdk.user.getProfile()]);
+  return canManageWorkspace(memberships, user);
 }
 
 /**

@@ -3,10 +3,13 @@ import type { PlatformAPIClient } from "@inneropen/marvin-sdk/platform";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getSiteClients } from "@/lib/api/platform";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+import { API_CLIENTS_ADMIN_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 let clients: PlatformAPIClient[] = [];
 let error: string | null = null;
+let canManage = false;
 
 // Check for query params
 const urlParams = Astro.url.searchParams;
@@ -18,7 +21,9 @@ if (!authToken) {
   error = "Authentication required";
 } else {
   try {
-    clients = await getSiteClients(authToken);
+    // The API refuses non-admins with a 403; skip the call and explain instead of showing the error.
+    canManage = await canManageCurrentWorkspace(authToken);
+    if (canManage) clients = await getSiteClients(authToken);
   } catch (e) {
     console.error("[clients] Error loading:", e);
     error = e instanceof Error ? e.message : String(e);
@@ -54,7 +59,7 @@ function lastUsedSentence(timestamp: string | null | undefined): string {
       <h2>API Clients</h2>
       <p>Manage API tokens for external sites and integrations</p>
     </div>
-    <a class="button" href="/publishing/clients/new">New Client</a>
+    {canManage && <a class="button" href="/publishing/clients/new">New Client</a>}
   </div>
 
   {updatedClientName && (
@@ -67,6 +72,8 @@ function lastUsedSentence(timestamp: string | null | undefined): string {
     <div class="alert alert-error">
       <strong>Error:</strong> {error}
     </div>
+  ) : !canManage ? (
+    <div class="alert alert-info" role="status">{API_CLIENTS_ADMIN_ONLY}</div>
   ) : clients.length === 0 ? (
     <div class="empty-state">
       <div class="empty-icon">⚡</div>
@@ -438,6 +445,12 @@ function lastUsedSentence(timestamp: string | null | undefined): string {
     background: var(--color-error-bg);
     color: var(--color-error);
     border: 1px solid var(--color-error);
+  }
+
+  .alert-info {
+    background: rgb(47 111 115 / 0.1);
+    color: var(--accent-2);
+    border: 1px solid var(--accent-2);
   }
 
   .empty-state {
