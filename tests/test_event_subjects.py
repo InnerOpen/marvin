@@ -55,14 +55,17 @@ GID = uuid.uuid4()
 
 
 class _Session:
-    """query() → the workflows; get() → the entry, or the named outgoing webhook."""
+    """query() → the workflows (or no Canonical URL for `${site.url}`); get() → the entry, or the named outgoing webhook."""
 
     def __init__(self, automations, entry=None):
         self._automations, self._entry = automations, entry
 
     def query(self, _model):
         rows = self._automations
-        return SimpleNamespace(filter_by=lambda **kw: SimpleNamespace(all=lambda: rows))
+        return SimpleNamespace(
+            filter_by=lambda **kw: SimpleNamespace(all=lambda: rows),
+            filter=lambda *_: SimpleNamespace(scalar=lambda: None),
+        )
 
     def get(self, model, _id):
         return SimpleNamespace(name="Buttondown: send issue") if model.__name__ == "GroupWebhooksModel" else self._entry
