@@ -114,6 +114,8 @@ With a pattern set, each entry of that type gets a URL:
 
 The URL is built whatever the entry's status, because a draft's link is where it will live; the publishing API serves only published entries anyway. Entry types shared by every workspace (system types with no workspace) can't hold a pattern; the copies a workspace starts with can. The pattern travels with workspace exports and imports.
 
+**Placeholder links block publishing.** Moving an entry to `published` fails with 422, like a missing required field, when a markdown or richtext field, the summary or the description contains a link with no real target: `[text](#)`, `[text]()`, `<a href="#">` or `<a href="">`. The error names each affected link text, e.g. `'Body' has placeholder link(s) with no real URL: 'Blue Heron', 'Gone'.` In-page anchors such as `[prices](#prices)` are real links and pass. Scheduled publishing skips such an entry and keeps its schedule, as with any other unmet requirement.
+
 ## Site rebuilds
 
 A static site that builds from this API is usually rebuilt by an outgoing webhook (its host's deploy hook) subscribed to `webhook_triggered`. The `request_site_rebuild` handler, from a workflow step or a scheduled task, queues a rebuild for the workspace instead of sending one each time. The scheduler sends one `webhook_triggered` per workspace once requests stop arriving for `SITE_REBUILD_QUIET_SECONDS` (default 60), or at most `SITE_REBUILD_MAX_WAIT_SECONDS` (default 600) after the first request, so a bulk edit triggers one build. A single change therefore starts building a minute or two later; read fast-changing values live if the site cannot wait. See [Operations → Site rebuilds](../operations.md#site-rebuilds).

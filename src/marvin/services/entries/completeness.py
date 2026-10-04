@@ -11,6 +11,7 @@ declared in the type and enforced here, uniformly, for AI / Chat / backend publi
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from marvin.schemas.platform.entry_type_recipe import EntryTypeRecipe
@@ -21,10 +22,19 @@ logger = logging.getLogger(__name__)
 # Values that count as "not filled in".
 _EMPTY: tuple = (None, "", [], {})
 
+# Links whose target is empty or a bare "#" — a stand-in for a URL nobody had (an AI draft once listed six
+# works as `[Title](#)`). Published, they go nowhere. A real in-page anchor (`#section`) is a link and passes.
+_PLACEHOLDER_MD_LINK = re.compile(r"\[([^\]]*)\]\(\s*#?\s*\)")
+_PLACEHOLDER_HTML_LINK = re.compile(r"""<a\b[^>]*?\bhref\s*=\s*(?:"\s*#?\s*"|'\s*#?\s*')[^>]*>(.*?)</a\s*>""", re.IGNORECASE | re.DOTALL)
+_HTML_TAG = re.compile(r"<[^>]+>")
+# Field types whose text is rendered as formatted content with links. Plain text/textarea fields and raw
+# `html` embeds (where `href="#"` can be a legitimate script hook) are left alone.
+_LINKABLE_FIELD_TYPES = frozenset({"markdown", "richtext"})
+
 
 @dataclass
 class CompletenessIssue:
-    kind: str  # "field" | "asset" | "resource" | "tag"
+    kind: str  # "field" | "asset" | "resource" | "tag" | "link"
     key: str  # field key / asset role / resource type / "*"
     message: str
     blocking: bool
@@ -67,6 +77,27 @@ def parse_recipe(recipe_json: dict | None) -> EntryTypeRecipe | None:
         return None
 
 
+def placeholder_link_texts(text: str | None) -> list[str]:
+    """Texts of the placeholder links in markdown/HTML — `[text](#)`, `[text]()`, `href="#"`, `href=""`.
+    In-page anchors (`#section`) are real links and are not reported."""
+    if not text or not isinstance(text, str):
+        return []
+    found = [m.group(1).strip() for m in _PLACEHOLDER_MD_LINK.finditer(text)]
+    found += [_HTML_TAG.sub("", m.group(1)).strip() for m in _PLACEHOLDER_HTML_LINK.finditer(text)]
+    return [t or "(no text)" for t in found]
+
+
+def linkable_text_fields(schema_json: dict | None) -> list[tuple[str, str]]:
+    """`(key, label)` of the schema fields whose text renders as markup. Read from the raw schema, not
+    the parsed one: a field type the parser doesn't know (e.g. a preserved `richtext`) still counts."""
+    fields = (schema_json or {}).get("fields") if isinstance(schema_json, dict) else None
+    out = []
+    for f in fields or []:
+        if isinstance(f, dict) and f.get("key") and f.get("type") in _LINKABLE_FIELD_TYPES:
+            out.append((str(f["key"]), str(f.get("label") or f["key"])))
+    return out
+
+
 def evaluate_completeness(
     *,
     schema: EntryTypeSchemaDefinition | None,
@@ -76,11 +107,16 @@ def evaluate_completeness(
     asset_roles: list[str] | None = None,
     resource_types: list[str] | None = None,
     tags: list[str] | None = None,
+    link_fields: list[tuple[str, str]] | None = None,
+    summary: str | None = None,
+    description: str | None = None,
 ) -> CompletenessReport:
     """Evaluate an entry's state against its type's contract.
 
     All inputs are primitives so the same evaluator serves the publish gate (state from a
-    persisted entry) and AI authoring (state from a freshly-composed draft).
+    persisted entry) and AI authoring (state from a freshly-composed draft). `link_fields`
+    (from ``linkable_text_fields``), `summary` and `description` are scanned for placeholder
+    links, which block like a missing required field.
     """
     data = data_json or {}
     asset_roles = asset_roles or []
@@ -149,12 +185,21 @@ def evaluate_completeness(
         if need > 0 and len(tags) < need:
             add("tag", "*", f"Needs at least {need} tag(s); has {len(tags)}.", True)
 
+    # ── Placeholder links: a link to nowhere is never publish-ready ──────────
+    scanned = [(key, label, data.get(key)) for key, label in (link_fields or [])]
+    scanned += [("summary", "Summary", summary), ("description", "Description", description)]
+    for key, label, value in scanned:
+        texts = placeholder_link_texts(value)
+        if texts:
+            quoted = ", ".join(f"'{t}'" for t in texts)
+            add("link", key, f"'{label}' has placeholder link(s) with no real URL: {quoted}. Add the URL or remove the link.", True)
+
     return report
 
 
-def evaluate_entry(entry, entry_type, *, data_json=None, title=None) -> CompletenessReport:
-    """Evaluate a persisted ORM entry against its type. `data_json`/`title` override the
-    entry's stored values so a pending update can be projected before it's applied."""
+def evaluate_entry(entry, entry_type, *, data_json=None, title=None, summary=None, description=None) -> CompletenessReport:
+    """Evaluate a persisted ORM entry against its type. `data_json`/`title`/`summary`/`description`
+    override the entry's stored values so a pending update can be projected before it's applied."""
     schema = parse_schema(getattr(entry_type, "schema_json", None)) if entry_type else None
     recipe = parse_recipe(getattr(entry_type, "recipe_json", None)) if entry_type else None
     asset_roles = [ea.role for ea in getattr(entry, "entry_assets", []) or [] if getattr(ea, "role", None)]
@@ -168,4 +213,7 @@ def evaluate_entry(entry, entry_type, *, data_json=None, title=None) -> Complete
         asset_roles=asset_roles,
         resource_types=resource_types,
         tags=tags,
+        link_fields=linkable_text_fields(getattr(entry_type, "schema_json", None)) if entry_type else None,
+        summary=summary if summary is not None else getattr(entry, "summary", None),
+        description=description if description is not None else getattr(entry, "description", None),
     )

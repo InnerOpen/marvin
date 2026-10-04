@@ -148,6 +148,8 @@ class EntryService:
                 entry_type,
                 data_json=_get("data_json"),  # None → uses the entry's stored data_json
                 title=_get("title"),
+                summary=_get("summary"),
+                description=_get("description"),
             )
         except Exception as e:  # noqa: BLE001 — a gate bug must not break publishing
             logger.warning("Publish completeness gate skipped for %s: %s", entry_id, e)
