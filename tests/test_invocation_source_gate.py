@@ -145,9 +145,15 @@ def test_the_bubble_identifies_as_bubble():
 
 
 def test_the_ask_page_identifies_as_ask_page():
-    # Named-agent runs and resuming a paused chat both come from the Ask page.
+    # Named-agent runs and resuming a paused chat come from the Ask page by default.
     text = (FRONTEND / "lib" / "api" / "aiAgents.ts").read_text()
-    assert text.count('source: "ask_page"') == 2 and 'source: "agent"' not in text
+    assert text.count('source: "ask_page"') == 1 and 'source: opts.source ?? "ask_page"' in text and 'source: "agent"' not in text
+
+
+def test_the_bubble_resumes_as_bubble():
+    # The bubble's approval card decides a paused run as the bubble (works with the Ask page switched off).
+    text = (FRONTEND / "lib" / "marvin" / "capabilities.ts").read_text()
+    assert 'resumeThread(card.threadId, decisions, { source: "bubble"' in text
 
 
 def test_ask_link_and_page_follow_the_ask_page_source():
