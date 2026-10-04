@@ -14,7 +14,7 @@ Three built-in agents exist in every workspace (they are code, not rows, so noth
 
 The `marvin` agent carries the workspace's assistant name (AI Settings → **Persona**), so after a rename the Ask page's agent picker, the bubble's `/agents` list, MCP `list_agents`, hand-offs and the `chat` agent's "use the … agent" pointer all use the new name; the slug stays `marvin`.
 
-Admins can define more on the **Agents** page. An agent is a definition with these fields: `kind` (`persona` = instructions + tools, run through the tool loop; `model` = a plain completion, no tools), `system_prompt`, `model_override`, `tool_allowlist` (hard filter; `null` = no restriction), `min_role` (who may talk to it, 1–5), `sources`, `enabled`, `allow_writes`, `tool_policy`, `icon`, `suggestions` (up to 8 suggested prompts), `default_register` (`auto`, `professional`, `playful`) and `handoff_hint` (one line telling the router when to hand a question to this agent). Slugs may not shadow the built-ins.
+Admins can define more on the **Agents** page. An agent is a definition with these fields: `kind` (`persona` = instructions + tools, run through the tool loop; `model` = a plain completion, no tools), `system_prompt`, `model_override`, `tool_allowlist` (hard filter; `null` = no restriction), `min_role` (who may talk to it, 1–5), `sources`, `enabled`, `allow_writes`, `tool_policy`, `icon`, `suggestions` (up to 8 suggested prompts), `default_register` (a tone slug: `auto`, `professional`, `playful` or one of the workspace's own [tones](#tones); an unknown slug is a 422) and `handoff_hint` (one line telling the router when to hand a question to this agent). Slugs may not shadow the built-ins.
 
 Every persona run gets a workspace preamble that says which workspace it is in, that "the RAG / knowledge base / index" means the workspace content, which bound tool answers which kind of question, and which external MCP servers are connected. A reply that only promises to check something ("give me a moment") is nudged once to act instead. When you name a connected MCP server ("check the vault"), the agent answers from that server's tools itself and does not hand the question to another agent unless you name that agent, since the others may not see the server. An agent with no external MCP tools bound says it cannot reach an outside source rather than presenting workspace results as coming from it.
 
@@ -106,7 +106,7 @@ Platform super admins: **Admin → Extensions → Character Library** (`/admin/c
 
 ## How to use
 
-1. On **AI Settings**, turn on **AI Features**, choose a **Credential Mode** (Platform or Workspace), a provider and model, an **Approval Mode**, and the **Invocation Sources** you want. Under **Persona**, optionally set the assistant name, bubble icon, bubble character, voice and default register. Under **Usage & Limits**, optionally set a monthly cost limit, a daily request limit and an output-token cap.
+1. On **AI Settings**, turn on **AI Features**, choose a **Credential Mode** (Platform or Workspace), a provider and model, an **Approval Mode**, and the **Invocation Sources** you want. Under **Persona**, optionally set the assistant name, bubble icon, bubble character and voice; under **Tones**, the default tone and any tones of your own. Under **Usage & Limits**, optionally set a monthly cost limit, a daily request limit and an output-token cap.
 2. On **MCP Servers**, turn on **External MCP tools** and add servers if agents should use them.
 3. On **Agents**, click **+ New agent**: icon, name, slug, description, "Hand off when…", instructions, suggested prompts, model, kind, default tone, "Who may talk to it", **Allow writes**, **Enabled**. Adjust the Tools matrix per group or per tool (Inherit, Allow, Ask first, Block). New agents are read-only until you turn on Allow writes, and a write still needs the caller to be AUTHOR or higher. Click **Character** on an agent's card to give it a bubble character of its own.
 4. On **Ask**, pick the agent, type or dictate a question, optionally attach a file. Open **Threads** to reopen an earlier conversation, from any agent or the bubble; **Tools** shows the effective matrix for you. Approve or deny any "Before I continue, approve these actions" card.
@@ -167,7 +167,7 @@ Progress and the reindex run state are process-local: with more than one backend
 | `assistant_name`, `assistant_icon` | text; emoji (up to 16 characters) or image URL | the bubble's name and icon; blank = "Marvin" and 🤖 |
 | `assistant_character` | `{"states": {state: image URL}}`, `{"library": pack id or slug}` or `null` | the bubble character: re-map the states of your own upload, switch to a library pack, or remove it. Uploads go through `POST /api/groups/ai-settings/character` |
 | `persona_prompt` | text | the voice, appended to the system prompt. Blank = Marvin's built-in voice while the assistant is still named Marvin (the full Marvin character, quoting the bubble's own lines so chat and bubble sound alike); a renamed assistant with a blank persona gets a neutral voice. Saving it (or `assistant_name`) writes the bubble lines from it unless they were edited — see **Bubble lines** above |
-| `default_register` | `auto`, `professional`, `playful` | how work product reads: Auto keeps the voice for chat but writes reviews and copy plainly; Professional drops the persona; Playful applies it everywhere. Precedence for a named agent: a per-call `register` other than `auto`, then the agent's default tone, then this setting |
+| `default_register` | a tone slug (`auto`, `professional`, `playful` or a [custom tone](#tones)); unknown or hidden → 422 | how work product reads: Auto keeps the voice for chat but writes reviews and copy plainly; Professional drops the persona; Playful applies it everywhere. Precedence for a named agent: a per-call `register` other than `auto`, then the agent's default tone, then this setting |
 | `budget_config` | `max_cost_per_month_usd`, `max_requests_per_day`, `max_tokens_per_request` | the limits on the **Usage & Limits** card; see below. Saving the form keeps budget keys it does not show |
 | `logging_config`, `moderation_config` | | prompt/response logging and moderation (**Advanced Settings**) |
 | `AI_AGENT_MAX_STEPS` (app setting) | int | tool-dispatch budget per run (default 6); server clamps to 12 |
@@ -186,6 +186,32 @@ Progress and the reindex run state are process-local: with more than one backend
 With **bubble** off the bubble does not appear; with **Ask page** off the sidebar's **Ask** link is hidden and the Ask page says Ask is switched off, with a link to Invocation Sources for workspace admins. Each can be off while the other stays on.
 
 `agent` is agent chat from anywhere: the default `source` of `POST /agent`, `POST /agents/{slug}/run` and `POST /threads/{id}/resume` for API and SDK callers, and what the bubble and Ask page calls run as once they pass the check (so operation, agent and tool sources and the executions log say `agent`). It has no toggle of its own: it is off when both **bubble** and **Ask page** are off, or when a stored policy sets `agent` to `false`. Before the split, `agent` was the single "Ask Marvin" toggle; a stored `agent: false` still switches both surfaces off, and the upgrade migration rewrites it to `bubble: false, ask_page: false`. `forms`, `actions` and `scheduled` remain valid keys (old policies may store them) but nothing sends them, so they have no toggle. The source is reported by the caller, so this is feature gating, not a security boundary: per-user authorization is the role check.
+
+### Tones
+
+A tone is how a run's work product reads, separate from the voice (how the assistant addresses you). The **Tones** card on AI Settings lists the built-ins — **Auto** (voice for chat, plain for work), **Professional** (plain everywhere, no persona) and **Playful** (the persona applies to everything) — and the workspace's own. Pick the **default** with the radio button; untick **Show** to leave a tone out of the pickers (the default can't be hidden; a hidden tone still works for agents and parked runs that already use it). Built-ins can be hidden but not edited or deleted. Changes save as you make them; only workspace admins and owners can change tones, while anyone may pick one per request.
+
+**Add tone** takes a **Name** (1–60 characters, unique, not a built-in's), an optional **Description** shown in the pickers, **Instructions** (1–1500 characters of free text) and what to do with **the persona**:
+
+| Persona rule | Effect |
+|---|---|
+| Frame only | the persona greets and frames; work product follows the tone's instructions |
+| Everywhere | the persona applies to everything, alongside the instructions |
+| Drop the persona | no persona for the run — the safest choice for client-facing copy, since weaker models blur "everywhere" |
+
+**Preview prompt** shows exactly what the tone adds to the system prompt with this workspace's persona, and a rough token count — it is sent with every agent step. A workspace can have up to 20 tones. A tone's slug is made from its name when it is created and never changes, so renaming a tone keeps every agent and default that points at it. A tone that agents default to can't be deleted: the save fails (409) naming the agents — pick another default tone for them first. Deleting the default tone needs a new default.
+
+**Where a tone applies.** For a run, the first that names a tone wins: the request's tone (the Ask page's **Tone**, the bubble's `/tone`, an action such as "Review & suggest"; for a named agent a request's `auto` doesn't count), then the agent's default tone, then the workspace default, then Auto. A slug that names no tone (deleted since, or imported) is skipped with a warning in the log rather than failing the run. Hand-offs carry an explicit tone to the specialist. Compose and revise drafts use the tone too, but an entry type's own voice (its recipe's `enrichment.voice`) wins; with no voice the draft gets the tone's instructions (and the persona under an *Everywhere* tone; Auto and Professional leave drafts plain, Playful writes them in the persona). The agents' `compose_entry` / `revise_entry` tools use the workspace default.
+
+**The bubble.** `/tone` lists the tones; `/tone <name or slug>` sets one for the rest of the browser session and shows it as a **Tone** chip above the conversation (× clears it); `/tone default` goes back to the workspace's.
+
+| Method and path (`/api/groups/ai-settings`) | Purpose |
+|---|---|
+| `GET /tones` | any member: every tone (built-ins first) with `builtin`, `hidden`, `usedBy` (agent slugs), plus `defaultTone` and the limits |
+| `PUT /tones` | ADMIN+: `{tones: [{slug?, name, instructions, persona: frame\|everywhere\|drop, description?}], hidden: [slug], defaultTone?}` replaces the custom tones and hidden list; 422 for an invalid list, 409 (`detail.tones: {slug: [agents]}`) when a removed tone is still an agent's default |
+| `POST /tones/preview` | `{slug}` or a draft `{name, instructions, persona}` → `{clause, tokens}` |
+
+Workspace export and import carry `tones` and `hiddenTones` with the AI settings; an import re-validates them and, if they don't validate, keeps the built-ins only.
 
 ### Usage and limits
 

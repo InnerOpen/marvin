@@ -211,9 +211,18 @@ register that authoring ignores (recipe voice wins; revise ignores the per-call 
 - Migration: add the two columns; widen `workspace_agents.default_register` to String(40) (Postgres would reject
   longer slugs); export/import carries tones.
 
-**Checklist:** tones module · columns + migration · controller swap · schema/validation · endpoints ·
-(authoring wiring, if agreed) · export/import · UI · docs · tests (validation, clause modes × persona, golden
-built-ins, fallback, 409/reassign, column length, round-trip).
+**Checklist:**
+- [x] tones module (`services/ai/tones.py`)
+- [x] columns + migration (`a8d4b0f6c3e9`: `tones`, `hidden_tones`; agent `default_register` String(40))
+- [x] controller swap (`_register_clause` / `_effective_register` / `_default_register` delegate to tones)
+- [x] schema/validation (agent slug shape + 422 for an unknown tone; PATCH default 422)
+- [x] endpoints (`GET/PUT /groups/ai-settings/tones`, `POST …/tones/preview`)
+- [x] authoring wiring (entry-type voice wins, tone otherwise; revise honours the per-call tone)
+- [x] export/import
+- [x] UI (Tones card on AI settings, agent + Ask pickers, bubble `/tone` + chip)
+- [x] docs (manual → Agents and Ask → Tones)
+- [x] tests (validation, clause modes × persona, golden built-ins, fallback, 409, column length, round-trip,
+  drafts precedence) — `tests/test_tones.py`, `frontend/src/lib/tones.test.mjs`
 
 **Risks:** per-step prompt cost (shown in the editor); weak models may blur "everywhere" — steer client-facing
 tones to "drop"; tone text is admin-only (same trust as persona); explicit tones propagate to hand-off specialists.
@@ -222,6 +231,15 @@ tones to "drop"; tone text is admin-only (same trust as persona); explicit tones
 settings or own page? 4) bubble `/tone` command enough, or a visible chip? 5) deleting an in-use tone: block or
 reset agents? 6) free-text only for v1, or structured knobs (max length, no emoji)? 7) non-admins pick per call
 (yes) / create personal tones (no)?
+
+**Review (2026-10-04, branch `feat/custom-tones`):** built as planned. The controller keeps its method names
+(`_register_clause` etc.) so call sites and the concurrent `POST /agent` work stay untouched; they now resolve
+through `WorkspaceTones.resolve` (caller → agent → workspace → auto, unknown slugs skipped with a warning). Built-in
+clauses are pinned byte-for-byte. `?reassign` was not built (decision 5: block only). The Ask page's tone picker
+now leads with "Default (…)" and sends no tone for it, so the workspace default reaches the main agent there
+(before, the page always sent `auto`). Drafts: Auto/Professional stay plain, Playful and *everywhere* tones bring
+the persona, custom tones add their instructions; agent `compose_entry`/`revise_entry` tools use the workspace
+default (the run's tone isn't plumbed into ToolContext). Not done: a browser walk-through of the new UI.
 
 # Trash — reversible delete (2026-10-01, Jared: "add that feature to todos")
 
