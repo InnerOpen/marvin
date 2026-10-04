@@ -33,3 +33,10 @@ export function formatLocalDateTime(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
+
+/** Whether a UTC timestamp is at or before `now` — e.g. an expiration date that blocks publishing. False if unset/invalid. */
+export function hasPassed(iso: string | null | undefined, now: Date = new Date()): boolean {
+  if (!iso) return false;
+  const d = new Date(iso);
+  return !Number.isNaN(d.getTime()) && d.getTime() <= now.getTime();
+}

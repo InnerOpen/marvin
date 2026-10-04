@@ -8,7 +8,7 @@ process.env.TZ = "America/Chicago";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { formatLocalDateTime, fromDatetimeLocalValue, toDatetimeLocalValue } from "./localDatetime.ts";
+import { formatLocalDateTime, fromDatetimeLocalValue, hasPassed, toDatetimeLocalValue } from "./localDatetime.ts";
 
 describe("toDatetimeLocalValue", () => {
   test("shows a UTC timestamp as the viewer's wall-clock time", () => {
@@ -55,5 +55,24 @@ describe("formatLocalDateTime", () => {
 
   test("renders in the viewer's zone", () => {
     assert.match(formatLocalDateTime("2026-10-03T15:30:00Z"), /10:30/);
+  });
+});
+
+describe("hasPassed", () => {
+  const now = new Date("2026-10-03T15:30:00Z");
+
+  test("is true for a timestamp at or before now", () => {
+    assert.equal(hasPassed("2026-10-03T15:29:00Z", now), true);
+    assert.equal(hasPassed("2026-10-03T15:30:00Z", now), true);
+  });
+
+  test("is false for a later timestamp", () => {
+    assert.equal(hasPassed("2026-10-03T15:31:00Z", now), false);
+  });
+
+  test("is false for unset and invalid input", () => {
+    assert.equal(hasPassed("", now), false);
+    assert.equal(hasPassed(null, now), false);
+    assert.equal(hasPassed("not a date", now), false);
   });
 });

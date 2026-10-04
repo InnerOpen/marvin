@@ -587,7 +587,12 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               <label for="expire_at">Expiration Date</label>
               <input type="datetime-local" id="expire_at" data-utc-input="expire_at_utc" form="entry-form" />
               <input type="hidden" id="expire_at_utc" name="expire_at" value={toUtcIso(entry.expireAt)} form="entry-form" />
-              <p class="form-help" data-schedule-note="expire_at" data-note-prefix="Will expire">
+              <p
+                class="form-help"
+                data-schedule-note="expire_at"
+                data-note-prefix="Will expire"
+                data-past-note="This date has passed — publishing will be refused until it's cleared or moved"
+              >
                 When this entry should expire and be hidden
               </p>
             </div>
@@ -933,6 +938,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     margin: -0.25rem 0 0.25rem;
     font-size: 0.8125rem;
     color: var(--muted);
+  }
+
+  .form-help.warn {
+    color: var(--warn);
   }
 
   .readonly-datetime {
@@ -1800,7 +1809,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
 </style>
 
 <script>
-  import { formatLocalDateTime, fromDatetimeLocalValue, toDatetimeLocalValue } from '@/lib/localDatetime';
+  import { formatLocalDateTime, fromDatetimeLocalValue, hasPassed, toDatetimeLocalValue } from '@/lib/localDatetime';
   import { createSdkClient } from '@/lib/sdk';
 
   const sdk = createSdkClient();
@@ -2251,7 +2260,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     const renderNote = () => {
       if (!note) return;
       const when = formatLocalDateTime(hidden.value);
-      note.textContent = when ? `${note.dataset.notePrefix} ${when}` : defaultNote;
+      // An expiration date already past blocks publishing (the API refuses it); say so here first.
+      const isPast = Boolean(note.dataset.pastNote) && hasPassed(hidden.value);
+      note.textContent = isPast ? (note.dataset.pastNote ?? '') : when ? `${note.dataset.notePrefix} ${when}` : defaultNote;
+      note.classList.toggle('warn', isPast);
     };
     picker.value = toDatetimeLocalValue(hidden.value);
     const sync = () => {
