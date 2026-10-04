@@ -6,6 +6,43 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.188 (2026-10-04)
+
+### Documentation
+
+- Custom tones in the manual; tasks: tones checklist done
+  ([`d3746ad`](https://github.com/InnerOpen/marvin/commit/d3746ad02c7b4fb9b46ff90c198949b142baca85))
+
+- **manual**: Admin pages by their grouped sidebar names
+  ([`fe10353`](https://github.com/InnerOpen/marvin/commit/fe10353c93be4dfa6a1211e0442d451232a3ae31))
+
+- **manual**: Agents and Ask through rc.185
+  ([`b245e59`](https://github.com/InnerOpen/marvin/commit/b245e59fd8a85b3f50ea0aed09388b2dd96fac48))
+
+- **manual**: API clients, token dialogs and admin-only secrets
+  ([`630417c`](https://github.com/InnerOpen/marvin/commit/630417c83b480a3fd676c84c87a477a6af95db56))
+
+- **manual**: Operations and the admin shell through rc.186
+  ([`c835b71`](https://github.com/InnerOpen/marvin/commit/c835b713581848d5f3b8932a547891343326ac1b))
+
+- **manual**: Plugins page, HTTP patch and the Buttondown provider
+  ([`64ea2d7`](https://github.com/InnerOpen/marvin/commit/64ea2d7a322c4438dc1ffdd8febe75862f1b78bf))
+
+- **manual**: Scheduled publishing, private collections and client permissions
+  ([`8291b8e`](https://github.com/InnerOpen/marvin/commit/8291b8ee6327683de1c8bef02c10100d4bf51f1b))
+
+- **manual**: What's new and workflows provenance through rc.186
+  ([`3dd9964`](https://github.com/InnerOpen/marvin/commit/3dd99642a47265d4c39ca208847449a6b8d3eaea))
+
+### Features
+
+- **admin**: Tones editor, tone pickers and the bubble's /tone
+  ([`2d7ebc9`](https://github.com/InnerOpen/marvin/commit/2d7ebc9625ff60eb31f380b2131d9efe9b592607))
+
+- **ai**: Custom tones per workspace
+  ([`9168bc9`](https://github.com/InnerOpen/marvin/commit/9168bc94351aa735193a4fa746030d9e8f419d65))
+
+
 ## v1.0.0-rc.187 (2026-10-04)
 
 ### Bug Fixes
