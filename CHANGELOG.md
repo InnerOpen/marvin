@@ -6,6 +6,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.178 (2026-10-04)
+
+### Chores
+
+- **chart**: Install the Buttondown integration on iwobble
+  ([`c86844a`](https://github.com/InnerOpen/marvin/commit/c86844a4058212b28cd784a2f98f2dd4faf181ea))
+
+### Features
+
+- **events**: Every event names its subject; a workflow run names its trigger and steps
+  ([`d04dc84`](https://github.com/InnerOpen/marvin/commit/d04dc842901b5deff5867c133ff183c565051b1b))
+
+- **frontend**: The event log links each event's subject and a workflow run's trigger
+  ([`a45159e`](https://github.com/InnerOpen/marvin/commit/a45159e542c2a1ae4a9e974e776ae91e312227bd))
+
+### Testing
+
+- **events**: The fake session answers the ${site.url} preferences query
+  ([`d45253b`](https://github.com/InnerOpen/marvin/commit/d45253b02348417a03a91d25aaaa65f9d8fc82df))
+
+
 ## v1.0.0-rc.177 (2026-10-04)
 
 ### Features
