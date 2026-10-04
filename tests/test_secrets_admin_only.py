@@ -99,3 +99,42 @@ def test_members_below_admin_cannot_write_secrets(workspace, role):
     assert member.delete(f"{BASE}/{secret['id']}").status_code == 403
     # Slugs (never values) stay readable for the forms that reference them.
     assert member.get(f"{BASE}/slugs").json() == ["SITE_KEY"]
+
+
+def _reveal(client: TestClient, secret_id: str):
+    return client.post(f"{BASE}/{secret_id}/reveal")
+
+
+@pytest.mark.parametrize("role", [WorkspaceRole.OWNER, WorkspaceRole.ADMIN])
+def test_reveal_secret_as_workspace_owner_or_admin_returns_value(workspace, role):
+    # Workspace OWNER/ADMIN who is not a platform admin used to get 403 (route checked `user.admin`).
+    client = _sign_in(workspace, role)
+    secret = _create(client)
+
+    res = _reveal(client, secret["id"])
+
+    assert res.status_code == 200, res.text
+    assert res.json()["value"] == "s3cret"
+
+
+def test_reveal_secret_as_platform_super_admin_returns_value(workspace):
+    secret = _create(_sign_in(workspace, WorkspaceRole.OWNER))
+    super_admin = _sign_in(workspace, None, PlatformRole.SUPER_ADMIN)
+
+    res = _reveal(super_admin, secret["id"])
+
+    assert res.status_code == 200, res.text
+    assert res.json()["value"] == "s3cret"
+
+
+@pytest.mark.parametrize("role", [WorkspaceRole.EDITOR, WorkspaceRole.AUTHOR, WorkspaceRole.VIEWER])
+def test_reveal_secret_as_member_below_admin_returns_403(workspace, role):
+    secret = _create(_sign_in(workspace, WorkspaceRole.OWNER))
+
+    assert _reveal(_sign_in(workspace, role), secret["id"]).status_code == 403
+
+
+def test_reveal_secret_as_non_member_returns_403(workspace):
+    secret = _create(_sign_in(workspace, WorkspaceRole.OWNER))
+
+    assert _reveal(_sign_in(workspace, None), secret["id"]).status_code == 403

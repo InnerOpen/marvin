@@ -145,9 +145,8 @@ class SecretsController(BaseUserController):
 
     @router.post("/{secret_id}/reveal", response_model=WorkspaceSecretWithValue)
     def reveal_secret(self, secret_id: UUID4):
-        """Return decrypted value. Workspace admins only."""
-        if not self.user.admin:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required.")
+        """Return decrypted value. Workspace OWNER/ADMIN (or platform super admin) only."""
+        require_workspace_admin(self.user, self.group_id)
 
         secret = _get_secret_or_404(self.session, secret_id, self.group_id)
         value = get_secret_backend().get(secret.slug, self.group_id)
