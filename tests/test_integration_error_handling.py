@@ -650,3 +650,34 @@ def test_succeed_with_retry_ignores_the_retry(db_session, shop, events):
 
     assert [c[0] for c in runner.calls] == ["prep", "list", "after"]
     assert _retries(db_session, shop) == []  # retrying would run "after" a second time
+
+
+def test_a_retry_outlives_its_deleted_entry(db_session, shop, events):
+    from marvin.db.models.platform import Entries
+
+    runner = _Runner(shop.integration.id)
+    runner.failures = [runner.fail("unavailable", _handle(retry=_retry(60))), None]
+    _publish(db_session, shop, runner)
+    db_session.query(Entries).filter(Entries.id == shop.entry_id).delete()
+    db_session.commit()
+    (row,) = _retries(db_session, shop)
+    assert row.status == "pending"  # no cascade: the retry is still there
+    runner.calls.clear()
+
+    assert _retry_now(db_session, shop, runner) == "succeeded"  # the snapshot's entry stands in
+    assert [c[0] for c in runner.calls] == ["list", "after"]
+
+
+def test_an_entry_deleted_run_can_be_retried(db_session, shop, events):
+    shop.automation.definition = {**_workflow(), "trigger": {"type": "event", "event": "entry_deleted"}, "conditions": []}
+    db_session.commit()
+    gone = str(uuid.uuid4())  # the entry no longer exists when the workflow runs
+    runner = _Runner(shop.integration.id)
+    runner.failures = [runner.fail("unavailable", _handle(retry=_retry(60))), None]
+    event = {"event_type": "entry_deleted", "entry_id": gone, "user_id": None}
+    run_automations_for_event(db_session, shop.gid, event, run_action=runner, recorder=ExecutionRecorder(db_session, shop.gid))
+    db_session.expire_all()
+
+    (row,) = _retries(db_session, shop)
+    assert str(row.entry_id) == gone and row.status == "pending"
+    assert _retry_now(db_session, shop, runner) == "succeeded"

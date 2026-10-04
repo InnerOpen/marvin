@@ -566,11 +566,13 @@ def _live_key(automation_id, entry_id, step_index: int) -> str:
 
 
 def _snapshot(context: dict, run: dict) -> dict | None:
-    """What a retry needs to resume the run: the triggering event and the earlier steps' outputs — the
-    entry itself is re-read when the retry runs. None when it is too big to keep."""
+    """What a retry needs to resume the run: the triggering event, the entry as the run saw it, and the
+    earlier steps' outputs. A retry re-reads the entry while it exists and falls back to these facts
+    once it is gone (closing a listing after its entry was deleted). None when it is too big to keep."""
     snap = _json_safe(
         {
             "event": context.get("event") or {},
+            "entry": context.get("entry"),
             "steps": context.get("steps") or {},
             "previous": context.get("previous") or {},
             "target_ref": run.get("target_ref"),
@@ -666,6 +668,13 @@ def _finish(row, status: str, *, error: str | None = None) -> None:
     row.finished_at = _now()
     if error:
         row.last_error = error[:2000]
+
+
+def release_retry(session, row) -> None:
+    """Hand a claimed retry back untouched (its workflow is disabled): pending again, the claim's attempt undone."""
+    row.status, row.lease_until = "pending", None
+    row.attempt = max((row.attempt or 1) - 1, 0)
+    session.commit()
 
 
 def resume_state(session, group_id, integration_id, action_key: str, context: dict) -> tuple[dict | None, str]:

@@ -788,19 +788,24 @@ def run_retry(
     """Run one claimed integration retry (an ``integration_retries`` row): rebuild the run from its
     snapshot and the entry as it is *now*, re-check the workflow's conditions, and resume the pipeline
     at the failed step — the steps before it never run again. Returns the outcome: ``superseded``
-    (the workflow, entry or step is gone or changed, or the entry no longer matches), ``succeeded``
-    or ``failed`` (the policy decided what happens next — another retry, or its `then`).
+    (the workflow or step is gone or changed, or the entry no longer matches), ``waiting`` (the
+    workflow is disabled: the retry waits for it), ``succeeded`` or ``failed`` (the policy decided
+    what happens next — another retry, or its `then`). A deleted entry is retried from the snapshot.
 
     Recorded as its own run pointing back at the run it retries (``retry_of_id``) and announced like
     any run, so chained / on-error workflows see the outcome."""
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.db.models.groups.integration_errors import RETRY_LIVE
     from marvin.services.integrations import errors
 
     recorder = recorder or NullRecorder()
     automation = session.get(WorkspaceAutomationModel, row.automation_id)
-    if automation is None or automation.group_id != group_id or not automation.enabled:
-        errors.finish_retry(session, row, "superseded", "the workflow was deleted or disabled")
+    if automation is None or automation.group_id != group_id:
+        errors.finish_retry(session, row, "superseded", "the workflow was deleted")
         return "superseded"
+    if not automation.enabled:  # paused, not cancelled: it waits until the workflow is enabled again
+        errors.release_retry(session, row)
+        return "waiting"
     defn = automation.definition or {}
     actions = (defn.get("actions") or [])[:MAX_ACTIONS]
     failed = actions[row.step_index] if row.step_index < len(actions) else {}
@@ -811,16 +816,19 @@ def run_retry(
     snap = row.snapshot or {}
     event = dict(snap.get("event") or {})
     context: dict = {"event": event, "previous": {}, "depth": int(event.get("reaction_depth", 0) or 0), "site": _site_context(session, group_id)}
-    if row.entry_id:
-        entry_ctx = _entry_context(session, group_id, row.entry_id)
-        if entry_ctx is None:
-            errors.finish_retry(session, row, "superseded", "the entry was deleted")
-            return "superseded"
+    # The entry as it is now — it may have changed since the failure. Once it is gone (or the run was
+    # about its deletion) the snapshot's facts stand in: a retry that closes a listing must still run.
+    entry_ctx = _entry_context(session, group_id, row.entry_id) if row.entry_id and event.get("event_type") != "entry_deleted" else None
+    from_snapshot = entry_ctx is None and bool(row.entry_id)
+    if entry_ctx is None:
+        entry_ctx = snap.get("entry")
+    if entry_ctx:
         context["entry"] = entry_ctx
-        event["entry_id"] = entry_ctx["id"]
-    # The entry may have changed since the failure: retrying only makes sense while it still matches
-    # (an unpublished listing must not be re-created). A manual run that skipped conditions skips them here too.
-    if (snap.get("gated", True) or defn.get("target")) and not matches(defn.get("conditions"), context):
+        event["entry_id"] = entry_ctx.get("id") or event.get("entry_id")
+    # Retrying only makes sense while the entry still matches (an unpublished listing must not be
+    # re-created). A manual run that skipped conditions skips them here too, and an entry that is gone
+    # can't have changed — the conditions held when the run started.
+    if not from_snapshot and (snap.get("gated", True) or defn.get("target")) and not matches(defn.get("conditions"), context):
         errors.finish_retry(session, row, "superseded", "the entry no longer matches the workflow's conditions")
         return "superseded"
 
