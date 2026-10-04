@@ -1,7 +1,8 @@
 /**
- * The entry type's recipe on its edit page: the authoring instructions (`instructions`) and the drafts' voice
+ * The entry type's recipe on its pages: the authoring instructions (`instructions`) and the drafts' voice
  * (`enrichment.voice`) get boxes of their own; the JSON textarea holds the rest of the structured contract.
- * `splitRecipe` takes them out for the page, `foldRecipe` puts them back on save.
+ * `splitRecipe` takes them out for the edit page, `foldRecipe` puts them back on save (and on create, where
+ * the New page has a Voice box but no instructions box).
  */
 
 type Json = Record<string, unknown>;
@@ -27,10 +28,11 @@ export function splitRecipe(recipe: Json | null | undefined): { instructions: st
 
 /**
  * The recipe JSON to save: `raw` (the textarea) with the boxes folded back in; a blank box removes its key.
+ * `instructions` null means the page has no instructions box, so any typed in `raw` stay as they are.
  * Null when `raw` isn't valid JSON — the page then sends it as typed so the server rejects it rather than the
  * edit being silently dropped. A non-object `enrichment` is left alone for the same reason.
  */
-export function foldRecipe(raw: string, instructions: string, voice: string): string | null {
+export function foldRecipe(raw: string, instructions: string | null, voice: string): string | null {
   let obj: Json = {};
   if (raw.trim()) {
     try {
@@ -40,9 +42,11 @@ export function foldRecipe(raw: string, instructions: string, voice: string): st
     }
     if (!isObject(obj)) return null;
   }
-  const instr = instructions.trim();
-  if (instr) obj.instructions = instr;
-  else delete obj.instructions;
+  if (instructions !== null) {
+    const instr = instructions.trim();
+    if (instr) obj.instructions = instr;
+    else delete obj.instructions;
+  }
   if (obj.enrichment == null || isObject(obj.enrichment)) {
     const enrichment: Json = { ...((obj.enrichment as Json) ?? {}) };
     const v = voice.trim();

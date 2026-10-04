@@ -31,6 +31,13 @@ describe("foldRecipe", () => {
     assert.deepEqual(JSON.parse(foldRecipe("", "Short.", "")), { instructions: "Short." });
   });
 
+  test("on create (no instructions box) the voice merges in and typed instructions stay", () => {
+    const out = JSON.parse(foldRecipe('{"instructions": "Short.", "assets": {"min": 1}}', null, "Wry."));
+    assert.deepEqual(out, { instructions: "Short.", assets: { min: 1 }, enrichment: { voice: "Wry." } });
+    assert.deepEqual(JSON.parse(foldRecipe("", null, " Wry. ")), { enrichment: { voice: "Wry." } });
+    assert.equal(foldRecipe("", null, ""), "");
+  });
+
   test("invalid or non-object JSON is left for the server to reject", () => {
     assert.equal(foldRecipe("{nope", "", "Wry."), null);
     assert.equal(foldRecipe("[1]", "", "Wry."), null);
