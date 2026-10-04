@@ -181,7 +181,7 @@ events · 8) Ask page card · 9) bubble card + toast · 10) manual, rollout, wal
 stale child context on long waits; one request runs child + parent legs (session/rollback care); path ids must stay
 stable across re-parks.
 
-**Open questions:** 1) bubble Marvin obeys Marvin's matrix and parks like the Ask page? 2) child-thread resume
+**Decisions (Jared 2026-10-04):** 1) yes — the bubble's Marvin follows Marvin's permission matrix and parks ask-first calls like the Ask page (test + fix done as a separate change first); 2) resuming on a child thread passes the decision up to the root; 3) yes — a new message on a parked child abandons the parent too; 4) parked runs expire (default TTL, e.g. 7 days, configurable), no notification on expiry for now; 5) approval events fire once on the root, plus an `approval_requested` toast popup; 6) the bubble always gets the inline approve/deny card (plus the Ask page link when the Ask page is on); 7) hand-off depth is configurable (workspace or platform setting) if it isn't too much churn, default 1.
 forwards to parent (rec.) or 409? 3) new message on a parked child abandons the parent too (rec.)? 4) expiry off or
 default (e.g. 7 days), notify on expiry? 5) events once on the root (rec.)? 6) bubble inline card always, or only
 when the Ask page is off? 7) design for hand-off depth 2 now, or keep depth 1?
