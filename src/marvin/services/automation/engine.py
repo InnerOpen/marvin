@@ -11,6 +11,8 @@ the engine is unit-testable without real executors.
 """
 
 from collections.abc import Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -27,6 +29,26 @@ from .summary import collapse, failed_step, handlings, run_handled, run_message,
 
 MAX_ACTIONS = 10  # per-automation guardrail against a runaway pipeline
 MAX_REACTION_DEPTH = 3  # how many automation/emit_event hops a single chain may span before we stop
+
+# The automations whose runs are on the current call stack: one reaction chain. What a run does — an
+# entry step's entry_updated, an emit_event, its own automation_ran — is dispatched synchronously inside
+# it, so an automation that finds its own id here would be reacting to its own work (or to a reaction
+# to it): it sits that event out. Other automations react as usual, and a later, independent event
+# (dispatched outside the run) triggers it again.
+_running: ContextVar[frozenset[str]] = ContextVar("automations_running", default=frozenset())
+
+
+def _run_key(automation) -> str:
+    return str(getattr(automation, "id", None) or getattr(automation, "slug", ""))
+
+
+@contextmanager
+def _running_scope(automation):
+    token = _running.set(_running.get() | {_run_key(automation)})
+    try:
+        yield
+    finally:
+        _running.reset(token)
 
 
 def _ms_since(started: datetime) -> int:
@@ -159,29 +181,33 @@ def run_automations_for_event(
     ran = 0
     # Open the triggering event's chain (or mint one) so every automation that reacts, and everything
     # they re-emit, threads under one correlation id.
+    running = _running.get()
     with correlation_scope(event_ctx.get("correlation_id")):
         for automation in automations:
+            if _run_key(automation) in running:
+                continue  # the event comes from this automation's own run (or a reaction to it)
             defn = automation.definition or {}
             trig = defn.get("trigger") or {}
             if not _trigger_matches(trig, event_ctx):
                 continue
-            ran_this, ok, run_id = _run_targets(
-                session,
-                group_id,
-                automation,
-                context,
-                user_id=user_id,
-                authorizer_role=resolve_authorizer_role(session, group_id, getattr(automation, "created_by", None)),
-                logger=logger,
-                run_action=run_action,
-                gate_conditions=True,
-                recorder=recorder,
-                dry_run=dry_run,
-                trigger_kind=trig.get("type", "event"),
-            )
-            if ran_this:
-                if not dry_run:
+            with _running_scope(automation):
+                ran_this, ok, run_id = _run_targets(
+                    session,
+                    group_id,
+                    automation,
+                    context,
+                    user_id=user_id,
+                    authorizer_role=resolve_authorizer_role(session, group_id, getattr(automation, "created_by", None)),
+                    logger=logger,
+                    run_action=run_action,
+                    gate_conditions=True,
+                    recorder=recorder,
+                    dry_run=dry_run,
+                    trigger_kind=trig.get("type", "event"),
+                )
+                if ran_this and not dry_run:
                     _announce(session, group_id, automation, ok, depth, user_id, context, run_id=run_id)
+            if ran_this:
                 ran += 1
 
     return ran
@@ -668,7 +694,7 @@ def run_automation_now(
     dry_recorder = CollectingRecorder() if dry_run else None
     # A manual run roots a fresh chain (no triggering event) so its execution + any re-emitted events
     # share one correlation id.
-    with correlation_scope():
+    with correlation_scope(), _running_scope(automation):
         # Manual run skips conditions when acting on the single (implicit) context — the human asked
         # for it. But when a `target` selects a set, its conditions are the WHERE over that set and
         # DO apply.
@@ -811,7 +837,7 @@ def run_retry(
         "seed": row.idempotency_seed,
     }
     attempt = row.attempt
-    with correlation_scope(event.get("correlation_id")):
+    with correlation_scope(event.get("correlation_id")), _running_scope(automation):
         exec_id = recorder.start(
             automation,
             trigger_type,
