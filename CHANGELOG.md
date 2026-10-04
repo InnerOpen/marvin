@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.197 (2026-10-04)
+
+### Bug Fixes
+
+- Logos and admin-gate tests without the integration SDK
+  ([`cb178f7`](https://github.com/InnerOpen/marvin/commit/cb178f7b1a80d012ceba4be18d5b268abfec614a))
+
+### Chores
+
+- **deploy**: Install the n8n integration on iwobble
+  ([`172aad4`](https://github.com/InnerOpen/marvin/commit/172aad44ec0e6156f16602a03cdd7755204b8dd8))
+
+### Documentation
+
+- Behaviour changes and retry-chain rules for integration errors
+  ([`2807314`](https://github.com/InnerOpen/marvin/commit/28073148480dd80029fc0eb9494a05d34b4a99fe))
+
+
 ## v1.0.0-rc.196 (2026-10-04)
 
 ### Features
