@@ -96,9 +96,14 @@ class AIOperationsController(BaseUserController):
         we surface `source` and the originating server so the UI can group them. No tool is called —
         this only reads names/descriptions off the bound tools (external servers are queried live for
         their tool list, so an unreachable server is simply omitted).
+
+        Bound exactly as the bubble's Marvin binds them — through Marvin's permission matrix at the
+        caller's role, on a run that can park — so blocked tools are absent and `asksFirst` marks the
+        ones that pause for the user's approval.
         """
+        spec = self._agent_or_404(ROUTER_SLUG)
         catalog: list[dict] = []
-        for t in self._build_agent_tools(provider=None):
+        for t in self._build_agent_tools(provider=None, agent=spec, role=self._user_role(), park_allowed=True):
             external = t.name.startswith("mcp__")
             server = None
             if external:
@@ -112,6 +117,8 @@ class AIOperationsController(BaseUserController):
                     "description": t.description,
                     "source": "external" if external else "builtin",
                     "server": server,
+                    "category": t.category or None,
+                    "asksFirst": bool(t.requires_approval),
                 }
             )
         return catalog
@@ -777,6 +784,7 @@ class AIOperationsController(BaseUserController):
         system = self._default_agent_system_prompt(assistant_name)
         # Explicit per-call register wins; otherwise the workspace default; otherwise "auto".
         system += self._register_clause(body.tone_register or self._default_register(), persona_prompt)
+        ctx.tone_register = body.tone_register  # drafts the run writes use its tone (None → workspace default)
         return self._run_agent_core(
             provider=provider,
             model=model,
@@ -993,6 +1001,7 @@ class AIOperationsController(BaseUserController):
         # The agent's matrix decides per tool; a write still needs the caller to be AUTHOR+. "Ask first"
         # tools are bound only when there is a thread to park the run on (NEW_THREAD counts).
         tools, ctx = self._bind_agent_tools(provider, agent=spec, role=role, park_allowed=bool(body.thread_id))
+        ctx.tone_register = register
         max_steps = self._agent_max_steps(body)
         system = spec.system_prompt or self._default_agent_system_prompt(assistant_name if spec.is_system else spec.name)
         system += self._register_clause(register, persona_prompt)
@@ -2079,9 +2088,9 @@ class AIOperationsController(BaseUserController):
                 detail=f"Model '{model}' is configured as not supporting tools. Choose a tool-capable model.",
             )
 
-    def _build_agent_tools(self, provider, agent=None, role: int | None = None) -> list:
+    def _build_agent_tools(self, provider, agent=None, role: int | None = None, *, park_allowed: bool = False) -> list:
         """The bound toolset alone (see `_bind_agent_tools`)."""
-        return self._bind_agent_tools(provider, agent=agent, role=role)[0]
+        return self._bind_agent_tools(provider, agent=agent, role=role, park_allowed=park_allowed)[0]
 
     def _bind_agent_tools(self, provider, agent=None, role: int | None = None, *, depth: int = 0, park_allowed: bool = False) -> tuple:
         """Bind the agent's in-process toolset: the core tool registry + the AI operations.

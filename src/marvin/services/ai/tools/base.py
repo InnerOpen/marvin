@@ -43,6 +43,9 @@ class ToolContext:
     execution_id: str | None = None
     delegate: Callable[[str, str, int | None], dict] | None = None
     referrals: list[dict] = field(default_factory=list)
+    # The run's tone (a tone slug), so drafts the authoring tools write match the conversation's tone
+    # rather than the workspace default. None → the workspace default.
+    tone_register: str | None = None
 
 
 # handler(ctx, args) -> str : returns a JSON string fed back to the model / returned to callers.

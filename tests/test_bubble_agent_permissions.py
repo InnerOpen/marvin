@@ -186,3 +186,17 @@ def test_bubble_marvin_parks_an_ask_first_call_in_the_shape_the_bubble_handles(c
     # capabilities.ts reads stoppedReason, threadId and pending[].tool to link to the Ask page.
     assert (res["stoppedReason"], res["pending"][0]["tool"], bool(res["threadId"])) == ("awaiting_approval", "run_workflow", True)
     assert ctl._thread_or_404(res["threadId"]).status == "awaiting_approval"
+
+
+# ── GET /agent/tools: the bubble's tool list ─────────────────────────────────
+
+
+def test_agent_tools_list_follows_marvins_matrix_and_marks_ask_first(ctl, monkeypatch):
+    _block_in_marvins_matrix(monkeypatch, BLOCKED)
+    listed = {t["name"]: t for t in ctl.list_agent_tools()}
+    assert BLOCKED not in listed
+    assert {name: listed[name]["asksFirst"] for name in ASK_FIRST} == dict.fromkeys(ASK_FIRST, True)
+    assert {name: listed[name]["asksFirst"] for name in (READ, MCP_READ, ALLOWED_WRITE)} == dict.fromkeys((READ, MCP_READ, ALLOWED_WRITE), False)
+    assert listed["mcp__srv__send"]["source"] == "external" and listed["mcp__srv__send"]["server"] == "Srv"
+    # exactly what the bubble's run binds (with a thread to park on)
+    assert {n: t["asksFirst"] for n, t in listed.items()} == _surface(_bubble(ctl))

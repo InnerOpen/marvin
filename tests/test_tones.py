@@ -508,3 +508,47 @@ def test_revise_honours_the_per_call_tone(db_session, workspace, ctrl):
         db_session.query(Entries).filter_by(group_id=workspace).delete()
         db_session.query(EntryTypes).filter_by(group_id=workspace).delete()
         db_session.commit()
+
+
+# ── Agent authoring tools draft in the run's tone (ToolContext.tone_register) ─
+
+
+@pytest.mark.parametrize("tool", ["compose_entry", "revise_entry"])
+def test_authoring_tools_draft_in_the_runs_tone(monkeypatch, tool):
+    from marvin.services.ai.tools import builtins_authoring as authoring
+    from marvin.services.ai.tools.base import ToolContext
+
+    seen = {}
+
+    class _Svc:
+        def recipe_asset_attachments(self, *a):
+            return None
+
+        def compose(self, **kw):
+            seen.update(kw)
+            return {"ok": True}
+
+        def revise(self, **kw):
+            seen.update(kw)
+            return {"ok": True}
+
+    entry_type = SimpleNamespace(group_id=None)
+    entry = SimpleNamespace(group_id="g1")
+
+    class _Query:
+        def filter(self, *a):
+            return self
+
+        def first(self):
+            return entry_type
+
+    session = SimpleNamespace(query=lambda *a: _Query(), get=lambda model, eid: entry)
+    monkeypatch.setattr(authoring, "_service", lambda ctx: (_Svc(), None))
+    monkeypatch.setattr(authoring, "resolve_entity_id", lambda *a: uuid.uuid4())
+    ctx = ToolContext(session=session, group_id="g1", tone_register="board-report")
+
+    if tool == "compose_entry":
+        authoring.compose_entry(ctx, {"entry_type": "post", "brief": "b"})
+    else:
+        authoring.revise_entry(ctx, {"entry": "e", "instruction": "i"})
+    assert seen["register"] == "board-report"
