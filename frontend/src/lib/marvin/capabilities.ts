@@ -13,6 +13,7 @@ import DOMPurify from "dompurify";
 import { marked } from "marked";
 import { getRunProgress, getThread, NEW_THREAD, type RunProgress } from "@/lib/api/aiAgents";
 import { askWorkspace, listAgents, runAgent, runAgentAs, sendChat } from "@/lib/api/aiBubble";
+import { getTones } from "@/lib/api/aiTones";
 import { listAgentTools } from "@/lib/api/aiTools";
 import { getActiveContext } from "@/lib/marvin/context";
 import {
@@ -31,6 +32,7 @@ import {
   scoped,
   threadFor,
 } from "@/lib/marvin/pending";
+import { findTone } from "@/lib/tones";
 
 export interface MarvinResult {
   /** Safe HTML for Marvin's reply. Escape ALL dynamic content with esc(). */
@@ -59,7 +61,8 @@ export interface Capability {
   run(arg: string): Promise<MarvinResult>;
 }
 
-export type MarvinRegister = "auto" | "professional" | "playful";
+/** A tone slug — a built-in (auto | professional | playful) or one of the workspace's own (@/lib/tones). */
+export type MarvinRegister = string;
 
 /**
  * Tone register for the NEXT agent run, set by whoever triggered it (e.g. the entry editor's
@@ -171,7 +174,8 @@ const agent: Capability = {
   commands: ["agent", "do"],
   isDefault: true,
   async run(arg: string): Promise<MarvinResult> {
-    return runBubbleAgent(getActiveAgent(), arg, takeRegister());
+    // A one-shot tone from the caller (e.g. "Review & suggest") beats the session's `/tone`.
+    return runBubbleAgent(getActiveAgent(), arg, takeRegister() ?? getSessionTone()?.slug);
   },
 };
 
@@ -503,8 +507,74 @@ const use: Capability = {
   },
 };
 
+// ── Session tone (`/tone`) ───────────────────────────────────────────────────
+// Sticky for the browser session, like `/use`: every agent run from the bubble asks for it until
+// `/tone default`. The bubble shows it as a chip (Marvin.astro listens for TONE_EVENT).
+const TONE_KEY = "marvin.tone";
+export const TONE_EVENT = "marvin:tone";
+
+export function getSessionTone(): { slug: string; name: string } | null {
+  try {
+    const raw = sessionStorage.getItem(scoped(TONE_KEY));
+    const tone = raw ? JSON.parse(raw) : null;
+    return tone && typeof tone.slug === "string" ? { slug: tone.slug, name: String(tone.name || tone.slug) } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSessionTone(tone: { slug: string; name: string } | null): void {
+  try {
+    if (tone) sessionStorage.setItem(scoped(TONE_KEY), JSON.stringify(tone));
+    else sessionStorage.removeItem(scoped(TONE_KEY));
+  } catch {
+    /* storage unavailable — the tone lasts for this page only */
+  }
+  document.dispatchEvent(new CustomEvent(TONE_EVENT, { detail: tone }));
+}
+
+const TONE_CLEAR = new Set(["default", "none", "off", "clear"]);
+
+const tone: Capability = {
+  id: "tone",
+  label: "Tone",
+  hint: "Set how my work reads for this session, e.g. /tone professional; /tone default clears it.",
+  commands: ["tone"],
+  noArg: true,
+  async run(arg: string): Promise<MarvinResult> {
+    const ref = arg.trim();
+    if (TONE_CLEAR.has(ref.toLowerCase())) {
+      setSessionTone(null);
+      return { html: `<div class="mv-answer">Back to the default tone.</div>` };
+    }
+    const state = await getTones();
+    if (!ref) {
+      const current = getSessionTone()?.slug ?? null;
+      const rows = state.tones
+        .filter((t) => !t.hidden)
+        .map((t) => {
+          const mark = t.slug === current ? " <strong>(active)</strong>" : t.slug === state.defaultTone && !current ? " <strong>(default)</strong>" : "";
+          const desc = t.description ? `<span class="mv-muted"> — ${esc(t.description)}</span>` : "";
+          return `<li><code>${esc(t.slug)}</code>${mark} ${esc(t.name)}${desc}</li>`;
+        })
+        .join("");
+      return {
+        html: `<div class="mv-help">Tones:<ul>${rows}</ul>Pick one with <code>/tone &lt;name&gt;</code>; <code>/tone default</code> goes back to the workspace's.</div>`,
+      };
+    }
+    const hit = findTone(state.tones, ref);
+    if (!hit) {
+      return { html: `<div class="mv-answer">No tone called <code>${esc(ref)}</code>. <code>/tone</code> lists them.</div>` };
+    }
+    setSessionTone({ slug: hit.slug, name: hit.name });
+    return {
+      html: `<div class="mv-answer">Tone: <strong>${esc(hit.name)}</strong>. My work reads that way until <code>/tone default</code>.</div>`,
+    };
+  },
+};
+
 // ── Registry ─────────────────────────────────────────────────────────────────
-export const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use];
+export const CAPABILITIES: Capability[] = [agent, ask, chat, tools, agents, use, tone];
 
 /** Register a new skill at runtime (e.g. from a plugin bundle). */
 export function registerCapability(cap: Capability): void {

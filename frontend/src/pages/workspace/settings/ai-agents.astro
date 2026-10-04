@@ -2,8 +2,10 @@
 import CharacterPicker from "@/components/CharacterPicker.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { type Agent, type Catalog, getCatalog, listAgents } from "@/lib/api/aiAgents";
+import { getTones } from "@/lib/api/aiTones";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
+import { BUILTIN_TONES, type Tone, toneOptions } from "@/lib/tones";
 
 const authToken = getAuthToken(Astro.cookies);
 
@@ -13,10 +15,12 @@ let models: { id: string; label: string; tools: boolean }[] = [];
 // Bubble characters: the platform's library to choose from, and the file names each state picks up.
 let characterLibrary: { id: string; name: string; states?: Record<string, string> }[] = [];
 let characterCatalog: { key: string; aliases: string[] }[] = [];
+// The workspace's tones (built-ins + its own) for each agent's default tone (AI settings → Tones).
+let tones: Tone[] = BUILTIN_TONES;
 let error: string | null = null;
 
 try {
-  const [a, c, providers, lib, states] = await Promise.all([
+  const [a, c, providers, lib, states, t] = await Promise.all([
     listAgents(authToken),
     getCatalog(authToken),
     createSdkClient(authToken)
@@ -24,8 +28,12 @@ try {
       .catch(() => [] as any[]),
     fetchApi<{ id: string; name: string }[]>("/api/groups/ai-settings/character/library", {}, authToken).catch(() => []),
     fetchApi<{ key: string; aliases: string[] }[]>("/api/groups/ai-settings/character/catalog", {}, authToken).catch(() => []),
+    getTones(authToken)
+      .then((state) => state.tones)
+      .catch(() => BUILTIN_TONES),
   ]);
   agents = a;
+  tones = t;
   catalog = c;
   characterLibrary = lib;
   characterCatalog = states;
@@ -67,7 +75,7 @@ const builtins = agents.filter((a) => a.isSystem);
 
   {error && <div class="alert"><strong>Couldn't load agents.</strong> {error}</div>}
 
-  <div class="agents-root" data-catalog={JSON.stringify(catalog)} data-agents={JSON.stringify(agents)}>
+  <div class="agents-root" data-catalog={JSON.stringify(catalog)} data-agents={JSON.stringify(agents)} data-tones={JSON.stringify(tones)}>
     <!-- New agent -->
     <div class="section-card">
       <div class="section-header">
@@ -126,12 +134,7 @@ const builtins = agents.filter((a) => a.isSystem);
           </div>
           <div class="form-field">
             <label class="label" for="n-register">Default tone</label>
-            <select class="input" id="n-register" name="defaultRegister">
-              <option value="">Workspace default</option>
-              <option value="auto">Auto</option>
-              <option value="professional">Professional</option>
-              <option value="playful">Playful</option>
-            </select>
+            <select class="input" id="n-register" name="defaultRegister" set:html={toneOptions(tones, "", { inherit: "Workspace default" })}></select>
           </div>
           <div class="form-field">
             <label class="label" for="n-role">Who may talk to it</label>
@@ -357,9 +360,11 @@ const builtins = agents.filter((a) => a.isSystem);
     type Catalog,
     type PolicyValue,
   } from "@/lib/api/aiAgents";
+  import { type Tone, toneOptions } from "@/lib/tones";
 
   const root = document.querySelector<HTMLElement>(".agents-root");
   if (root) {
+    const tones: Tone[] = JSON.parse(root.dataset.tones || "[]");
     const catalog: Catalog = JSON.parse(root.dataset.catalog || '{"categories":[],"tools":[]}');
     const agents: Agent[] = JSON.parse(root.dataset.agents || "[]");
     const byCat = new Map<string, Catalog["tools"]>();
@@ -450,7 +455,7 @@ const builtins = agents.filter((a) => a.isSystem);
         suggestions: sugg.length ? sugg : null,
         modelOverride: str("modelOverride") || null,
         kind: (str("kind") || "persona") as "persona" | "model",
-        defaultRegister: (str("defaultRegister") || null) as any,
+        defaultRegister: str("defaultRegister") || null,
         minRole: Number(str("minRole") || 1),
         allowWrites: fd.get("allowWrites") === "on",
         enabled: fd.get("enabled") === "on",
@@ -581,7 +586,6 @@ const builtins = agents.filter((a) => a.isSystem);
         const roleOptions = [1, 2, 3, 4, 5]
           .map((v) => `<option value="${v}"${v === agent.minRole ? " selected" : ""}>${["", "Viewer", "Author", "Editor", "Admin", "Owner"][v]} and above</option>`)
           .join("");
-        const reg = (v: string, label: string) => `<option value="${v}"${(agent.defaultRegister ?? "") === v ? " selected" : ""}>${label}</option>`;
         if (characterBox) card.append(characterBox);
         editBox.innerHTML = `<form class="agent-form">
           <div class="form-row icon-name">
@@ -595,7 +599,7 @@ const builtins = agents.filter((a) => a.isSystem);
           <div class="form-row four">
             <div class="form-field"><label class="label">Model</label><select class="input" name="modelOverride">${modelOptions}</select></div>
             <div class="form-field"><label class="label">Kind</label><select class="input" name="kind"><option value="persona"${agent.kind === "persona" ? " selected" : ""}>Persona — instructions + tools</option><option value="model"${agent.kind === "model" ? " selected" : ""}>Model — plain chat</option></select></div>
-            <div class="form-field"><label class="label">Default tone</label><select class="input" name="defaultRegister">${reg("", "Workspace default")}${reg("auto", "Auto")}${reg("professional", "Professional")}${reg("playful", "Playful")}</select></div>
+            <div class="form-field"><label class="label">Default tone</label><select class="input" name="defaultRegister">${toneOptions(tones, agent.defaultRegister, { inherit: "Workspace default" })}</select></div>
             <div class="form-field"><label class="label">Who may talk to it</label><select class="input" name="minRole">${roleOptions}</select></div>
           </div>
           <div class="form-row toggles">

@@ -39,12 +39,14 @@ export async function runAgent(
   message: string,
   context: { entityType?: string; entityId?: string } | null | undefined,
   ref: BubbleRunRef,
-  register?: "auto" | "professional" | "playful",
+  register?: string, // a tone slug (@/lib/tones)
 ) {
+  // The SDK's `register` union predates custom tones; the server takes any tone slug the workspace has.
+  type SdkRegister = Parameters<ReturnType<typeof createSdkClient>["ai"]["agent"]>[0]["register"];
   return createSdkClient().ai.agent({
     message,
     source: "bubble",
-    ...(register ? { register } : {}),
+    ...(register ? { register: register as SdkRegister } : {}),
     ...(context?.entityType && context.entityId ? { entityType: context.entityType, entityId: context.entityId } : {}),
     // Spread rather than listed: the SDK's request type predates threads; the server reads them all the same.
     ...ref,
@@ -94,7 +96,7 @@ export function runAgentAs(
   message: string,
   context: { entityType?: string; entityId?: string } | null | undefined,
   ref: BubbleRunRef,
-  register?: "auto" | "professional" | "playful",
+  register?: string, // a tone slug (@/lib/tones)
 ) {
   return api<any>(`/api/ai/agents/${encodeURIComponent(slug)}/run`, {
     method: "POST",

@@ -1,11 +1,13 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { type Agent, listAgents } from "@/lib/api/aiAgents";
+import { getTones } from "@/lib/api/aiTones";
 import { getAuthToken } from "@/lib/api/client";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 import { MAIN_AGENT } from "@/lib/marvin/cast";
 import { sourceAllowed } from "@/lib/marvin/gate";
 import { createSdkClient } from "@/lib/sdk";
+import { BUILTIN_TONES, pickerTones, type TonesState } from "@/lib/tones";
 
 const authToken = getAuthToken(Astro.cookies);
 const authed = !!authToken;
@@ -16,6 +18,8 @@ let askEnabled = true;
 let canManage = false;
 let settingsError: string | null = null;
 let agents: Agent[] = [];
+// Every tone the workspace offers (built-ins + its own, minus hidden ones) for the per-call picker.
+let tones: TonesState = { tones: BUILTIN_TONES, defaultTone: "auto", maxCustomTones: 0, maxNameChars: 0, maxInstructionsChars: 0 };
 // The workspace's name for its main agent (AI settings), shown wherever that agent is named.
 let assistantName = "";
 
@@ -34,7 +38,13 @@ if (authed) {
     canManage = await canManageCurrentWorkspace(authToken!).catch(() => false);
   } else {
     try {
-      agents = (await listAgents(authToken)).filter((a) => a.enabled);
+      [agents, tones] = await Promise.all([
+        listAgents(authToken).then((list) => list.filter((a) => a.enabled)),
+        getTones(authToken).catch((e) => {
+          console.error("[ai-ask] Error loading tones:", e);
+          return tones;
+        }),
+      ]);
     } catch (e) {
       console.error("[ai-ask] Error loading agents:", e);
     }
@@ -42,6 +52,9 @@ if (authed) {
 }
 const agentsJson = JSON.stringify(agents);
 const agentDisplayName = (a: Agent) => (a.slug === MAIN_AGENT && assistantName ? assistantName : a.name);
+const defaultToneName = tones.tones.find((t) => t.slug === tones.defaultTone)?.name ?? "Auto";
+// A tone an agent defaults to stays selectable even if it's hidden from pickers since.
+const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hidden && agents.some((a) => a.defaultRegister === t.slug)));
 ---
 
 <AppLayout title="Ask" eyebrow="Settings">
@@ -91,9 +104,8 @@ const agentDisplayName = (a: Agent) => (a.slug === MAIN_AGENT && assistantName ?
         <label class="tb-field">
           <span class="tb-label">Tone</span>
           <select id="register" class="input">
-            <option value="auto">Auto</option>
-            <option value="professional">Professional</option>
-            <option value="playful">Playful</option>
+            <option value="">Default ({defaultToneName})</option>
+            {askTones.map((t) => <option value={t.slug} title={t.description ?? undefined}>{t.name}</option>)}
           </select>
         </label>
         <div class="tb-actions">
@@ -243,7 +255,8 @@ const agentDisplayName = (a: Agent) => (a.slug === MAIN_AGENT && assistantName ?
           questionEl.focus();
         }),
       );
-      if (a.defaultRegister) registerSel.value = a.defaultRegister;
+      // Show the agent's own default tone; "" (Default) sends none and the server decides.
+      if (a.defaultRegister && registerSel.querySelector(`option[value="${CSS.escape(a.defaultRegister)}"]`)) registerSel.value = a.defaultRegister;
       if (!toolsPanel.hidden) void loadTools();
     }
     agentSel.addEventListener("change", () => {
@@ -803,7 +816,7 @@ const agentDisplayName = (a: Agent) => (a.slug === MAIN_AGENT && assistantName ?
       if (attachment) attachment.shown = true;
       addTurn("user", esc(message) + (firstUse ? `<div class="turn-attach">📎 ${esc(attachment.name)}</div>` : ""));
       questionEl.value = "";
-      const register = registerSel.value as "auto" | "professional" | "playful";
+      const register = registerSel.value || undefined;
       const wasNew = !threadId;
       const { placeholder, runId, stopWatching } = startPlaceholder();
       try {

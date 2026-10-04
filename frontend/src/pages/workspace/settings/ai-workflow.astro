@@ -1,11 +1,14 @@
 ---
 import CharacterPicker from "@/components/CharacterPicker.astro";
 import EmojiPicker from "@/components/EmojiPicker.astro";
+import ToneEditor from "@/components/ToneEditor.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
+import { getTones } from "@/lib/api/aiTones";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { sourceAllowed } from "@/lib/marvin/gate";
 import { voiceFor } from "@/lib/marvin/persona";
 import { createSdkClient } from "@/lib/sdk";
+import type { TonesState } from "@/lib/tones";
 
 const authToken = getAuthToken(Astro.cookies);
 
@@ -14,11 +17,12 @@ let secrets: any[] = [];
 let sources: any[] = [];
 let characterCatalog: any[] = [];
 let characterLibrary: { id: string; name: string; states?: Record<string, string> }[] = [];
+let tones: TonesState | null = null;
 let error: string | null = null;
 
 try {
   const sdk = createSdkClient(authToken);
-  [settings, secrets, sources, characterCatalog, characterLibrary] = await Promise.all([
+  [settings, secrets, sources, characterCatalog, characterLibrary, tones] = await Promise.all([
     sdk.ai.settings.get(),
     sdk.secrets.list(),
     sdk.ai.settings.sources().catch(() => []), // catalog for the invocation-sources editor
@@ -26,6 +30,8 @@ try {
     fetchApi<any[]>("/api/groups/ai-settings/character/catalog", {}, authToken).catch(() => []),
     // Packs the platform admin installed, to choose from instead of uploading one.
     fetchApi<any[]>("/api/groups/ai-settings/character/library", {}, authToken).catch(() => []),
+    // The tones section (built-ins + the workspace's own, and the default); see services/ai/tones.py.
+    getTones(authToken).catch(() => null),
   ]);
 } catch (e) {
   console.error("[ai-workflow] Error loading settings:", e);
@@ -49,7 +55,6 @@ const s = {
   assistantIcon: (settings as any)?.assistantIcon ?? null,
   assistantCharacter: (settings as any)?.assistantCharacter ?? null,
   personaPrompt: settings?.personaPrompt ?? null,
-  defaultRegister: settings?.defaultRegister ?? "auto",
 };
 
 // The bubble's canned lines (AI settings → Persona → Bubble lines; services/ai/bubble_lines.py). An empty
@@ -309,20 +314,6 @@ const modCfg = s.moderationConfig ?? {};
           placeholder="e.g. Warm and upbeat; concise; a leathercraft studio's helper.">{s.personaPrompt ?? ""}</textarea>
         <small class="hint">A free-text instruction appended to the assistant's system prompt. Leave blank for the default voice — Marvin, the deadpan Paranoid Android (while the assistant is still named Marvin).</small>
       </label>
-      <label class="form-field">
-        <span class="label">Default register</span>
-        <select name="default_register" class="input">
-          <option value="auto" selected={s.defaultRegister === "auto" || !s.defaultRegister}>Auto — voice for chat, plain for work</option>
-          <option value="professional" selected={s.defaultRegister === "professional"}>Professional — plain everywhere, no persona</option>
-          <option value="playful" selected={s.defaultRegister === "playful"}>Playful — persona applies to everything</option>
-        </select>
-        <small class="hint">
-          Separate from the voice above. The <strong>voice</strong> is how the assistant addresses
-          you; the <strong>register</strong> is how its work product reads. <em>Auto</em> keeps the
-          voice for chat but writes reviews, critiques and suggested copy plainly. Specific actions
-          (like "Review &amp; suggest") may still override this per run.
-        </small>
-      </label>
       <div class="form-field bubble-lines" id="bubble-lines" data-state={JSON.stringify(bubbleState)}>
         <span class="label">Bubble lines</span>
         <small class="hint">
@@ -350,6 +341,20 @@ const modCfg = s.moderationConfig ?? {};
           <span class="save-status" id="bubble-lines-msg"></span>
         </div>
       </div>
+    </div>
+
+    <!-- 5b. Tones -->
+    <div class="section-card ai-dependent" id="tones-section">
+      <div class="section-title">
+        <h3>Tones</h3>
+        <p>
+          How the assistant's work product reads — separate from the voice above, which is how it
+          addresses you. The default applies to every run unless an agent or a single request picks
+          another (the Ask page's Tone, the bubble's <code>/tone</code>). Each tone says what to do with
+          the persona: keep it for framing, use it everywhere, or drop it. Saved as you go.
+        </p>
+      </div>
+      <ToneEditor state={tones} />
     </div>
 
     <!-- 6. Usage & limits -->
@@ -786,7 +791,6 @@ const modCfg = s.moderationConfig ?? {};
       assistantIcon: ((document.getElementById('assistant_icon_url') as HTMLInputElement).value.trim()
         || (document.getElementById('assistant_icon_emoji') as HTMLInputElement).value.trim() || null),
       personaPrompt: (fd.get('persona_prompt')?.toString().trim() || null),
-      defaultRegister: (fd.get('default_register')?.toString() || 'auto'),
     };
 
     const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;

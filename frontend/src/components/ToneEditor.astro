@@ -1,0 +1,62 @@
+---
+/**
+ * The workspace's tones on AI settings: the default, which ones the pickers offer, and its own tones.
+ * Logic in @/lib/marvin/toneEditor; saves as you go (PUT /api/groups/ai-settings/tones).
+ */
+import type { TonesState } from "@/lib/tones";
+
+interface Props {
+  /** GET /api/groups/ai-settings/tones; null when it couldn't be loaded. */
+  state: TonesState | null;
+}
+
+const { state } = Astro.props;
+---
+
+{state ? (
+  <div class="tone-editor" data-tone-editor data-state={JSON.stringify(state)}>
+    <ul class="tone-list" data-tone-list></ul>
+    <div class="tone-editor-actions">
+      <button type="button" class="button secondary small" data-act="add">Add tone</button>
+      <span class="save-status" data-tone-status></span>
+    </div>
+    <div class="tone-form-box" data-tone-form hidden></div>
+  </div>
+) : (
+  <p class="hint">Tones couldn't be loaded. Reload the page to try again.</p>
+)}
+
+<script>
+  import { mountToneEditors } from '@/lib/marvin/toneEditor';
+
+  mountToneEditors();
+</script>
+
+<style is:global>
+  .tone-list { list-style: none; margin: 0 0 12px; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); }
+  .tone-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 12px; align-items: start; padding: 12px; }
+  .tone-row + .tone-row { border-top: 1px solid var(--line); }
+  .tone-row.is-hidden .tone-main { opacity: 0.55; }
+  .tone-default input { margin-top: 3px; }
+  .tone-main { min-width: 0; }
+  .tone-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; }
+  .tone-name code { font-size: 11px; color: var(--muted); }
+  .tone-about, .tone-used { font-size: 12px; color: var(--muted); margin-top: 2px; overflow-wrap: anywhere; }
+  .tone-badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--panel-2); color: var(--muted); }
+  .tone-badge.is-default { background: var(--accent); color: #fff; }
+  .tone-shown { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .tone-actions { display: flex; gap: 6px; align-items: center; }
+  .tone-editor-actions { display: flex; gap: 12px; align-items: center; }
+  .tone-form-box { margin-top: 12px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+  .tone-form h4 { margin: 0 0 12px; font-size: 14px; }
+  .tone-form .form-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+  .tone-rules { border: none; padding: 0; }
+  .tone-rule { display: flex; gap: 8px; align-items: baseline; margin: 4px 0; font-size: 13px; }
+  .tone-form-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .tone-preview { margin-top: 12px; }
+  .tone-preview pre { white-space: pre-wrap; font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; margin: 0 0 4px; max-height: 240px; overflow: auto; }
+  @media (max-width: 640px) {
+    .tone-row { grid-template-columns: auto 1fr; }
+    .tone-shown, .tone-actions { grid-column: 2; }
+  }
+</style>

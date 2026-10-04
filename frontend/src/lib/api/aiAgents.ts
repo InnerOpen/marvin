@@ -8,7 +8,8 @@ import { fetchApi } from "./client";
 export type AgentKind = "persona" | "model";
 /** `ask` = "ask first": the tool is bound but each call pauses the run for the user's approval (Ask page threads only). */
 export type PolicyValue = "allow" | "ask" | "block";
-export type Register = "auto" | "professional" | "playful";
+/** A tone slug: a built-in (auto | professional | playful) or one of the workspace's own (@/lib/tones). */
+export type Register = string;
 
 export interface Agent {
   id: string | null;

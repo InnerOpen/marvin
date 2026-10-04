@@ -33,6 +33,12 @@ try {
       <button id="marvin-context-clear" class="marvin-context-clear"
         aria-label="Ignore this page's context" title="Ignore this page's context">×</button>
     </div>
+    <div id="marvin-tone" class="marvin-context" hidden>
+      <span class="marvin-context-what">Tone</span>
+      <span id="marvin-tone-label" class="marvin-context-label"></span>
+      <button id="marvin-tone-clear" class="marvin-context-clear"
+        aria-label="Back to the default tone" title="Back to the default tone">×</button>
+    </div>
     <div id="marvin-log" class="marvin-log"></div>
     <form id="marvin-form" class="marvin-form">
       <input id="marvin-input" class="marvin-input" type="text" autocomplete="off"
@@ -44,7 +50,7 @@ try {
 
 <script>
   import { fetchApi } from '@/lib/api/client';
-  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent } from '@/lib/marvin/capabilities';
+  import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent, getSessionTone, setSessionTone, TONE_EVENT } from '@/lib/marvin/capabilities';
   import { createCast, type Cast } from '@/lib/marvin/cast';
   import { createCharacter, dragDirection, type Character, type CharacterEvent, type CharacterStates } from '@/lib/marvin/character';
   import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
@@ -323,6 +329,24 @@ try {
     });
 
     renderContext();
+
+    // ── Tone chip: the session's `/tone`, sent with every agent run until cleared ──
+    const toneBar = document.getElementById('marvin-tone')!;
+    const toneLabel = document.getElementById('marvin-tone-label')!;
+
+    function renderTone() {
+      const tone = getSessionTone();
+      if (!tone) { toneBar.setAttribute('hidden', ''); return; }
+      toneLabel.textContent = tone.name;
+      toneBar.removeAttribute('hidden');
+    }
+
+    document.getElementById('marvin-tone-clear')!.addEventListener('click', () => {
+      setSessionTone(null);
+      addMsg('marvin', 'Back to the default tone.', false);
+    });
+    document.addEventListener(TONE_EVENT, renderTone);
+    renderTone();
 
     function rotateTagline() { sub.textContent = pick(voice.taglines); }
 
