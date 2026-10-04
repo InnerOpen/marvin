@@ -204,14 +204,20 @@ def touch(thread: AIThreadModel, tokens: int | None = None) -> None:
 # ── Ask first: parking a run that is waiting for the user's decision ─────────
 
 
-def park_thread(session: Session, thread: AIThreadModel, *, calls, convo, execution_id, run: dict, steps, referrals) -> None:
+def park_thread(
+    session: Session, thread: AIThreadModel, *, calls, convo, execution_id, run: dict, steps, referrals, parent: dict | None = None
+) -> None:
     """Freeze a paused run on its thread: what is waiting, the transcript to resume from, and the run's
     own parameters so `POST /threads/{id}/resume` can rebuild the loop without the original request.
 
     `calls`/`steps` are PendingCall/AgentStep lists, `convo` the loop's Message transcript (tool
     calls and ids included — every provider needs one tool message per call id), `run` is
     `{agent_slug, max_steps, register, entity_type, entity_id, model}`. Never exposed whole through
-    the API: `AIThreadDetail.pending` shows the calls only.
+    the API: `AIThreadDetail.pending` shows the calls only (flattened, see agent.flatten_pending).
+
+    `parent` is set on a hand-off specialist's park (`{thread_id, execution_id}` of the run that
+    handed off): the decision is taken on the root conversation, and this record is only resumed
+    from there. `parked_at` (UTC ISO) is when the user was last asked — the TTL counts from it.
     """
     from marvin.services.ai.agent import serialize_pending, serialize_steps
     from marvin.services.ai.base import serialize_messages
@@ -224,7 +230,10 @@ def park_thread(session: Session, thread: AIThreadModel, *, calls, convo, execut
         "run": dict(run),
         "steps": serialize_steps(steps),
         "referrals": list(referrals or []),
+        "parked_at": _now().isoformat(),
     }
+    if parent:
+        thread.pending_json["parent"] = {k: (str(v) if v is not None else None) for k, v in parent.items()}
     touch(thread)
     session.flush()
 

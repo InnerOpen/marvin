@@ -64,15 +64,37 @@ class AgentStep:
     result: str
 
 
+PENDING_CALL = "call"
+PENDING_HANDOFF = "handoff"
+
+
 @dataclass
 class PendingCall:
-    """A tool call waiting for the user's decision (an "ask first" tool)."""
+    """A tool call the run is waiting on.
+
+    `kind="call"`: an "ask first" call waiting for the user's decision. `kind="handoff"`: a tool that
+    deferred (`ToolDeferred`) — a hand-off whose specialist parked on its own ask; nobody decides it
+    directly, its output arrives through `ResumeState.outputs` once the specialist finishes. `child`
+    is the deferring tool's record (for a hand-off: the specialist and its own pending calls).
+    """
 
     id: str
     tool: str
     arguments: dict
     # What the approval card shows beyond the arguments (a bulk write's targets × items), if any.
     preview: dict | None = None
+    kind: str = PENDING_CALL
+    child: dict | None = None
+
+
+class ToolDeferred(Exception):  # noqa: N818 — a control-flow signal, not an error
+    """Raised by a tool whose result is not ready yet: a hand-off whose specialist parked for the
+    user's approval. The loop pends the call (`kind="handoff"`, with `child`) instead of failing it;
+    the result is fed in on resume via `ResumeState.outputs`."""
+
+    def __init__(self, child: dict):
+        super().__init__("tool deferred")
+        self.child = child
 
 
 @dataclass
@@ -95,12 +117,18 @@ class ResumeState:
     convo: list[Message]
     pending: list[PendingCall]
     decisions: dict[str, str]  # call id → "approve" | "deny" (missing = deny)
+    # Deferred (hand-off) calls whose result is now known: call id → the tool output. A hand-off call
+    # missing here is still waiting (its specialist parked again) and stays pending.
+    outputs: dict[str, str] = field(default_factory=dict)
 
 
 DECISION_APPROVE = "approve"
 DECISION_DENY = "deny"
 STOPPED_AWAITING_APPROVAL = "awaiting_approval"
 DECLINED_RESULT = json.dumps({"error": "the user declined this action; do not retry it, continue without it"})
+# An approved call whose tool is no longer bound when the run resumes (the caller's role or the agent's
+# matrix changed while it waited): never run with wider rights than the decision-time binding.
+NOT_PERMITTED_RESULT = json.dumps({"error": "this action is no longer permitted for you; do not retry it, continue without it"})
 
 
 # ── Parking a paused run: the pending calls and the steps so far as JSON ────────────────────────
@@ -112,6 +140,10 @@ def serialize_pending(calls: list[PendingCall]) -> list[dict]:
         d = {"id": c.id, "tool": c.tool, "arguments": dict(c.arguments or {})}
         if c.preview:
             d["preview"] = dict(c.preview)
+        if c.kind != PENDING_CALL:
+            d["kind"] = c.kind
+        if c.child is not None:
+            d["child"] = dict(c.child)
         out.append(d)
     return out
 
@@ -122,8 +154,68 @@ def deserialize_pending(data) -> list[PendingCall]:
         if not isinstance(d, dict) or not d.get("id") or not d.get("tool"):
             continue
         preview = d.get("preview") if isinstance(d.get("preview"), dict) else None
-        out.append(PendingCall(id=str(d["id"]), tool=str(d["tool"]), arguments=dict(d.get("arguments") or {}), preview=preview))
+        child = d.get("child") if isinstance(d.get("child"), dict) else None
+        out.append(
+            PendingCall(
+                id=str(d["id"]),
+                tool=str(d["tool"]),
+                arguments=dict(d.get("arguments") or {}),
+                preview=preview,
+                kind=str(d.get("kind") or PENDING_CALL),
+                child=child,
+            )
+        )
     return out
+
+
+# Decidable ids of a nested park are paths: the parent's hand-off call id, "/", the child's call id
+# (and so on down, when hand-offs nest).
+PATH_SEP = "/"
+
+
+def flatten_pending(calls, prefix: str = "", chain: tuple = ()) -> list[dict]:
+    """One flat list of what the user decides, from a (possibly nested) serialized pending record.
+
+    A plain call keeps its shape (and gains `via` when it belongs to a specialist); a hand-off call is
+    replaced by its specialist's own pending calls, ids prefixed with the hand-off's id — `c1/c7` —
+    each tagged `via` (the specialist's slug), `viaName`, `viaChain` (outermost first),
+    `childThreadId` and `childExecutionId`. The parent's own asks come first, in call order.
+    """
+    out: list[dict] = []
+    for c in calls or []:
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        cid = f"{prefix}{c['id']}"
+        child = c.get("child") if isinstance(c.get("child"), dict) else None
+        if c.get("kind") == PENDING_HANDOFF and child is not None:
+            agent = str(child.get("agent") or "")
+            link = {
+                "agent": agent,
+                "name": child.get("name") or agent,
+                "thread_id": child.get("thread_id"),
+                "execution_id": child.get("execution_id"),
+            }
+            sub = (*chain, link)
+            out.extend(flatten_pending(child.get("calls"), prefix=f"{cid}{PATH_SEP}", chain=sub))
+            continue
+        item = {k: v for k, v in c.items() if k not in ("kind", "child")}
+        item["id"] = cid
+        if chain:
+            item["via"] = chain[-1]["agent"]
+            item["viaName"] = chain[-1]["name"]
+            item["viaChain"] = [link["agent"] for link in chain]
+            if chain[-1].get("thread_id"):
+                item["childThreadId"] = str(chain[-1]["thread_id"])
+            if chain[-1].get("execution_id"):
+                item["childExecutionId"] = str(chain[-1]["execution_id"])
+        out.append(item)
+    return out
+
+
+def split_decisions(decisions: dict[str, str], call_id: str) -> dict[str, str]:
+    """The part of a path-keyed decision map that belongs under hand-off call `call_id`, ids relative to it."""
+    head = f"{call_id}{PATH_SEP}"
+    return {k[len(head) :]: v for k, v in (decisions or {}).items() if k.startswith(head)}
 
 
 def serialize_steps(steps: list[AgentStep]) -> list[dict]:
@@ -167,6 +259,15 @@ def _approval_needed(tool: AgentTool | None, arguments: dict) -> tuple[bool, dic
     return (tool.requires_approval or preview is not None), preview
 
 
+def _event_calls(pending: list[PendingCall]) -> list[dict]:
+    """The `awaiting_approval` event's calls: what the user decides, hand-offs flattened to their specialist's asks."""
+    return [
+        {"id": c["id"], "tool": c["tool"], **({"via": c["via"]} if c.get("via") else {})}
+        for c in flatten_pending(serialize_pending(pending))
+        if c.get("tool")
+    ]
+
+
 def run_agent_loop(
     provider: AIProvider,
     model: str,
@@ -189,6 +290,12 @@ def run_agent_loop(
     pending calls and the user's decisions) and a fresh step budget: approved calls run, denied
     ones answer the model with a decline, and the loop continues. Every provider needs one tool
     message per call id, so the transcript is only ever handed back complete.
+
+    A tool may also defer (`ToolDeferred` — a hand-off whose specialist parked on its own ask): the
+    call pends as `kind="handoff"` beside the batch's other calls, which still run. On resume its
+    output comes from `resume.outputs`; while it is missing (the specialist parked again) the loop
+    settles what it can — approved calls run, denied ones are declined — and parks again without
+    asking the model.
     """
     tool_defs = [ToolDefinition(name=t.name, description=t.description, input_schema=t.input_schema) for t in tools]
     by_name = {t.name: t for t in tools}
@@ -201,7 +308,11 @@ def run_agent_loop(
         result.completion_tokens += completion.completion_tokens or 0
         result.total_tokens += completion.total_tokens or 0
 
-    def dispatch(call_id: str, name: str, arguments: dict) -> None:
+    def record(call_id: str, name: str, arguments: dict, out: str) -> None:
+        result.steps.append(AgentStep(tool=name, arguments=arguments, result=out))
+        convo.append(Message(role="tool", content=out, tool_call_id=call_id))
+
+    def dispatch(call_id: str, name: str, arguments: dict, deferred: list[PendingCall]) -> None:
         tool = by_name.get(name)
         _notify(on_event, {"type": "tool_call", "tool": name, "arguments": arguments})
         ok = True
@@ -211,20 +322,46 @@ def run_agent_loop(
         else:
             try:
                 out = tool.run(arguments)
+            except ToolDeferred as d:
+                # No tool message yet: the call stays open until its result is fed in on resume.
+                _notify(on_event, {"type": "tool_result", "tool": name, "ok": True, "deferred": True})
+                deferred.append(PendingCall(id=call_id, tool=name, arguments=arguments, kind=PENDING_HANDOFF, child=d.child))
+                return
             except Exception as e:  # tool failures are surfaced to the model, not fatal
                 ok = False
                 out = json.dumps({"error": str(e)})
         _notify(on_event, {"type": "tool_result", "tool": name, "ok": ok})
-        result.steps.append(AgentStep(tool=name, arguments=arguments, result=out))
-        convo.append(Message(role="tool", content=out, tool_call_id=call_id))
+        record(call_id, name, arguments, out)
+
+    def stop_awaiting(pending: list[PendingCall]) -> AgentResult:
+        _notify(on_event, {"type": "awaiting_approval", "calls": _event_calls(pending)})
+        result.pending_calls = pending
+        result.convo = convo
+        result.stopped_reason = STOPPED_AWAITING_APPROVAL
+        return result
 
     if resume is not None:
+        still: list[PendingCall] = []
         for call in resume.pending:
-            if resume.decisions.get(call.id) == DECISION_APPROVE:
-                dispatch(call.id, call.tool, dict(call.arguments or {}))
-            else:
+            arguments = dict(call.arguments or {})
+            if call.kind == PENDING_HANDOFF:
+                if call.id in resume.outputs:
+                    _notify(on_event, {"type": "tool_result", "tool": call.tool, "ok": True})
+                    record(call.id, call.tool, arguments, resume.outputs[call.id])
+                else:
+                    still.append(call)  # the specialist is still waiting on the user
+            elif resume.decisions.get(call.id) != DECISION_APPROVE:
                 _notify(on_event, {"type": "declined", "tool": call.tool})
                 convo.append(Message(role="tool", content=DECLINED_RESULT, tool_call_id=call.id))
+            elif call.tool not in by_name:
+                _notify(on_event, {"type": "declined", "tool": call.tool, "reason": "not_permitted"})
+                record(call.id, call.tool, arguments, NOT_PERMITTED_RESULT)
+            else:
+                dispatch(call.id, call.tool, arguments, still)
+        if still:
+            # Something is still out (a specialist re-parked, or an approved hand-off parked): wait again
+            # without asking the model — the transcript only goes back to it complete.
+            return stop_awaiting(still)
 
     for _step in range(max_steps):
         _notify(on_event, {"type": "thinking"})
@@ -242,19 +379,16 @@ def run_agent_loop(
 
         convo.append(Message(role="assistant", content=completion.content or "", tool_calls=completion.tool_calls))
         pending: list[PendingCall] = []
+        deferred: list[PendingCall] = []
         for call in completion.tool_calls:
             arguments = dict(call.arguments or {})
             pend, preview = _approval_needed(by_name.get(call.name), arguments)
             if pend:
                 pending.append(PendingCall(id=call.id, tool=call.name, arguments=arguments, preview=preview))
                 continue
-            dispatch(call.id, call.name, arguments)
-        if pending:
-            _notify(on_event, {"type": "awaiting_approval", "calls": [{"id": c.id, "tool": c.tool} for c in pending]})
-            result.pending_calls = pending
-            result.convo = convo
-            result.stopped_reason = STOPPED_AWAITING_APPROVAL
-            return result
+            dispatch(call.id, call.name, arguments, deferred)
+        if pending or deferred:
+            return stop_awaiting(pending + deferred)
 
     # Step budget exhausted: force a final answer with tools disabled (keeps the tool history valid).
     convo.append(Message(role="user", content="You have used your tool budget. Give your best final answer now, using what you've gathered."))

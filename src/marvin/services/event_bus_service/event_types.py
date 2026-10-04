@@ -1208,7 +1208,19 @@ class EventAIApprovalData(EventDocumentDataBase):
     calls: list[dict] = []
     """The tool calls in question: [{id, tool, arguments}]."""
     decisions: dict[str, str] | None = None
-    """On granted/rejected: {call id: approve | deny}."""
+    """On granted/rejected: {call id: approve | deny}. A specialist's call is keyed by its path (`c1/c7`)."""
+    via_agent: str | None = None
+    """When every call in the event belongs to one specialist Marvin handed off to: its slug."""
+    child_thread_id: UUID4 | None = None
+    """That specialist's thread (where its paused run is parked)."""
+    child_execution_id: UUID4 | None = None
+    """That specialist's ai_executions row."""
+    decided_by: UUID4 | None = None
+    """On granted/rejected: the user who decided (None when the system ended it, e.g. expiry)."""
+    surface: str | None = None
+    """On granted/rejected: where the decision was taken (ask_page, bubble, …)."""
+    reason: str | None = None
+    """On rejected without a user's decision: abandoned | expired | no_longer_permitted."""
     workspace_id: UUID4
     """The workspace the run is in."""
     workspace_name: str | None = None

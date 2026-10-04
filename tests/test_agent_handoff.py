@@ -56,9 +56,10 @@ def ctl(monkeypatch):
     monkeypatch.setattr(c, "_run_agent_core", c.core, raising=False)
     monkeypatch.setattr(c, "_run_model_agent", c.model_core, raising=False)
 
-    def bind(provider, agent=None, role=None, depth=0):
+    def bind(provider, agent=None, role=None, depth=0, park_allowed=False):
         c.bound.append((agent.slug, depth))
-        return ["tools"], SimpleNamespace(depth=depth, referrals=[])
+        c.park_allowed = park_allowed
+        return ["tools"], SimpleNamespace(depth=depth, referrals=[], tone_register=None)
 
     monkeypatch.setattr(c, "_bind_agent_tools", bind, raising=False)
     monkeypatch.setattr(c, "_check_budget", lambda: None, raising=False)
@@ -110,7 +111,7 @@ def test_first_handoff_opens_a_child_thread_under_the_parent(ctl):
 
 
 def test_a_later_handoff_continues_the_existing_child_thread(ctl):
-    ctl.children[("parent-1", "materials", "u1")] = SimpleNamespace(id="child-1")
+    ctl.children[("parent-1", "materials", "u1")] = SimpleNamespace(id="child-1", status="open", pending_json=None)
     _runner(ctl)("materials", "and now?", 20)
     body = ctl.core.calls[0]["body"]
     assert body.thread_id == "child-1"
@@ -133,7 +134,7 @@ def test_child_events_are_forwarded_to_the_parent_listener_tagged_via(ctl):
 
     ctl._run_agent_core = core
     _runner(ctl, on_event=seen.append)("materials", "stock?", None)
-    assert seen == [{"type": "tool_call", "tool": "search_content", "via": "materials"}]
+    assert seen == [{"type": "tool_call", "tool": "search_content", "via": "materials", "viaChain": ["materials"]}]
 
 
 def test_register_comes_from_the_parent_call_then_the_specialist_then_the_workspace(ctl):

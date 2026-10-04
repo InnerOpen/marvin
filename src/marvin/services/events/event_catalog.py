@@ -1106,7 +1106,10 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         event_type="approval_requested",
         name="Agent Approval Requested",
-        description='An agent run paused on the Ask page: a tool marked "ask first" is waiting for the user\'s decision.',
+        description=(
+            'An agent run paused for the user\'s decision: a tool marked "ask first" is waiting — its own, or one a specialist it '
+            "handed off to asked for (via_agent)."
+        ),
         category="AI",
         variables=COMMON_VARS
         + [
@@ -1115,6 +1118,9 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("execution_id", "The AI execution row of the run", "9f2e…", type="string"),
             EventVariable("calls", "The tool calls waiting: [{id, tool, arguments}]", "[]", type="string"),
             EventVariable("decisions", "Empty on a request", "", type="string"),
+            EventVariable("via_agent", "When every call belongs to one specialist Marvin handed off to: its slug", "workshop"),
+            EventVariable("child_thread_id", "That specialist's thread", "c4d2…", type="string"),
+            EventVariable("child_execution_id", "That specialist's AI execution row", "1a7b…", type="string"),
         ],
     ),
     CatalogEntry(
@@ -1127,22 +1133,36 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("agent_slug", "The agent whose run resumed", "marvin"),
             EventVariable("thread_id", "The Ask thread the run was parked on", "b7c1…", type="string"),
             EventVariable("execution_id", "The AI execution row of the run", "9f2e…", type="string"),
-            EventVariable("calls", "The tool calls that were waiting: [{id, tool, arguments}]", "[]", type="string"),
+            EventVariable("calls", "The approved tool calls: [{id, tool, arguments, via?}]", "[]", type="string"),
             EventVariable("decisions", "Per call id: approve | deny", "{}", type="string"),
+            EventVariable("via_agent", "When every call belongs to one specialist Marvin handed off to: its slug", "workshop"),
+            EventVariable("child_thread_id", "That specialist's thread", "c4d2…", type="string"),
+            EventVariable("child_execution_id", "That specialist's AI execution row", "1a7b…", type="string"),
+            EventVariable("decided_by", "The user who decided (empty when the system ended it)", "5e0a…", type="string"),
+            EventVariable("surface", "Where it was decided: ask_page | bubble", "ask_page"),
         ],
     ),
     CatalogEntry(
         event_type="approval_rejected",
         name="Agent Approval Rejected",
-        description="The user denied at least one of the tool calls a paused agent run was waiting on (a new message denies them all).",
+        description=(
+            "The user denied at least one of the tool calls a paused agent run was waiting on (a new message denies them all; "
+            "a request not decided in time expires)."
+        ),
         category="AI",
         variables=COMMON_VARS
         + [
             EventVariable("agent_slug", "The agent whose run was waiting", "marvin"),
             EventVariable("thread_id", "The Ask thread the run was parked on", "b7c1…", type="string"),
             EventVariable("execution_id", "The AI execution row of the run", "9f2e…", type="string"),
-            EventVariable("calls", "The tool calls that were waiting: [{id, tool, arguments}]", "[]", type="string"),
+            EventVariable("calls", "The denied tool calls: [{id, tool, arguments, via?}]", "[]", type="string"),
             EventVariable("decisions", "Per call id: approve | deny", "{}", type="string"),
+            EventVariable("via_agent", "When every call belongs to one specialist Marvin handed off to: its slug", "workshop"),
+            EventVariable("child_thread_id", "That specialist's thread", "c4d2…", type="string"),
+            EventVariable("child_execution_id", "That specialist's AI execution row", "1a7b…", type="string"),
+            EventVariable("decided_by", "The user who decided (empty when the system ended it)", "5e0a…", type="string"),
+            EventVariable("surface", "Where it was decided: ask_page | bubble", "ask_page"),
+            EventVariable("reason", "Set when no user decided: abandoned | expired | no_longer_permitted", "expired"),
         ],
     ),
     # ── System: Storage ───────────────────────────────────────────────────────

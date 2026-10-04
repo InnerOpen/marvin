@@ -180,12 +180,18 @@ def test_restrict_tools_keeps_ask_only_when_the_run_can_park():
     assert [(t.name, t.requires_approval) for t in kept] == [("search_content", False), ("compose_entry", True)]
 
 
-def test_bind_never_parks_in_a_delegated_child_run(ctl):
+def test_bind_parks_a_delegated_child_only_with_a_conversation_to_carry_the_ask_up_to(ctl):
+    # Slice C2: a specialist under a thread-backed router parks (its ask is carried up); without one
+    # (a threadless parent) "ask" stays "not bound".
     provider = SimpleNamespace(provider_type="fake")
     parent, _ = ctl._bind_agent_tools(provider, agent=WRITER, role=ROLE_AUTHOR, depth=0, park_allowed=True)
     child, _ = ctl._bind_agent_tools(provider, agent=WRITER, role=ROLE_AUTHOR, depth=1, park_allowed=True)
+    threadless_child, _ = ctl._bind_agent_tools(provider, agent=WRITER, role=ROLE_AUTHOR, depth=1, park_allowed=False)
     assert any(t.requires_approval for t in parent) and "compose_entry" in {t.name for t in parent}
-    assert not any(t.requires_approval for t in child) and "compose_entry" not in {t.name for t in child}
+    assert {t.name for t in child if t.requires_approval} == {t.name for t in parent if t.requires_approval}
+    assert not any(t.requires_approval for t in threadless_child) and "compose_entry" not in {t.name for t in threadless_child}
+    # depth 1 = AI_HANDOFF_MAX_DEPTH by default: the specialist cannot hand off further
+    assert "run_agent" not in {t.name for t in child}
 
 
 def test_bind_gates_big_bulk_writes_even_where_the_router_allows_links(ctl):
@@ -195,7 +201,7 @@ def test_bind_gates_big_bulk_writes_even_where_the_router_allows_links(ctl):
     router = SYSTEM_AGENTS["marvin"]  # links: allow — no "ask first" from the matrix
     parked = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_AUTHOR, park_allowed=True)[0]}
     threadless = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_AUTHOR, park_allowed=False)[0]}
-    child = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_AUTHOR, depth=1, park_allowed=True)[0]}
+    child = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_AUTHOR, depth=1, park_allowed=False)[0]}
     assert not parked["attach_tag"].requires_approval and parked["attach_tag"].approval_check is not None
     # No thread to park on: the tool stays bound but its run() refuses a big call (no per-call check).
     assert threadless["attach_tag"].approval_check is None and child["attach_tag"].approval_check is None

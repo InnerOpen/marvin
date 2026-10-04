@@ -282,6 +282,20 @@ class AppSettings(BaseSettings):
     surely gone — the Helm chart sets terminationGracePeriodSeconds plus a margin.
     """
 
+    AI_PARKED_RUN_TTL_HOURS: int = 168
+    """
+    How long an agent run waiting for the user's approval stays decidable (default 7 days). Older parks
+    are ended by the hourly sweep (services/ai/parked_runs.py): pending calls denied, the execution
+    failed "expired", an approval_rejected event with reason "expired". 0 keeps parks forever.
+    """
+
+    AI_HANDOFF_MAX_DEPTH: int = 1
+    """
+    How deep agent hand-offs may nest: 1 lets Marvin hand off to a specialist that cannot hand off
+    further; 2 lets that specialist hand off once more, and so on. An agent already in the chain is
+    never handed to again. Each level runs inside the request of the level above it.
+    """
+
     # JWT token lifetime in hours
     # Security vs. UX trade-off considerations:
     #   - Shorter lifetime (1-8 hours): More secure, users must re-login more often
