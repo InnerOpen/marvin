@@ -21,7 +21,7 @@ from marvin.services.ai import agent as loop_mod
 from marvin.services.ai.agent import AgentResult, AgentStep, AgentTool, PendingCall
 from marvin.services.ai.agents import AgentSpec
 from marvin.services.ai.base import Message, ToolCall
-from marvin.services.ai.operations.base import ROLE_ADMIN, ROLE_AUTHOR
+from marvin.services.ai.operations.base import ROLE_ADMIN, ROLE_EDITOR
 from marvin.services.event_bus_service.event_types import EventTypes
 
 WRITER = AgentSpec(slug="w", name="W", allow_writes=True)
@@ -102,7 +102,7 @@ def ctl(db_session, monkeypatch):
     c.bound = []
     monkeypatch.setattr(oc.AIOperationsController, "group", property(lambda self: SimpleNamespace(name="ws")))
     monkeypatch.setattr(loop_mod, "run_agent_loop", c.loop)
-    monkeypatch.setattr(c, "_user_role", lambda: ROLE_ADMIN if c.user.admin else ROLE_AUTHOR, raising=False)
+    monkeypatch.setattr(c, "_user_role", lambda: ROLE_ADMIN if c.user.admin else ROLE_EDITOR, raising=False)
     monkeypatch.setattr(c, "_agent_context_block", lambda t, i: None, raising=False)
     monkeypatch.setattr(c, "_bounded_history", lambda turns: [], raising=False)
     monkeypatch.setattr(c, "_completion_opts", lambda: None, raising=False)
@@ -174,9 +174,9 @@ def test_restrict_tools_keeps_ask_only_when_the_run_can_park():
         AgentTool(name="search_content", description="", input_schema={}, run=lambda a: "", category="entries_read"),
         AgentTool(name="compose_entry", description="", input_schema={}, run=lambda a: "", category="entries_author"),
     ]
-    dropped = oc.AIOperationsController._restrict_tools(tools, WRITER, ROLE_AUTHOR)
+    dropped = oc.AIOperationsController._restrict_tools(tools, WRITER, ROLE_EDITOR)
     assert [t.name for t in dropped] == ["search_content"]
-    kept = oc.AIOperationsController._restrict_tools(tools, WRITER, ROLE_AUTHOR, park_allowed=True)
+    kept = oc.AIOperationsController._restrict_tools(tools, WRITER, ROLE_EDITOR, park_allowed=True)
     assert [(t.name, t.requires_approval) for t in kept] == [("search_content", False), ("compose_entry", True)]
 
 
@@ -184,9 +184,9 @@ def test_bind_parks_a_delegated_child_only_with_a_conversation_to_carry_the_ask_
     # Slice C2: a specialist under a thread-backed router parks (its ask is carried up); without one
     # (a threadless parent) "ask" stays "not bound".
     provider = SimpleNamespace(provider_type="fake")
-    parent, _ = ctl._bind_agent_tools(provider, agent=WRITER, role=ROLE_AUTHOR, depth=0, park_allowed=True)
-    child, _ = ctl._bind_agent_tools(provider, agent=WRITER, role=ROLE_AUTHOR, depth=1, park_allowed=True)
-    threadless_child, _ = ctl._bind_agent_tools(provider, agent=WRITER, role=ROLE_AUTHOR, depth=1, park_allowed=False)
+    parent, _ = ctl._bind_agent_tools(provider, agent=WRITER, role=ROLE_EDITOR, depth=0, park_allowed=True)
+    child, _ = ctl._bind_agent_tools(provider, agent=WRITER, role=ROLE_EDITOR, depth=1, park_allowed=True)
+    threadless_child, _ = ctl._bind_agent_tools(provider, agent=WRITER, role=ROLE_EDITOR, depth=1, park_allowed=False)
     assert any(t.requires_approval for t in parent) and "compose_entry" in {t.name for t in parent}
     assert {t.name for t in child if t.requires_approval} == {t.name for t in parent if t.requires_approval}
     assert not any(t.requires_approval for t in threadless_child) and "compose_entry" not in {t.name for t in threadless_child}
@@ -199,9 +199,9 @@ def test_bind_gates_big_bulk_writes_even_where_the_router_allows_links(ctl):
 
     provider = SimpleNamespace(provider_type="fake")
     router = SYSTEM_AGENTS["marvin"]  # links: allow — no "ask first" from the matrix
-    parked = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_AUTHOR, park_allowed=True)[0]}
-    threadless = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_AUTHOR, park_allowed=False)[0]}
-    child = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_AUTHOR, depth=1, park_allowed=False)[0]}
+    parked = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_EDITOR, park_allowed=True)[0]}
+    threadless = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_EDITOR, park_allowed=False)[0]}
+    child = {t.name: t for t in ctl._bind_agent_tools(provider, agent=router, role=ROLE_EDITOR, depth=1, park_allowed=False)[0]}
     assert not parked["attach_tag"].requires_approval and parked["attach_tag"].approval_check is not None
     # No thread to park on: the tool stays bound but its run() refuses a big call (no per-call check).
     assert threadless["attach_tag"].approval_check is None and child["attach_tag"].approval_check is None

@@ -6,6 +6,7 @@ from pydantic import UUID4, BaseModel, ConfigDict, Field
 
 from marvin.db.models.platform import EntryCollections
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_editor
 from marvin.schemas.platform import (
     CollectionCreate,
     CollectionRead,
@@ -52,7 +53,8 @@ class ReorderCollectionsRequest(BaseModel):
 
 @controller(router)
 class CollectionsController(BaseUserController):
-    """Authenticated CRUD routes for collections."""
+    """Authenticated CRUD routes for collections. Any member reads; organising content into
+    collections (creating, editing, ordering, deleting them) is EDITOR and above."""
 
     @router.get("", response_model=list[CollectionRead], summary="List Collections")
     def list_collections(self) -> list[CollectionRead]:
@@ -92,6 +94,7 @@ class CollectionsController(BaseUserController):
         Writes sort_order directly (not via the repo update), so it works for system
         collections too — reordering is display-only and doesn't touch their locked content.
         """
+        require_workspace_editor(self.user, self.group_id)
         from marvin.db.models.platform import Collections
 
         ids = [item.id for item in data.collections]
@@ -106,6 +109,7 @@ class CollectionsController(BaseUserController):
 
     @router.post("", response_model=CollectionRead, status_code=status.HTTP_201_CREATED, summary="Create Collection")
     def create_collection(self, data: CollectionCreate) -> CollectionRead:
+        require_workspace_editor(self.user, self.group_id)
         collection = self.repos.collections.create(data)
 
         # Emit event
@@ -135,6 +139,7 @@ class CollectionsController(BaseUserController):
         Evaluated by ``matching_items`` — the same code that materializes membership on save — so
         the count is exactly what the collection would hold. Scoped to the caller's workspace.
         """
+        require_workspace_editor(self.user, self.group_id)
         from marvin.services.collections.smart_collections import has_rules, ignored_keys, matching_items
 
         rules = data.smart_rules or {}
@@ -159,6 +164,7 @@ class CollectionsController(BaseUserController):
 
     @router.patch("/{item_id}", response_model=CollectionRead, summary="Update Collection")
     def update_collection(self, item_id: UUID4, data: CollectionUpdate) -> CollectionRead:
+        require_workspace_editor(self.user, self.group_id)
         existing = self.repos.collections.get_one(item_id)
         if not existing:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
@@ -191,6 +197,7 @@ class CollectionsController(BaseUserController):
 
     @router.delete("/{item_id}", summary="Delete Collection")
     def delete_collection(self, item_id: UUID4) -> dict:
+        require_workspace_editor(self.user, self.group_id)
         collection = self.repos.collections.get_one(item_id)
         if not collection:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
@@ -283,6 +290,7 @@ class CollectionsController(BaseUserController):
     @router.patch("/{item_id}/entries/order", summary="Reorder Collection Entries")
     def reorder_collection_entries(self, item_id: UUID4, data: ReorderEntriesRequest) -> dict:
         """Bulk update sort_order for entries in a collection."""
+        require_workspace_editor(self.user, self.group_id)
         collection = self.repos.collections.get_one(item_id)
         if not collection:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
@@ -335,6 +343,7 @@ class CollectionsController(BaseUserController):
     @router.patch("/{item_id}/entries/{entry_id}", summary="Update Entry-Collection Junction")
     def update_entry_junction(self, item_id: UUID4, entry_id: UUID4, data: UpdateEntryCollectionRequest) -> dict:
         """Update role and metadata_json on a specific entry-collection junction record."""
+        require_workspace_editor(self.user, self.group_id)
         junction = (
             self.session.query(EntryCollections).filter(EntryCollections.collection_id == item_id, EntryCollections.entry_id == entry_id).first()
         )

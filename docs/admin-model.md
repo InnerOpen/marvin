@@ -71,6 +71,42 @@ Roles follow a privilege hierarchy where higher roles include all permissions of
 OWNER (5) ≥ ADMIN (4) ≥ EDITOR (3) ≥ AUTHOR (2) ≥ VIEWER (1)
 ```
 
+### Content route gates
+
+The content controllers under `/api/platform` check these with the helpers in
+`marvin.routes._base.checks` (`require_workspace_role`, `require_workspace_editor`,
+`require_workspace_admin`, `require_can_create_entry`, `require_can_edit_entry`). A member below the
+gate gets a 403 before anything is looked up. Platform super admins and legacy `admin` users pass.
+Reads (lists, gets, counts, collection members) are open to every member.
+
+| Area | Write | Gate |
+| --- | --- | --- |
+| Entries | create | AUTHOR (not as approved/published, no `publish_at`) |
+| Entries | update, delete, apply/reject suggestion, approve/reject suggested asset, add/remove collection | EDITOR; AUTHOR on their own entry while not approved/published |
+| Entry types | create, update, delete | ADMIN |
+| Collections | create, update, delete, reorder, preview smart rules, reorder entries, edit entry link | EDITOR |
+| Assets | upload | AUTHOR |
+| Assets | update, delete, apply/reject suggestion | EDITOR |
+| Resources | create, update, delete, apply/reject suggestion | EDITOR |
+| Tags | create (find-or-create) | AUTHOR |
+| Tags | rename, delete, tag/untag an asset or resource | EDITOR |
+| Tags | tag/untag an entry | as editing that entry |
+| Forms | create, update, delete | ADMIN |
+| Forms | list submissions | EDITOR |
+| AI | `/ai/revise-entry` | as editing that entry |
+| AI | `/ai/compose-entry` | AUTHOR (creates the caller's own inbox draft) |
+
+The public publishing routes (`/api/publish/{workspace_slug}/…`, including public form submits) use
+site-client tokens and are not affected.
+
+AI tools follow the same gates: every write tool (`attach_*`, `detach_*`, `add_to_collection`,
+`remove_from_collection`, `import_asset`, `revise_entry`, `compose_entry`) needs EDITOR, and the agent
+never binds a write for a caller below EDITOR. Tools that read or run workspace settings need ADMIN:
+`list_scheduled_tasks`, `get_scheduled_task_history`, `list_workflows` and `run_workflow` (like the
+scheduled-task and automation routes), and `get_ai_settings` (the AI settings page itself stays
+readable to members). `workspace_overview` lists workflows, scheduled tasks, webhooks,
+MCP servers and integrations by name only to admins.
+
 ### OWNER
 
 Full control over the workspace.
@@ -96,9 +132,11 @@ Workspace administrator with management capabilities.
   catalog, webhook and task-type lists, secret slugs, email templates, workspace preferences and
   AI settings, which member pages read.
 - Manage workspace members (invite/remove, see invite tokens)
-- Manage entry types and collections
-- Create/edit/delete all entries
-- Manage assets
+- Change the content structure: create, edit and delete entry types and forms
+- Schedule workspace task types; the `admin_only` platform maintenance types (temp-file cleanup,
+  event-log, AI-execution and task-execution pruning, smart-collection resync) are refused with a 403
+  unless the caller is a platform super admin
+- Everything an EDITOR can do
 - Configure publishing (API clients, site settings)
 
 **Typical Use:**
@@ -111,12 +149,17 @@ Content editor who can manage all content.
 
 **Permissions:**
 - Create entries
-- Edit all entries (not just their own)
-- Upload and manage assets
-- Organize content into collections
+- Edit, delete, approve and publish all entries (not just their own)
+- Upload and manage assets (edit, delete, accept AI suggestions)
+- Create, edit and delete resources
+- Organize content into collections: create, edit, reorder and delete collections
+- Rename and delete tags, and tag assets and resources
+- Read form submissions
+- Use the AI agent's and MCP's write tools (attach/detach, add to collection, revise, compose, import)
 
 **Cannot:**
 - Manage workspace settings
+- Change entry types or forms
 - Invite/remove users
 - Configure publishing
 
@@ -130,11 +173,19 @@ Content author who can create and manage their own content.
 
 **Permissions:**
 - Create entries (owned by them)
-- Edit their own entries
+- Edit and delete their own entries until they are approved or published, including their tags and
+  collections, staged AI suggestions, and AI revisions of them
 - Upload assets
+- Add tags (`POST /tags` is find-or-create)
 
 **Cannot:**
 - Edit others' entries
+- Approve or publish an entry, schedule a publish (`publish_at`), or change an entry once it is
+  approved or published
+- Edit or delete assets, resources, collections or tags
+- Use the AI agent's or MCP's write tools: they act on any entry, so they need EDITOR. An AUTHOR's AI
+  operation on an entry they can't edit returns its output without applying or staging it
+  (`writeback: "not_permitted"`)
 - Manage workspace settings
 - Invite users
 
@@ -152,7 +203,7 @@ Read-only viewer.
 - View workspace content they have access to
 
 **Cannot:**
-- Create or edit content
+- Create or edit content (every content write route answers 403)
 - Manage anything
 
 **Typical Use:**

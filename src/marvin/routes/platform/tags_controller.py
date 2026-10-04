@@ -3,6 +3,11 @@
 ``POST /tags`` is find-or-create by slug (see ``TagsRepository``), so the UI can resolve a
 freshly typed tag name to a stable id in one call. Attach/detach are lightweight and emit no
 events — tags are labels, not curated placements like collections.
+
+Any member reads. ``POST /tags`` is AUTHOR and above: it is how the entry editor resolves a typed tag
+name, and an AUTHOR tags their own entries. Renaming or deleting a tag changes every entry carrying
+it, so that is EDITOR and above. Tagging an entry is an edit of that entry (`require_can_edit_entry`);
+tagging an asset or resource is EDITOR and above, like editing one.
 """
 
 from fastapi import APIRouter, HTTPException, status
@@ -10,7 +15,9 @@ from pydantic import UUID4
 from sqlalchemy import func
 
 from marvin.db.models.platform import AssetTags, EntryTags, ResourceTags, Tags
+from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import editable_entry, require_workspace_editor, require_workspace_role
 from marvin.schemas.platform import TagCreate, TagRead, TagUpdate
 
 router = APIRouter(prefix="/tags")
@@ -46,6 +53,7 @@ class TagsController(BaseUserController):
     @router.post("", response_model=TagRead, status_code=status.HTTP_201_CREATED, summary="Create Tag")
     def create_tag(self, data: TagCreate) -> TagRead:
         """Find-or-create a tag by slug. Returns the existing tag if the name already resolves to one."""
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
         return self.repos.tags.create(data)
 
     @router.get("/{item_id}", response_model=TagRead, summary="Get Tag")
@@ -57,12 +65,14 @@ class TagsController(BaseUserController):
 
     @router.patch("/{item_id}", response_model=TagRead, summary="Update Tag")
     def update_tag(self, item_id: UUID4, data: TagUpdate) -> TagRead:
+        require_workspace_editor(self.user, self.group_id)
         if not self.repos.tags.get_one(item_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found.")
         return self.repos.tags.update(item_id, data)
 
     @router.delete("/{item_id}", summary="Delete Tag")
     def delete_tag(self, item_id: UUID4) -> dict:
+        require_workspace_editor(self.user, self.group_id)
         if not self.repos.tags.get_one(item_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found.")
         # FK cascade on entry_tags clears the junction rows; deleting a tag just unlabels entries.
@@ -72,12 +82,10 @@ class TagsController(BaseUserController):
     @router.post("/{tag_id}/entries/{entry_id}", status_code=status.HTTP_201_CREATED, summary="Attach Tag to Entry")
     def attach_tag(self, tag_id: UUID4, entry_id: UUID4) -> dict:
         """Apply a tag to an entry. Idempotent — re-attaching an existing pair is a no-op."""
+        entry = editable_entry(self.user, self.group_id, self.repos, entry_id)
         tag = self.repos.tags.get_one(tag_id)
         if not tag:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found.")
-        entry = self.repos.entries.get_one(entry_id)
-        if not entry:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found.")
         if entry.group_id != tag.group_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Entry and tag must belong to the same workspace.")
 
@@ -90,6 +98,8 @@ class TagsController(BaseUserController):
 
     @router.delete("/{tag_id}/entries/{entry_id}", summary="Detach Tag from Entry")
     def detach_tag(self, tag_id: UUID4, entry_id: UUID4) -> dict:
+        # The lookup also scopes the delete to this workspace: the junction row alone has no group_id.
+        editable_entry(self.user, self.group_id, self.repos, entry_id)
         deleted = self.session.query(EntryTags).filter(EntryTags.entry_id == entry_id, EntryTags.tag_id == tag_id).delete()
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry does not carry this tag.")
@@ -113,6 +123,7 @@ class TagsController(BaseUserController):
     @router.post("/{tag_id}/assets/{asset_id}", status_code=status.HTTP_201_CREATED, summary="Attach Tag to Asset")
     def attach_tag_to_asset(self, tag_id: UUID4, asset_id: UUID4) -> dict:
         """Apply a tag to an asset. Idempotent."""
+        require_workspace_editor(self.user, self.group_id)
         tag = self.repos.tags.get_one(tag_id)
         if not tag:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found.")
@@ -131,6 +142,9 @@ class TagsController(BaseUserController):
 
     @router.delete("/{tag_id}/assets/{asset_id}", summary="Detach Tag from Asset")
     def detach_tag_from_asset(self, tag_id: UUID4, asset_id: UUID4) -> dict:
+        require_workspace_editor(self.user, self.group_id)
+        if not self.repos.assets.get_one(asset_id):  # scopes the delete to this workspace
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
         deleted = self.session.query(AssetTags).filter(AssetTags.asset_id == asset_id, AssetTags.tag_id == tag_id).delete()
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset does not carry this tag.")
@@ -141,6 +155,7 @@ class TagsController(BaseUserController):
     @router.post("/{tag_id}/resources/{resource_id}", status_code=status.HTTP_201_CREATED, summary="Attach Tag to Resource")
     def attach_tag_to_resource(self, tag_id: UUID4, resource_id: UUID4) -> dict:
         """Apply a tag to a resource. Idempotent."""
+        require_workspace_editor(self.user, self.group_id)
         tag = self.repos.tags.get_one(tag_id)
         if not tag:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found.")
@@ -159,6 +174,9 @@ class TagsController(BaseUserController):
 
     @router.delete("/{tag_id}/resources/{resource_id}", summary="Detach Tag from Resource")
     def detach_tag_from_resource(self, tag_id: UUID4, resource_id: UUID4) -> dict:
+        require_workspace_editor(self.user, self.group_id)
+        if not self.repos.resources.get_one(resource_id):  # scopes the delete to this workspace
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found.")
         deleted = self.session.query(ResourceTags).filter(ResourceTags.resource_id == resource_id, ResourceTags.tag_id == tag_id).delete()
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource does not carry this tag.")

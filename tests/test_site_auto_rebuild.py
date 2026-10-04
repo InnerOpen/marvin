@@ -12,6 +12,7 @@ from sqlalchemy import delete
 
 from marvin.db.models.platform.event_log import EventLogModel
 from marvin.db.models.platform.site_rebuild_requests import SiteRebuildRequestModel
+from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
 from marvin.services.event_bus_service.event_bus_listener import SiteRebuildReactionListener
 from marvin.services.event_bus_service.event_types import EventTypes
 
@@ -258,7 +259,13 @@ def _collections_controller(db_session, gid, bus):
 
     ctl = object.__new__(CollectionsController)
     ctl.session, ctl.event_bus, ctl._repos = db_session, bus, None
-    ctl.user = SimpleNamespace(id=None, active_group_id=gid, group_id=gid)
+    ctl.user = SimpleNamespace(
+        id=None,
+        active_group_id=gid,
+        group_id=gid,
+        platform_role=PlatformRole.NONE,
+        get_workspace_role=lambda group_id: WorkspaceRole.EDITOR,  # editing a collection needs EDITOR
+    )
     return ctl
 
 

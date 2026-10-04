@@ -403,11 +403,12 @@ def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int)
     """Decide allow|ask|block for one tool and say why.
 
     Order: the hard allowlist, then a tool-level entry, then a category-level entry, then the
-    category default. A write is never allowed to a caller below AUTHOR — an agent cannot do more
+    category default. A write is never allowed to a caller below EDITOR — an agent cannot do more
     than the user it works for, whatever the matrix says; that holds for "ask" too, since approving
-    a write is doing it.
+    a write is doing it. EDITOR, not AUTHOR: agent writes (links, revisions, AI write-back, external
+    MCP writes) reach any entry, and an AUTHOR may change only their own drafts.
     """
-    from marvin.services.ai.operations.base import ROLE_AUTHOR
+    from marvin.services.ai.operations.base import ROLE_EDITOR
     from marvin.services.ai.tools.categories import category_writes
 
     if spec.tool_allowlist is not None and tool_name not in spec.tool_allowlist:
@@ -429,8 +430,8 @@ def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int)
             reason = "router default" if (spec.is_system and spec.slug == ROUTER_SLUG) else "category default"
         else:
             reason = "agent is read-only" if not spec.allow_writes else "category default"
-    if decision in (POLICY_ALLOW, POLICY_ASK) and category_writes(category_id) and role < ROLE_AUTHOR:
-        return POLICY_BLOCK, "caller role is below AUTHOR"
+    if decision in (POLICY_ALLOW, POLICY_ASK) and category_writes(category_id) and role < ROLE_EDITOR:
+        return POLICY_BLOCK, "caller role is below EDITOR"
     return decision, reason
 
 

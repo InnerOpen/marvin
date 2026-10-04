@@ -10,6 +10,7 @@ from pytest import fixture
 
 from marvin.app import app
 from marvin.core.dependencies import get_current_user
+from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
 from marvin.services.collections.smart_collections import sync_collection
 
 PREVIEW = "/api/platform/collections/preview"
@@ -64,8 +65,15 @@ def _drop(db_session, gid):
 def kitchens(db_session):
     """Two workspaces with identical content; the caller is signed in to the first."""
     mine, theirs = _workspace(db_session, "pv"), _workspace(db_session, "pv-other")
+    # Previewing smart-collection rules is part of editing a collection: EDITOR and above.
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
-        id=uuid.uuid4(), group_id=mine, active_group_id=mine, admin=False, is_superuser=False
+        id=uuid.uuid4(),
+        group_id=mine,
+        active_group_id=mine,
+        admin=False,
+        is_superuser=False,
+        platform_role=PlatformRole.NONE,
+        get_workspace_role=lambda group_id: WorkspaceRole.EDITOR if str(group_id) == str(mine) else None,
     )
     yield mine, theirs
     app.dependency_overrides.pop(get_current_user, None)

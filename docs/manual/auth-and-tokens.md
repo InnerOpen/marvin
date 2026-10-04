@@ -22,10 +22,12 @@ A user has one platform role, `NONE` or `SUPER_ADMIN`, and one workspace role pe
 | Workspace role | Rank | Can (from `roles.py` helpers) |
 |---|---|---|
 | `OWNER` | 5 | everything an admin can |
-| `ADMIN` | 4 | manage settings, members, publishing (API clients), entry types, collections; edit all entries |
-| `EDITOR` | 3 | create entries, edit all entries, manage assets and collections |
-| `AUTHOR` | 2 | create entries, edit own entries, upload assets |
+| `ADMIN` | 4 | manage settings, members, publishing (API clients), entry types and forms; everything an editor can |
+| `EDITOR` | 3 | create, edit, approve, publish and delete any entry; manage assets, resources, collections and tags; read form submissions; AI write tools |
+| `AUTHOR` | 2 | create entries, edit and delete own entries until approved or published, upload assets, add tags |
 | `VIEWER` | 1 | read |
+
+The content routes enforce these with the helpers in `marvin.routes._base.checks`; the full route table is in `docs/admin-model.md` (Content route gates).
 
 The route dependencies are `require_workspace_owner`, `require_workspace_admin`, `require_workspace_editor`, `require_workspace_author`, `require_workspace_viewer` and `require_workspace_member`.
 

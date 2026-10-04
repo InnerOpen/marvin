@@ -17,7 +17,7 @@ from marvin.services.ai import agent as loop_mod
 from marvin.services.ai import agents as agents_mod
 from marvin.services.ai.agent import AgentResult, AgentTool, PendingCall
 from marvin.services.ai.base import Message, ToolCall
-from marvin.services.ai.operations.base import ROLE_AUTHOR
+from marvin.services.ai.operations.base import ROLE_ADMIN
 
 READ = "search_content"  # entries_read: allow
 ALLOWED_WRITE = "compose_entry"  # entries_author: Marvin allows (drafts are the soft gate)
@@ -92,7 +92,7 @@ def ctl(db_session, monkeypatch):
     monkeypatch.setattr(oc.AIOperationsController, "group", property(lambda self: SimpleNamespace(name="ws")))
     monkeypatch.setattr(loop_mod, "run_agent_loop", c.loop)
     stubs = {
-        "_user_role": lambda: ROLE_AUTHOR,
+        "_user_role": lambda: ROLE_ADMIN,  # run_workflow (ADMIN) is among the tools under test
         "_agent_context_block": lambda t, i: None,
         "_bounded_history": lambda turns: [],
         "_completion_opts": lambda: None,

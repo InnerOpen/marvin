@@ -8,10 +8,12 @@ import json
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from pytest import fixture
 
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
 from marvin.db.models.groups.groups import Groups
+from marvin.db.models.users.roles import WorkspaceRole
 from marvin.services.ai.tools.builtins import list_workflows, run_workflow
 from marvin.services.ai.tools.builtins_overview import workspace_overview
 
@@ -38,8 +40,15 @@ def workspace(db_session):
     db_session.rollback()
 
 
+def _as(workspace, role):
+    """The workspace ctx with a caller holding `role` in it."""
+    member = SimpleNamespace(group_id=workspace.group_id, workspace_role=role)
+    user = SimpleNamespace(id=uuid.uuid4(), admin=False, workspace_memberships=[member])
+    return SimpleNamespace(**{**vars(workspace), "user": user})
+
+
 def test_overview_structure_names_workflows_and_the_other_configured_elements(workspace):
-    out = json.loads(workspace_overview(workspace, {}))
+    out = json.loads(workspace_overview(_as(workspace, WorkspaceRole.ADMIN), {}))
     structure = out["structure"]
     assert [w["slug"] for w in structure["workflows"]] == ["add-tags-to-entry", "summarize-bench-notes"]
     assert structure["workflows"][1] == {
@@ -50,6 +59,22 @@ def test_overview_structure_names_workflows_and_the_other_configured_elements(wo
     }
     for key in ("scheduledTasks", "incomingWebhooks", "outgoingWebhooks", "mcpServers", "integrations", "agents"):
         assert structure[key] == [], key
+
+
+@pytest.mark.parametrize("role", [WorkspaceRole.EDITOR, WorkspaceRole.AUTHOR, WorkspaceRole.VIEWER])
+def test_overview_structure_lists_only_agents_below_admin(workspace, role):
+    """Workflows, tasks, webhooks, MCP servers and integrations are settings: their routes are
+    admin-only, so the overview names them to admins only."""
+    structure = json.loads(workspace_overview(_as(workspace, role), {}))["structure"]
+    assert set(structure) == {"agents", "note"}
+
+
+def test_workflow_tools_need_admin_like_the_automation_routes():
+    from marvin.services.ai.operations.base import ROLE_ADMIN
+    from marvin.services.ai.tools import get_tool
+
+    assert get_tool("list_workflows").min_role == ROLE_ADMIN
+    assert get_tool("run_workflow").min_role == ROLE_ADMIN
 
 
 def test_list_workflows_is_read_only_and_lists_name_slug_enabled_trigger(workspace):

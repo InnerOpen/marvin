@@ -16,30 +16,13 @@ import json
 import time
 from datetime import UTC, datetime
 
-from marvin.services.ai.operations.base import ROLE_VIEWER
-
-from .base import ToolContext, register_tool
+from .base import ToolContext, caller_role, register_tool
 
 _EXTERNAL_SOURCES = ("mcp", "api", "editor", "agent")
 _RUN_SOURCES = ("mcp", "api", "agent")
 # How much of a referral is kept: enough to pre-fill the next question, never a transcript.
 REFERRAL_QUESTION_MAX = 500
 REFERRAL_REASON_MAX = 300
-
-
-def _caller_role(ctx: ToolContext) -> int:
-    from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
-    from marvin.services.ai.operations.base import ROLE_OWNER
-
-    user = ctx.user
-    if user is None:
-        return ROLE_VIEWER
-    if getattr(user, "admin", False):
-        return ROLE_OWNER
-    for m in getattr(user, "workspace_memberships", []) or []:
-        if str(m.group_id) == str(ctx.group_id):
-            return WORKSPACE_ROLE_HIERARCHY.get(m.workspace_role, 0)
-    return 0
 
 
 @register_tool(
@@ -56,7 +39,7 @@ def list_agents(ctx: ToolContext, _args: dict) -> str:
     from marvin.services.ai.agents import list_agents as _list
     from marvin.services.ai.agents import may_talk
 
-    role = _caller_role(ctx)
+    role = caller_role(ctx)
     out = []
     for spec in _list(ctx.session, ctx.group_id):
         ok, reason = may_talk(spec, role, ctx.source or "mcp")
@@ -125,7 +108,7 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
     spec = resolve_agent(ctx.session, ctx.group_id, str(args.get("agent") or ""))
     if spec is None:
         return json.dumps({"error": f"unknown agent '{args.get('agent')}' — call list_agents"})
-    role = _caller_role(ctx)
+    role = caller_role(ctx)
     ok, reason = may_talk(spec, role, "mcp")
     if not ok:
         return json.dumps({"error": reason})

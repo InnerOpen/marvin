@@ -134,10 +134,10 @@ def test_unknown_resource_or_entry_returns_none(db_session, workspace):
 
 
 def test_registry_tools_are_registered_as_writes():
-    from marvin.services.ai.operations.base import ROLE_AUTHOR
+    from marvin.services.ai.operations.base import ROLE_EDITOR
     from marvin.services.ai.tools import get_tool
 
     for name in ("attach_resource", "detach_resource"):
         spec = get_tool(name)
-        assert spec.read_only is False and spec.min_role == ROLE_AUTHOR
+        assert spec.read_only is False and spec.min_role == ROLE_EDITOR
         assert "mcp" in spec.sources and "agent" in spec.sources  # projected AND agent-bound

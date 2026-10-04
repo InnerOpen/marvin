@@ -3,7 +3,9 @@
 These read/query surfaces used to be hand-written a second time in MarvinMCP's `insights` capability
 (TypeScript over REST). They now live in the core tool registry — one definition the internal agent
 binds in-process AND MarvinMCP projects outward via `GET /api/ai/tools`, so a change here reaches both
-with zero MCP code. Read-only; gated at VIEWER (any workspace member can look at their own history).
+with zero MCP code. Read-only. AI executions and the event log are gated at VIEWER, like their routes.
+Scheduled tasks and the workspace AI policy are workspace settings, so those tools need ADMIN, matching
+the scheduled-task routes (a VIEWER asking the agent must not see what the settings pages refuse them).
 
 Handlers reuse the same repos the platform controllers use, so the shapes match what the REST endpoints
 return. Return a JSON string (fed to the model verbatim / parsed by the invoke endpoint).
@@ -13,7 +15,7 @@ import json
 
 from marvin.repos.all_repositories import get_repositories
 
-from ..operations.base import ROLE_VIEWER
+from ..operations.base import ROLE_ADMIN, ROLE_VIEWER
 from .base import ToolContext, register_tool
 
 
@@ -117,7 +119,7 @@ def get_ai_execution(ctx: ToolContext, args: dict) -> str:
     name="get_ai_settings",
     description="Get this workspace's AI policy (enabled, credential mode, approval mode, provider/model, invocation sources). Use to explain why AI is on/off or a source is blocked. Never returns secrets.",  # noqa: E501
     input_schema={"type": "object", "properties": {}},
-    min_role=ROLE_VIEWER,
+    min_role=ROLE_ADMIN,
 )
 def get_ai_settings(ctx: ToolContext, _args: dict) -> str:
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
@@ -211,7 +213,7 @@ def get_entity_history(ctx: ToolContext, args: dict) -> str:
     name="list_scheduled_tasks",
     description="List the workspace's scheduled tasks (name, slug, schedule, enabled, last run + status, next run). Use for 'what's scheduled' or 'is task X enabled'.",  # noqa: E501
     input_schema={"type": "object", "properties": {}},
-    min_role=ROLE_VIEWER,
+    min_role=ROLE_ADMIN,
 )
 def list_scheduled_tasks(ctx: ToolContext, _args: dict) -> str:
     tasks = _repos(ctx).scheduled_tasks.get_all(order_by="name")
@@ -244,7 +246,7 @@ def list_scheduled_tasks(ctx: ToolContext, _args: dict) -> str:
         },
         "required": ["task"],
     },
-    min_role=ROLE_VIEWER,
+    min_role=ROLE_ADMIN,
 )
 def get_scheduled_task_history(ctx: ToolContext, args: dict) -> str:
     repos = _repos(ctx)

@@ -633,6 +633,10 @@ class AIOperationsController(BaseUserController):
                 entry = None
         if not entry:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Entry '{body.entry}' not found.")
+        # Revising is editing: an AUTHOR may revise only their own entries, and not approved/published ones.
+        from marvin.routes._base.checks import require_can_edit_entry
+
+        require_can_edit_entry(self.user, self.group_id, entry)
 
         provider = None
         try:
@@ -2878,10 +2882,26 @@ class AIOperationsController(BaseUserController):
 
         return "\n".join(lines)
 
+    def _may_change(self, entity_type: str, obj) -> bool:
+        """Whether the caller may edit this entry/asset/resource under the content roles (EDITOR+ any;
+        an AUTHOR only their own unpublished entries)."""
+        from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.routes._base.checks import require_can_edit_entry, require_workspace_role
+
+        try:
+            if entity_type == "entry":
+                require_can_edit_entry(self.user, self.group_id, obj)
+            else:
+                require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        except HTTPException:
+            return False
+        return True
+
     def _write_back(self, operation, entity_type, entity_id, output_json, execution_id) -> str | None:
         """Apply or stage an operation's output onto an entry/asset/resource, gated by approval_mode.
 
-        Uses the operation's `writeback` field map. Returns "applied" | "staged" | None.
+        Uses the operation's `writeback` field map. Returns "applied" | "staged" | "not_permitted"
+        (the caller may not edit the entity) | None.
         Best-effort — never breaks the operation response.
         """
         if entity_type not in ("entry", "asset", "resource") or not entity_id or not isinstance(output_json, dict):
@@ -2903,6 +2923,10 @@ class AIOperationsController(BaseUserController):
         obj = self.session.get(model, entity_id)
         if not obj or obj.group_id != self.group_id:
             return None
+        if not self._may_change(entity_type, obj):
+            # The output is still returned; it just isn't applied or staged onto something the caller
+            # can't edit (an AUTHOR's operation on someone else's entry, or on any asset/resource).
+            return "not_permitted"
 
         from marvin.services.ai.approval import may_apply
 

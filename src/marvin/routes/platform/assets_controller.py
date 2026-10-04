@@ -5,7 +5,9 @@ import json
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
 from pydantic import UUID4
 
+from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_editor, require_workspace_role
 from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
 from marvin.services.assets.asset_storage_service import AssetStorageService
 from marvin.services.event_bus_service.event_types import EventAssetData, EventTypes
@@ -16,7 +18,9 @@ router = APIRouter(prefix="/assets")
 
 @controller(router)
 class AssetsController(BaseUserController):
-    """Authenticated CRUD routes for assets with file upload support."""
+    """Authenticated CRUD routes for assets with file upload support. Any member reads; AUTHORs and
+    above upload; editing, deleting and accepting AI suggestions on an asset is EDITOR and above (an
+    asset has no owner, so an AUTHOR can't be limited to their own)."""
 
     @router.get("", response_model=list[AssetRead], summary="List Assets")
     def list_assets(self) -> list[AssetRead]:
@@ -48,6 +52,7 @@ class AssetsController(BaseUserController):
         - Image dimensions (width, height, orientation)
         - Asset type classification
         """
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
         # Parse metadata JSON if provided
         metadata_dict = None
         if metadata:
@@ -108,6 +113,7 @@ class AssetsController(BaseUserController):
 
         Note: Technical metadata (MIME type, dimensions, checksum, etc) cannot be changed.
         """
+        require_workspace_editor(self.user, self.group_id)
         if not self.repos.assets.get_one(item_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
 
@@ -135,6 +141,7 @@ class AssetsController(BaseUserController):
     @router.post("/{item_id}/apply-suggestion", response_model=AssetRead, summary="Apply AI Suggestion")
     def apply_suggestion(self, item_id: UUID4) -> AssetRead:
         """Apply the asset's staged AI suggestion (suggestion_json) and clear it."""
+        require_workspace_editor(self.user, self.group_id)
         if not self.repos.assets.get_one(item_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
         return self.repos.assets.apply_suggestion(item_id)
@@ -142,6 +149,7 @@ class AssetsController(BaseUserController):
     @router.post("/{item_id}/reject-suggestion", response_model=AssetRead, summary="Reject AI Suggestion")
     def reject_suggestion(self, item_id: UUID4) -> AssetRead:
         """Discard the asset's staged AI suggestion without applying it."""
+        require_workspace_editor(self.user, self.group_id)
         if not self.repos.assets.get_one(item_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
         return self.repos.assets.clear_suggestion(item_id)
@@ -149,6 +157,7 @@ class AssetsController(BaseUserController):
     @router.delete("/{item_id}", summary="Delete Asset")
     def delete_asset(self, item_id: UUID4) -> dict:
         """Delete asset from storage and database."""
+        require_workspace_editor(self.user, self.group_id)
         asset = self.repos.assets.get_one(item_id)
         if not asset:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")

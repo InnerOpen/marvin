@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_admin, require_workspace_editor
 from marvin.schemas.platform.form_submissions import FormSubmissionRead
 from marvin.schemas.platform.forms import FormCreate, FormRead, FormUpdate
 from marvin.services.event_bus_service.event_types import EventFormData, EventOperation, EventTypes
@@ -13,7 +14,10 @@ router = APIRouter(prefix="/forms")
 
 @controller(router)
 class FormsController(BaseUserController):
-    """Authenticated CRUD routes for forms."""
+    """Authenticated CRUD routes for forms. Any member reads the form definitions. A form is
+    structure (its schema decides what the public can submit), so creating, editing and deleting one is
+    workspace-admin only; submissions carry submitters' data and IP addresses, so reading them is
+    EDITOR and above."""
 
     @router.get("", response_model=list[FormRead], summary="List Forms")
     def list_forms(self) -> list[FormRead]:
@@ -21,6 +25,7 @@ class FormsController(BaseUserController):
 
     @router.post("", response_model=FormRead, status_code=status.HTTP_201_CREATED, summary="Create Form")
     def create_form(self, data: FormCreate) -> FormRead:
+        require_workspace_admin(self.user, self.group_id)
         form = self.repos.forms.create(data)
 
         # Emit event
@@ -57,6 +62,7 @@ class FormsController(BaseUserController):
 
     @router.patch("/{item_id}", response_model=FormRead, summary="Update Form")
     def update_form(self, item_id: UUID4, data: FormUpdate) -> FormRead:
+        require_workspace_admin(self.user, self.group_id)
         old_form = self.repos.forms.get_one(item_id)
         if not old_form:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found.")
@@ -134,6 +140,7 @@ class FormsController(BaseUserController):
 
     @router.delete("/{item_id}", summary="Delete Form")
     def delete_form(self, item_id: UUID4) -> dict:
+        require_workspace_admin(self.user, self.group_id)
         form = self.repos.forms.get_one(item_id)
         if not form:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Form not found.")
@@ -166,6 +173,7 @@ class FormsController(BaseUserController):
 
     @router.get("/{form_id}/submissions", response_model=list[FormSubmissionRead], summary="List Form Submissions")
     def list_submissions(self, form_id: UUID4, limit: int = 100, offset: int = 0) -> list[FormSubmissionRead]:
+        require_workspace_editor(self.user, self.group_id)
         # Verify form exists and belongs to workspace
         form = self.repos.forms.get_one(form_id)
         if not form:

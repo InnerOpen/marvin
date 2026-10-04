@@ -234,9 +234,9 @@ def test_resolve_policy_reads_allow_and_writes_follow_allow_writes():
     assert decision == POLICY_BLOCK and "read-only" in why
     # writes on → every write category asks first by default; the matrix turns it to allow per row/tool
     rw = AgentSpec(slug="w", name="W", allow_writes=True)
-    assert resolve_policy(rw, "compose_entry", "entries_author", ROLE_AUTHOR) == (POLICY_ASK, "ask first (default)")
+    assert resolve_policy(rw, "compose_entry", "entries_author", ROLE_EDITOR) == (POLICY_ASK, "ask first (default)")
     opened = AgentSpec(slug="w", name="W", allow_writes=True, tool_policy={"entries_author": "allow"})
-    assert resolve_policy(opened, "compose_entry", "entries_author", ROLE_AUTHOR) == (POLICY_ALLOW, "category policy")
+    assert resolve_policy(opened, "compose_entry", "entries_author", ROLE_EDITOR) == (POLICY_ALLOW, "category policy")
 
 
 def test_custom_agent_write_categories_default_to_ask_when_writes_are_on_and_block_otherwise():
@@ -256,31 +256,34 @@ def test_marvin_asks_only_for_outward_writes_and_allows_the_rest():
     assert ROUTER_ASK_CATEGORIES == ("automation_run", "mcp", "mcp_destructive")
     for cat in ("entries_author", "links", "assets_import", "ai_ops", "other_write"):
         assert default_policy(marvin, cat) == POLICY_ALLOW, cat
-    assert resolve_policy(marvin, "compose_entry", "entries_author", ROLE_AUTHOR) == (POLICY_ALLOW, "router default")
-    assert resolve_policy(marvin, "run_workflow", "automation_run", ROLE_AUTHOR) == (POLICY_ASK, "ask first (default)")
+    assert resolve_policy(marvin, "compose_entry", "entries_author", ROLE_EDITOR) == (POLICY_ALLOW, "router default")
+    assert resolve_policy(marvin, "run_workflow", "automation_run", ROLE_EDITOR) == (POLICY_ASK, "ask first (default)")
     # a workspace agent that happens to be called marvin is not the router
     lookalike = AgentSpec(slug="marvin", name="Marvin", allow_writes=True)
     assert default_policy(lookalike, "entries_author") == POLICY_ASK
 
 
-def test_role_cap_turns_ask_into_block_below_author():
+def test_role_cap_turns_ask_into_block_below_editor():
+    """Agent writes reach any entry, so the floor is EDITOR: an AUTHOR changes only their own drafts."""
     rw = AgentSpec(slug="w", name="W", allow_writes=True)
-    assert resolve_policy(rw, "compose_entry", "entries_author", ROLE_VIEWER) == (POLICY_BLOCK, "caller role is below AUTHOR")
-    assert resolve_policy(SYSTEM_AGENTS["marvin"], "run_workflow", "automation_run", ROLE_VIEWER)[0] == POLICY_BLOCK
+    for role in (ROLE_VIEWER, ROLE_AUTHOR):
+        assert resolve_policy(rw, "compose_entry", "entries_author", role) == (POLICY_BLOCK, "caller role is below EDITOR")
+        assert resolve_policy(SYSTEM_AGENTS["marvin"], "run_workflow", "automation_run", role)[0] == POLICY_BLOCK
 
 
 def test_permission_matrix_reports_ask_as_the_default_and_decision():
-    rows = permission_matrix(AgentSpec(slug="w", name="W", allow_writes=True), ROLE_AUTHOR, catalog_tools())
+    rows = permission_matrix(AgentSpec(slug="w", name="W", allow_writes=True), ROLE_EDITOR, catalog_tools())
     author = next(r for r in rows if r["id"] == "entries_author")
     assert author["default"] == POLICY_ASK and author["override"] is None
     assert {t["decision"] for t in author["tools"]} == {POLICY_ASK}
     assert all(t["reason"] == "ask first (default)" for t in author["tools"])
 
 
-def test_resolve_policy_never_lets_a_write_through_below_author():
+def test_resolve_policy_never_lets_a_write_through_below_editor():
     rw = AgentSpec(slug="w", name="W", allow_writes=True, tool_policy={"entries_author": "allow", "compose_entry": "allow"})
-    decision, why = resolve_policy(rw, "compose_entry", "entries_author", ROLE_VIEWER)
-    assert decision == POLICY_BLOCK and "AUTHOR" in why
+    for role in (ROLE_VIEWER, ROLE_AUTHOR):
+        decision, why = resolve_policy(rw, "compose_entry", "entries_author", role)
+        assert decision == POLICY_BLOCK and "EDITOR" in why
 
 
 def test_resolve_policy_precedence_allowlist_then_tool_then_category():

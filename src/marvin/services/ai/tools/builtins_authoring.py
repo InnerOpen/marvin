@@ -3,7 +3,8 @@
 The SAME brain the ``/ai/compose-entry`` and ``/ai/revise-entry`` endpoints use, so "create such-
 and-such entry" or "determine tags for this entry" from chat does exactly what the buttons do:
 grounded on the existing tag vocabulary + RAG-relevant resources/assets, reusing rather than
-duplicating. Gated at AUTHOR, read_only=False. Both create/mutate DRAFTS for human review.
+duplicating. Gated at EDITOR, read_only=False: revise works on any entry, which only an EDITOR may
+change, and every write tool takes the same floor. Both create/mutate DRAFTS for human review.
 
 ``compose_entry`` withholds the ``mcp`` source so it doesn't collide with MarvinMCP's existing
 hand-wired ``marvin_compose_entry`` (that path already projects the same endpoint); ``revise_entry``
@@ -14,7 +15,7 @@ import json
 import uuid as _uuid
 
 from ..entity_resolve import resolve_entity_id
-from ..operations.base import INVOCATION_SOURCES, ROLE_AUTHOR
+from ..operations.base import INVOCATION_SOURCES, ROLE_EDITOR
 from .base import ToolContext, register_tool
 
 # Agent-bound but not MCP-projected (MarvinMCP already has marvin_compose_entry via the endpoint).
@@ -54,7 +55,7 @@ def _service(ctx: ToolContext):
         },
         "required": ["entry_type", "brief"],
     },
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
     sources=_COMPOSE_SOURCES,
 )
@@ -109,7 +110,7 @@ def compose_entry(ctx: ToolContext, args: dict) -> str:
         },
         "required": ["entry", "instruction"],
     },
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
 )
 def revise_entry(ctx: ToolContext, args: dict) -> str:

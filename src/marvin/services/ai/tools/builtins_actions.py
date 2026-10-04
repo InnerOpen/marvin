@@ -2,8 +2,9 @@
 
 Everything else in the registry is read-only; these mutate. They go through EntryService so each
 mutation and its event fires correctly (entry_resource_attached / entry_tag_attached /
-asset_attached_to_entry / entry_added_to_collection …) and automations can react. Gated at AUTHOR,
-read_only=False. Because they're registry tools they project to MarvinMCP automatically
+asset_attached_to_entry / entry_added_to_collection …) and automations can react. Gated at EDITOR,
+read_only=False: they act on any entry, asset or collection, which only an EDITOR may change (an AUTHOR
+changes only their own drafts, and these tools don't check ownership). Because they're registry tools they project to MarvinMCP automatically
 (marvin_attach_resource, marvin_attach_tag, …) and bind in-process to the agent — one definition,
 both surfaces.
 
@@ -16,7 +17,7 @@ import json
 from types import SimpleNamespace
 
 from ..entity_resolve import resolve_entity_id
-from ..operations.base import ROLE_AUTHOR
+from ..operations.base import ROLE_EDITOR
 from .base import ToolContext, register_tool
 from .bulk_writes import BulkWrite
 
@@ -53,7 +54,7 @@ def _link_schema(ref_key: str, ref_desc: str, *, role: bool = False) -> dict:
     name="attach_resource",
     description="Attach a reusable resource (material, technique, supplier, …) to an entry. Idempotent. Identify the entry by slug/id and the resource by slug/name/id.",  # noqa: E501
     input_schema=_link_schema("resource", "the resource by slug, name, or id", role=True),
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
 )
 def attach_resource(ctx: ToolContext, args: dict) -> str:
@@ -64,7 +65,7 @@ def attach_resource(ctx: ToolContext, args: dict) -> str:
     name="detach_resource",
     description="Detach a resource from an entry. Idempotent.",
     input_schema=_link_schema("resource", "the resource by slug, name, or id"),
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
 )
 def detach_resource(ctx: ToolContext, args: dict) -> str:
@@ -310,7 +311,7 @@ def _tag_link(ctx: ToolContext, args: dict, *, attach: bool) -> str:
         "fits that asset. Big bulk writes (many targets × tags) ask the user first."
     ),
     input_schema=_TAG_SCHEMA,
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
     bulk_write=lambda ctx, args: _tag_bulk_write(ctx, args, attach=True),
 )
@@ -326,7 +327,7 @@ def attach_tag(ctx: ToolContext, args: dict) -> str:
         "removals (many targets × tags) ask the user first."
     ),
     input_schema=_TAG_SCHEMA,
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
     bulk_write=lambda ctx, args: _tag_bulk_write(ctx, args, attach=False),
 )
@@ -339,7 +340,7 @@ def detach_tag(ctx: ToolContext, args: dict) -> str:
     name="add_to_collection",
     description="Add an entry to a collection. Idempotent. Identify the entry by slug/id and the collection by slug/name/id.",
     input_schema=_link_schema("collection", "the collection by slug, name, or id"),
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
 )
 def add_to_collection(ctx: ToolContext, args: dict) -> str:
@@ -350,7 +351,7 @@ def add_to_collection(ctx: ToolContext, args: dict) -> str:
     name="remove_from_collection",
     description="Remove an entry from a collection. Idempotent.",
     input_schema=_link_schema("collection", "the collection by slug, name, or id"),
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
 )
 def remove_from_collection(ctx: ToolContext, args: dict) -> str:
@@ -362,7 +363,7 @@ def remove_from_collection(ctx: ToolContext, args: dict) -> str:
     name="attach_asset",
     description="Attach an existing asset (image/file) to an entry, optionally with a role (e.g. 'hero'). Idempotent. To bring in a NEW image from a URL or bytes, use import_asset first.",  # noqa: E501
     input_schema=_link_schema("asset", "the asset by slug or id", role=True),
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
 )
 def attach_asset(ctx: ToolContext, args: dict) -> str:
@@ -373,7 +374,7 @@ def attach_asset(ctx: ToolContext, args: dict) -> str:
     name="detach_asset",
     description="Detach an asset from an entry. Idempotent (the asset itself is not deleted).",
     input_schema=_link_schema("asset", "the asset by slug or id"),
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
 )
 def detach_asset(ctx: ToolContext, args: dict) -> str:
@@ -551,7 +552,7 @@ def _import_bulk_write(ctx: ToolContext, args: dict) -> BulkWrite | None:
             },
         },
     },
-    min_role=ROLE_AUTHOR,
+    min_role=ROLE_EDITOR,
     read_only=False,
     bulk_write=_import_bulk_write,
 )

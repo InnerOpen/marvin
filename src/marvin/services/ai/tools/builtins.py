@@ -26,7 +26,7 @@ from marvin.db.models.platform.tags import Tags
 from marvin.services.entry_urls import best_entry_url, site_base_url
 
 from ..entity_resolve import resolve_entity_id, resolve_retrieved_sources
-from ..operations.base import ROLE_AUTHOR
+from ..operations.base import ROLE_ADMIN
 from .base import ToolContext, register_tool
 
 
@@ -772,6 +772,7 @@ def _find_workflow(session, group_id, ref: str):
         "exist' or 'is workflow X on'."
     ),
     input_schema={"type": "object", "properties": {}},
+    min_role=ROLE_ADMIN,  # workflows are workspace settings; GET /automations is ADMIN too
 )
 def list_workflows(ctx: ToolContext, _args: dict) -> str:
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
@@ -794,7 +795,9 @@ def list_workflows(ctx: ToolContext, _args: dict) -> str:
         "properties": {"workflow": {"type": "string", "description": "workflow slug, name, or id"}},
         "required": ["workflow"],
     },
-    min_role=ROLE_AUTHOR,  # running a workflow can create/modify content
+    # ADMIN, like POST /automations/{id}/run: a workflow runs with its definer's role and can call
+    # integrations and webhooks with the workspace's credentials.
+    min_role=ROLE_ADMIN,
     read_only=False,
 )
 def run_workflow(ctx: ToolContext, args: dict) -> str:

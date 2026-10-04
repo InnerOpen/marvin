@@ -224,7 +224,7 @@ def test_attach_asset_unknown_returns_none(db_session, workspace):
 
 # ── Registry write tools ──────────────────────────────────────────────────────
 def test_all_link_tools_registered_as_writes():
-    from marvin.services.ai.operations.base import ROLE_AUTHOR
+    from marvin.services.ai.operations.base import ROLE_EDITOR
     from marvin.services.ai.tools import get_tool
 
     for name in (
@@ -238,7 +238,7 @@ def test_all_link_tools_registered_as_writes():
         "detach_asset",
     ):
         spec = get_tool(name)
-        assert spec.read_only is False and spec.min_role == ROLE_AUTHOR
+        assert spec.read_only is False and spec.min_role == ROLE_EDITOR
         assert "mcp" in spec.sources and "agent" in spec.sources
 
 
@@ -265,11 +265,11 @@ def _import(args, user=_User()):
 
 
 def test_import_asset_is_a_write_tool():
-    from marvin.services.ai.operations.base import ROLE_AUTHOR
+    from marvin.services.ai.operations.base import ROLE_EDITOR
     from marvin.services.ai.tools import get_tool
 
     spec = get_tool("import_asset")
-    assert spec.read_only is False and spec.min_role == ROLE_AUTHOR and "mcp" in spec.sources
+    assert spec.read_only is False and spec.min_role == ROLE_EDITOR and "mcp" in spec.sources
 
 
 def test_import_asset_requires_a_user():

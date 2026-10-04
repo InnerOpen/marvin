@@ -11,6 +11,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import UUID4
 
+from marvin.db.models.users.roles import PlatformRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_admin
 from marvin.schemas.platform.scheduled_tasks import (
@@ -42,6 +43,24 @@ class ScheduledTasksController(BaseUserController):
             return [t for t in TaskHandlerRegistry.get_task_type_info() if not t.get("admin_only")]
         return list(TaskHandlerRegistry.list_registered_types(include_admin=False))
 
+    def _reject_admin_only_type(self, task_type: str) -> None:
+        """403 for an `admin_only` task type unless the caller is a platform super admin.
+
+        Admin-only types are platform maintenance (temp files, pruning, smart-collection resync) meant
+        for system tasks made under /admin/scheduled-tasks; the picker hides them, and a workspace
+        admin must not be able to schedule them by naming one. PATCH can't change a task's type
+        (`ScheduledTaskUpdate` has no `task_type`), so only create checks.
+        """
+        if self.user.platform_role == PlatformRole.SUPER_ADMIN:
+            return
+        from marvin.services.scheduled_tasks import TaskHandlerRegistry
+
+        if TaskHandlerRegistry.is_registered(task_type) and TaskHandlerRegistry.get_handler(task_type).admin_only:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Task type '{task_type}' is platform maintenance; only a platform super admin can schedule it.",
+            )
+
     @router.get("", response_model=list[ScheduledTaskRead])
     def list_tasks(self):
         """List all scheduled tasks for the current workspace."""
@@ -52,6 +71,7 @@ class ScheduledTasksController(BaseUserController):
     def create_task(self, data: ScheduledTaskCreate):
         """Create a new scheduled task."""
         require_workspace_admin(self.user, self.group_id)
+        self._reject_admin_only_type(data.task_type)
 
         # Create the task
         task = self.repos.scheduled_tasks.create(data)

@@ -111,6 +111,24 @@ def register_tool(
     return deco
 
 
+def caller_role(ctx: ToolContext) -> int:
+    """The calling user's numeric workspace role in ctx.group_id (legacy admins → OWNER; no user →
+    VIEWER, the floor every tool already meets; not a member → 0)."""
+    from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
+
+    from ..operations.base import ROLE_OWNER
+
+    user = ctx.user
+    if user is None:
+        return ROLE_VIEWER
+    if getattr(user, "admin", False):
+        return ROLE_OWNER
+    for m in getattr(user, "workspace_memberships", []) or []:
+        if str(m.group_id) == str(ctx.group_id):
+            return WORKSPACE_ROLE_HIERARCHY.get(m.workspace_role, 0)
+    return 0
+
+
 def get_tool(name: str) -> ToolSpec:
     if name not in TOOL_REGISTRY:
         raise KeyError(f"AI tool '{name}' not found. Available: {list(TOOL_REGISTRY)}")

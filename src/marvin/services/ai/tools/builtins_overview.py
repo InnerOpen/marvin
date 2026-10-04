@@ -6,7 +6,9 @@ ask as "summarise the RAG / what do you know?". This read-only tool answers that
 question: entries by type and status, collections, assets, resources, tags, and how much of it the
 embedding index actually covers — plus `structure`, the workspace's configured elements by name
 (workflows, scheduled tasks, incoming webhooks, outgoing webhooks, MCP servers, integrations,
-agents) so an agent can discover what exists before it acts on it by name.
+agents) so an agent can discover what exists before it acts on it by name. Workflows, tasks, webhooks,
+MCP servers and integrations are workspace settings, whose routes are admin-only, so below ADMIN the
+structure lists agents only.
 """
 
 from __future__ import annotations
@@ -31,9 +33,9 @@ from marvin.db.models.platform.entry_types import EntryTypes
 from marvin.db.models.platform.resources import Resources
 from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 from marvin.db.models.platform.tags import Tags
-from marvin.services.ai.operations.base import ROLE_VIEWER
+from marvin.services.ai.operations.base import ROLE_ADMIN, ROLE_VIEWER
 
-from .base import ToolContext, register_tool
+from .base import ToolContext, caller_role, register_tool
 
 
 @register_tool(
@@ -100,7 +102,7 @@ def workspace_overview(ctx: ToolContext, _args: dict) -> str:
     return json.dumps(
         {
             "workspace": {"name": getattr(group, "name", None), "slug": getattr(group, "slug", None)},
-            "structure": workspace_structure(s, g),
+            "structure": workspace_structure(s, g, settings=caller_role(ctx) >= ROLE_ADMIN),
             "entries": {"total": entries_total, "byType": sorted(by_type.values(), key=lambda t: -t["total"])},
             "collections": collections,
             "assets": {"total": totals["asset"], "byType": assets},
@@ -131,15 +133,23 @@ def _named(rows, *, slug_attr="slug", extra=None) -> list[dict]:
     return out
 
 
-def workspace_structure(s, g) -> dict:
-    """The workspace's configured elements by name: what an agent can act on, and what to call it."""
+def workspace_structure(s, g, *, settings: bool = True) -> dict:
+    """The workspace's configured elements by name: what an agent can act on, and what to call it.
+
+    `settings=False` (a caller below ADMIN) leaves out workflows, scheduled tasks, webhooks, MCP
+    servers and integrations: their routes are admin-only, so the agent mustn't list them either.
+    """
+    agents = s.query(WorkspaceAgentModel).filter_by(group_id=g).order_by(WorkspaceAgentModel.name).all()
+    agent_rows = [{"name": a.name, "slug": a.slug, "enabled": bool(a.enabled)} for a in agents[:STRUCTURE_LIMIT]]
+    if not settings:
+        note = "workflows, scheduled tasks, webhooks, MCP servers and integrations are listed for workspace admins only."
+        return {"agents": agent_rows, "note": note}
     workflows = s.query(WorkspaceAutomationModel).filter_by(group_id=g).order_by(WorkspaceAutomationModel.name).all()
     tasks = s.query(ScheduledTaskModel).filter(ScheduledTaskModel.group_id == g).order_by(ScheduledTaskModel.name).all()
     incoming = s.query(WorkspaceIncomingWebhookModel).filter_by(group_id=g).order_by(WorkspaceIncomingWebhookModel.name).all()
     outgoing = s.query(GroupWebhooksModel).filter_by(group_id=g).order_by(GroupWebhooksModel.name).all()
     servers = s.query(WorkspaceMcpServerModel).filter_by(group_id=g).order_by(WorkspaceMcpServerModel.name).all()
     integrations = s.query(IntegrationModel).filter_by(group_id=g).order_by(IntegrationModel.name).all()
-    agents = s.query(WorkspaceAgentModel).filter_by(group_id=g).order_by(WorkspaceAgentModel.name).all()
     return {
         "workflows": _named(workflows, extra=lambda a: {"trigger": ((a.definition or {}).get("trigger") or {}).get("type")}),
         "scheduledTasks": _named(tasks, extra=lambda t: {"schedule": t.schedule_type}),
@@ -147,6 +157,6 @@ def workspace_structure(s, g) -> dict:
         "outgoingWebhooks": _named(outgoing, slug_attr=None),
         "mcpServers": _named(servers),
         "integrations": _named(integrations),
-        "agents": [{"name": a.name, "slug": a.slug, "enabled": bool(a.enabled)} for a in agents[:STRUCTURE_LIMIT]],
+        "agents": agent_rows,
         "note": "names and slugs only — use run_workflow / list_scheduled_tasks / list_agents etc. to act on or inspect one.",
     }
