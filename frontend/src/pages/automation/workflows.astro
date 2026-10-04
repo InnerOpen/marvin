@@ -478,6 +478,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           </select>
           <input class="input a-entity-slug" placeholder="e.g. $event.payload.entry_slug" value="${esc(a.entity_slug ?? "")}" ${targetMode === "slug" ? "" : "hidden"} />
           <textarea class="input mono a-entity-query" rows="4" spellcheck="false" ${targetMode === "query" ? "" : "hidden"}>${esc(a.entity_query ? JSON.stringify(a.entity_query, null, 2) : "")}</textarea>
+          <label class="check small a-if-none-wrap" ${targetMode === "query" ? "" : "hidden"}><input type="checkbox" class="a-if-none-skip" ${a.if_none === "skip" ? "checked" : ""}/> If no entry matches, skip this step instead of failing the run</label>
           <span class="hint small a-target-hint">${TARGET_MODE_HINTS[targetMode]}</span>
         </div>`;
       wrap.querySelector(".a-meta-wrap")!.appendChild(kvEditor(a.metadata, "+ Add field"));
@@ -493,6 +494,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       modeSel.addEventListener("change", () => {
         wrap.querySelector(".a-entity-slug")!.toggleAttribute("hidden", modeSel.value !== "slug");
         wrap.querySelector(".a-entity-query")!.toggleAttribute("hidden", modeSel.value !== "query");
+        wrap.querySelector(".a-if-none-wrap")!.toggleAttribute("hidden", modeSel.value !== "query");
         wrap.querySelector(".a-target-hint")!.innerHTML = TARGET_MODE_HINTS[modeSel.value];
       });
     } else if (kind === "emit_event") {
@@ -576,6 +578,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         const mode = field(".a-target-mode")?.value || "default";
         setOrDrop("entity_slug", mode === "slug" ? field(".a-entity-slug")?.value.trim() : null);
         setOrDrop("entity_query", mode === "query" ? parseJsonObject(field(".a-entity-query")?.value, `Step ${i + 1} target query`) : null);
+        setOrDrop("if_none", mode === "query" && (field(".a-if-none-skip") as HTMLInputElement | null)?.checked ? "skip" : null);
         setOrDrop("collection_slug", COLLECTION_OPS.has(op) ? field(".a-collection")?.value.trim() : null);
         const metadata = readKv(r.querySelector(".a-meta-wrap"));
         setOrDrop("metadata", METADATA_OPS.has(op) && Object.keys(metadata).length ? metadata : null);

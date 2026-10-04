@@ -77,8 +77,15 @@ def _typed_like_schema(patch: dict, entry_type) -> dict:
     return out
 
 
+# `if_none` on an entity_query step: what no match means. Unset / "fail" fails the step; "skip" ends it
+# quietly — for events that may concern no entry here (a newsletter reader who signed up elsewhere).
+# More than one match always fails: acting on a guess is worse than stopping.
+IF_NONE_SKIP = "skip"
+
+
 def _resolve_target(session, group_id, action: dict, context: dict):
-    """Resolve which entry to act on: by query, by slug, or an id (default: the triggering entry)."""
+    """Resolve which entry to act on: by query, by slug, or an id (default: the triggering entry).
+    None only when an entity_query with `if_none: skip` matched nothing."""
     from ..runner import _resolve_entry_id_by_slug
 
     # `entity_query`: find exactly one entry with the target-selector vocabulary, resolved at
@@ -89,6 +96,8 @@ def _resolve_target(session, group_id, action: dict, context: dict):
 
         query = interpolate(action["entity_query"], context)
         rows = run_entry_query(session, group_id, query if isinstance(query, dict) else {}, limit=2).rows
+        if not rows and action.get("if_none") == IF_NONE_SKIP:
+            return None
         if len(rows) != 1:
             raise AutomationActionError(f"entry action entity_query matched {len(rows)} entries (need exactly 1): {query}")
         return rows[0].id
@@ -133,6 +142,9 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
     require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, ENTRY_ACTION_MIN_ROLE, f"entry action '{op}'")
 
     entity_id = _resolve_target(session, group_id, action, context)
+    if entity_id is None:
+        # A successful no-op: the run is green and the step's output says why nothing happened.
+        return {"op": op, "skipped": True, "reason": "no matching entry", "query": interpolate(action["entity_query"], context)}
     # Emitted events chain at depth+1 so the loop-guard bounds any cascade.
     depth = int(context.get("depth", 0)) + 1
 

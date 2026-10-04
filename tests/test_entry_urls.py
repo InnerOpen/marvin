@@ -402,3 +402,26 @@ def test_a_manual_workflow_run_sees_the_site_url():
     )
     engine.run_automation_now(session, "G", auto, run_action=runner)
     assert seen == [SITE]
+
+
+# --- workflows: ${entry.url} --------------------------------------------------------------------
+
+
+def _workflow_entry(db_session, gallery, entry):
+    from marvin.services.automation import engine
+
+    return engine.match_context(db_session, gallery.gid, {"event_type": "entry_published", "entry_id": entry.id})["entry"]
+
+
+def test_workflow_entry_url_is_absolute_with_a_canonical_url(db_session, gallery):
+    assert _workflow_entry(db_session, gallery, gallery.work)["url"] == f"{SITE}/works/{gallery.work.slug}"
+
+
+def test_workflow_entry_url_is_the_site_path_without_a_canonical_url(db_session, gallery):
+    gallery.prefs.site_canonical_url = None
+    db_session.commit()
+    assert _workflow_entry(db_session, gallery, gallery.work)["url"] == f"/works/{gallery.work.slug}"
+
+
+def test_workflow_entry_url_is_none_when_the_type_has_no_pattern(db_session, gallery):
+    assert _workflow_entry(db_session, gallery, gallery.memo)["url"] is None

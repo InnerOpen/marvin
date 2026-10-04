@@ -1302,6 +1302,50 @@ class TestGeneralizedTriggers:
                     authorizer_role=ROLE_ADMIN,
                 )
 
+    def test_entity_query_if_none_skip_ends_the_step_quietly(self, monkeypatch):
+        import marvin.services.entries as entries_mod
+        from marvin.services.automation.actions import entry as entry_mod
+        from marvin.services.automation.authz import ROLE_ADMIN
+        from marvin.services.entries.query import EntryQueryResult
+
+        monkeypatch.setattr("marvin.services.entries.query.run", lambda session, gid, q, **kw: EntryQueryResult(rows=[], total=0))
+        # Nothing may be touched: a skipped step never builds the service.
+        monkeypatch.setattr(entries_mod, "EntryService", lambda *a, **k: pytest.fail("EntryService built for a skipped step"))
+        ctx = {"event": {}, "steps": {"lookup": {"output": {"subscriber_id": "sub_1"}}}, "depth": 0}
+        out = entry_mod.run_entry_action(
+            None,
+            "G",
+            {"kind": "entry", "op": "publish", "if_none": "skip", "entity_query": {"metadata": {"ext": "${steps.lookup.output.subscriber_id}"}}},
+            ctx,
+            authorizer_role=ROLE_ADMIN,
+        )
+        assert out == {"op": "publish", "skipped": True, "reason": "no matching entry", "query": {"metadata": {"ext": "sub_1"}}}
+
+    def test_entity_query_if_none_skip_still_refuses_an_ambiguous_match(self, monkeypatch):
+        from marvin.services.automation.actions import entry as entry_mod
+        from marvin.services.automation.actions.base import AutomationActionError
+        from marvin.services.automation.authz import ROLE_ADMIN
+        from marvin.services.entries.query import EntryQueryResult
+
+        two = [SimpleNamespace(id=uuid4()), SimpleNamespace(id=uuid4())]
+        monkeypatch.setattr("marvin.services.entries.query.run", lambda session, gid, q, **kw: EntryQueryResult(rows=two, total=2))
+        with pytest.raises(AutomationActionError, match="matched 2 entries"):
+            entry_mod.run_entry_action(
+                None,
+                "G",
+                {"kind": "entry", "op": "archive", "if_none": "skip", "entity_query": {"entry_type": "x"}},
+                {"event": {}, "depth": 0},
+                authorizer_role=ROLE_ADMIN,
+            )
+
+    def test_entry_step_if_none_is_part_of_the_definition_schema(self):
+        from marvin.services.automation.validation import structural_issues
+
+        step = {"kind": "entry", "op": "archive", "entity_query": {"entry_type": "x"}}
+        trigger = {"type": "incoming_webhook", "webhook": "w"}
+        assert structural_issues({"trigger": trigger, "actions": [{**step, "if_none": "skip"}]}) == []
+        assert structural_issues({"trigger": trigger, "actions": [{**step, "if_none": "maybe"}]})
+
     def test_raw_url_webhook_honours_method(self, monkeypatch):
         import httpx
 

@@ -34,8 +34,8 @@ def _ms_since(started: datetime) -> int:
 
 def _entry_context(session, group_id, entry_id) -> dict | None:
     """Load the entry facts conditions and actions reference: type slug, status, title, slug, summary,
-    the schema fields (`data`), `metadata` (ids an earlier workflow stored, e.g. a Square link) and
-    `image` (the featured image's public URL)."""
+    the schema fields (`data`), `metadata` (ids an earlier workflow stored, e.g. a Square link),
+    `image` (the featured image's public URL) and `url` (its page on the site)."""
     from marvin.db.models.platform.entries import Entries
 
     entry = session.get(Entries, entry_id)
@@ -54,7 +54,19 @@ def _entry_context(session, group_id, entry_id) -> dict | None:
         "metadata": meta if isinstance(meta := getattr(entry, "metadata_json", None), dict) else {},
         # The featured image's public URL, so an action can hand it on (Square shows it at checkout).
         "image": _featured_image_url(entry),
+        # Where the site shows the entry, so an action can link back to it (a newsletter's canonical URL).
+        "url": _entry_page_url(session, group_id, entry),
     }
+
+
+def _entry_page_url(session, group_id, entry) -> str | None:
+    """The entry's page on the workspace's site — absolute when the Canonical URL is set, else the site
+    path; None when its type has no page URL pattern (then no site lookup is made)."""
+    if not getattr(entry.entry_type, "page_url_pattern", None):
+        return None
+    from marvin.services.entry_urls import best_entry_url, site_base_url
+
+    return best_entry_url(entry, site_base_url(session, group_id))
 
 
 def target_entry_context(session, group_id, entity) -> dict:

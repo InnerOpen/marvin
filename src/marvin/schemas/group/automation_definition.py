@@ -109,6 +109,7 @@ class EntryAction(_DefnBase):
     entity_id: str | None = None
     entity_slug: str | None = None
     entity_query: dict[str, Any] | None = None  # find exactly one entry (target-selector vocabulary; values may be templates)
+    if_none: Literal["fail", "skip"] | None = None  # entity_query matched nothing: fail the step (unset/"fail") or skip it quietly
     collection_id: str | None = None  # for add_to_collection / remove_from_collection…
     collection_slug: str | None = None  # …preferred: a collection slug/name (may be a $event.* template)
     metadata: dict[str, Any] | None = None  # for set_metadata: keys merged into metadata_json (values may be templates)
