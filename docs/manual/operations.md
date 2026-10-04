@@ -1,6 +1,6 @@
 # Operations
 
-What an operator needs to run Marvin 1.0.0-rc.156. Settings are environment variables read by `src/marvin/core/settings/settings.py`.
+What an operator needs to run Marvin 1.0.0-rc.186. Settings are environment variables read by `src/marvin/core/settings/settings.py`.
 
 ## Health and version
 
@@ -11,8 +11,9 @@ What an operator needs to run Marvin 1.0.0-rc.156. Settings are environment vari
 | `GET /api/app/health` | none | legacy health endpoint, kept for back-compat |
 | `GET /api/app/about/version` | none | `{"version": "<backend version>"}` |
 | `GET /version.json` (frontend) | none | `{"frontend": "<build commit>", "backend": "<version>"}` |
+| `GET /api/app/changes?since=&until=&since_commit=` | signed in | release notes between two versions, newest first (at most 20), led by an "Unreleased" entry for the image's commits since its last release; empty when no changelog is installed |
 
-The root probes live outside `/api` so orchestrators can hit them without knowing the mount. The admin stamps the version pair into every page, polls `/version.json` once a minute and on tab focus, and shows a Reload / Later bar when either side changes; it never forces a reload. The frontend's commit comes from `GIT_COMMIT_HASH`, set from the Dockerfile `COMMIT` build arg.
+The root probes live outside `/api` so orchestrators can hit them without knowing the mount. The admin stamps the version pair into every page, polls `/version.json` once a minute and on tab focus, and shows a Reload / Later bar when either side changes, on workspace and platform admin pages alike; it never forces a reload, and **Later** hides it until the next deploy. **What's new** on the bar opens the release notes between the versions the page was rendered with and the live ones, fetched on first open from `GET /api/app/changes`. The notes come from the image's `CHANGELOG.md`; because the release job writes a release's changelog section after the image is built, CI also records the commits since the last release tag in `UNRELEASED.txt` (`docker/write-unreleased.sh`), and the list shows their `feat`, `fix`, `perf` and `docs` commits first as "Unreleased". A build without that file still works. The frontend's commit comes from `GIT_COMMIT_HASH`, set from the Dockerfile `COMMIT` build arg.
 
 ## Images
 
@@ -25,11 +26,15 @@ The root probes live outside `/api` so orchestrators can hit them without knowin
 | `frontend` | `ghcr.io/inneropen/marvin-frontend` | Astro SSR UI only (`start-frontend.sh`) |
 | `lambda` | not published | `FROM production` |
 
-The backend-based images carry `CHANGELOG.md` (the update banner's release notes) and this manual (`docs/manual`, which the agents' `search_docs` / `read_doc` tools read) beside the venv, so both always match the running version.
+The backend-based images carry `CHANGELOG.md` and `UNRELEASED.txt` (the update banner's release notes) and this manual (`docs/manual`, which the agents' `search_docs` / `read_doc` tools read) beside the venv, so both always match the running version.
 
 ## Helm chart
 
 `marvin-chart/` is the current deployment unit; read [`marvin-chart/README.md`](https://github.com/InnerOpen/marvin/blob/develop/marvin-chart/README.md) for install commands. `mode: combined` (default) runs the single image; `mode: split` creates backend and frontend Deployments from the `-backend` / `-frontend` images. Overlays: `values-k8s.yaml`, `values-staging.yaml`, `values-production.yaml`. Probes default to `/healthz` (liveness, initial delay 30 s, period 10 s) and `/readyz` (readiness, initial delay 10 s, period 5 s). Use `extraEnv` for settings the chart does not model and `initContainers` plus `extraVolumes` to install integration plugins before start (worked example in the chart README).
+
+**Graceful shutdown.** An agent run is one synchronous request that can take minutes, so a deploy lets in-flight requests finish before the API pod goes away. `shutdown.terminationGracePeriodSeconds` (default 300) is the pod's grace period and `shutdown.preStopSleepSeconds` (default 5; 0 drops the hook) a sleep before SIGTERM so the Service stops routing to the pod first. On SIGTERM the server stops taking connections and waits up to `GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS` for running requests; the chart sets it to the grace period minus the preStop sleep and 15 seconds for shutdown and exit. A run still going at the deadline is lost, and the next process marks it failed (see [Agents and Ask → Interrupted runs](whats-new/agents-and-ask.md)); the chart delays that sweep (`AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS`) to the grace period plus 60 seconds, so it never fails a run the old pod is still finishing.
+
+The trade-off: a pod with a long run in flight takes that long to stop. Under the default `RollingUpdate` the new pod serves while the old one drains, so with SQLite on a shared volume two processes write at once for up to the grace period. To rule that out, set the API pod's strategy to `{type: Recreate}` (`strategy` in combined mode; in split mode the backend's own `split.backend.strategy`, so the frontend keeps rolling) and accept downtime while the old pod drains, or use Postgres. Under `Recreate` the chart sweeps interrupted runs at startup, since the old pod is already gone.
 
 !!! warning "Two chart keys the app does not read"
     - `JWT_SECRET` is rendered into the Deployment (`templates/deployment.yaml`, `_helpers.tpl`) but nothing in `src/` reads it. The signing secret is `DATA_DIR/.secret`, generated on first production start; keep `DATA_DIR` on a persistent volume or every restart invalidates sessions.
@@ -39,11 +44,11 @@ The backend-based images carry `CHANGELOG.md` (the update banner's release notes
 
 ## Scheduler
 
-Every API process starts the scheduler; a database lease (`services/scheduler/leader.py`, one row, conditional `UPDATE`) makes exactly one replica run each tick, on SQLite as well as Postgres. `SCHEDULER_INTERVAL_SECONDS` (default 60) is the frequent tick that delivers webhooks, fires due scheduled tasks and renews the lease, so a task can run up to one interval late. `SCHEDULER_LEASE_TTL_SECONDS` (default 150) must be at least twice the interval or the app refuses to start. Set `SCHEDULER_ENABLED=false` on pods that should only serve requests. The same tick also sends queued site rebuilds (see [Site rebuilds](#site-rebuilds)). System tasks seeded at startup: `prune_event_logs`, `prune_ai_executions`, `prune_scheduled_task_executions`, `resync_smart_collections`, each on a 24-hour interval. `DAILY_SCHEDULE_TIME` (default `23:47`, local server time) sets the scheduler's daily callback, which has no built-in jobs today.
+Every API process starts the scheduler; a database lease (`services/scheduler/leader.py`, one row, conditional `UPDATE`) makes exactly one replica run each tick, on SQLite as well as Postgres. `SCHEDULER_INTERVAL_SECONDS` (default 60) is the frequent tick that delivers webhooks, fires due scheduled tasks and renews the lease, so a task can run up to one interval late. `SCHEDULER_LEASE_TTL_SECONDS` (default 150) must be at least twice the interval or the app refuses to start. Set `SCHEDULER_ENABLED=false` on pods that should only serve requests. The same tick also sends queued site rebuilds (see [Site rebuilds](#site-rebuilds)). System tasks seeded at startup (idempotently by slug, so an upgrade adds new ones): `prune_event_logs`, `prune_ai_executions`, `prune_scheduled_task_executions` and `resync_smart_collections` on a 24-hour interval, and since rc.170 `publish_scheduled_entries` and `unpublish_expired_entries` every 5 minutes, so entries' Scheduled Publish and Expiration Date work with no setup (see [Scheduled tasks](whats-new/scheduled-tasks.md)). Idle runs of the 5-minute tasks write no execution row. `DAILY_SCHEDULE_TIME` (default `23:47`, local server time) sets the scheduler's daily callback, which has no built-in jobs today.
 
 ## Site rebuilds
 
-A static site is rebuilt by an outgoing webhook (a deploy hook) subscribed to `webhook_triggered`. The `request_site_rebuild` handler, run from a workflow step or a scheduled task, does not send that event directly: it queues one rebuild per workspace (`services/site_rebuild.py`). The scheduler tick sends the queued rebuild once no new request has arrived for `SITE_REBUILD_QUIET_SECONDS` (default 60), or once the first request is `SITE_REBUILD_MAX_WAIT_SECONDS` old (default 600), so a bulk edit that fires a workflow per entry costs one build. Expect a single change to start building up to the quiet period plus one scheduler interval later. The sent event's message counts the coalesced requests, and its data carries `requestCount` and the changes it covers (the newest 50, repeat edits of one thing collapsed), which the admin's **Site rebuild** toast lists. Since rc.143 published content changes queue a rebuild too, unless the workspace turns off **Rebuild the site automatically** under **Settings → General** (see [Publishing API → Site rebuilds](whats-new/publishing-api.md#site-rebuilds)).
+A static site is rebuilt by an outgoing webhook (a deploy hook) subscribed to `webhook_triggered`. The `request_site_rebuild` handler, run from a workflow step or a scheduled task, does not send that event directly: it queues one rebuild per workspace (`services/site_rebuild.py`). The scheduler tick sends the queued rebuild once no new request has arrived for `SITE_REBUILD_QUIET_SECONDS` (default 60), or once the first request is `SITE_REBUILD_MAX_WAIT_SECONDS` old (default 600), so a bulk edit that fires a workflow per entry costs one build. Expect a single change to start building up to the quiet period plus one scheduler interval later. The request that opens a batch emits `site_rebuild_queued` once, which the admin shows as a "Site rebuild queued" toast until the rebuild is sent. The sent event's message counts the coalesced requests, and its data carries `requestCount` and the changes it covers (the newest 50, repeat edits of one thing collapsed), which the admin's **Site rebuild** toast lists. Since rc.143 published content changes queue a rebuild too, unless the workspace turns off **Rebuild the site automatically** under **Settings → General** (see [Publishing API → Site rebuilds](whats-new/publishing-api.md#site-rebuilds)).
 
 ## Integration downloads
 
@@ -79,6 +84,7 @@ Admin: **Admin → Operations → Backups** (`/admin/backups`) and `/api/admin/b
 | `BASE_URL` | `http://localhost:8080` | public API URL |
 | `FRONTEND_URL` | `http://localhost:4322` | public admin URL; `FRONTEND_PORT` is derived from it. When set to anything but the default, entry links that AI tools hand back are absolute |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `8080` | bind address |
+| `GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS` | unset | how long the server waits for in-flight requests after SIGTERM; unset waits until the process is killed. The Helm chart derives it from the grace period (see [Helm chart](#helm-chart)) |
 | `CORS_ORIGINS` | empty | comma list; ignored outside production |
 | `DATA_DIR` | unset | database, `.secret`, assets, secrets, seeds |
 | `DB_ENGINE` | `sqlite` | or `postgres` |
@@ -109,6 +115,7 @@ Admin: **Admin → Operations → Backups** (`/admin/backups`) and `/api/admin/b
 | `MCP_TOOL_TIMEOUT_SECONDS` | `45` | how long an agent waits for one external MCP tool call; keep it well under the proxy's request timeout. Must be above 0 (rc.146) |
 | `MCP_TOOL_RESULT_MAX_CHARS` | `20000` | longest external MCP tool result an agent sees; longer ones are cut with a note. Must be above 0 (rc.146) |
 | `AI_ALLOW_WORKSPACE_CREDENTIALS` | `true` | workspaces may store their own provider keys |
+| `AI_INTERRUPTED_RUN_SWEEP_DELAY_SECONDS` | `0` | how long after startup to mark AI runs left `running` by an earlier process as failed; `0` sweeps at startup. The Helm chart sets the grace period plus 60 seconds under a rolling update, `0` under `Recreate` |
 | `OIDC_*`, `LDAP_*`, `SECURITY_*`, `AUTH_COOKIE_NAME` | see [Auth and tokens](auth-and-tokens.md) | |
 
-The full list with docstrings is `src/marvin/core/settings/settings.py`; `docs/configuration-settings.md` in the repo is older and not checked against rc.156.
+The full list with docstrings is `src/marvin/core/settings/settings.py`; `docs/configuration-settings.md` in the repo is older and not checked against rc.186.
