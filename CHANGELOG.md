@@ -6,6 +6,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.194 (2026-10-04)
+
+### Bug Fixes
+
+- **admin**: Disable View on site until the entry is published
+  ([`6ff8b4a`](https://github.com/InnerOpen/marvin/commit/6ff8b4a89a262f019ed93ebebc66e6cb5b1a05c2))
+
+- **ai**: Say Character and Voice where the labels still paired voice/tone
+  ([`54bc598`](https://github.com/InnerOpen/marvin/commit/54bc5987a8fc74a63b418def810a0eeda42e7251))
+
+### Documentation
+
+- **manual**: Prompt previews and the Character / Voice labels
+  ([`c7f091d`](https://github.com/InnerOpen/marvin/commit/c7f091d15626a6e9e4f952c9462f4b1f1995752e))
+
+### Features
+
+- **admin**: Prompt previews on tone rows, the Character and agents
+  ([`800612b`](https://github.com/InnerOpen/marvin/commit/800612b1c1a758016342b8187c2b32bad7866874))
+
+- **ai**: Preview an agent's system prompt and the Character with the default tone
+  ([`d862782`](https://github.com/InnerOpen/marvin/commit/d862782ed12b8e57ad1f899e235d82285bfbd7ec))
+
+
 ## v1.0.0-rc.193 (2026-10-04)
 
 ### Features
