@@ -272,10 +272,10 @@ const modCfg = s.moderationConfig ?? {};
     </div>
 
     <!-- 5. Persona -->
-    <div class="section-card ai-dependent">
+    <div class="section-card ai-dependent" id="persona-section">
       <div class="section-title">
         <h3>Persona</h3>
-        <p>Give the assistant a name and a voice for this workspace.</p>
+        <p>Who your assistant is: its name, look and character for this workspace. How it delivers a given piece of work is the tone's job (Tones, below).</p>
       </div>
       <div class="form-row">
         <label class="form-field">
@@ -309,17 +309,17 @@ const modCfg = s.moderationConfig ?? {};
         />
       </div>
       <label class="form-field">
-        <span class="label">Voice / tone</span>
+        <span class="label">Character</span>
         <textarea name="persona_prompt" class="input persona-prompt" rows="4"
-          placeholder="e.g. Warm and upbeat; concise; a leathercraft studio's helper.">{s.personaPrompt ?? ""}</textarea>
-        <small class="hint">A free-text instruction appended to the assistant's system prompt. Leave blank for the default voice — Marvin, the deadpan Paranoid Android (while the assistant is still named Marvin).</small>
+          placeholder="e.g. A leathercraft studio's helper; warm and upbeat, a little dry.">{s.personaPrompt ?? ""}</textarea>
+        <small class="hint">Who your assistant is and how it speaks — sent to the model as its "Character". The tone decides how far it reaches and wins on formality, length and mood. Leave blank for the default character — Marvin, the deadpan Paranoid Android (while the assistant is still named Marvin).</small>
       </label>
       <div class="form-field bubble-lines" id="bubble-lines" data-state={JSON.stringify(bubbleState)}>
         <span class="label">Bubble lines</span>
         <small class="hint">
-          What the bubble says around its answers. When you save a voice above, one AI call writes these
-          in that voice; you can edit them here, one line per row. An empty list uses the built-in lines
-          (shown greyed). Edited lines are kept when the voice changes — <em>Regenerate from persona</em>
+          What the bubble says around its answers. When you save a character above, one AI call writes these
+          in its voice; you can edit them here, one line per row. An empty list uses the built-in lines
+          (shown greyed). Edited lines are kept when the character changes — <em>Regenerate from persona</em>
           replaces them.
         </small>
         <p class="bubble-lines-status" id="bubble-lines-status"></p>
@@ -348,10 +348,10 @@ const modCfg = s.moderationConfig ?? {};
       <div class="section-title">
         <h3>Tones</h3>
         <p>
-          How the assistant's work product reads — separate from the voice above, which is how it
-          addresses you. The default applies to every run unless an agent or a single request picks
-          another (the Ask page's Tone, the bubble's <code>/tone</code>). Each tone says what to do with
-          the persona: keep it for framing, use it everywhere, or drop it. Saved as you go.
+          How your assistant delivers — the character above is who it is. Each tone says how far the
+          character reaches (frame only, everywhere, or drop it) and, where the two disagree on
+          formality, length or mood, the tone wins. The default applies to every run unless an agent or
+          a single request picks another (the Ask page's Tone, the bubble's <code>/tone</code>). Saved as you go.
         </p>
       </div>
       <ToneEditor state={tones} />

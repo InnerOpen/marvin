@@ -1,9 +1,10 @@
 """Custom tones (services/ai/tones.py, /groups/ai-settings/tones).
 
 A workspace names its own tones — instructions plus a persona rule (frame / everywhere / drop) — next to
-the built-ins auto / professional / playful. The built-ins' prompt clauses must stay byte-identical to the
-registers they replaced (golden tests below), an unknown slug never fails a run, and a tone agents depend
-on can't be deleted out from under them.
+the built-ins auto / professional / playful. The persona is labelled "Character:" (who the assistant is),
+the tone "Tone (<name>):" (how it delivers), and when both apply a precedence rule says the tone wins on
+formality, length and mood. The golden tests below pin the exact wording; an unknown slug never fails a
+run, and a tone agents depend on can't be deleted out from under them.
 """
 
 import logging
@@ -29,22 +30,42 @@ def _builtin(slug):
     return WorkspaceTones().get(slug)
 
 
-# ── Golden: the built-ins' clauses are exactly the old registers' ────────────────────────────────
+# ── Golden: the exact prompt wording ────────────────────────────────────────────────────────────
+# These strings ARE the contract: changing one changes every workspace's prompts. They changed on purpose
+# (2026-10-04) from "Voice and tone: <persona>" to a "Character:" block plus an explicit precedence rule;
+# the built-ins' behaviour is unchanged (auto frames chat with plain work product, professional drops the
+# character, playful uses it everywhere).
 
+RULE = (
+    "Where the tone and the character disagree on formality, length or mood, follow the tone; "
+    "keep the character's identity and way of speaking otherwise."
+)
+EVERYWHERE = "\nThe character applies to everything you write, work product included."
 GOLDEN_PROFESSIONAL = (
     "\n\nWrite plainly, specifically and professionally. Do not adopt a persona, "
     "voice, or character; skip pleasantries and lead with the substance. Be concrete: "
     "name the field, section, or line you mean, and say what to change and why."
 )
-GOLDEN_PLAYFUL = f"\n\nVoice and tone: {PERSONA}"
+GOLDEN_PLAYFUL = f"\n\nCharacter: {PERSONA}{EVERYWHERE}"
 GOLDEN_AUTO = (
-    f"\n\nVoice and tone: {PERSONA}"
-    "\nThat voice applies ONLY to how you address the user — greetings, framing, brief "
+    f"\n\nCharacter: {PERSONA}"
+    "\nThe character applies ONLY to how you address the user — greetings, framing, brief "
     "asides. Work product itself — reviews, critiques, findings, summaries, suggested "
     "copy — must be written plainly, specifically, and professionally. Never let the "
-    "persona soften, exaggerate, or obscure a finding, and never write generated "
-    "content in that voice unless the user explicitly asks for it."
+    "character soften, exaggerate, or obscure a finding, and never write generated "
+    "content in the character's voice unless the user explicitly asks for it."
 )
+GOLDEN_FRAME = (
+    f"\n\nCharacter: {PERSONA}"
+    "\nThe character applies ONLY to how you address the user — greetings, framing, brief "
+    "asides. Work product itself — reviews, critiques, findings, summaries, suggested "
+    "copy — follows the tone below, not the character. Never let the character soften, "
+    "exaggerate, or obscure a finding."
+    "\n\nTone (Warm): Write warmly and encouragingly."
+    f"\n\n{RULE}"
+)
+GOLDEN_EVERYWHERE = f"\n\nCharacter: {PERSONA}{EVERYWHERE}\n\nTone (Warm): Write warmly and encouragingly.\n\n{RULE}"
+GOLDEN_DROP = "\n\nDo not adopt a persona, voice, or character.\n\nTone (Warm): Write warmly and encouragingly."
 
 
 @pytest.mark.parametrize(
@@ -58,39 +79,73 @@ GOLDEN_AUTO = (
         ("professional", "", GOLDEN_PROFESSIONAL),
     ],
 )
-def test_builtin_tone_clause_matches_the_old_register_byte_for_byte(slug, persona, expected):
+def test_builtin_tone_clause_matches_the_golden_wording(slug, persona, expected):
     assert t.tone_clause(_builtin(slug), persona) == expected
+
+
+def test_precedence_rule_constant_is_the_pinned_wording():
+    assert t.PRECEDENCE_RULE == RULE
 
 
 # ── Custom tone clauses: persona rule × persona present/absent ───────────────────────────────────
 
 
-def test_drop_tone_withholds_the_persona_and_carries_the_instructions():
-    out = t.tone_clause(_custom("drop"), PERSONA)
-    assert PERSONA not in out
-    assert "Do not adopt a persona" in out and "Write warmly and encouragingly." in out
+def test_drop_tone_withholds_the_character_and_carries_the_instructions():
+    assert t.tone_clause(_custom("drop"), PERSONA) == GOLDEN_DROP
 
 
 def test_drop_tone_without_a_persona_is_the_same_clause():
-    assert t.tone_clause(_custom("drop"), "") == t.tone_clause(_custom("drop"), PERSONA)
+    assert t.tone_clause(_custom("drop"), "") == GOLDEN_DROP
 
 
-def test_everywhere_tone_applies_the_persona_unscoped_plus_the_instructions():
-    out = t.tone_clause(_custom("everywhere"), PERSONA)
-    assert out == f"\n\nVoice and tone: {PERSONA}\n\nTone (Warm): Write warmly and encouragingly."
+def test_everywhere_tone_is_character_then_tone_then_the_precedence_rule():
+    assert t.tone_clause(_custom("everywhere"), PERSONA) == GOLDEN_EVERYWHERE
 
 
-def test_frame_tone_scopes_the_persona_and_hands_work_product_to_the_tone():
+def test_frame_tone_scopes_the_character_and_hands_work_product_to_the_tone():
     out = t.tone_clause(_custom("frame"), PERSONA)
-    assert PERSONA in out and "ONLY to how you address the user" in out
-    assert "follows the tone below, not the persona" in out
+    assert out == GOLDEN_FRAME
     assert "must be written plainly" not in out  # that's auto's rule, not a custom tone's
-    assert out.endswith("\n\nTone (Warm): Write warmly and encouragingly.")
 
 
 @pytest.mark.parametrize("persona_rule", ["frame", "everywhere"])
 def test_custom_tone_without_a_persona_is_just_the_instructions(persona_rule):
     assert t.tone_clause(_custom(persona_rule), "") == "\n\nTone (Warm): Write warmly and encouragingly."
+
+
+def test_no_clause_uses_the_old_voice_and_tone_label():
+    tones = [_builtin("auto"), _builtin("playful"), _builtin("professional"), *(_custom(r) for r in t.PERSONA_MODES)]
+    assert all("Voice and tone" not in t.tone_clause(tone, PERSONA) for tone in tones)
+
+
+def test_tone_parts_label_where_each_line_comes_from():
+    parts = t.tone_parts(_custom("frame"), PERSONA)
+    assert parts.character == f"\n\nCharacter: {PERSONA}"
+    assert parts.scope.startswith("\nThe character applies ONLY")
+    assert parts.tone == "\n\nTone (Warm): Write warmly and encouragingly."
+    assert parts.rule == f"\n\n{RULE}"
+    assert parts.text == GOLDEN_FRAME
+
+
+def test_tone_parts_of_a_drop_tone_have_no_character_or_rule():
+    parts = t.tone_parts(_custom("drop"), PERSONA)
+    assert (parts.character, parts.scope, parts.rule) == ("", "", "")
+    assert parts.tone == GOLDEN_DROP
+
+
+@pytest.mark.parametrize(
+    ("tone", "expected"),
+    [
+        (_custom("frame"), "Frame only: the character talks, work product follows this tone."),
+        (_custom("everywhere"), "Everywhere: the character and this tone apply to everything, work product included."),
+        (_custom("drop"), "Drop: no character, just this tone."),
+        (WorkspaceTones().get("auto"), "Frame only: the character talks, work product stays plain."),
+        (WorkspaceTones().get("playful"), "Everywhere: the character applies to everything, work product included."),
+        (WorkspaceTones().get("professional"), "Drop: no character, just plain and professional."),
+    ],
+)
+def test_persona_summary_says_the_rule_in_plain_words(tone, expected):
+    assert t.persona_summary(tone) == expected
 
 
 # ── Validation ───────────────────────────────────────────────────────────────────────────────────
@@ -220,6 +275,50 @@ def test_controller_register_clause_renders_a_custom_tone():
     ctrl = SimpleNamespace(_tones=lambda: WorkspaceTones(custom=(_custom("drop"),)))
     assert C._register_clause(ctrl, "warm", PERSONA) == t.tone_clause(_custom("drop"), PERSONA)
     assert C._register_clause(ctrl, "deleted", PERSONA) == GOLDEN_AUTO
+
+
+@pytest.mark.parametrize(
+    ("requested", "expected_tail"),
+    [
+        (None, GOLDEN_DROP),  # no tone on the request → the workspace default (a custom drop tone here)
+        ("playful", GOLDEN_PLAYFUL),  # the request's tone wins
+    ],
+)
+def test_plain_chat_applies_the_tone_like_the_default_agent(monkeypatch, requested, expected_tail):
+    """/chat used to append "Voice and tone: <persona>" and ignore tones; it now resolves them like Marvin."""
+    from unittest.mock import MagicMock
+
+    from marvin.routes.ai import operations_controller as oc
+    from marvin.schemas.group.ai_execution import AIAgentRequest
+    from marvin.services.ai import factory
+    from marvin.services.ai.base import CompletionResult
+
+    seen = {}
+
+    class _Provider:
+        provider_type = "openai"
+
+        def complete(self, messages, model, opts):
+            seen["system"] = messages[0].content
+            return CompletionResult(content="ok", prompt_tokens=1, completion_tokens=1, total_tokens=2, model=model)
+
+    monkeypatch.setattr(factory, "get_workspace_ai_provider", lambda *a: _Provider())
+    monkeypatch.setattr(oc, "AIExecutionModel", lambda **kw: SimpleNamespace(id=uuid.uuid4(), **kw))
+    C = oc.AIOperationsController
+    ctrl = MagicMock()
+    ctrl._user_role.return_value = 99
+    ctrl._check_invocation_source.return_value = "api"
+    ctrl._default_model.return_value = "m"
+    ctrl._persona.return_value = ("Marvin", PERSONA)
+    ctrl._logging_policy.return_value = (False, False)
+    ctrl._max_output_tokens.return_value = None
+    ctrl._tones = lambda: WorkspaceTones(custom=(_custom("drop"),), default_slug="warm")
+    for name in ("_default_register", "_register_clause"):
+        setattr(ctrl, name, getattr(C, name).__get__(ctrl))
+
+    C.chat(ctrl, AIAgentRequest.model_validate({"message": "hi", "register": requested}))
+    assert seen["system"].endswith(expected_tail)
+    assert "Voice and tone" not in seen["system"]
 
 
 def test_controller_rejects_an_agent_default_tone_the_workspace_lacks():
@@ -397,11 +496,29 @@ def test_patch_settings_rejects_an_unknown_default_tone(ctrl):
 
 def test_preview_returns_the_clause_with_the_workspace_persona_and_a_token_estimate(ctrl):
     out = ctrl.preview(name="Warm", instructions="Write warmly.", persona="everywhere")
-    assert out.clause == "\n\nVoice and tone: You are Ada.\n\nTone (Warm): Write warmly."
+    assert out.clause == f"\n\nCharacter: You are Ada.{EVERYWHERE}\n\nTone (Warm): Write warmly.\n\n{RULE}"
     assert out.tokens == t.estimate_tokens(out.clause) and out.tokens > 0
     assert ctrl.preview(slug="professional").clause == GOLDEN_PROFESSIONAL
     assert _status(ctrl.preview, slug="ghost").status_code == 404
     assert _status(ctrl.preview, name="X", instructions="").status_code == 422
+
+
+def test_preview_returns_the_parts_so_the_editor_never_parses_the_text(ctrl):
+    out = ctrl.preview(name="Warm", instructions="Write warmly.", persona="frame")
+    assert out.character == "Character: You are Ada."
+    assert out.from_tone.startswith("The character applies ONLY") and out.from_tone.endswith("Tone (Warm): Write warmly.")
+    assert out.rule == RULE
+    assert (out.persona, out.has_persona) == ("frame", True)
+    assert out.persona_summary == "Frame only: the character talks, work product follows this tone."
+    wire = out.model_dump(by_alias=True)
+    assert {"personaSummary", "hasPersona", "fromTone"} <= wire.keys()
+
+
+def test_preview_of_a_drop_tone_has_no_character_part(ctrl):
+    out = ctrl.preview(name="Client", instructions="Formal.", persona="drop")
+    assert (out.character, out.rule) == ("", "")
+    assert out.from_tone == "Do not adopt a persona, voice, or character.\n\nTone (Client): Formal."
+    assert out.persona_summary == "Drop: no character, just this tone."
 
 
 # ── Export / import ──────────────────────────────────────────────────────────────────────────────
@@ -459,14 +576,16 @@ def test_draft_voice_entry_type_voice_wins_over_the_tone(db_session, workspace, 
 
 def test_draft_voice_uses_the_tone_when_the_entry_type_has_none(db_session, workspace, ctrl):
     ctrl.put(tones=[WARM], default_tone="warm")
-    assert _voice(db_session, workspace, {}) == " Voice/tone: Write warmly and encouragingly."  # workspace default
+    assert _voice(db_session, workspace, {}) == "\n\nTone (Warm): Write warmly and encouragingly."  # workspace default
     assert _voice(db_session, workspace, {}, "professional") == ""  # a per-call tone beats it; plain as before
 
 
 def test_draft_voice_everywhere_tones_bring_the_persona(db_session, workspace, ctrl):
     ctrl.put(tones=[{**WARM, "persona": "everywhere"}])
-    assert _voice(db_session, workspace, {}, "warm") == " Voice/tone: You are Ada. Write warmly and encouragingly."
-    assert _voice(db_session, workspace, {}, "playful") == " Voice/tone: You are Ada."
+    assert _voice(db_session, workspace, {}, "warm") == (
+        f"\n\nCharacter: You are Ada.\nWrite the draft in this character.\nTone (Warm): Write warmly and encouragingly.\n{RULE}"
+    )
+    assert _voice(db_session, workspace, {}, "playful") == "\n\nCharacter: You are Ada.\nWrite the draft in this character."
     assert _voice(db_session, workspace, {}, "auto") == ""
 
 
@@ -501,7 +620,7 @@ def test_revise_honours_the_per_call_tone(db_session, workspace, ctrl):
     try:
         svc = AuthoringService(db_session, workspace, user=None, provider=provider, model="m")
         svc.revise(entry=entry, instruction="tidy", register="warm", ground=False)
-        assert provider.messages[0].content.endswith(" Voice/tone: Write warmly and encouragingly.")
+        assert provider.messages[0].content.endswith("\n\nTone (Warm): Write warmly and encouragingly.")
     finally:
         db_session.rollback()
         db_session.query(AIExecutionModel).filter_by(group_id=workspace).delete()

@@ -148,8 +148,16 @@ class TonePreviewRequest(_MarvinModel):
 
 
 class TonePreview(_MarvinModel):
+    """A tone's prompt section, whole and in labelled parts, so the editor never parses the text."""
+
     clause: str  # exactly what is appended to an agent's system prompt (with the workspace persona)
     tokens: int  # rough estimate; it rides on every agent step
+    persona: str  # the tone's persona rule: frame / everywhere / drop
+    persona_summary: str  # that rule in plain words
+    has_persona: bool  # whether the workspace has a character to use (the persona, or Marvin's default voice)
+    character: str = ""  # from the persona: the Character block ("" when the tone drops it, or there is none)
+    from_tone: str = ""  # from the tone: its persona rule's scope line(s) and its instructions
+    rule: str = ""  # the precedence rule, when a character and a tone's instructions both apply
 
 
 class AIUsageOperation(_MarvinModel):

@@ -1564,7 +1564,7 @@ class AIOperationsController(BaseUserController):
             "your answer in what they return. To answer what EXISTS in the workspace — the tag vocabulary, "
             "resources, entry types, collections, workflows — call the matching list tool (list_tags, "
             "list_resources, list_entry_types, list_collections, list_workflows), or workspace_overview for the "
-            "whole inventory (its `structure` block names every workflow, task, webhook, notifier and agent). "
+            "whole inventory (its `structure` block names every workflow, scheduled task, webhook, integration, MCP server and agent). "
             "Reserve search_content for finding content by MEANING; it is "
             "semantic, so it surfaces items that merely mention a word and must not be used to enumerate a "
             "vocabulary (asking it 'what tags exist' returns content, not tags). Before proposing or attaching "
@@ -2267,8 +2267,8 @@ class AIOperationsController(BaseUserController):
         _app = get_app_settings()
         assistant_name, persona_prompt = self._persona()
         system = model_agent_system_prompt(assistant_name, gloomy=assistant_name == "Marvin", router_name=assistant_name)
-        if persona_prompt:
-            system += f"\n\nVoice and tone: {persona_prompt}"
+        # Same tone resolution as the default agent: the caller's tone, else the workspace default.
+        system += self._register_clause(body.tone_register or self._default_register(), persona_prompt)
         messages = [Message(role="system", content=system), Message(role="user", content=body.message)]
 
         log_inputs, log_outputs = self._logging_policy()
@@ -2592,8 +2592,9 @@ class AIOperationsController(BaseUserController):
         return resolve_persona(settings.assistant_name if settings else None, settings.persona_prompt if settings else None)
 
     # Tones. Persona and tone are DIFFERENT axes and must not share one knob:
-    #   persona = how the assistant ADDRESSES you (workspace-level, user-authored)
-    #   tone    = how THIS call's output should read (per-request, set by the caller)
+    #   persona = the CHARACTER: who the assistant is and how it speaks (workspace-level, user-authored)
+    #   tone    = how THIS call delivers its output (per-request, set by the caller); it wins on
+    #             formality, length and mood where the two disagree
     # Asking for a review and getting it in character is the failure this separates. The only
     # reliable lever is to withhold the persona entirely — asking a model to compartmentalise
     # is advisory, and small models ignore it. The tones themselves (built-in + the workspace's
@@ -2624,9 +2625,9 @@ class AIOperationsController(BaseUserController):
         return self._tones().default.slug
 
     def _register_clause(self, register: str | None, persona_prompt: str) -> str:
-        """The voice/tone section of a system prompt for the requested tone (unknown → workspace default → auto).
+        """The character/tone section of a system prompt for the requested tone (unknown → workspace default → auto).
 
-        Returns "" when there's nothing to say (no persona, or persona deliberately withheld).
+        Returns "" when there's nothing to say (a built-in that only places the character, with no persona set).
         """
         from marvin.services.ai.tones import tone_clause
 

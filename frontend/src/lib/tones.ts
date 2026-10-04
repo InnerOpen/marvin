@@ -1,5 +1,5 @@
 /**
- * Tones — how a run's work product reads, separate from the persona (services/ai/tones.py). The built-ins
+ * Tones — how a run delivers its work, separate from the persona (who the assistant is; services/ai/tones.py). The built-ins
  * auto / professional / playful plus the workspace's own, from GET /api/groups/ai-settings/tones. Pure
  * helpers shared by the AI settings editor, the agent and Ask pickers and the bubble's `/tone` command.
  */
@@ -29,10 +29,58 @@ export interface TonesState {
 }
 
 export const PERSONA_RULES: { value: PersonaRule; label: string; hint: string }[] = [
-  { value: "frame", label: "Frame only", hint: "The persona greets and frames; work product follows this tone." },
-  { value: "everywhere", label: "Everywhere", hint: "The persona applies to everything, work product included." },
-  { value: "drop", label: "Drop the persona", hint: "No persona for the run — best for client-facing copy." },
+  { value: "frame", label: "Frame only", hint: "The character greets and frames; work product follows this tone." },
+  { value: "everywhere", label: "Everywhere", hint: "The character applies to everything, work product included." },
+  {
+    value: "drop",
+    label: "Drop the character",
+    hint: "No character for the run, just this tone — best for client-facing copy.",
+  },
 ];
+
+/** POST /api/groups/ai-settings/tones/preview: the whole section plus its parts, labelled by where they come from. */
+export interface TonePreview {
+  /** Exactly what is appended to an agent's system prompt. */
+  clause: string;
+  tokens: number;
+  persona: PersonaRule;
+  /** The persona rule in plain words. */
+  personaSummary: string;
+  /** Whether the workspace has a character to use (its Persona, or Marvin's default voice). */
+  hasPersona: boolean;
+  /** From your Persona: the Character block ("" when this tone drops it, or there is none). */
+  character: string;
+  /** From this tone: its persona rule's scope and its instructions. */
+  fromTone: string;
+  /** The precedence rule, when a character and a tone's instructions both apply. */
+  rule: string;
+}
+
+/** What the tone editor's preview shows for each part: the text, or a note saying why there is none. */
+export function previewSections(p: TonePreview): {
+  summary: string;
+  character: string;
+  characterNote: string;
+  fromTone: string;
+  fromToneNote: string;
+  rule: string;
+} {
+  let characterNote = "";
+  if (!p.character) {
+    characterNote =
+      p.persona === "drop"
+        ? "Not used — this tone drops the character."
+        : "No persona set, so there's no character to add.";
+  }
+  return {
+    summary: p.personaSummary,
+    character: p.character,
+    characterNote,
+    fromTone: p.fromTone,
+    fromToneNote: p.fromTone ? "" : "Nothing — this tone only places the character, and there is none.",
+    rule: p.rule,
+  };
+}
 
 /** The built-in tones, for when the tones endpoint can't be reached. */
 export const BUILTIN_TONES: Tone[] = [
@@ -41,7 +89,7 @@ export const BUILTIN_TONES: Tone[] = [
     name: "Auto",
     instructions: "",
     persona: "frame",
-    description: "Voice for chat, plain for work.",
+    description: "Character for chat, plain for work.",
     builtin: true,
     hidden: false,
     usedBy: [],
@@ -51,7 +99,7 @@ export const BUILTIN_TONES: Tone[] = [
     name: "Professional",
     instructions: "",
     persona: "drop",
-    description: "Plain everywhere, no persona.",
+    description: "Plain everywhere, no character.",
     builtin: true,
     hidden: false,
     usedBy: [],
@@ -61,7 +109,7 @@ export const BUILTIN_TONES: Tone[] = [
     name: "Playful",
     instructions: "",
     persona: "everywhere",
-    description: "The persona applies to everything.",
+    description: "The character applies to everything.",
     builtin: true,
     hidden: false,
     usedBy: [],

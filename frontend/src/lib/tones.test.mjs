@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { BUILTIN_TONES, findTone, pickerTones, toneOptions } from "./tones.ts";
+import { BUILTIN_TONES, findTone, pickerTones, previewSections, toneOptions } from "./tones.ts";
 
 const custom = (slug, name, over = {}) => ({
   slug,
@@ -56,5 +56,38 @@ describe("toneOptions", () => {
 
   test("escapes names", () => {
     assert.match(toneOptions([custom("x", "<b>")], null), /&#60;b&#62;/);
+  });
+});
+
+describe("previewSections", () => {
+  const preview = (over = {}) => ({
+    clause: "x",
+    tokens: 1,
+    persona: "frame",
+    personaSummary: "Frame only: the character talks, work product follows this tone.",
+    hasPersona: true,
+    character: "Character: You are Ada.",
+    fromTone: "Tone (Warm): Write warmly.",
+    rule: "Where the tone and the character disagree…",
+    ...over,
+  });
+
+  test("passes the parts through with no notes when each part has text", () => {
+    const p = previewSections(preview());
+    assert.equal(p.character, "Character: You are Ada.");
+    assert.equal(p.fromTone, "Tone (Warm): Write warmly.");
+    assert.equal(p.characterNote, "");
+    assert.equal(p.fromToneNote, "");
+  });
+
+  test("says a drop tone leaves the character out", () => {
+    const p = previewSections(preview({ persona: "drop", character: "", rule: "" }));
+    assert.equal(p.characterNote, "Not used — this tone drops the character.");
+  });
+
+  test("says when there is no persona to add", () => {
+    const p = previewSections(preview({ hasPersona: false, character: "", fromTone: "", rule: "" }));
+    assert.equal(p.characterNote, "No persona set, so there's no character to add.");
+    assert.match(p.fromToneNote, /only places the character/);
   });
 });

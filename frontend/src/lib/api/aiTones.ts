@@ -3,7 +3,7 @@
  * (the pickers need it); saving is ADMIN/OWNER. Pass authToken in SSR; omit it in the browser.
  */
 
-import type { PersonaRule, TonesState } from "@/lib/tones";
+import type { PersonaRule, TonePreview, TonesState } from "@/lib/tones";
 import { fetchApi } from "./client";
 
 export interface ToneInput {
@@ -35,10 +35,10 @@ export function saveTones(
   return fetchApi<TonesState>(BASE, send("PUT", data), authToken);
 }
 
-/** The clause a tone adds to every agent step, with the workspace persona, and a rough token count. */
+/** The section a tone adds to every agent step, with the workspace persona — whole and in parts — and a rough token count. */
 export function previewTone(
   data: { slug?: string; name?: string; instructions?: string; persona?: PersonaRule },
   authToken?: string,
-): Promise<{ clause: string; tokens: number }> {
+): Promise<TonePreview> {
   return fetchApi(`${BASE}/preview`, send("POST", data), authToken);
 }

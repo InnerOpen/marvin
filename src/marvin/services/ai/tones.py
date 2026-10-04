@@ -1,17 +1,22 @@
-"""Tones — how a run's work product reads, separate from the persona (how the assistant addresses you).
+"""Tones — how a run delivers its work, separate from the persona (who the assistant is).
 
-A tone has a name, free-text instructions and a persona rule:
+The persona is the workspace's **character**: who the assistant is and how it speaks. A tone is how a run
+delivers — free-text instructions plus a persona rule that says how far the character reaches:
 
-- ``frame``: the persona frames the conversation (greetings, asides); work product follows the tone.
-- ``everywhere``: the persona applies to everything, work product included, alongside the tone.
-- ``drop``: the persona is withheld for the run. Withholding is the mechanism — asking a model to
+- ``frame``: the character frames the conversation (greetings, asides); work product follows the tone.
+- ``everywhere``: the character applies to everything, work product included, alongside the tone.
+- ``drop``: the character is withheld for the run. Withholding is the mechanism — asking a model to
   compartmentalise is advisory, and small models ignore it.
 
+In the prompt the persona is labelled ``Character:`` and the tone ``Tone (<name>):``. When both apply, a
+precedence rule follows: the tone wins on formality, length and mood; the character keeps its identity and
+way of speaking. :func:`tone_parts` returns the section in those parts so the editor can show which line
+came from the persona and which from the tone.
+
 The built-ins ``auto`` / ``professional`` / ``playful`` are code, not rows: a workspace can hide them
-from its pickers but not edit or delete them, and their prompt clauses are byte-identical to the
-registers that came before custom tones (pinned by golden tests). Custom tones live on the workspace AI
-settings row (``tones`` + ``hidden_tones``). A slug is fixed when the tone is created, so renaming a tone
-never breaks an agent, a parked run or a workspace default that refers to it.
+from its pickers but not edit or delete them, and their exact wording is pinned by golden tests. Custom
+tones live on the workspace AI settings row (``tones`` + ``hidden_tones``). A slug is fixed when the tone
+is created, so renaming a tone never breaks an agent, a parked run or a workspace default that refers to it.
 
 At run time an unknown slug (a tone deleted since, an imported agent) never fails a run: resolution falls
 back caller → agent → workspace default → ``auto`` and logs a warning. On save an unknown slug is a 422.
@@ -66,27 +71,43 @@ class ToneSpec:
         return out
 
 
-# The built-in clauses, verbatim from the registers they replace. Changing a byte here changes every
-# existing workspace's prompts — the golden tests in tests/test_tones.py pin them.
+# The prompt wording. Changing a byte here changes every workspace's prompts — the golden tests in
+# tests/test_tones.py pin the exact strings.
+CHARACTER_LABEL = "Character: "
+PRECEDENCE_RULE = (
+    "Where the tone and the character disagree on formality, length or mood, follow the tone; "
+    "keep the character's identity and way of speaking otherwise."
+)
+_DROP_PERSONA = "\n\nDo not adopt a persona, voice, or character."
 _PROFESSIONAL_CLAUSE = (
     "\n\nWrite plainly, specifically and professionally. Do not adopt a persona, "
     "voice, or character; skip pleasantries and lead with the substance. Be concrete: "
     "name the field, section, or line you mean, and say what to change and why."
 )
+# `auto`: the character frames chat; work product is plain (auto has no instructions of its own).
 _AUTO_SCOPE = (
-    "\nThat voice applies ONLY to how you address the user — greetings, framing, brief "
+    "\nThe character applies ONLY to how you address the user — greetings, framing, brief "
     "asides. Work product itself — reviews, critiques, findings, summaries, suggested "
     "copy — must be written plainly, specifically, and professionally. Never let the "
-    "persona soften, exaggerate, or obscure a finding, and never write generated "
-    "content in that voice unless the user explicitly asks for it."
+    "character soften, exaggerate, or obscure a finding, and never write generated "
+    "content in the character's voice unless the user explicitly asks for it."
 )
-# A custom `frame` tone: the persona frames, the tone (not "plain") governs the work product.
+# A custom `frame` tone: the character frames, the tone (not "plain") governs the work product.
 _FRAME_SCOPE = (
-    "\nThat voice applies ONLY to how you address the user — greetings, framing, brief "
+    "\nThe character applies ONLY to how you address the user — greetings, framing, brief "
     "asides. Work product itself — reviews, critiques, findings, summaries, suggested "
-    "copy — follows the tone below, not the persona. Never let the persona soften, "
+    "copy — follows the tone below, not the character. Never let the character soften, "
     "exaggerate, or obscure a finding."
 )
+# `playful` and custom `everywhere` tones.
+_EVERYWHERE_SCOPE = "\nThe character applies to everything you write, work product included."
+
+# The persona rule in plain words, as the tone editor's preview shows it.
+_PERSONA_SUMMARY = {
+    PERSONA_FRAME: "Frame only: the character talks, work product follows this tone.",
+    PERSONA_EVERYWHERE: "Everywhere: the character and this tone apply to everything, work product included.",
+    PERSONA_DROP: "Drop: no character, just this tone.",
+}
 
 BUILTIN_TONES: tuple[ToneSpec, ...] = (
     ToneSpec(
@@ -94,7 +115,7 @@ BUILTIN_TONES: tuple[ToneSpec, ...] = (
         name="Auto",
         instructions="",
         persona=PERSONA_FRAME,
-        description="Voice for chat, plain for work.",
+        description="Character for chat, plain for work.",
         builtin=True,
     ),
     ToneSpec(
@@ -102,7 +123,7 @@ BUILTIN_TONES: tuple[ToneSpec, ...] = (
         name="Professional",
         instructions="Write plainly, specifically and professionally. Skip pleasantries and lead with the substance.",
         persona=PERSONA_DROP,
-        description="Plain everywhere, no persona.",
+        description="Plain everywhere, no character.",
         builtin=True,
     ),
     ToneSpec(
@@ -110,7 +131,7 @@ BUILTIN_TONES: tuple[ToneSpec, ...] = (
         name="Playful",
         instructions="",
         persona=PERSONA_EVERYWHERE,
-        description="The persona applies to everything.",
+        description="The character applies to everything.",
         builtin=True,
     ),
 )
@@ -118,46 +139,81 @@ BUILTIN_SLUGS = tuple(t.slug for t in BUILTIN_TONES)
 _BUILTIN_BY_SLUG = {t.slug: t for t in BUILTIN_TONES}
 
 
-def _builtin_clause(tone: ToneSpec, persona_prompt: str) -> str:
+@dataclass(frozen=True)
+class ToneParts:
+    """A tone's prompt section in its parts, in prompt order; ``text`` is exactly what is appended."""
+
+    character: str = ""  # from the persona: the Character block ("" when the tone drops it, or there is none)
+    scope: str = ""  # from the tone's persona rule: how far the character reaches
+    tone: str = ""  # from the tone: its instructions (and a drop tone's "Do not adopt a persona…")
+    rule: str = ""  # precedence, when a character and a tone's instructions both apply
+
+    @property
+    def text(self) -> str:
+        return self.character + self.scope + self.tone + self.rule
+
+
+def _builtin_parts(tone: ToneSpec, persona_prompt: str) -> ToneParts:
     if tone.slug == PROFESSIONAL:
-        return _PROFESSIONAL_CLAUSE
+        return ToneParts(tone=_PROFESSIONAL_CLAUSE)
     if not persona_prompt:
-        return ""
-    if tone.slug == PLAYFUL:
-        return f"\n\nVoice and tone: {persona_prompt}"
-    return f"\n\nVoice and tone: {persona_prompt}{_AUTO_SCOPE}"
+        return ToneParts()
+    scope = _EVERYWHERE_SCOPE if tone.slug == PLAYFUL else _AUTO_SCOPE
+    return ToneParts(character=f"\n\n{CHARACTER_LABEL}{persona_prompt}", scope=scope)
 
 
-def tone_clause(tone: ToneSpec, persona_prompt: str) -> str:
-    """The voice/tone section appended (last) to an agent's system prompt.
+def tone_parts(tone: ToneSpec, persona_prompt: str) -> ToneParts:
+    """The character/tone section of an agent's system prompt, in parts (see :class:`ToneParts`).
 
-    "" when there is nothing to say: a built-in that only places the persona, with no persona set.
+    Empty when there is nothing to say: a built-in that only places the character, with no persona set.
     """
-    persona_prompt = persona_prompt or ""
+    persona_prompt = (persona_prompt or "").strip()
     if tone.builtin:
-        return _builtin_clause(tone, persona_prompt)
+        return _builtin_parts(tone, persona_prompt)
 
     tone_text = f"\n\nTone ({tone.name}): {tone.instructions}"
     if tone.persona == PERSONA_DROP:
-        return f"\n\nDo not adopt a persona, voice, or character.{tone_text}"
+        return ToneParts(tone=f"{_DROP_PERSONA}{tone_text}")
     if not persona_prompt:
-        return tone_text
-    if tone.persona == PERSONA_EVERYWHERE:
-        return f"\n\nVoice and tone: {persona_prompt}{tone_text}"
-    return f"\n\nVoice and tone: {persona_prompt}{_FRAME_SCOPE}{tone_text}"
+        return ToneParts(tone=tone_text)
+    scope = _EVERYWHERE_SCOPE if tone.persona == PERSONA_EVERYWHERE else _FRAME_SCOPE
+    return ToneParts(character=f"\n\n{CHARACTER_LABEL}{persona_prompt}", scope=scope, tone=tone_text, rule=f"\n\n{PRECEDENCE_RULE}")
+
+
+def tone_clause(tone: ToneSpec, persona_prompt: str) -> str:
+    """The character/tone section appended (last) to an agent's system prompt; "" when there is nothing to say."""
+    return tone_parts(tone, persona_prompt).text
+
+
+def persona_summary(tone: ToneSpec) -> str:
+    """The tone's persona rule in plain words (the built-ins say what they actually do)."""
+    if tone.slug == AUTO:
+        return "Frame only: the character talks, work product stays plain."
+    if tone.slug == PLAYFUL:
+        return "Everywhere: the character applies to everything, work product included."
+    if tone.slug == PROFESSIONAL:
+        return "Drop: no character, just plain and professional."
+    return _PERSONA_SUMMARY[tone.persona]
 
 
 def draft_voice(tone: ToneSpec, persona_prompt: str) -> str:
     """The voice a composed/revised draft is written in under `tone`, or "" for the plain default.
 
-    A draft is work product, so the persona joins it only under an `everywhere` tone. The built-ins keep
-    drafts as they were (plain) except `playful`, whose whole point is the persona everywhere. The entry
-    type's own voice (recipe `enrichment.voice`) outranks this — the caller only asks when there is none.
+    A draft is work product, so the character joins it only under an `everywhere` tone; otherwise only a
+    custom tone's instructions apply. The built-ins keep drafts as they were (plain) except `playful`, whose
+    whole point is the character everywhere. Labelled like :func:`tone_clause`, with the same precedence
+    rule when both apply. The entry type's own voice (recipe `enrichment.voice`) outranks this — the
+    caller only asks when there is none.
     """
     persona_prompt = (persona_prompt or "").strip()
-    persona = persona_prompt if tone.persona == PERSONA_EVERYWHERE else ""
-    instructions = "" if tone.builtin else tone.instructions
-    return " ".join(p for p in (persona, instructions) if p)
+    parts = []
+    if persona_prompt and tone.persona == PERSONA_EVERYWHERE:
+        parts.append(f"{CHARACTER_LABEL}{persona_prompt}\nWrite the draft in this character.")
+    if not tone.builtin and tone.instructions:
+        parts.append(f"Tone ({tone.name}): {tone.instructions}")
+    if len(parts) == 2:
+        parts.append(PRECEDENCE_RULE)
+    return "\n".join(parts)
 
 
 def estimate_tokens(text: str) -> int:

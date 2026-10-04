@@ -1,6 +1,7 @@
 /**
  * The tones editor (components/ToneEditor.astro, on AI settings): the workspace's default tone, which
- * tones the pickers offer, and its own tones — name, instructions and a persona rule.
+ * tones the pickers offer, and its own tones — name, instructions and a persona rule (how far the
+ * Persona's character reaches). Preview prompt shows the result in parts: from the Persona, from the tone.
  *
  * Every change saves the whole list at once (PUT /api/groups/ai-settings/tones) and re-renders from the
  * server's answer, so the page never drifts from what's stored. Built-ins can be hidden but not edited;
@@ -8,13 +9,24 @@
  */
 
 import { type ToneInput, previewTone, saveTones } from "@/lib/api/aiTones";
-import { PERSONA_RULES, type PersonaRule, type Tone, type TonesState } from "@/lib/tones";
+import {
+  PERSONA_RULES,
+  type PersonaRule,
+  type Tone,
+  type TonePreview,
+  type TonesState,
+  previewSections,
+} from "@/lib/tones";
 
 const esc = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+  String(s ?? "").replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
+  );
 
 const ruleLabel = (rule: PersonaRule) => PERSONA_RULES.find((r) => r.value === rule)?.label ?? rule;
 const EXCERPT_CHARS = 140;
+const PERSONA_HREF = "/workspace/settings/ai-workflow#persona-section";
 const MAX_DESCRIPTION_CHARS = 200;
 
 function excerpt(text: string): string {
@@ -62,7 +74,9 @@ function rowHtml(t: Tone, state: TonesState): string {
 
 function formHtml(t: Tone | null, state: TonesState): string {
   const rules = PERSONA_RULES.map(
-    (r) => `<label class="tone-rule"><input type="radio" name="tone-persona" value="${r.value}"${(t?.persona ?? "frame") === r.value ? " checked" : ""} />
+    (
+      r,
+    ) => `<label class="tone-rule"><input type="radio" name="tone-persona" value="${r.value}"${(t?.persona ?? "frame") === r.value ? " checked" : ""} />
       <span><strong>${esc(r.label)}</strong> <small class="hint">${esc(r.hint)}</small></span></label>`,
   ).join("");
   const instructions = t?.instructions ?? "";
@@ -76,14 +90,33 @@ function formHtml(t: Tone | null, state: TonesState): string {
       <textarea class="input" name="tone-instructions" rows="4" maxlength="${state.maxInstructionsChars}"
         placeholder="e.g. Lead with the numbers. Short sentences, no adjectives, no emoji.">${esc(instructions)}</textarea>
       <small class="hint"><span data-count>${instructions.length}</span> / ${state.maxInstructionsChars} characters. Sent with every agent step, so shorter is cheaper.</small></label>
-    <fieldset class="form-field tone-rules"><legend class="label">The persona</legend>${rules}</fieldset>
+    <fieldset class="form-field tone-rules"><legend class="label">Your Persona's character</legend>${rules}</fieldset>
     <div class="tone-form-actions">
       <button type="button" class="button small" data-act="save">Save tone</button>
       <button type="button" class="button secondary small" data-act="preview">Preview prompt</button>
       <button type="button" class="button secondary small" data-act="cancel">Cancel</button>
     </div>
-    <div class="tone-preview" hidden><pre></pre><small class="hint" data-tokens></small></div>
+    <div class="tone-preview" hidden aria-live="polite"></div>
   </div>`;
+}
+
+/** The preview in labelled parts: what the Persona adds, what this tone adds, and which wins. */
+function previewHtml(out: TonePreview): string {
+  const p = previewSections(out);
+  const part = (text: string, note: string) =>
+    text ? `<pre>${esc(text)}</pre>` : `<p class="hint tone-part-empty">${esc(note)}</p>`;
+  return `<p class="tone-preview-summary">${esc(p.summary)}</p>
+    <div class="tone-part">
+      <div class="tone-part-label">From your <a href="${PERSONA_HREF}">Persona</a> <small class="hint">— who your assistant is</small></div>
+      ${part(p.character, p.characterNote)}
+    </div>
+    <div class="tone-part">
+      <div class="tone-part-label">From this tone <small class="hint">— how it delivers</small></div>
+      ${part(p.fromTone, p.fromToneNote)}
+    </div>
+    ${p.rule ? `<p class="tone-preview-rule"><strong>Which wins:</strong> ${esc(p.rule)}</p>` : ""}
+    <details class="tone-preview-full"><summary>Full prompt text</summary><pre>${esc(out.clause.trim())}</pre></details>
+    <small class="hint">About ${out.tokens} tokens on every agent step (with this workspace's persona).</small>`;
 }
 
 function mount(root: HTMLElement): void {
@@ -127,8 +160,10 @@ function mount(root: HTMLElement): void {
 
   function readForm(): ToneInput & { slug?: string } {
     const box = formBox.querySelector<HTMLElement>(".tone-form")!;
-    const val = (name: string) => box.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${name}"]`)!.value.trim();
-    const persona = (box.querySelector<HTMLInputElement>('[name="tone-persona"]:checked')?.value ?? "frame") as PersonaRule;
+    const val = (name: string) =>
+      box.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${name}"]`)!.value.trim();
+    const persona = (box.querySelector<HTMLInputElement>('[name="tone-persona"]:checked')?.value ??
+      "frame") as PersonaRule;
     return {
       ...(box.dataset.slug ? { slug: box.dataset.slug } : {}),
       name: val("tone-name"),
@@ -169,8 +204,7 @@ function mount(root: HTMLElement): void {
       const box = formBox.querySelector<HTMLElement>(".tone-preview")!;
       try {
         const out = await previewTone({ name: draft.name, instructions: draft.instructions, persona: draft.persona });
-        box.querySelector("pre")!.textContent = out.clause.trim();
-        box.querySelector("[data-tokens]")!.textContent = `About ${out.tokens} tokens on every agent step (with this workspace's persona).`;
+        box.innerHTML = previewHtml(out);
         box.hidden = false;
       } catch (err) {
         say(errorText(err), "error");
@@ -203,7 +237,12 @@ function mount(root: HTMLElement): void {
     if (!tone || tone.builtin) return;
     if (act === "edit") openForm(tone);
     if (act === "delete" && confirm(`Delete the tone “${tone.name}”?`)) {
-      void save({ tones: custom().filter((t) => t.slug !== tone.slug).map(toInput), hidden: hidden().filter((s) => s !== tone.slug) });
+      void save({
+        tones: custom()
+          .filter((t) => t.slug !== tone.slug)
+          .map(toInput),
+        hidden: hidden().filter((s) => s !== tone.slug),
+      });
     }
   });
 

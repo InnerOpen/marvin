@@ -615,18 +615,20 @@ class AuthoringService:
 
     def _voice_suffix(self, recipe, register: str | None) -> str:
         """The draft's voice for the system prompt: the entry type's own (recipe ``enrichment.voice``) when
-        it has one, else the requested tone's (None → the workspace default). "" for the plain default."""
+        it has one, else the requested tone's (None → the workspace default), labelled Character / Tone like
+        an agent's prompt. "" for the plain default."""
         voice = recipe.enrichment.get("voice") if isinstance(recipe.enrichment, dict) else None
-        if not voice:
-            from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
-            from marvin.services.ai.persona import resolve_persona
-            from marvin.services.ai.tones import draft_voice, workspace_tones
+        if voice:
+            return f" Voice/tone: {voice}"
+        from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+        from marvin.services.ai.persona import resolve_persona
+        from marvin.services.ai.tones import draft_voice, workspace_tones
 
-            settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-            tone = workspace_tones(settings).resolve(register)
-            _, persona_prompt = resolve_persona(settings.assistant_name if settings else None, settings.persona_prompt if settings else None)
-            voice = draft_voice(tone, persona_prompt)
-        return f" Voice/tone: {voice}" if voice else ""
+        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
+        tone = workspace_tones(settings).resolve(register)
+        _, persona_prompt = resolve_persona(settings.assistant_name if settings else None, settings.persona_prompt if settings else None)
+        voice = draft_voice(tone, persona_prompt)
+        return f"\n\n{voice}" if voice else ""
 
     def _recipe_instructions_block(self, recipe) -> str:
         """The recipe author's verbatim ``instructions`` — freeform "how to build this type" prose the
