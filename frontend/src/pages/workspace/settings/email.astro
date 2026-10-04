@@ -4,9 +4,11 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getBrowserApiBaseUrl, getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { listEmailTemplates } from "@/lib/api/emailTemplates";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Members may read templates; changing or test-sending them is admin-only (the API answers 403).
+const canManage = await canManageCurrentWorkspace(authToken!).catch(() => true);
 
 let workspace = null;
 let emailTemplates = [];
@@ -104,10 +106,16 @@ function isSuperseded(template: any): boolean {
       <h2>Email Templates</h2>
       <p>Customize the emails sent from {workspace?.workspace?.name || 'this workspace'}</p>
     </div>
-    <button class="button" id="create-template-btn">
-      <span>+ Create Template</span>
-    </button>
+    {canManage && (
+      <button class="button" id="create-template-btn">
+        <span>+ Create Template</span>
+      </button>
+    )}
   </div>
+
+  {!canManage && (
+    <div class="alert alert-info" role="status">Only workspace owners and admins can change, connect or test-send email templates.</div>
+  )}
 
   {error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
@@ -173,7 +181,7 @@ function isSuperseded(template: any): boolean {
                                 <span class="connected-dot">&#9679;</span>
                                 <code>{e}</code>
                                 {isAuto && <span class="auto-badge">Auto</span>}
-                                {subId && !isAuto && (
+                                {canManage && subId && !isAuto && (
                                   <button class="disconnect-event-btn" data-sub-id={subId} title="Disconnect" type="button">&#215;</button>
                                 )}
                               </span>
@@ -186,7 +194,7 @@ function isSuperseded(template: any): boolean {
                       <small class="superseded-note">A workspace customization is currently active — this template won't be used.</small>
                     )}
                   </div>
-                  <div class="template-actions">
+                  {canManage && <div class="template-actions">
                     {isSystemTpl ? (
                       <button
                         class="button secondary small customize-btn"
@@ -217,7 +225,7 @@ function isSuperseded(template: any): boolean {
                         Delete
                       </button>
                     )}
-                  </div>
+                  </div>}
                 </div>
               );
             };
@@ -598,7 +606,7 @@ function isSuperseded(template: any): boolean {
       });
     });
 
-    document.getElementById('create-template-btn').addEventListener('click', () => {
+    document.getElementById('create-template-btn')?.addEventListener('click', () => {
       isEditMode = false;
       document.getElementById('modal-title').textContent = 'Create Custom Template';
       templateForm.reset();

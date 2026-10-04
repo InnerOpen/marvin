@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { canManageWorkspace, nullIfForbidden } from "./workspaceRole.ts";
+import { canManageWorkspace, isForbidden, nullIfForbidden } from "./workspaceRole.ts";
 
 const active = (role) => [
   { role: "OWNER", isActive: false },
@@ -48,5 +48,18 @@ describe("nullIfForbidden", () => {
 
   test("rethrows any other failure", async () => {
     await assert.rejects(nullIfForbidden(Promise.reject({ status: 500 })), { status: 500 });
+  });
+});
+
+describe("isForbidden", () => {
+  test("a 403 from the SDK (statusCode) or fetch (status) is forbidden", () => {
+    assert.equal(isForbidden({ statusCode: 403 }), true);
+    assert.equal(isForbidden({ status: 403 }), true);
+  });
+
+  test("anything else is not", () => {
+    for (const e of [{ status: 404 }, { statusCode: 500 }, new Error("boom"), null, undefined]) {
+      assert.equal(isForbidden(e), false);
+    }
   });
 });

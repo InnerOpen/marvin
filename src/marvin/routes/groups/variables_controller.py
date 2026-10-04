@@ -1,10 +1,11 @@
-"""Workspace Variables API — plain-text key-value config referenced via {{SLUG}}."""
+"""Workspace Variables API — plain-text key-value config referenced via {{SLUG}}. Workspace-admin only."""
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 
 from marvin.db.models.groups.variables import WorkspaceVariable
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_admin
 from marvin.schemas.group.variable import (
     WorkspaceVariableCreate,
     WorkspaceVariableRead,
@@ -49,11 +50,13 @@ class VariablesController(BaseUserController):
     @router.get("", response_model=list[WorkspaceVariableRead])
     def list_variables(self):
         """List all variables (including values — variables are not secret)."""
+        require_workspace_admin(self.user, self.group_id)
         return self.repos.workspace_variables().get_all(order_by="name")
 
     @router.post("", response_model=WorkspaceVariableRead, status_code=status.HTTP_201_CREATED)
     def create_variable(self, data: WorkspaceVariableCreate):
         """Create a workspace variable."""
+        require_workspace_admin(self.user, self.group_id)
         existing = self.repos.workspace_variables().get_all()
         if any(v.slug == data.slug for v in existing):
             raise HTTPException(
@@ -78,6 +81,7 @@ class VariablesController(BaseUserController):
     @router.patch("/{var_id}", response_model=WorkspaceVariableRead)
     def update_variable(self, var_id: UUID4, data: WorkspaceVariableUpdate):
         """Update a variable's name, description, or value."""
+        require_workspace_admin(self.user, self.group_id)
         var = _get_var_or_404(self.session, var_id, self.group_id)
         if data.name is not None:
             var.name = data.name
@@ -93,6 +97,7 @@ class VariablesController(BaseUserController):
     @router.delete("/{var_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_variable(self, var_id: UUID4):
         """Delete a variable."""
+        require_workspace_admin(self.user, self.group_id)
         var = self.session.get(WorkspaceVariable, var_id)
         if not var or var.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Variable not found.")

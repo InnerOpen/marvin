@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import UUID4, BaseModel, EmailStr
 
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_admin
 from marvin.schemas.admin.email import EmailSuccess, EmailTest
 from marvin.services.email.email_service import EmailService
 
@@ -26,6 +27,7 @@ class PlatformEmailController(BaseUserController):
         accept_language: str | None = Header(default=None),
     ) -> EmailSuccess:
         """Send a test email. Uses provided subject/message if given, otherwise generic defaults."""
+        require_workspace_admin(self.user, self.group_id)
         from marvin.services.email.email_service import EmailTemplate
 
         email_service = EmailService(locale=accept_language, group_id=str(self.group_id))
@@ -90,6 +92,7 @@ class PlatformEmailController(BaseUserController):
     @router.patch("/templates/{template_id}")
     def update_template(self, template_id: UUID4, data: dict):
         """Update a workspace template. Cannot update system templates."""
+        require_workspace_admin(self.user, self.group_id)
         from marvin.db.db_setup import session_context
         from marvin.db.models.groups.email_templates import EmailTemplateModel
         from marvin.schemas.group.email_template import EmailTemplateRead
@@ -118,6 +121,7 @@ class PlatformEmailController(BaseUserController):
     @router.post("/templates/{template_id}/test")
     def send_template_test_email(self, template_id: UUID4, data: TemplateTestRequest) -> dict:
         """Send a test email using a specific workspace template with its subject and body."""
+        require_workspace_admin(self.user, self.group_id)
         from sqlalchemy import and_, select
 
         from marvin.db.db_setup import session_context

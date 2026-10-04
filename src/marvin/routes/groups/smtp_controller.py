@@ -3,6 +3,7 @@
 CRUD for named, workspace-scoped SMTP server configurations. A workspace may have
 several profiles; at most one is active. Passwords are Fernet-encrypted at rest and
 never returned. A per-profile test endpoint sends a live message through the profile.
+Workspace-admin only.
 """
 
 from fastapi import APIRouter, HTTPException, status
@@ -11,6 +12,7 @@ from sqlalchemy import select
 
 from marvin.db.models.groups.smtp_profiles import WorkspaceSMTPProfileModel, smtp_secret_ref
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_admin
 from marvin.schemas.group.smtp_profile import (
     SMTPProfileCreate,
     SMTPProfileRead,
@@ -106,6 +108,7 @@ class SMTPProfilesController(BaseUserController):
 
     @router.get("", response_model=list[SMTPProfileRead], summary="List Workspace SMTP Profiles")
     def list_profiles(self) -> list[SMTPProfileRead]:
+        require_workspace_admin(self.user, self.group_id)
         rows = (
             self.session.execute(
                 select(WorkspaceSMTPProfileModel).where(WorkspaceSMTPProfileModel.group_id == self.group_id).order_by(WorkspaceSMTPProfileModel.name)
@@ -117,6 +120,7 @@ class SMTPProfilesController(BaseUserController):
 
     @router.post("", response_model=SMTPProfileRead, status_code=status.HTTP_201_CREATED, summary="Create SMTP Profile")
     def create_profile(self, data: SMTPProfileCreate) -> SMTPProfileRead:
+        require_workspace_admin(self.user, self.group_id)
         profile = WorkspaceSMTPProfileModel(
             session=self.session,
             group_id=self.group_id,
@@ -141,10 +145,12 @@ class SMTPProfilesController(BaseUserController):
 
     @router.get("/{profile_id}", response_model=SMTPProfileRead, summary="Get an SMTP Profile")
     def get_profile(self, profile_id: UUID4) -> SMTPProfileRead:
+        require_workspace_admin(self.user, self.group_id)
         return _to_read(self._get_or_404(profile_id))
 
     @router.patch("/{profile_id}", response_model=SMTPProfileRead, summary="Update an SMTP Profile")
     def update_profile(self, profile_id: UUID4, data: SMTPProfileUpdate) -> SMTPProfileRead:
+        require_workspace_admin(self.user, self.group_id)
         profile = self._get_or_404(profile_id)
 
         for field in ("name", "host", "port", "username", "from_name", "from_email", "auth_strategy"):
@@ -172,6 +178,7 @@ class SMTPProfilesController(BaseUserController):
 
     @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an SMTP Profile")
     def delete_profile(self, profile_id: UUID4) -> None:
+        require_workspace_admin(self.user, self.group_id)
         profile = self._get_or_404(profile_id)
         self._delete_managed_secret(profile)  # only our own secret, never a referenced one
         self.session.delete(profile)
@@ -179,6 +186,7 @@ class SMTPProfilesController(BaseUserController):
 
     @router.post("/{profile_id}/test", response_model=SMTPProfileTestResult, summary="Send a test email via this profile")
     def test_profile(self, profile_id: UUID4, data: SMTPProfileTestRequest) -> SMTPProfileTestResult:
+        require_workspace_admin(self.user, self.group_id)
         profile = self._get_or_404(profile_id)
 
         from_email = profile.from_email or self.settings.SMTP_FROM_EMAIL

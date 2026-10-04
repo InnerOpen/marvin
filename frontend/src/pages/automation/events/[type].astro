@@ -4,10 +4,12 @@ import { ApiRequestError, fetchApi, getAuthToken } from "@/lib/api/client";
 import { getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { listEmailTemplates } from "@/lib/api/emailTemplates";
 import { listIntegrations, listProviders, listSubscriptions } from "@/lib/api/integrations";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
+// Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
+const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
 const sdk = createSdkClient(authToken);
 const { type } = Astro.params;
 
@@ -102,7 +104,7 @@ const examplePayload =
   eventInfo?.payloadExample ?? (eventInfo ? buildExamplePayload(type!, eventInfo.variables || []) : {});
 ---
 
-<AppLayout title={eventInfo ? eventInfo.label : 'Event'} eyebrow="Events">
+<AppLayout adminOnly={adminOnly} title={eventInfo ? eventInfo.label : 'Event'} eyebrow="Events">
   {error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
   ) : eventInfo ? (

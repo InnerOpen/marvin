@@ -3,6 +3,7 @@ import type { TaskTypeInfo } from "@inneropen/marvin-sdk/platform";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -12,6 +13,7 @@ let task: any = null;
 let taskTypes: TaskTypeInfo[] = [];
 let history: any[] = [];
 let error: string | null = null;
+let adminOnly = false;
 
 try {
   [task, taskTypes] = await Promise.all([
@@ -20,7 +22,8 @@ try {
   ]);
 } catch (e) {
   console.error("[scheduled-tasks/edit] Error loading task:", e);
-  error = e instanceof Error ? e.message : String(e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
 if (task) {
@@ -52,7 +55,7 @@ const scheduleType = task ? (task.scheduleType ?? task.schedule_type) : "";
 const scheduleConfig = task ? (task.scheduleConfig ?? task.schedule_config) : null;
 ---
 
-<AppLayout title={task ? `Edit: ${task.name}` : 'Scheduled Task'} eyebrow="Automation">
+<AppLayout adminOnly={adminOnly} title={task ? `Edit: ${task.name}` : 'Scheduled Task'} eyebrow="Automation">
   <div class="page-header">
     <div class="breadcrumb">
       <a href="/workspace/scheduled-tasks">Scheduled Tasks</a>

@@ -9,7 +9,11 @@ pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not insta
 
 from fastapi import HTTPException  # noqa: E402
 
+from marvin.db.models.users.roles import PlatformRole, WorkspaceRole  # noqa: E402
 from marvin.routes.groups import integrations_controller as ic  # noqa: E402
+
+# Deleting an integration is workspace-admin only; the controller stand-ins act as an ADMIN of "G".
+ADMIN = SimpleNamespace(admin=False, platform_role=PlatformRole.NONE, get_workspace_role=lambda gid: WorkspaceRole.ADMIN if gid == "G" else None)
 
 
 @pytest.fixture
@@ -43,7 +47,7 @@ def test_delete_leaves_a_referenced_secret_alone(monkeypatch):
     monkeypatch.setattr(ic, "_delete_secret_quietly", lambda ref, gid: deleted.append(ref))
     row = SimpleNamespace(slug="square", secret_ref="SQUARE_TOKEN")
     session = SimpleNamespace(delete=lambda r: None, commit=lambda: None)
-    ctrl = SimpleNamespace(_get_or_404=lambda i: row, session=session, group_id="G")
+    ctrl = SimpleNamespace(_get_or_404=lambda i: row, session=session, group_id="G", user=ADMIN)
 
     ic.IntegrationsController.delete_integration(ctrl, "id")
 
@@ -54,7 +58,7 @@ def test_delete_removes_its_own_copy(monkeypatch):
     deleted = []
     monkeypatch.setattr(ic, "_delete_secret_quietly", lambda ref, gid: deleted.append(ref))
     row = SimpleNamespace(slug="square", secret_ref="INTEGRATION_SQUARE")
-    ctrl = SimpleNamespace(_get_or_404=lambda i: row, session=SimpleNamespace(delete=lambda r: None, commit=lambda: None), group_id="G")
+    ctrl = SimpleNamespace(_get_or_404=lambda i: row, session=SimpleNamespace(delete=lambda r: None, commit=lambda: None), group_id="G", user=ADMIN)
 
     ic.IntegrationsController.delete_integration(ctrl, "id")
 

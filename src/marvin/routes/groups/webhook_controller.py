@@ -4,6 +4,9 @@ within the Marvin application.
 
 It provides endpoints for CRUD operations on webhooks, as well as utilities
 for re-running all scheduled webhooks for the day and testing individual webhooks.
+
+Workspace-admin only (except the static `/types` list): a webhook sends workspace event data to any
+URL, and its headers and execution logs can carry credentials and payloads.
 """
 
 from datetime import UTC, datetime, time  # Added time for type hint
@@ -14,6 +17,7 @@ from pydantic import UUID4  # For UUID type validation
 
 # Marvin base controllers, schemas, services, and utilities
 from marvin.routes._base.base_controllers import BaseUserController
+from marvin.routes._base.checks import require_workspace_admin
 from marvin.routes._base.controller import controller
 from marvin.routes._base.mixins import HttpRepo
 from marvin.schemas.group.webhook import (
@@ -103,6 +107,7 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         Returns:
             WebhookPagination: Paginated list of webhooks.
         """
+        require_workspace_admin(self.user, self.group_id)
         # `self.repo` is already group-scoped by BaseUserController logic.
         paginated_response = self.repo.page_all(
             pagination=q,
@@ -129,6 +134,7 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         Returns:
             WebhookRead: The Pydantic schema of the newly created webhook.
         """
+        require_workspace_admin(self.user, self.group_id)
         # The original code casts `data` (WebhookCreate) to `WebhookUpdate` then to `WebhookCreate` for the mixin.
         # This seems circuitous. If `WebhookCreate` is the correct input for `repo.create`,
         # and `group_id` needs to be added, it's better to create a new `WebhookCreate` instance
@@ -153,6 +159,7 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         Returns:
             dict[str, str]: A message indicating the process has been initiated.
         """
+        require_workspace_admin(self.user, self.group_id)
         # Determine the start of the current UTC day
         start_of_day_utc: time = datetime.min.time()  # Midnight
         start_datetime_utc: datetime = datetime.combine(datetime.now(UTC).date(), start_of_day_utc)
@@ -168,6 +175,7 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
     @router.get("/log", response_model=list[WebhookExecutionLogRead], summary="Get Workspace Webhook Execution Log")
     def get_workspace_log(self, limit: int = 100) -> list[WebhookExecutionLogRead]:
         """Get recent webhook execution log entries for the current workspace."""
+        require_workspace_admin(self.user, self.group_id)
         return self.repos.webhook_logs().get_all(limit=limit, order_by="executed_at")
 
     @router.get("/{item_id}", response_model=WebhookRead, summary="Get a Specific Webhook")
@@ -183,6 +191,7 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         Returns:
             WebhookRead: The Pydantic schema of the requested webhook.
         """
+        require_workspace_admin(self.user, self.group_id)
         return self.mixins.get_one(item_id)
 
     @router.get("/{item_id}/test", summary="Test a Specific Webhook", status_code=status.HTTP_202_ACCEPTED)
@@ -200,6 +209,7 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         Returns:
             dict[str, str]: A message indicating that the test has been scheduled.
         """
+        require_workspace_admin(self.user, self.group_id)
         webhook_to_test = self.mixins.get_one(item_id)  # Fetches WebhookRead schema
         if not webhook_to_test.enabled:
             raise HTTPException(
@@ -214,13 +224,14 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
     @router.get("/{item_id}/logs", response_model=list[WebhookExecutionLogRead], summary="Get Execution Logs for a Webhook")
     def get_webhook_logs(self, item_id: UUID4, limit: int = 50) -> list[WebhookExecutionLogRead]:
         """Get execution history for a specific webhook."""
+        require_workspace_admin(self.user, self.group_id)
         from sqlalchemy import desc, select
 
         from marvin.db.models.groups.webhook_execution_logs import WebhookExecutionLogModel
 
         stmt = (
             select(WebhookExecutionLogModel)
-            .where(WebhookExecutionLogModel.webhook_id == item_id)
+            .where(WebhookExecutionLogModel.webhook_id == item_id, WebhookExecutionLogModel.group_id == self.group_id)
             .order_by(desc(WebhookExecutionLogModel.executed_at))
             .limit(limit)
         )
@@ -243,6 +254,7 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         Returns:
             WebhookRead: The Pydantic schema of the updated webhook.
         """
+        require_workspace_admin(self.user, self.group_id)
         _validate_webhook_mode(data)
         save_data = cast(data, WebhookSave, group_id=self.group_id)
         return self.mixins.update_one(item_id=item_id, data=save_data)
@@ -260,5 +272,6 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         Returns:
             dict: Status message on successful deletion.
         """
+        require_workspace_admin(self.user, self.group_id)
         self.mixins.delete_one(item_id)  # type: ignore
         return {"status": "ok", "message": "Webhook deleted successfully"}

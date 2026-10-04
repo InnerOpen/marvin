@@ -1,4 +1,9 @@
-"""Platform workspace import/export/backup endpoints."""
+"""Platform workspace import/export/backup endpoints.
+
+Export and backups are workspace-admin only: a bundle carries webhook URLs and headers, integration
+and SMTP config, variables, and secrets (wrapped by the backup key). Revealing the key and importing
+need OWNER.
+"""
 
 import json
 from datetime import UTC, datetime
@@ -11,6 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from marvin.repos.seed.workspace_exporter import WorkspaceExporter
 from marvin.repos.seed.workspace_seed_loader import WorkspaceSeedLoader
 from marvin.routes._base import BaseUserController, controller
+from marvin.routes._base.checks import require_workspace_admin
 
 router = APIRouter(prefix="/workspace")
 
@@ -41,6 +47,7 @@ class WorkspaceController(BaseUserController):
         Returns:
             JSON response with workspace data
         """
+        require_workspace_admin(self.user, self.group_id)
         exporter = WorkspaceExporter(self.repos)
         export_data = exporter.export_workspace(include_system_types=include_system_types)
 
@@ -61,6 +68,7 @@ class WorkspaceController(BaseUserController):
         Returns:
             Pretty-printed JSON response
         """
+        require_workspace_admin(self.user, self.group_id)
         exporter = WorkspaceExporter(self.repos)
         export_data = exporter.export_workspace(include_system_types=include_system_types)
 
@@ -86,6 +94,7 @@ class WorkspaceController(BaseUserController):
         Returns:
             {filename, size, created_at, download_url}
         """
+        require_workspace_admin(self.user, self.group_id)
         exporter = WorkspaceExporter(self.repos)
         zip_path = exporter.export_workspace_bundle(
             include_system_types=include_system_types,
@@ -139,6 +148,7 @@ class WorkspaceController(BaseUserController):
         Returns:
             List of {filename, size, created_at} dicts
         """
+        require_workspace_admin(self.user, self.group_id)
         workspace = self.repos.groups.get_one(self.group_id)
         slug = workspace.slug if workspace else None
 
@@ -166,6 +176,7 @@ class WorkspaceController(BaseUserController):
         Returns:
             Zip file download
         """
+        require_workspace_admin(self.user, self.group_id)
         from fastapi import HTTPException, status
 
         if not filename.endswith(".zip") or "/" in filename or "\\" in filename or ".." in filename:

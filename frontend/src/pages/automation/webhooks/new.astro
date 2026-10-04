@@ -2,8 +2,11 @@
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
+const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
 const sdk = createSdkClient(authToken);
 
 let eventOptions: any[] = [];
@@ -15,7 +18,7 @@ try {
 }
 ---
 
-<AppLayout title="New Webhook" eyebrow="Automation">
+<AppLayout adminOnly={adminOnly} title="New Webhook" eyebrow="Automation">
   <div class="page-header">
     <div>
       <h2>Create Webhook</h2>

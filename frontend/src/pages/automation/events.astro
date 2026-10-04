@@ -3,8 +3,11 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { listSubscriptions } from "@/lib/api/integrations";
 import { createSdkClient } from "@/lib/sdk";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
+const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
 const sdk = createSdkClient(authToken);
 
 let eventTypes: any[] = [];
@@ -51,7 +54,7 @@ const groupedByCategory = categories.map((cat) => {
 });
 ---
 
-<AppLayout title="Events" eyebrow="Automation">
+<AppLayout adminOnly={adminOnly} title="Events" eyebrow="Automation">
   <div class="toolbar">
     <div>
       <h2>Events</h2>

@@ -53,6 +53,9 @@ class GroupInvitationsController(BaseUserController):
         Returns:
             InviteTokenPagination: Paginated list of invite token summeries.
         """
+        # The tokens are live: anyone holding one joins with its role, so only members who may invite
+        # may see them.
+        self.checks.can_manage_members(self.group_id)
         # `self.repos.group_invite_tokens` is automatically scoped to the user's group
         # by `BaseUserController`'s `repos` property.
         # Fetch all items by setting per_page to -1 (or a very large number if -1 isn't supported by pagination).

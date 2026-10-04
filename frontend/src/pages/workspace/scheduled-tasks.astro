@@ -2,19 +2,22 @@
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
 
 let tasks: any[] = [];
 let error: string | null = null;
+let adminOnly = false;
 
 try {
   const result = await sdk.scheduledTasks.list();
   tasks = Array.isArray(result) ? result : ((result as any)?.items ?? []);
 } catch (e) {
   console.error("[scheduled-tasks] Error loading:", e);
-  error = e instanceof Error ? e.message : String(e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
 function formatSchedule(task: any): string {
@@ -49,7 +52,7 @@ function statusClass(status: string | null): string {
 }
 ---
 
-<AppLayout title="Scheduled Tasks" eyebrow="Automation">
+<AppLayout adminOnly={adminOnly} title="Scheduled Tasks" eyebrow="Automation">
   <div class="toolbar">
     <div>
       <h2>Scheduled Tasks</h2>

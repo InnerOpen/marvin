@@ -3,9 +3,11 @@ import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getBrowserFetchBaseUrl } from "@/lib/api/config";
-import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
+const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
 
 let workspace = null;
 try {
@@ -17,7 +19,7 @@ try {
 const apiUrl = getBrowserFetchBaseUrl();
 ---
 
-<AppLayout title="Test Emails" eyebrow="Workspace">
+<AppLayout adminOnly={adminOnly} title="Test Emails" eyebrow="Workspace">
   <Breadcrumb items={[
     { label: "Workspace Settings", href: "/workspace/settings" },
     { label: "Email", href: "/workspace/settings?tab=email" },

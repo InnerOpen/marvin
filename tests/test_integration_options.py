@@ -13,7 +13,7 @@ from marvin_integration_sdk import INTEGRATION_REGISTRY, IntegrationProvider, Pr
 
 from marvin.app import app  # noqa: E402
 from marvin.core.dependencies import get_current_user  # noqa: E402
-from marvin.db.models.users.roles import WorkspaceRole  # noqa: E402
+from marvin.db.models.users.roles import PlatformRole, WorkspaceRole  # noqa: E402
 
 BASE = "/api/groups/integrations"
 
@@ -164,6 +164,7 @@ def _client(ws) -> TestClient:
         admin=False,
         is_superuser=False,
         full_name="OPT",
+        platform_role=PlatformRole.NONE,
         get_workspace_role=lambda group_id: WorkspaceRole.ADMIN if str(group_id) == str(ws.gid) else None,
     )
     return TestClient(app)

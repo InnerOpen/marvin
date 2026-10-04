@@ -89,8 +89,13 @@ Full control over the workspace.
 Workspace administrator with management capabilities.
 
 **Permissions:**
-- Manage workspace settings
-- Manage workspace members (invite/remove)
+- Manage workspace settings: integrations (and running their checks and actions), outgoing and
+  incoming webhooks, workflows, scheduled tasks, SMTP profiles, email templates and their event
+  subscriptions, variables and secrets, AI providers and MCP servers, export and backups. These
+  routes refuse lower roles with a 403 for reads as well as writes, except the integration provider
+  catalog, webhook and task-type lists, secret slugs, email templates, workspace preferences and
+  AI settings, which member pages read.
+- Manage workspace members (invite/remove, see invite tokens)
 - Manage entry types and collections
 - Create/edit/delete all entries
 - Manage assets

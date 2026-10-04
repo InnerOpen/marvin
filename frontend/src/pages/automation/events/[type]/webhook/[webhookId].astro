@@ -3,6 +3,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { createSdkClient } from "@/lib/sdk";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
@@ -12,6 +13,7 @@ let eventInfo: any = null;
 let webhook: any = null;
 let isConnected = false;
 let error: string | null = null;
+let adminOnly = false;
 
 const apiUrl = getBrowserFetchBaseUrl();
 
@@ -52,14 +54,15 @@ try {
   isConnected = subscribedEvents.includes(type || "");
 } catch (e) {
   console.error("[events/webhook-connect] Error:", e);
-  error = e instanceof Error ? e.message : String(e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
 const examplePayload =
   (eventInfo as any)?.payloadExample ?? (eventInfo ? buildExamplePayload(type!, eventInfo.variables ?? []) : {});
 ---
 
-<AppLayout title="Connect Webhook" eyebrow="Events">
+<AppLayout adminOnly={adminOnly} title="Connect Webhook" eyebrow="Events">
   {error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
   ) : (eventInfo && webhook) ? (

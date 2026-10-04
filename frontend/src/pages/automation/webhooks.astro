@@ -3,12 +3,14 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
 let workspace = null;
 let webhooks: any[] = [];
 let error: string | null = null;
+let adminOnly = false;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
@@ -18,7 +20,8 @@ try {
   }
 } catch (e) {
   console.error("[webhooks] Error loading:", e);
-  error = e instanceof Error ? e.message : String(e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
 function formatScheduledTime(time: string | null | undefined): string {
@@ -29,7 +32,7 @@ function formatScheduledTime(time: string | null | undefined): string {
 }
 ---
 
-<AppLayout title="Webhooks" eyebrow="Workspace">
+<AppLayout adminOnly={adminOnly} title="Webhooks" eyebrow="Workspace">
   <div class="toolbar">
     <div>
       <h2>Webhooks</h2>

@@ -4,6 +4,10 @@ Workspace Integrations API.
 CRUD for credentialed connections to external services, plus a provider catalog, a
 health check, and an action test-fire. Credentials are written to the configured secret
 backend and referenced by `secret_ref` — never stored on the row or returned.
+
+Every route is workspace-admin only except the provider catalog (what can be installed, no workspace
+data) and the public logo route: connections carry config, checks and actions spend the workspace's
+credentials, and the workflow engine already requires ADMIN for integration actions.
 """
 
 import re
@@ -164,6 +168,7 @@ class IntegrationsController(BaseUserController):
     @router.get("/plugins", response_model=list[IntegrationPluginInfo])
     def list_plugins(self):
         """Installed provider sources — built-ins and plugin packages — with load status/version."""
+        require_workspace_admin(self.user, self.group_id)
         return [IntegrationPluginInfo(**asdict(r)) for r in load_reports()]
 
     # ---- integration alert routing ------------------------------------------------
@@ -207,6 +212,7 @@ class IntegrationsController(BaseUserController):
     @router.get("/subscriptions", response_model=list[IntegrationEventSubscriptionRead])
     def list_subscriptions(self, event_type: str | None = None):
         """Integration actions wired to events. Filter by ?event_type= for one event's connections."""
+        require_workspace_admin(self.user, self.group_id)
         q = self.session.query(IntegrationEventSubscriptionModel).filter(IntegrationEventSubscriptionModel.group_id == self.group_id)
         if event_type:
             q = q.filter(IntegrationEventSubscriptionModel.event_type == event_type)
@@ -215,6 +221,7 @@ class IntegrationsController(BaseUserController):
     @router.post("/subscriptions", response_model=IntegrationEventSubscriptionRead, status_code=status.HTTP_201_CREATED)
     def create_subscription(self, data: IntegrationEventSubscriptionCreate):
         """Wire an integration action to an event type."""
+        require_workspace_admin(self.user, self.group_id)
         integ = self.session.get(IntegrationModel, data.integration_id)
         if not integ or integ.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found.")
@@ -240,6 +247,7 @@ class IntegrationsController(BaseUserController):
     @router.patch("/subscriptions/{sub_id}", response_model=IntegrationEventSubscriptionRead)
     def update_subscription(self, sub_id: UUID4, data: IntegrationEventSubscriptionUpdate):
         """Toggle a connection or change its templated args."""
+        require_workspace_admin(self.user, self.group_id)
         row = self.session.get(IntegrationEventSubscriptionModel, sub_id)
         if not row or row.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
@@ -254,6 +262,7 @@ class IntegrationsController(BaseUserController):
     @router.delete("/subscriptions/{sub_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_subscription(self, sub_id: UUID4):
         """Remove an integration ⇄ event connection."""
+        require_workspace_admin(self.user, self.group_id)
         row = self.session.get(IntegrationEventSubscriptionModel, sub_id)
         if not row or row.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
@@ -265,6 +274,7 @@ class IntegrationsController(BaseUserController):
     @router.get("", response_model=list[IntegrationRead])
     def list_integrations(self):
         """List this workspace's configured integrations."""
+        require_workspace_admin(self.user, self.group_id)
         rows = self.session.query(IntegrationModel).filter(IntegrationModel.group_id == self.group_id).order_by(IntegrationModel.name).all()
         alerts = errors.open_alerts(self.session, self.group_id)
         return [_to_read(r, alerts.get(r.id)) for r in rows]
@@ -272,6 +282,7 @@ class IntegrationsController(BaseUserController):
     @router.post("", response_model=IntegrationRead, status_code=status.HTTP_201_CREATED)
     def create_integration(self, data: IntegrationCreate):
         """Create an integration. Any credential is written to the secret backend."""
+        require_workspace_admin(self.user, self.group_id)
         try:
             provider = get_provider(data.provider)
         except KeyError as e:
@@ -316,6 +327,7 @@ class IntegrationsController(BaseUserController):
     @router.patch("/{integration_id}", response_model=IntegrationRead)
     def update_integration(self, integration_id: UUID4, data: IntegrationUpdate):
         """Update name/enabled/config, or rotate the credential."""
+        require_workspace_admin(self.user, self.group_id)
         row = self._get_or_404(integration_id)
         # Provider may be uninstalled (orphaned row); still allow rename / enable-disable / delete.
         provider = self._provider_or_none(row.provider)
@@ -354,6 +366,7 @@ class IntegrationsController(BaseUserController):
     @router.delete("/{integration_id}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_integration(self, integration_id: UUID4):
         """Delete an integration and its stored credential."""
+        require_workspace_admin(self.user, self.group_id)
         row = self._get_or_404(integration_id)
         if row.secret_ref and _owns_secret(row):  # a referenced workspace secret is shared — leave it
             _delete_secret_quietly(row.secret_ref, self.group_id)
@@ -382,6 +395,7 @@ class IntegrationsController(BaseUserController):
     @router.post("/{integration_id}/check", response_model=IntegrationCheckResult)
     def check_integration(self, integration_id: UUID4):
         """Run the provider's health check and persist the result."""
+        require_workspace_admin(self.user, self.group_id)
         row = self._get_or_404(integration_id)
         self._run_check(row)
         return IntegrationCheckResult(status=row.status, last_error=row.last_error, last_checked_at=row.last_checked_at)
@@ -457,6 +471,7 @@ class IntegrationsController(BaseUserController):
     @router.post("/{integration_id}/actions/{action_key}", response_model=IntegrationActionResult)
     def run_action(self, integration_id: UUID4, action_key: str, args: dict | None = None):
         """Manually fire a provider action (also how the automation engine will call it)."""
+        require_workspace_admin(self.user, self.group_id)
         row, provider = self._runnable(integration_id)
         return IntegrationActionResult(ok=True, result=self._execute(row, provider, action_key, args))
 
@@ -469,6 +484,7 @@ class IntegrationsController(BaseUserController):
         Only that hinted action runs, with the hint's static args — the caller names an input, never an
         action — so this can't be used to fire arbitrary actions. Same access as Run action. Errors come
         back as a 4xx with a plain message; the picker shows it and keeps free text."""
+        require_workspace_admin(self.user, self.group_id)
         row, provider = self._runnable(integration_id)
         hint = _options_hint(provider, data.action_key, data.input)
         try:

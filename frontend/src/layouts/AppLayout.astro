@@ -12,6 +12,7 @@ import { getAuthToken } from "@/lib/api/client";
 import { getEntryCounts } from "@/lib/api/entries";
 import { sourceAllowed } from "@/lib/marvin/gate";
 import { createSdkClient } from "@/lib/sdk";
+import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
 interface Props {
   title: string;
@@ -29,9 +30,14 @@ interface Props {
   entityType?: "entry" | "asset" | "resource" | "collection" | "entry_type";
   entityId?: string;
   entityLabel?: string;
+  /**
+   * The page is workspace-admin only and the caller isn't one (the API answered 403): show the
+   * admins-only note in place of the page body, so a member never sees controls the API refuses.
+   */
+  adminOnly?: boolean;
 }
 
-const { title, eyebrow = "Marvin Platform", entityType, entityId, entityLabel } = Astro.props;
+const { title, eyebrow = "Marvin Platform", entityType, entityId, entityLabel, adminOnly = false } = Astro.props;
 const path = Astro.url.pathname;
 
 // Check if user is admin and get platform role
@@ -200,7 +206,11 @@ function isActive(itemPath: string, currentPath: string): boolean {
           </div>
         </header>
         <section class="content">
-          <slot />
+          {adminOnly ? (
+            <div class="alert alert-info" role="status">{ADMINS_ONLY}</div>
+          ) : (
+            <slot />
+          )}
         </section>
       </main>
       <ThemeSwitcher />

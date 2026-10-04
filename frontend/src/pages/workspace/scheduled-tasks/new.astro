@@ -3,8 +3,11 @@ import type { TaskTypeInfo } from "@inneropen/marvin-sdk/platform";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
+const adminOnly = !(await canManageCurrentWorkspace(authToken!).catch(() => true));
 const sdk = createSdkClient(authToken);
 
 let taskTypes: TaskTypeInfo[] = [];
@@ -18,7 +21,7 @@ try {
 }
 ---
 
-<AppLayout title="New Scheduled Task" eyebrow="Automation">
+<AppLayout adminOnly={adminOnly} title="New Scheduled Task" eyebrow="Automation">
   <div class="page-header">
     <div class="breadcrumb">
       <a href="/workspace/scheduled-tasks">Scheduled Tasks</a>

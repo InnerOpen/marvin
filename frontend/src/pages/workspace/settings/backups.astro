@@ -6,6 +6,7 @@ import type { WorkspaceRole } from "@/lib/api/types";
 import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { requireAuth } from "@/lib/auth";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
 
@@ -14,6 +15,8 @@ let workspace = null;
 let currentUserRole: WorkspaceRole | null = null;
 let isPlatformAdmin = false;
 let initialBackups: { filename: string; size: number; created_at: string }[] = [];
+// Backups and the member list behind the role lookup are admin-only; a 403 shows the admins-only note.
+let adminOnly = false;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
@@ -35,11 +38,13 @@ try {
       );
       initialBackups = Array.isArray(backupList) ? backupList : [];
     } catch (e) {
-      console.error("[backups] Failed to load backup list:", e);
+      if (isForbidden(e)) adminOnly = true;
+      else console.error("[backups] Failed to load backup list:", e);
     }
   }
 } catch (e) {
-  console.error("[backups] Error loading:", e);
+  if (isForbidden(e)) adminOnly = true;
+  else console.error("[backups] Error loading:", e);
 }
 
 const canImport = isPlatformAdmin || currentUserRole === "OWNER";
@@ -58,7 +63,7 @@ function fmtDate(iso: string): string {
 }
 ---
 
-<AppLayout title="Backups" eyebrow="Settings">
+<AppLayout adminOnly={adminOnly} title="Backups" eyebrow="Settings">
   <Breadcrumb items={[
     { label: "Settings", href: "/workspace/settings" },
     { label: "Backups" },

@@ -7,6 +7,7 @@ import { listIntegrations, listPlugins, listProviders } from "@/lib/api/integrat
 import { policyRows } from "@/lib/integrationPolicy";
 import type { Blueprint } from "@/lib/api/blueprints";
 import { listBlueprints } from "@/lib/api/blueprints";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 
@@ -15,6 +16,7 @@ let integrations: IntegrationWithHealth[] = [];
 let plugins: IntegrationPluginInfo[] = [];
 let blueprints: Blueprint[] = [];
 let error: string | null = null;
+let adminOnly = false;
 
 try {
   [providers, integrations, plugins, blueprints] = await Promise.all([
@@ -27,7 +29,8 @@ try {
   ]);
 } catch (e) {
   console.error("[integrations] load error:", e);
-  error = e instanceof Error ? e.message : String(e);
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
 }
 
 // The workspace's own entry types and collections, for blueprint parameters that pick one. Optional:
@@ -84,7 +87,7 @@ function statusMeta(status: string): { text: string; cls: string } {
 }
 ---
 
-<AppLayout title="Integrations" eyebrow="Settings">
+<AppLayout adminOnly={adminOnly} title="Integrations" eyebrow="Settings">
   <div class="page-header">
     <div>
       <h2>Integrations</h2>
