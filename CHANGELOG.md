@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.174 (2026-10-04)
+
+### Bug Fixes
+
+- **frontend**: Activity toasts stay on screen on a phone
+  ([`3f1e457`](https://github.com/InnerOpen/marvin/commit/3f1e4578ff05f1cad266cb3fa3a61db211c9c297))
+
+- **frontend**: The Marvin bubble rests bottom-left and stays put on screen
+  ([`697d301`](https://github.com/InnerOpen/marvin/commit/697d301c35d4146192ba7e252090ef0b3321499a))
+
+### Features
+
+- **frontend**: The admin fits a phone — sidebar drawer, stacked layouts, no sideways scroll
+  ([`7fdae61`](https://github.com/InnerOpen/marvin/commit/7fdae619918abcdf46fd2ac0bb103de7f79d84d0))
+
+
 ## v1.0.0-rc.173 (2026-10-04)
 
 ### Features
