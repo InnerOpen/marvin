@@ -3,11 +3,12 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 
-from marvin.db.models.platform import EntryCollections
+from marvin.db.models.platform import EntryCollections, EntryTypes
 from marvin.routes._base import BaseUserController, controller
 from marvin.schemas.platform import CollectionRead, EntryCreate, EntryRead, EntryUpdate
 from marvin.services.entries import EntryService
 from marvin.services.entries.entry_service import count_by_status
+from marvin.services.entry_urls import entry_url, site_base_url
 
 router = APIRouter(prefix="/entries")
 
@@ -46,6 +47,12 @@ class EntriesController(BaseUserController):
         entry = self.repos.entries.get_one(item_id)
         if not entry:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found.")
+        entry.page_url = entry_url(
+            entry,
+            absolute=True,
+            site_url=site_base_url(self.session, self.group_id),
+            entry_type=self.session.get(EntryTypes, entry.entry_type_id),
+        )
         return entry
 
     @router.post("/{item_id}/apply-suggestion", response_model=EntryRead, summary="Apply AI Suggestion")

@@ -284,6 +284,7 @@ class WorkspaceExporter:
                     "renderingJson": et.rendering,
                     "capabilitiesJson": et.capabilities,
                     "recipeJson": et.recipe,
+                    "pageUrlPattern": et.page_url_pattern,
                 }
             )
 

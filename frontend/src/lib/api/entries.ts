@@ -13,7 +13,8 @@ import { createSdkClient } from "../sdk";
 import { getApiUrl } from "./config";
 
 // Re-export SDK types with legacy names for backward compatibility
-export type EntryRead = PlatformEntry;
+// pageUrl is newer than the published SDK types (set on a single-entry read); drop the intersection once they carry it.
+export type EntryRead = PlatformEntry & { pageUrl?: string | null };
 export type EntryCreate = PlatformEntryCreate;
 export type EntryUpdate = PlatformEntryUpdate;
 export type CollectionRead = PlatformCollection;

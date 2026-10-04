@@ -22,6 +22,13 @@ from marvin.core.root_logger import get_logger
 from marvin.services.ai.executions import parent_meta
 from marvin.services.ui_links import entry_edit_url, entry_review_link
 
+# The author only sees the brief, so it can't know any page's address; a brief that names other
+# entries without their urls once came back as `[Title](#)` links.
+AUTHORING_LINKS_RULE = (
+    "Only link with URLs given in the brief or the current content; never write placeholder links such as "
+    "[text](#) or [text](). Without a URL, write the name as plain text."
+)
+
 
 def default_authoring_model(session, group_id, provider=None) -> str | None:
     """The workspace's default model id (settings → default provider/model → platform app default).
@@ -150,7 +157,10 @@ class AuthoringService:
                 parts.append(ImagePart(data=img, mime_type=a.get("mime_type") or "image/png"))
 
         voice = recipe.enrichment.get("voice") if isinstance(recipe.enrichment, dict) else None
-        system_content = f"You are a content author. Produce a complete, publish-ready '{entry_type.name}'. Return ONLY the requested fields."
+        system_content = (
+            f"You are a content author. Produce a complete, publish-ready '{entry_type.name}'. Return ONLY the requested fields. "
+            + AUTHORING_LINKS_RULE
+        )
         if voice:
             system_content += f" Voice/tone: {voice}"
         messages = [
@@ -369,7 +379,7 @@ class AuthoringService:
                 role="system",
                 content=(
                     "You are a content editor revising an existing entry. Reuse the existing tags and resources listed; "
-                    "never invent duplicates. Return ONLY the requested fields."
+                    "never invent duplicates. Return ONLY the requested fields. " + AUTHORING_LINKS_RULE
                 ),
             ),
             Message(role="user", content=instruction_msg),

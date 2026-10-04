@@ -37,7 +37,8 @@ def _service(ctx: ToolContext):
     description=(
         "Create a NEW draft entry of a given type from a brief. Grounds on the workspace's existing "
         "tags + relevant resources/assets and REUSES them (no duplicates). Lands as an inbox draft "
-        "for review. To change an existing entry, use revise_entry instead of recreating it. The result's "
+        "for review. To change an existing entry, use revise_entry instead of recreating it. When the new entry should "
+        "link to other entries, put each one's `url` (from find_entries / get_entry) in the brief. The result's "
         "reviewLink is a finished markdown link — give it to the user verbatim; never build a URL yourself."
     ),
     input_schema={

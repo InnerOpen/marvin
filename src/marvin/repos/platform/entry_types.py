@@ -208,6 +208,17 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
                 detail=f"Invalid recipe definition: {e}",
             ) from e
 
+    def _normalize_page_url_pattern(self, data_dict: dict) -> None:
+        """Dict callers (seeding, blueprints) bypass the request schema, so normalize here too."""
+        if "page_url_pattern" not in data_dict:
+            return
+        from marvin.services.entry_urls import normalize_page_url_pattern
+
+        try:
+            data_dict["page_url_pattern"] = normalize_page_url_pattern(data_dict["page_url_pattern"])
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid page URL pattern: {e}") from e
+
     def _check_renderer_warnings(self, data_dict: dict) -> list[str]:
         if not data_dict.get("is_rendered"):
             return []
@@ -258,6 +269,7 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             self._validate_capabilities_json(data_dict["capabilities_json"])
         if "recipe_json" in data_dict:
             self._validate_recipe_json(data_dict["recipe_json"])
+        self._normalize_page_url_pattern(data_dict)
 
         warnings = self._check_renderer_warnings(data_dict)
         result = super().create(data_dict)
@@ -299,6 +311,7 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             self._validate_capabilities_json(data_dict["capabilities_json"])
         if "recipe_json" in data_dict:
             self._validate_recipe_json(data_dict["recipe_json"])
+        self._normalize_page_url_pattern(data_dict)
 
         warnings = self._check_renderer_warnings(data_dict)
         data_dict.pop("slug", None)

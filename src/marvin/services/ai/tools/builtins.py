@@ -23,6 +23,7 @@ from marvin.db.models.platform.entry_tags import EntryTags
 from marvin.db.models.platform.entry_types import EntryTypes
 from marvin.db.models.platform.resources import Resources
 from marvin.db.models.platform.tags import Tags
+from marvin.services.entry_urls import best_entry_url, site_base_url
 
 from ..entity_resolve import resolve_entity_id, resolve_retrieved_sources
 from ..operations.base import ROLE_AUTHOR
@@ -107,6 +108,13 @@ def _resource_ref(r) -> dict:
     return {"id": str(r.id), "name": r.name, "slug": r.slug, "resourceType": r.resource_type, "url": r.url}
 
 
+def _url_field(entry, site_url: str | None) -> dict:
+    """`{"url": ...}` when the entry's page on the site can be resolved, else nothing — a workspace
+    that hasn't set up page URLs gets exactly the rows it always did."""
+    url = best_entry_url(entry, site_url)
+    return {"url": url} if url else {}
+
+
 def _resolve_collection(ctx: ToolContext, ident: str):
     ident = (ident or "").strip()
     if not ident:
@@ -180,6 +188,7 @@ def search_content(ctx: ToolContext, args: dict) -> str:
             except (ValueError, TypeError):
                 pass
     images_by_entry: dict = {}
+    urls_by_entry: dict = {}
     if entry_uuids:
         for eid, a in (
             ctx.session.query(EntryAssets.entry_id, Assets)
@@ -189,8 +198,13 @@ def search_content(ctx: ToolContext, args: dict) -> str:
             .all()
         ):
             images_by_entry.setdefault(str(eid), []).append(_asset_ref(a))
+        site_url = site_base_url(ctx.session, ctx.group_id)
+        for e in ctx.session.query(Entries).filter(Entries.group_id == ctx.group_id, Entries.id.in_(entry_uuids)).all():
+            urls_by_entry[str(e.id)] = _url_field(e, site_url)
     for r in results:
         r["assets"] = images_by_entry.get(r["entityId"], []) if r["entityType"] == "entry" else []
+        if r["entityType"] == "entry":
+            r.update(urls_by_entry.get(r["entityId"], {}))
     return json.dumps({"results": results, "count": len(results)})
 
 
@@ -215,7 +229,8 @@ from marvin.services.entries.query import WHERE_OPS  # noqa: E402 — the tool s
         "number-like). group_by = a field key (or publish_status / entry_type) → counts per value over the whole match. "
         "include_fields / include_metadata = keys whose values to put on each row, so you can compare many entries in one "
         "call instead of get_entry on each. Returns `count` (true total), `returned`, rows (default 10, max 200; use offset "
-        "to page) and `groups` when grouped. Use `count` to answer 'how many'."
+        "to page) and `groups` when grouped. Use `count` to answer 'how many'. A row's `url`, when present, is the entry's "
+        "page on the workspace's site — use it to link the entry."
     ),
     input_schema={
         "type": "object",
@@ -303,6 +318,7 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
             .all()
         ):
             resources_by_entry.setdefault(eid, []).append(_resource_ref(r))
+    site_url = site_base_url(ctx.session, ctx.group_id) if rows else None
     out = [
         {
             "id": str(e.id),
@@ -310,6 +326,7 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
             "slug": e.slug,
             "status": e.status,
             "entryType": e.entry_type.slug if e.entry_type else None,
+            **_url_field(e, site_url),
             "assets": assets_by_entry.get(e.id, []),
             "resources": resources_by_entry.get(e.id, []),
             "tags": tags_by_entry.get(e.id, []),
@@ -331,7 +348,7 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
 
 @register_tool(
     name="get_entry",
-    description="Get one entry COMPLETE by id or slug: all fields (data, summary, description, timestamps) plus fully-hydrated attachments — assets (each with a real displayable `url`, assetType, altText, dimensions, and attachment role/position), linked resources (with their `url` + role), collection membership, and tag slugs. Use the asset `url` to reference/show an image; never invent an image URL.",  # noqa: E501
+    description="Get one entry COMPLETE by id or slug: all fields (data, summary, description, timestamps) plus fully-hydrated attachments — assets (each with a real displayable `url`, assetType, altText, dimensions, and attachment role/position), linked resources (with their `url` + role), collection membership, and tag slugs. Use the asset `url` to reference/show an image; never invent an image URL. The entry's own `url`, when present, is its page on the workspace's site — use it to link the entry.",  # noqa: E501
     input_schema={"type": "object", "properties": {"id_or_slug": {"type": "string"}}, "required": ["id_or_slug"]},
 )
 def get_entry(ctx: ToolContext, args: dict) -> str:
@@ -379,6 +396,7 @@ def get_entry(ctx: ToolContext, args: dict) -> str:
             "summary": entry.summary,
             "description": entry.description,
             "entryType": entry.entry_type.slug if entry.entry_type else None,
+            **_url_field(entry, site_base_url(ctx.session, ctx.group_id)),
             "data": entry.data_json,
             "metadataJson": entry.metadata_json,
             "publishedAt": entry.published_at.isoformat() if entry.published_at else None,
@@ -493,6 +511,7 @@ def get_entry_type(ctx: ToolContext, args: dict) -> str:
             "fields": fields,
             "schema": et.schema_json,
             "recipe": et.recipe_json,
+            **({"pageUrlPattern": et.page_url_pattern} if et.page_url_pattern else {}),
         }
     )
 
@@ -544,6 +563,7 @@ def get_collection_entries(ctx: ToolContext, args: dict) -> str:
         .filter(EntryCollections.collection_id == col.id)
         .all()
     )
+    site_url = site_base_url(ctx.session, ctx.group_id) if rows else None
     out = [
         {
             "id": str(e.id),
@@ -551,6 +571,7 @@ def get_collection_entries(ctx: ToolContext, args: dict) -> str:
             "slug": e.slug,
             "status": e.status,
             "entryType": e.entry_type.slug if e.entry_type else None,
+            **_url_field(e, site_url),
         }
         for e in rows
     ]

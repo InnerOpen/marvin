@@ -47,6 +47,7 @@ from marvin.schemas.publishing import (
     WorkspaceInfo,
     WorkspaceSiteInfo,
 )
+from marvin.services.entry_urls import best_entry_url, site_base_url
 from marvin.services.storage.provider_factory import get_storage_provider
 
 settings = get_app_settings()
@@ -156,7 +157,7 @@ def _resolve_featured_asset(entry: Entries, workspace_slug: str) -> PublishedAss
     return None
 
 
-def _entry_to_list_item(entry: Entries, workspace_slug: str, include_order: bool = False) -> PublishedEntryListItem:
+def _entry_to_list_item(entry: Entries, workspace_slug: str, include_order: bool = False, site_url: str | None = None) -> PublishedEntryListItem:
     """
     Convert an entry model to a PublishedEntryListItem with relationships.
 
@@ -164,6 +165,7 @@ def _entry_to_list_item(entry: Entries, workspace_slug: str, include_order: bool
         entry: The entry model instance
         workspace_slug: Workspace slug for building asset URLs
         include_order: Whether to include sort order from junction table
+        site_url: The workspace's site address (``site_base_url``) for the entry's ``url``
 
     Returns:
         PublishedEntryListItem with populated relationships
@@ -192,6 +194,7 @@ def _entry_to_list_item(entry: Entries, workspace_slug: str, include_order: bool
         "title": entry.title,
         "entry_type": entry.entry_type.slug if entry.entry_type else settings.PUBLISHING_UNKNOWN_ENTRY_TYPE,
         "entry_type_info": _build_entry_type_info(entry),
+        "url": best_entry_url(entry, site_url),
         "summary": entry.summary,
         "description": entry.description,
         "data": entry.data_json,
@@ -346,6 +349,7 @@ async def list_entry_types(
                 is_rendered=et.is_rendered,
                 rendering=rendering,
                 capabilities=capabilities,
+                page_url_pattern=et.page_url_pattern,
             )
         )
 
@@ -491,7 +495,8 @@ async def list_published_entries(
     entries = query.order_by(Entries.published_at.desc()).offset(offset).limit(limit).all()
 
     # Convert to list items
-    data = [_entry_to_list_item(entry, group.slug) for entry in entries]
+    site_url = site_base_url(session, group.id)
+    data = [_entry_to_list_item(entry, group.slug, site_url=site_url) for entry in entries]
 
     return PublishedEntriesResponse(
         data=data,
@@ -612,6 +617,7 @@ async def get_published_entry(
         title=entry.title,
         entry_type=entry.entry_type.slug if entry.entry_type else settings.PUBLISHING_UNKNOWN_ENTRY_TYPE,
         entry_type_info=_build_entry_type_info(entry),
+        url=best_entry_url(entry, site_base_url(session, group.id)),
         summary=entry.summary,
         description=entry.description,
         data=entry.data_json,
@@ -782,11 +788,12 @@ async def get_published_collection(
         query = query.filter(Entries.status == settings.PUBLISHING_DEFAULT_STATUS)
 
     entries = query.order_by(EntryCollections.sort_order.asc(), Entries.published_at.desc()).all()
+    site_url = site_base_url(session, group.id)
 
     # Convert to list items
     entry_items = []
     for entry in entries:
-        item = _entry_to_list_item(entry, group.slug)
+        item = _entry_to_list_item(entry, group.slug, site_url=site_url)
         # Add collection-specific sort order
         order = next((ec.sort_order for ec in entry.entry_collections if ec.collection_id == collection.id), None)
         if order is not None:
@@ -1203,4 +1210,5 @@ async def get_resource_entries(
     )
 
     # Convert to list items using shared helper
-    return [_entry_to_list_item(entry, group.slug) for entry in entries]
+    site_url = site_base_url(session, group.id)
+    return [_entry_to_list_item(entry, group.slug, site_url=site_url) for entry in entries]

@@ -565,6 +565,9 @@ class WorkspaceSeedLoader:
             "sort_order": data.get("sortOrder", 0),
             "content_schema": data.get("schemaJson", {}),
         }
+        # Only when the file carries it: an older export without the key must not clear a pattern on overwrite.
+        if "pageUrlPattern" in data:
+            create_data["page_url_pattern"] = data["pageUrlPattern"]
 
         if existing:
             if self._overwrite:

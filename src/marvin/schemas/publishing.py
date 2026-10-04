@@ -110,6 +110,8 @@ class PublishedEntryTypeRead(_MarvinModel):
     is_rendered: bool = False
     rendering: EntryTypeRendering | None = None
     capabilities: EntryTypeCapabilities | None = None
+    page_url_pattern: str | None = None
+    """Where the site renders this type's entries, e.g. /works/{slug}; null when not configured."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -136,6 +138,10 @@ class PublishedEntryRead(_MarvinModel):
 
     entry_type_info: PublishedEntryTypeInfo | None = Field(default=None, serialization_alias="entryTypeInfo")
     """Rendering and capabilities info for this entry's type."""
+
+    url: str | None = None
+    """The entry's page on the site: absolute when the workspace has a Canonical URL, else the site path.
+    Null unless the entry's type has a page URL pattern."""
 
     summary: str | None = None
     """Short blurb for compact placements (cards, related-reference lists)."""
@@ -198,6 +204,10 @@ class PublishedEntryListItem(_MarvinModel):
 
     entry_type_info: PublishedEntryTypeInfo | None = Field(default=None, serialization_alias="entryTypeInfo")
     """Rendering and capabilities info for this entry's type."""
+
+    url: str | None = None
+    """The entry's page on the site: absolute when the workspace has a Canonical URL, else the site path.
+    Null unless the entry's type has a page URL pattern."""
 
     summary: str | None = None
     """Optional short description/summary."""

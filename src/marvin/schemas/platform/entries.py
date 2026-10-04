@@ -211,6 +211,10 @@ class EntryRead(_MarvinModel):
     """Tag slugs applied to this entry (shared vocabulary)."""
     order: int | None = None
     """Sort order within a collection. Only populated when querying entries for a specific collection."""
+    page_url: str | None = None
+    """Absolute URL of the entry's page on the workspace's site (its type's page URL pattern joined to the
+    workspace's Canonical URL). Only populated on a single-entry read; null when either isn't configured.
+    Not gated on status — a draft's URL isn't live until it is published."""
 
     model_config = ConfigDict(from_attributes=True)
 

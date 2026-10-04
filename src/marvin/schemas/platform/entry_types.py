@@ -10,6 +10,7 @@ from marvin.schemas._marvin import _MarvinModel
 from marvin.schemas.platform.entry_type_recipe import EntryTypeRecipe
 from marvin.schemas.platform.entry_type_rendering import CapabilitiesDefinition, RenderingDefinition
 from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
+from marvin.services.entry_urls import normalize_page_url_pattern
 
 logger = get_logger(__name__)
 
@@ -53,6 +54,10 @@ class EntryTypeCreate(_MarvinModel):
         serialization_alias="recipeJson",
         validation_alias=AliasChoices("recipeJson", "recipe_json"),
     )
+    page_url_pattern: str | None = Field(
+        default=None,
+        description="Where the site renders an entry of this type, e.g. /works/{slug}. Placeholders: {slug}, {id}, {entry_type}.",
+    )
 
     @field_validator("content_schema")
     @classmethod
@@ -88,6 +93,11 @@ class EntryTypeCreate(_MarvinModel):
             return None
         EntryTypeRecipe.model_validate(value)
         return value
+
+    @field_validator("page_url_pattern")
+    @classmethod
+    def validate_page_url_pattern(cls, value: str | None) -> str | None:
+        return normalize_page_url_pattern(value)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -127,6 +137,10 @@ class EntryTypeUpdate(_MarvinModel):
         serialization_alias="recipeJson",
         validation_alias=AliasChoices("recipeJson", "recipe_json"),
     )
+    page_url_pattern: str | None = Field(
+        default=None,
+        description="Where the site renders an entry of this type, e.g. /works/{slug}. Placeholders: {slug}, {id}, {entry_type}.",
+    )
 
     @field_validator("content_schema")
     @classmethod
@@ -162,6 +176,11 @@ class EntryTypeUpdate(_MarvinModel):
             return None
         EntryTypeRecipe.model_validate(value)
         return value
+
+    @field_validator("page_url_pattern")
+    @classmethod
+    def validate_page_url_pattern(cls, value: str | None) -> str | None:
+        return normalize_page_url_pattern(value)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -206,6 +225,10 @@ class EntryTypeRead(_MarvinModel):
         description="Authoring recipe (EntryTypeRecipe)",
         serialization_alias="recipeJson",
         validation_alias=AliasChoices("recipeJson", "recipe_json"),
+    )
+    page_url_pattern: str | None = Field(
+        default=None,
+        description="Where the site renders an entry of this type, e.g. /works/{slug}. Placeholders: {slug}, {id}, {entry_type}.",
     )
     created_at: datetime | None = None
     update_at: datetime | None = None

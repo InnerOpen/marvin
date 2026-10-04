@@ -47,6 +47,26 @@ LINKS_RULE = (
     "placeholder (no 'https://yourworkspaceurl/'), even if an earlier turn in this conversation did."
 )
 
+# Marvin can't know a site's routes, so an agent once drafted a newsletter listing six works as `[Title](#)`.
+# Entry rows carry `url` only when the workspace has told Marvin where entries live (entry type page URL
+# pattern + site Canonical URL); without one, the honest output is the bare title and a note, never a fake link.
+ENTRY_URL_TOOLS = ("find_entries", "get_entry", "search_content")
+
+
+def entry_links_rule(tool_names: Iterable[str]) -> str:
+    """The entry-linking rule, naming only the bound tools that return an entry `url`."""
+    names = set(tool_names)
+    sources = " or ".join(t for t in ENTRY_URL_TOOLS if t in names) or "your tools"
+    return (
+        f"Linking to entries in content you write: use the entry's `url` from {sources} exactly as given — it is "
+        "the entry's page on the workspace's site (editUrl is the admin screen, not a public link). Prefer an "
+        "absolute https url in content that may be emailed; a url starting with / only works on the site itself. "
+        "Never write placeholder links such as [Title](#) or [Title](). If an entry has no `url`, write its title "
+        "unlinked and say in your reply that it couldn't be linked. An entry that isn't published yet has a url "
+        "that won't be live until it is."
+    )
+
+
 # Asked how to do something in Marvin, an agent without the manual guesses at screens and labels. The manual
 # bundled with the running version is the answer, so how-to questions go there first and cite it.
 DOCS_RULE = (
@@ -110,6 +130,8 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
         lines.append(SOURCE_HONESTY_RULE)
     if "attach_tag" in names:
         lines.append(TAGGING_RULE)
+    if names.intersection(ENTRY_URL_TOOLS):
+        lines.append(entry_links_rule(names))
     if names:
         lines.append(
             "Act, don't announce: when a question needs a tool, call it in this same turn. Never reply with "

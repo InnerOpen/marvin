@@ -191,6 +191,7 @@ class WorkspaceDataSeeder:
             "rendering": entry_type_data.get("renderingJson"),
             "capabilities": entry_type_data.get("capabilitiesJson"),
             "recipe": entry_type_data.get("recipeJson"),
+            "page_url_pattern": entry_type_data.get("pageUrlPattern"),
         }
 
         # Create entry type

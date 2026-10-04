@@ -520,6 +520,13 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </small>
             </div>
 
+            {entry.pageUrl && (
+              <div class="form-group">
+                <a href={entry.pageUrl} target="_blank" rel="noopener noreferrer" class="button secondary">View on site ↗</a>
+                {entry.status !== "published" && <p class="form-help">Not live until this entry is published</p>}
+              </div>
+            )}
+
             <div class="form-group">
               <label for="status">Status</label>
               <select id="status" name="status" form="entry-form">

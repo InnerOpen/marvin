@@ -77,6 +77,20 @@ import AppLayout from "@/layouts/AppLayout.astro";
         <p class="form-help">Lower numbers appear first</p>
       </div>
 
+      <div class="form-group">
+        <label for="page_url_pattern">Page URL pattern</label>
+        <input
+          type="text"
+          id="page_url_pattern"
+          name="page_url_pattern"
+          placeholder="/works/{slug}"
+          pattern="(/|https?://).*"
+          title="Start with / (a path on your site) or http(s):// (a full URL)"
+          spellcheck="false"
+        />
+        <p class="form-help">Optional. Where your site shows an entry of this type, so Marvin can link to it (the AI assistant, "View on site", the publishing API's <code>url</code>). Use <code>{"{slug}"}</code>, <code>{"{id}"}</code> or <code>{"{entry_type}"}</code>; a path is joined to the Canonical URL in site settings. Leave blank if entries of this type have no page.</p>
+      </div>
+
       {/* Schema Editor */}
       <div class="schema-section">
         <SchemaEditor schema={null} />

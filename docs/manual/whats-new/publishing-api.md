@@ -39,6 +39,7 @@ Sample `GET /entries` response (fields abbreviated):
       "title": "Hello world",
       "entryType": "post",
       "entryTypeInfo": {"slug": "post", "renderer": null, "publishable": true, "submittable": false, "routable": true},
+      "url": "https://example.com/blog/hello-world",
       "summary": "First post.",
       "description": "Longer blurb for cards and meta tags.",
       "data": {"body": "…", "hero": "…"},
@@ -97,6 +98,21 @@ Defined in `src/marvin/core/permissions.py`:
 | `read:forms`, `write:forms`, `read:form_submissions` | no | defined; no route references them |
 
 The client form (`/publishing/clients/new`) offers the first five plus `read:draft_entries`. Full reference: [`../api/`](../api/index.md).
+
+## Entry page URLs
+
+Marvin does not know your site's routes, so by default it cannot say where an entry is shown. Two optional settings tell it:
+
+- **Canonical URL** — the site's address, under **Settings → General → Site Configuration** or **Publishing → Site Configuration** (`site_canonical_url` in the workspace preferences), e.g. `https://example.com`.
+- **Page URL pattern** — on each entry type that has its own page, on the entry type's edit screen (`pageUrlPattern` on the entry-types API), e.g. `/blog/{slug}`. Placeholders: `{slug}`, `{id}` and `{entry_type}` (the type's slug); the pattern must use `{slug}` or `{id}`. A path is joined to the Canonical URL; a full `https://…` pattern is used as-is, for a type that lives on another host. Leave it blank for types without a page (navigation items, form submissions). A type whose capabilities say `routable: false` never gets a URL.
+
+With a pattern set, each entry of that type gets a URL:
+
+- the publishing API adds `url` to entries in lists and in entry detail (absolute when the Canonical URL is set, otherwise the site path) and `pageUrlPattern` to `GET /entry-types`. Both are null when not configured, and nothing else in the payload changes;
+- Entry Details in the admin shows a **View on site** button (absolute URLs only, so the Canonical URL must be set), noting "Not live until this entry is published" on a draft;
+- agents get the `url` from their entry tools (see [Agents and Ask → Linking to entries](agents-and-ask.md)).
+
+The URL is built whatever the entry's status, because a draft's link is where it will live; the publishing API serves only published entries anyway. Entry types shared by every workspace (system types with no workspace) can't hold a pattern; the copies a workspace starts with can. The pattern travels with workspace exports and imports.
 
 ## Site rebuilds
 

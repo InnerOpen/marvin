@@ -55,6 +55,10 @@ class EntryTypes(SqlAlchemyBase, BaseMixins):
     """Authoring recipe: what to gather/derive to build an entry of this type
     (assets contract, resource extraction, enrichment steps) — EntryTypeRecipe."""
 
+    page_url_pattern: Mapped[str | None] = mapped_column(sa.String, nullable=True)
+    """Where the workspace's site renders an entry of this type, e.g. ``/works/{slug}``.
+    Optional; resolved by ``marvin.services.entry_urls.entry_url``."""
+
     entries: Mapped[list["Entries"]] = orm.relationship("Entries", back_populates="entry_type")
 
     __table_args__ = (sa.UniqueConstraint("group_id", "slug"),)

@@ -31,6 +31,7 @@ export const POST: APIRoute = async ({ request, redirect, cookies }) => {
         renderingJson: parseJson("rendering_json"),
         capabilitiesJson: parseJson("capabilities_json"),
         recipeJson: parseJson("recipe_json"),
+        pageUrlPattern: ((formData.get("page_url_pattern") as string) || "").trim() || undefined,
       },
       authToken,
     );

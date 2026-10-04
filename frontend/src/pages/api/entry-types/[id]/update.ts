@@ -35,6 +35,10 @@ export const POST: APIRoute = async ({ params, request, redirect, cookies }) => 
         renderingJson: parseJson("rendering_json"),
         capabilitiesJson: parseJson("capabilities_json"),
         recipeJson: parseJson("recipe_json"),
+        // Blank clears the pattern (null), unlike the optional fields above that keep their value.
+        pageUrlPattern: formData.has("page_url_pattern")
+          ? ((formData.get("page_url_pattern") as string) || "").trim() || null
+          : undefined,
       },
       authToken,
     );

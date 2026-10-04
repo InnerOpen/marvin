@@ -18,6 +18,8 @@ export interface EntryTypeCreate {
   renderingJson?: Record<string, unknown>;
   capabilitiesJson?: Record<string, unknown>;
   recipeJson?: Record<string, unknown>;
+  /** Where the site renders an entry of this type, e.g. "/works/{slug}"; null clears it. */
+  pageUrlPattern?: string | null;
 }
 
 export interface EntryTypeUpdate {
@@ -32,9 +34,12 @@ export interface EntryTypeUpdate {
   renderingJson?: Record<string, unknown>;
   capabilitiesJson?: Record<string, unknown>;
   recipeJson?: Record<string, unknown>;
+  /** Where the site renders an entry of this type, e.g. "/works/{slug}"; null clears it. */
+  pageUrlPattern?: string | null;
 }
 
-export type EntryTypeRead = PlatformEntryType;
+// pageUrlPattern is newer than the published SDK types; drop the intersection once they carry it.
+export type EntryTypeRead = PlatformEntryType & { pageUrlPattern?: string | null };
 
 /**
  * List all entry types in the current workspace
