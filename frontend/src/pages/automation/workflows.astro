@@ -188,6 +188,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     deleteAutomation,
     runAutomation,
     dryRunAutomation,
+    listDryRunSamples,
     validateAutomation,
     previewAutomation,
     listAutomationExecutions,
@@ -906,16 +907,94 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <span>${esc(s.kind)}${label}</span>${tgt}${err}
     </div>${body}`;
   }
-  async function showDryRun(card: Element, id: string) {
+  // An event-triggered workflow is dry-run against a sample event (the latest matching one by
+  // default), so its entry/event values resolve and its trigger + conditions are checked.
+  const EVENT_TRIGGERS = ["event", "incoming_webhook", "chained", "on_error"];
+  const isEventTriggered = (wf: any) => EVENT_TRIGGERS.includes(wf?.definition?.trigger?.type || "event");
+  const sampleKey = (s: any) => `${s.kind}:${s.id}`;
+  function fmtVal(v: unknown): string {
+    if (v === null || v === undefined) return "empty";
+    const text = typeof v === "string" ? `“${v}”` : JSON.stringify(v);
+    return text.length > 120 ? `${text.slice(0, 117)}…` : text;
+  }
+  function sampleOption(s: any): string {
+    const when = s.occurred_at ? ` · ${new Date(s.occurred_at).toLocaleString()}` : "";
+    const built = s.synthesized ? " (built from entry)" : "";
+    const fails = s.conditions_pass === false ? " — conditions fail" : "";
+    return `<option value="${esc(sampleKey(s))}">${esc(s.label)}${esc(when)}${built}${fails}</option>`;
+  }
+  function conditionCheck(n: any): string {
+    const mark = `<span class="status-${n.pass ? "success" : "failed"}">${n.pass ? "✓" : "✗"}</span>`;
+    if (n.group) {
+      const title = n.group === "all" ? "all of" : n.group === "any" ? "any of" : "not";
+      return `<div class="cond-check">${mark}<span>${title}</span></div>
+        <div class="cond-group">${(n.children || []).map(conditionCheck).join("")}</div>`;
+    }
+    if (n.invalid) return `<div class="cond-check">${mark}<span class="run-err">not a condition</span></div>`;
+    const expected = n.op === "exists" ? "" : ` ${esc(fmtVal(n.expected))}`;
+    return `<div class="cond-check">${mark}
+      <code>${esc(n.field)} ${esc(OP_SYMBOL[n.op] || n.op)}${expected}</code>
+      <span class="muted">got ${esc(fmtVal(n.actual))}</span>
+    </div>`;
+  }
+  function gatesBlock(res: any, eventType: string | null, wf: any): string {
+    if (res.sample === null) {
+      return `<div class="dry-gates"><span class="hint">No recent ${esc(prettyEvent(eventType || "event"))} to test with — entry and event values resolve empty below.</span></div>`;
+    }
+    const trig = res.trigger_matched
+      ? `<div class="cond-check"><span class="status-success">✓</span><span>Trigger fires on ${esc(prettyEvent(res.sample.event_type))}</span></div>`
+      : `<div class="cond-check"><span class="status-failed">✗</span><span>Trigger doesn't fire on ${esc(prettyEvent(res.sample.event_type))}</span></div>`;
+    // With a target, conditions filter the target rows — the steps below show which rows matched.
+    const conds = wf.definition?.target && wf.definition?.conditions?.length
+      ? `<span class="hint">Conditions filter the target rows; the steps below are the rows that pass.</span>`
+      : (res.conditions || []).map(conditionCheck).join("");
+    const verdict = res.would_fire
+      ? `<div class="dry-verdict status-success">Would fire</div>`
+      : `<div class="dry-verdict status-failed">Would not fire</div>`;
+    return `<div class="dry-gates">${trig}${conds}${verdict}</div>`;
+  }
+  function planBlock(res: any): string {
+    const plan: any[] = res.plan ?? [];
+    const head = `<div class="hint">Dry run — nothing executed. ${res.ran} target(s), ${plan.length} step(s)${res.ok ? "" : " · would fail"}.</div>`;
+    return head + (plan.length ? plan.map(planStepRow).join("") : `<span class="hint">No steps would run (target/conditions matched nothing).</span>`);
+  }
+  async function showDryRun(card: Element, wf: any, sample?: any) {
     const panel = card.querySelector(".wf-history") as HTMLElement;
     panel.removeAttribute("hidden");
-    panel.innerHTML = `<span class="hint">Resolving plan…</span>`;
+    if (!isEventTriggered(wf)) {
+      panel.innerHTML = `<span class="hint">Resolving plan…</span>`;
+      try { panel.innerHTML = planBlock(await dryRunAutomation(wf.id)); }
+      catch (e: any) { panel.innerHTML = `<span class="hint error">${esc(e?.message ?? e)}</span>`; }
+      return;
+    }
+    const body = panel.querySelector(".dry-body") as HTMLElement | null;
+    (body ?? panel).innerHTML = `<span class="hint">Resolving plan…</span>`;
     try {
-      const res: any = await dryRunAutomation(id);
-      const plan: any[] = res.plan ?? [];
-      const head = `<div class="hint">Dry run — nothing executed. ${res.ran} target(s), ${plan.length} step(s)${res.ok ? "" : " · would fail"}.</div>`;
-      panel.innerHTML = head + (plan.length ? plan.map(planStepRow).join("") : `<span class="hint">No steps would run (target/conditions matched nothing).</span>`);
-    } catch (e: any) { panel.innerHTML = `<span class="hint error">${esc(e?.message ?? e)}</span>`; }
+      const [res, listed]: [any, any] = await Promise.all([
+        dryRunAutomation(wf.id, sample),
+        // The picker's candidates load once per opening; a re-pick only re-runs the dry run.
+        sample ? Promise.resolve(null) : listDryRunSamples(wf.id),
+      ]);
+      if (listed) {
+        const samples: any[] = listed.samples ?? [];
+        if (res.sample && !samples.some((s) => sampleKey(s) === sampleKey(res.sample))) samples.unshift(res.sample);
+        const picker = samples.length
+          ? `<label class="dry-sample"><span>Testing with:</span>
+              <select class="input dry-sample-pick">${samples.map(sampleOption).join("")}</select></label>`
+          : "";
+        panel.innerHTML = `${picker}<div class="dry-body"></div>`;
+        const pick = panel.querySelector(".dry-sample-pick") as HTMLSelectElement | null;
+        if (pick && res.sample) pick.value = sampleKey(res.sample);
+        pick?.addEventListener("change", () => {
+          const chosen = samples.find((s) => sampleKey(s) === pick.value);
+          if (chosen) showDryRun(card, wf, chosen);
+        });
+        panel.dataset.eventType = listed.event_type ?? "";
+      }
+      (panel.querySelector(".dry-body") as HTMLElement).innerHTML = gatesBlock(res, panel.dataset.eventType || null, wf) + planBlock(res);
+    } catch (e: any) {
+      (panel.querySelector(".dry-body") ?? panel).innerHTML = `<span class="hint error">${esc(e?.message ?? e)}</span>`;
+    }
   }
 
   function renderList() {
@@ -957,7 +1036,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       card.querySelector(".js-dryrun")!.addEventListener("click", async (e) => {
         const btn = e.currentTarget as HTMLButtonElement;
         btn.disabled = true; const orig = btn.textContent; btn.textContent = "Resolving…";
-        try { await showDryRun(card, id); }
+        try { await showDryRun(card, wf); }
         finally { btn.disabled = false; btn.textContent = orig; }
       });
       card.querySelector(".js-history")!.addEventListener("click", () => toggleHistory(card, id));
@@ -1069,6 +1148,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.run-chain) { margin: 0 0 6px 18px; }
   .workflows-page :global(.run-chain code) { font-family: var(--mono, monospace); font-size: 11px; background: color-mix(in srgb, var(--ink) 8%, transparent); padding: 1px 5px; border-radius: 4px; }
   .workflows-page :global(.plan-json) { margin: 0 0 6px 26px; padding: 6px 8px; font-size: 11px; font-family: var(--mono, monospace); color: var(--muted); background: color-mix(in srgb, var(--ink) 4%, transparent); border-radius: 6px; overflow-x: auto; white-space: pre; }
+  /* Dry run of an event-triggered workflow: the sample picker + trigger/condition checklist */
+  .workflows-page :global(.dry-sample) { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+  .workflows-page :global(.dry-sample .input) { flex: 1; min-width: 0; padding: 5px 9px; font-size: 12.5px; }
+  .workflows-page :global(.dry-gates) { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .workflows-page :global(.cond-check) { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; font-size: 12px; }
+  .workflows-page :global(.cond-check code) { font-family: var(--mono, monospace); font-size: 11.5px; background: color-mix(in srgb, var(--ink) 6%, transparent); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  .workflows-page :global(.cond-group) { margin-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+  .workflows-page :global(.dry-verdict) { margin-top: 4px; font-size: 12px; font-weight: 600; }
   .workflows-page :global(.banner code) { font-family: ui-monospace, monospace; font-size: 0.9em; background: color-mix(in srgb, var(--ink) 8%, transparent); padding: 1px 5px; border-radius: 4px; }
 
   /* Builder */
