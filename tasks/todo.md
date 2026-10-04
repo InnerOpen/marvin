@@ -667,7 +667,7 @@ Marvin stays plain HTTP plus a personal token (documented), not a custom node, i
 
 ## Checklist
 - [ ] Prereq: SDK 0.5.0 merged to develop + tagged (the init container installs the SDK `develop` tarball)
-- [ ] Core: option-source hint for integration action inputs (`x-marvin-options`), resolved through the connection
+- [x] Core: option-source hint for integration action inputs (`x-marvin-options`), resolved through the connection
       in the step editor + Run action form, free-text fallback. Tests: hint resolves; connection error → free text
 - [ ] Package scaffold from Template: pyproject (entry point `n8n = "marvin_integration_n8n:N8nProvider"`, SDK
       `>=0.5`), CI copied from Buttondown, ruff
@@ -690,6 +690,29 @@ Marvin stays plain HTTP plus a personal token (documented), not a custom node, i
       pick it from the list → `trigger_workflow` → `n8n-record-result` writes metadata → entry shows in `n8n-failed`
       when forced to error
 - [ ] Brain: update "n8n Workflow Designs" (personal token, JWT template) and "Marvin Integrations"
+
+## Logos (folded in, Jared 2026-10-04)
+Official marks instead of emoji, generic for every provider. The SDK only reads the file; core is the
+security boundary (validates, caches, serves with a locked-down CSP).
+- [x] SDK 0.6.0: `IntegrationProvider.logo: ClassVar[str] = ""` (path relative to the provider's package,
+      `.svg`/`.png`, package data); `load_logo(provider) -> (bytes, content_type) | None` via
+      `importlib.resources`; `info()["has_logo"]`; README (hatch/setuptools package data); tests
+- [x] Core: on provider load read via `load_logo` (getattr-guarded for SDK 0.5), validate (≤ 64 KB; PNG magic;
+      SVG: no DOCTYPE/ENTITY, `<script`, `<foreignObject`, `on*=`, non-`#` `href`/`xlink:href`, `javascript:`,
+      non-`#` `url(`/`@import`; stdlib parse only after the DOCTYPE check), cache in memory, warn + emoji on reject
+- [x] Core: `GET …/integrations/providers/{slug}/logo` — cached bytes, `nosniff`, `default-src 'none';
+      style-src 'unsafe-inline'; sandbox`, ETag + cache header, 404 without a logo; catalog `has_logo` from core
+- [x] Frontend: `<img>` on a white rounded tile (alt="", name beside it) on integration cards, the add list,
+      admin Plugins, workflow step editor/picker; emoji on `has_logo: false` or image error
+- Display rules (from the providers' brand guidelines): logo **≥ 32px tall** (Instagram's minimum is 29px); a
+  **light/white tile in both themes** (OpenAI's mark is black-only, Buttondown's must sit on white or black);
+  **`object-fit: contain`** with a wider box for wordmarks (Apprise is 2.4:1 → max-width 80px, not a forced
+  square); **never larger or more prominent than Marvin's own branding** (card-sized is fine)
+- [x] Tests: each validator rule + clean SVG/PNG; endpoint headers, 304, 404; SDK without `load_logo`
+- [x] Docs: `INTEGRATIONS_PLUGIN_ARCHITECTURE.md`, manual integrations page, whats-new
+- Built 2026-10-04 on `feat/n8n-core` (core) and `feat/logo` (SDK 0.6.0). Endpoint is
+  `GET /api/groups/integrations/providers/{slug}/logo` (the controller's prefix), public; the frontend `/api`
+  proxy now passes `X-Content-Type-Options` and `Content-Security-Policy` through. Not yet checked in a browser.
 
 ## Later
 - Core: provider-scoped private-host allowlist (`INTEGRATION_HTTP_ALLOWED_PRIVATE_HOSTS`, `<provider>=<host>[:<port>]`,

@@ -276,6 +276,68 @@ Built 2026-10-04. The provider owns *what a failure means*; the core owns *what 
 - **Degrades.** With SDK 0.4.0 there is no `resolve_policy`: no policy, no resume/seed fields passed,
   every failure behaves as before (`code` defaults to `unknown`).
 
+## Option sources for action inputs (`x-marvin-options`)
+
+Built 2026-10-04 (first user: the n8n workflow picker). An action input whose valid values live in the
+external service names a **read action on the same provider** that lists them:
+
+```python
+"path": {"type": "string",
+         "x-marvin-options": {"action": "list_workflows", "value": "path", "label": "name",
+                              "args": {"active": True}}}      # args: optional, static
+```
+
+- **Contract.** The referenced action returns a list of objects or an object with an `items` list. Each
+  object's `value` field is the stored value, its `label` field (default: the value field) what people
+  see. A bare scalar item is its own label. Items without a scalar value, and repeated values, are skipped.
+  It must be side-effect free: it runs whenever someone opens a picker. No SDK change was needed — the
+  hint is plain JSON-schema metadata; the SDK README documents it.
+- **Core.** `POST /api/groups/integrations/{id}/options` with `{action_key, input}` returns
+  `[{value, label}]`, at most 500. The caller names an *input*, never an action or args: core reads that
+  input's hint from the provider's own schema, checks the named action exists on the same provider, and
+  runs it with the hint's static args through the same path as **Run action** (`_runnable` + `_execute`:
+  workspace-scoped `_get_or_404`, enabled, provider installed, `{{SECRET}}` args resolved). So only
+  actions some hint references can run this way. Errors: 404 unknown connection/action (and another
+  workspace's connection), 409 disabled / provider missing, 422 no or malformed hint, a hint naming no
+  action of the provider, a provider failure (`Couldn't load the options: <message>`; an unexpected
+  exception says only "the integration failed") or a result with no list.
+- **UI.** `lib/integrationOptionPicker.ts`: a select with a search box (over 8 options), **Type a value…**
+  and ↻ reload; on an error or an empty list it shows the message and keeps the free-text box, which
+  carries the value in every state. Used by **Run action** on the Integrations page and by the workflow
+  **Run integration** step, where each hinted input of the chosen action gets a picker that writes its key
+  into the arguments JSON (templates and other keys stay in the JSON).
+
+## Logos (SDK 0.6.0)
+
+Built 2026-10-04. Official marks instead of emoji, for every provider.
+
+- **SDK.** `IntegrationProvider.logo: ClassVar[str] = ""` — a path relative to the provider class's
+  package (`"logo.svg"`), `.svg` or `.png`, shipped as package data (hatchling includes every
+  non-ignored file under `packages`; setuptools needs `package-data`). `load_logo(provider)` →
+  `(bytes, content_type) | None` via `importlib.resources`; refuses absolute paths, `..` and other types;
+  never raises. `info()["has_logo"]`. `icon` stays the fallback.
+- **Core is the security boundary** (`services/integrations/logos.py`). On provider load
+  (`loader.load_providers` → `logos.prime`) each logo is read through `load_logo` (looked up with
+  `getattr`, so SDK 0.5 simply has no logos), validated and cached in memory by slug; a refused one is
+  logged and reads as no logo. Rules: ≤ 64 KB; PNG must start with the PNG signature; SVG must be UTF-8
+  with no `<!DOCTYPE`/`<!ENTITY` (checked on the bytes **before** any parsing), no `<?xml-stylesheet`,
+  `<script`, `<foreignObject`, `on*=` attributes, `href`/`xlink:href` other than `#…`, `javascript:`,
+  `url(…)`/`@import` pointing anywhere but `#…`, CSS escapes in styles, or `<set>`/`<animate>` of `href`
+  or `on*`. The same checks run on the raw markup and again on the stdlib-parsed tree (decoded entities,
+  resolved namespace prefixes such as `<svg:script>`); the root must be `<svg>`.
+- **Endpoint.** `GET /api/groups/integrations/providers/{slug}/logo` — public (logos aren't secret or
+  per-workspace, and `<img>` can't send a Bearer token), the cached bytes with their `Content-Type`,
+  `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; style-src
+  'unsafe-inline'; sandbox`, `ETag` + `Cache-Control: public, max-age=3600`, `304` on a matching
+  `If-None-Match`, 404 when there is no (accepted) logo. The catalog's `has_logo` is core's verdict, not
+  the SDK's. The frontend's `/api` proxy passes `X-Content-Type-Options` and `Content-Security-Policy`
+  through.
+- **UI.** `IntegrationMark.astro` / `lib/integrationLogo.ts`: a 32px-tall `<img alt="">` on a white
+  rounded tile in both themes (some marks are black-only), `object-fit: contain` up to 80px wide for
+  wordmarks, never more prominent than Marvin's own branding, the name beside it; the emoji when
+  `has_logo` is false or the image fails. On the integration cards, the **Add an integration** catalog,
+  **Admin → Plugins** (`icon` and `has_logo` on each provider row) and the workflow **Run integration** step.
+
 ---
 
 ## Decisions

@@ -1023,3 +1023,84 @@ code {
 .prompt-preview-full summary { cursor: pointer; font-size: 12px; color: var(--muted); }
 .prompt-preview-full pre { margin-top: 6px; }
 .prompt-preview-tokens { font-size: 12px; color: var(--muted); }
+
+/* ── Integration provider marks (lib/integrationLogo.ts, IntegrationMark.astro) ──
+   The official logo on a white tile in both themes (some marks are black-only, others must sit on white
+   or black). The mark is 32px tall (brand minimums, e.g. Instagram's 29px), keeps its aspect ratio
+   (wordmarks get a wider tile, up to 80px) and stays card-sized — never more prominent than Marvin's own
+   branding. The emoji is the fallback. */
+.int-named {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.int-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  height: 36px;
+  min-width: 36px;
+  max-width: 80px;
+  padding: 2px;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  box-sizing: border-box;
+  vertical-align: middle;
+}
+.int-mark-img {
+  display: block;
+  height: 32px;
+  width: auto;
+  max-width: 76px;
+  object-fit: contain;
+}
+.int-mark-emoji {
+  flex: none;
+  line-height: 1;
+}
+
+/* ── Option picker for integration action inputs (lib/integrationOptionPicker.ts) ── */
+.opt-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.opt-picker [hidden] {
+  display: none !important;
+}
+.opt-picker .opt-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.opt-picker .opt-search {
+  flex: 1 1 40%;
+}
+.opt-picker .opt-select {
+  flex: 1 1 60%;
+}
+.opt-picker .opt-refresh {
+  flex: none;
+  margin-left: auto;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.opt-picker .opt-refresh:hover {
+  color: var(--ink);
+}
+.opt-picker .opt-refresh:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.opt-picker .opt-status:empty {
+  display: none;
+}
+.opt-picker .opt-status.is-error {
+  color: var(--color-error);
+}

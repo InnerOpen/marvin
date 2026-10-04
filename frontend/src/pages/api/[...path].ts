@@ -30,8 +30,18 @@ const HOP_BY_HOP = new Set([
   "content-length",
 ]);
 
-// Response headers worth passing back to the browser.
-const PASS_RESPONSE_HEADERS = ["content-type", "content-disposition", "cache-control", "etag", "last-modified", "location"];
+// Response headers worth passing back to the browser. The last two keep the backend's lockdown on content
+// it serves but doesn't trust (e.g. integration logos: nosniff + a sandboxing CSP).
+const PASS_RESPONSE_HEADERS = [
+  "content-type",
+  "content-disposition",
+  "cache-control",
+  "etag",
+  "last-modified",
+  "location",
+  "x-content-type-options",
+  "content-security-policy",
+];
 
 const proxy: APIRoute = async ({ request, params, cookies }) => {
   const path = params.path ?? "";

@@ -102,6 +102,9 @@ class IntegrationProviderInfo(_MarvinModel):
     category: str
     icon: str = ""
     """Optional emoji the provider supplies; rendered as text, so a name or URL will not work."""
+    has_logo: bool = False
+    """Whether the provider ships a logo Marvin accepted (served by `GET …/providers/{slug}/logo`).
+    False → show `icon`."""
     config_schema: dict = Field(default_factory=dict)
     credentials: list[ProviderCredentialInfo] = Field(default_factory=list)
     emits: list[ProviderEventInfo] = Field(default_factory=list)
@@ -121,6 +124,21 @@ class IntegrationPluginInfo(_MarvinModel):
     distribution: str | None = None
     version: str | None = None
     error: str | None = None
+
+
+class IntegrationOptionsRequest(_MarvinModel):
+    """Which action input to load options for. The input's `x-marvin-options` hint names the read
+    action to run — the caller never picks the action or its args."""
+
+    action_key: str
+    input: str
+
+
+class IntegrationOption(_MarvinModel):
+    """One choice for an action input: the value stored, and what people see."""
+
+    value: str | int | float | bool
+    label: str
 
 
 class IntegrationActionResult(_MarvinModel):

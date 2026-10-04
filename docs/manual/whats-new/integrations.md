@@ -12,9 +12,9 @@ On startup `src/marvin/services/integrations/loader.py` reads every entry point 
 
 A provider is a manifest plus handlers, defined against `marvin_integration_sdk` (`src/marvin_integration_sdk/base.py`):
 
-- `slug`, `name`, `description`, `category` (`source`, `destination`, `capability`, `notify`) and an optional emoji `icon`;
+- `slug`, `name`, `description`, `category` (`source`, `destination`, `capability`, `notify`), an optional emoji `icon` and, from SDK 0.6.0, an optional official `logo` (see [Logos](#logos));
 - `credentials` (the core stores one credential per integration, in the secret backend, and never reads it back), and a JSON-schema `config_schema` for non-secret settings;
-- `actions`, each with a key, label, description, `input_schema` and optional capability, approval and cost metadata; `emits`, the events it can raise;
+- `actions`, each with a key, label, description, `input_schema` and optional capability, approval and cost metadata; `emits`, the events it can raise. An input can name the read action that lists its valid values (see [Pick a value from the service](#pick-a-value-from-the-service));
 - `content`, the [blueprints](blueprints.md) it declares, and `signature_schemes`, presets it adds to [incoming webhook](incoming-webhooks.md#signature-schemes) verification;
 - a `check(ctx)` health probe returning `(status, error)`, and `run_action(key, args, ctx)`.
 
@@ -85,6 +85,24 @@ Each connected card has a status badge, an enable toggle, the last error, a **Ne
 
 The footer shows the integration's slug (what workflows reference), one button per action, ✎ edit, ↻ **Run health check** and ✕ **Delete integration**. An action with inputs opens **Run action** to collect them; one without fires at once. What the action returns opens in a **Result** panel (**Copy**, **Done**).
 
+### Pick a value from the service
+
+Some inputs only make sense as one of the service's own things: a channel, a list, an n8n workflow. A provider can mark such an input with `x-marvin-options`, naming one of its read actions:
+
+```json
+"path": {"type": "string", "x-marvin-options": {"action": "list_workflows", "value": "path", "label": "name"}}
+```
+
+**Run action** and the workflow **Run integration** step then show a searchable list for that input, loaded through the connection, with ↻ to reload it. **Type a value…** keeps free text for anything not in the list (a template such as `${event.payload.path}`, or a workflow not active yet). If the list can't load — no API key, the service is down — the message shows under the box and free text still works. In a workflow step, each such input of the chosen action gets its own picker above the arguments, and picking writes that key into the arguments JSON; everything else stays in the JSON.
+
+Only actions a provider names this way can be run to fill a list, with the provider's own fixed arguments, and at most 500 choices are shown.
+
+### Logos
+
+A provider can ship its official logo (`marvin-integration-sdk` 0.6.0, `logo = "logo.svg"`, an SVG or PNG inside its package). Marvin shows it on the integration cards, the **Add an integration** catalog, **Admin → Extensions → Plugins** and the workflow **Run integration** step: 32px tall on a white tile in both light and dark mode, keeping its shape (wordmarks get a wider tile), with the name beside it. Without a logo, or if it fails to load, the provider's emoji shows as before.
+
+Marvin checks every logo when it loads the provider and refuses one that is larger than 64 KB, a PNG that isn't really a PNG, or an SVG that could run a script, load something from elsewhere or link out (a DOCTYPE or entity, `<script>`, `<foreignObject>`, `on…` event attributes, links or `url(…)` that don't point inside the file, `javascript:`). A refused logo is logged at startup and the emoji is used instead.
+
 **Secrets in arguments.** An action that must hand a secret to its provider (for example a webhook's shared token when setting up the other side) can take `{{SECRET_NAME}}` as an argument, in **Run action** or a workflow's **Run integration** step. Only a top-level string argument that is exactly a reference is resolved, from this workspace's secrets, and the value goes to the provider call only. A reference to a secret that does not exist is refused: `422` from **Run action**, a step error in a workflow. Event-subscription args do not resolve secrets.
 
 ### Wire an action to an event
@@ -139,19 +157,21 @@ All routes are workspace-scoped under `/api/groups/integrations` and mounted onl
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/providers` | Provider catalog (`slug`, `name`, `description`, `category`, `icon`, `config_schema`, `credentials`, `actions`, `emits`, and from SDK 0.5.0 `error_policy`, also per action) |
+| GET | `/providers` | Provider catalog (`slug`, `name`, `description`, `category`, `icon`, `has_logo`, `config_schema`, `credentials`, `actions`, `emits`, and from SDK 0.5.0 `error_policy`, also per action) |
+| GET | `/providers/{slug}/logo` | The provider's validated logo (SVG or PNG). **Public.** Sent with `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox`, an `ETag` (`304` on `If-None-Match`) and `Cache-Control: public, max-age=3600`; 404 when the provider has no accepted logo |
 | GET | `/plugins` | Load reports per entry point: distribution, version, `ok`, `error` |
 | GET / POST | `` | List / create; `credential` is write-only and may be `{{SECRET_NAME}}`. Reads return `has_credential`, `credential_secret` (the referenced secret's slug, if any), `attention` (open alerts) and `error_overrides` |
 | PATCH / DELETE | `/{integration_id}` | Rename, enable, change config, replace the credential / delete with its own stored secret |
 | POST | `/{integration_id}/check` | Run `check()` and persist `status`, `last_error`, `last_checked_at` |
 | POST | `/{integration_id}/actions/{action_key}` | Run an action; body is the args dict, where a top-level `{{SECRET_NAME}}` value is resolved for the call. Returns `{ok, result}`. 409 if disabled or the provider is not installed, 422 for a missing secret, 502 on a provider `ValueError` |
+| POST | `/{integration_id}/options` | `{action_key, input}` → `[{value, label}]` (at most 500) for an input with an `x-marvin-options` hint: runs the read action the hint names, with the hint's args, like **Run action**. 404 unknown connection or action, 409 disabled or provider not installed, 422 no or malformed hint, a provider failure (`Couldn't load the options: …`) or a result with no list |
 | POST | `/{integration_id}/resolve?alert_id=` | Resolve the connection's open alerts (or one), announce it and re-arm parked retries (admin) |
 | PUT | `/{integration_id}/error-overrides` | `{overrides: {code: {review?, notify?}}}` for declared codes or `*`; `{}` resets (admin) |
 | GET / PUT | `/alert-routing` | Where alerts go: `email_admins`, `targets` (connections that can carry them, with `enabled`) / `integration_ids`, `reminder_hours` (admin) |
 | GET / POST | `/subscriptions?event_type=` | List / create `event_type → action + args` |
 | PATCH / DELETE | `/subscriptions/{sub_id}` | Toggle `enabled` or replace `args` / remove |
 
-The platform-wide list is `GET /api/admin/plugins` (super admin): each installed package with `name`, `package`, `version`, `kind`, `ok`, `error` and `providers` (`slug`, `name`, `actions`, `blueprints`, `workspaces`). Blueprints are applied through `/api/groups/blueprints`; see [Blueprints](blueprints.md). Full reference: [API reference](../api/index.md).
+The platform-wide list is `GET /api/admin/plugins` (super admin): each installed package with `name`, `package`, `version`, `kind`, `ok`, `error` and `providers` (`slug`, `name`, `icon`, `has_logo`, `actions`, `blueprints`, `workspaces`). Blueprints are applied through `/api/groups/blueprints`; see [Blueprints](blueprints.md). Full reference: [API reference](../api/index.md).
 
 ## Settings
 
@@ -163,7 +183,7 @@ No setting switches integrations on; presence of an installed provider does. Cre
 
 ## Since
 
-Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145. **Admin → Extensions → Plugins** and `GET /api/admin/plugins`: rc.158. HTTP `patch`: rc.182. Integration-owned error handling (error policies, retries, alerts, **How errors are handled**, **Integration alerts**): unreleased, migration `c9e2f4a6b8d1`; providers declare policies from `marvin-integration-sdk` 0.5.0. The Buttondown provider is a separate package; it relies on `${site.url}` (rc.177), `${entry.url}` and `if_none: skip` (rc.179).
+Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145. **Admin → Extensions → Plugins** and `GET /api/admin/plugins`: rc.158. HTTP `patch`: rc.182. Integration-owned error handling (error policies, retries, alerts, **How errors are handled**, **Integration alerts**): unreleased, migration `c9e2f4a6b8d1`; providers declare policies from `marvin-integration-sdk` 0.5.0. Option pickers for action inputs (`x-marvin-options`, `POST /{integration_id}/options`) and provider logos (`GET /providers/{slug}/logo`, from `marvin-integration-sdk` 0.6.0): unreleased. The Buttondown provider is a separate package; it relies on `${site.url}` (rc.177), `${entry.url}` and `if_none: skip` (rc.179).
 
 Note: `docs/INTEGRATIONS_DESIGN.md` and the plugin architecture doc predate the implementation and describe polling that nothing calls; the SDK package is the contract.
 

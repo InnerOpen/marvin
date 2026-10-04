@@ -195,6 +195,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     listAutomationExecutions,
     getAutomationExecution,
   } from "@/lib/api/automations";
+  import { listIntegrations, listProviders, type ProviderInfo } from "@/lib/api/integrations";
+  import { installLogoFallback, markHtml } from "@/lib/integrationLogo";
+  import { getArg, hintedInputs, optionsHint, setArg } from "@/lib/integrationOptions";
+  import { optionPicker } from "@/lib/integrationOptionPicker";
 
   const read = (id: string) => JSON.parse(document.getElementById(id)!.textContent || "null");
   const OPTIONS = read("wf-options-data") || { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
@@ -447,6 +451,93 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     return row;
   }
 
+  // ── Integration steps: the workspace's connections and their providers, loaded once on first use.
+  // They only enrich the step (logo, suggestions, option pickers); without them it stays free text.
+  type IntegrationCatalog = { bySlug: Map<string, any>; providers: Map<string, ProviderInfo> };
+  let integrationCatalog: Promise<IntegrationCatalog> | null = null;
+  function loadIntegrationCatalog(): Promise<IntegrationCatalog> {
+    integrationCatalog ??= Promise.all([listIntegrations(), listProviders()])
+      .then(([integrations, providers]) => {
+        const list = document.getElementById("wf-integrations");
+        if (list) {
+          list.innerHTML = integrations
+            .map((i: any) => `<option value="${esc(i.slug)}" label="${esc(i.name)}"></option>`)
+            .join("");
+        }
+        return {
+          bySlug: new Map(integrations.map((i: any) => [i.slug, i])),
+          providers: new Map(providers.map((p) => [p.slug, p])),
+        };
+      })
+      .catch(() => ({ bySlug: new Map(), providers: new Map() }));
+    return integrationCatalog;
+  }
+  let integrationRowSeq = 0;
+
+  function integrationFields(wrap: HTMLElement, a: any) {
+    const listId = `wf-int-actions-${++integrationRowSeq}`;
+    wrap.innerHTML = `
+      <div class="a-int-head">
+        <span class="a-int-mark"></span>
+        <input class="input a-integration" list="wf-integrations" placeholder="integration slug, e.g. square" value="${esc(a.integration ?? "")}" />
+      </div>
+      <input class="input a-int-action" list="${listId}" placeholder="action, e.g. create_listing" value="${esc(a.action ?? "")}" />
+      <datalist id="${listId}"></datalist>
+      <div class="a-int-pickers"></div>
+      <textarea class="input mono a-int-args" rows="4" spellcheck="false" placeholder='{"slug": "\${event.entry.slug}"}'>${esc(a.args && Object.keys(a.args).length ? JSON.stringify(a.args, null, 2) : "")}</textarea>
+      <span class="hint small">Runs one action of a workspace integration. To use its result in a later step, add an <code>"id"</code> to this step in the JSON view, then read <code>\${steps.&lt;id&gt;.output…}</code>.</span>`;
+    const slugInput = wrap.querySelector(".a-integration") as HTMLInputElement;
+    const actionInput = wrap.querySelector(".a-int-action") as HTMLInputElement;
+    const argsInput = wrap.querySelector(".a-int-args") as HTMLTextAreaElement;
+    const pickers = wrap.querySelector(".a-int-pickers") as HTMLElement;
+
+    const sync = async () => {
+      const { bySlug, providers } = await loadIntegrationCatalog();
+      const integration = bySlug.get(slugInput.value.trim());
+      const provider = integration ? providers.get(integration.provider) : undefined;
+      (wrap.querySelector(".a-int-mark") as HTMLElement).innerHTML = markHtml(provider);
+      installLogoFallback();
+      (wrap.querySelector(`#${listId}`) as HTMLElement).innerHTML = (provider?.actions ?? [])
+        .map((act) => `<option value="${esc(act.key)}" label="${esc(act.label)}"></option>`)
+        .join("");
+      // Inputs whose valid values come from the service (`x-marvin-options`) get a picker that writes
+      // into the arguments JSON; everything else stays in the JSON.
+      pickers.replaceChildren();
+      const action = provider?.actions?.find((act) => act.key === actionInput.value.trim());
+      for (const key of integration && action ? hintedInputs(action.inputSchema) : []) {
+        const prop = (action!.inputSchema!.properties as Record<string, any>)[key];
+        const source = provider!.actions.find((act) => act.key === optionsHint(prop)!.action);
+        const field = document.createElement("div");
+        field.className = "tf";
+        field.innerHTML = `<span>${esc(prop.title || key)} <span class="muted">(from ${esc(source?.label ?? "the integration")})</span></span>`;
+        const warn = document.createElement("small");
+        warn.className = "hint small";
+        const current = getArg(argsInput.value, key);
+        field.appendChild(
+          optionPicker({
+            integrationId: integration.id,
+            actionKey: action!.key,
+            input: key,
+            value: typeof current === "object" ? undefined : current,
+            onChange: (value) => {
+              const next = setArg(argsInput.value, key, value);
+              warn.textContent = next === null ? "Fix the arguments JSON below to use this picker." : "";
+              if (next !== null) {
+                argsInput.value = next;
+                revalidate();
+              }
+            },
+          }),
+        );
+        field.appendChild(warn);
+        pickers.appendChild(field);
+      }
+    };
+    slugInput.addEventListener("change", () => void sync());
+    actionInput.addEventListener("change", () => void sync());
+    void sync();
+  }
+
   function kindFields(kind: string, a: any): HTMLElement {
     const wrap = document.createElement("div");
     if (kind === "operation") {
@@ -522,11 +613,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         wrap.querySelector(".a-site-wrap")!.toggleAttribute("hidden", !(ev.target as HTMLSelectElement).value.startsWith("site_"));
       });
     } else if (kind === "integration") {
-      wrap.innerHTML = `
-        <input class="input a-integration" placeholder="integration slug, e.g. square" value="${esc(a.integration ?? "")}" />
-        <input class="input a-int-action" placeholder="action, e.g. create_listing" value="${esc(a.action ?? "")}" />
-        <textarea class="input mono a-int-args" rows="4" spellcheck="false" placeholder='{"slug": "\${event.entry.slug}"}'>${esc(a.args && Object.keys(a.args).length ? JSON.stringify(a.args, null, 2) : "")}</textarea>
-        <span class="hint small">Runs one action of a workspace integration. To use its result in a later step, add an <code>"id"</code> to this step in the JSON view, then read <code>\${steps.&lt;id&gt;.output…}</code>.</span>`;
+      integrationFields(wrap, a);
     } else if (kind === "handler") {
       wrap.innerHTML = `<input class="input a-task" list="wf-handlers" placeholder="request_site_rebuild" value="${esc(a.task ?? "")}" /><span class="hint small">An internal task to run (e.g. request_site_rebuild, ai_reindex_embeddings).</span>`;
     } else if (kind === "webhook") {
@@ -1139,6 +1226,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const o = document.createElement("option"); o.value = f; dh.appendChild(o);
   });
   document.body.appendChild(dh);
+  // Workspace integration slugs for "Run integration" steps — filled when the first one renders.
+  const di = document.createElement("datalist"); di.id = "wf-integrations";
+  document.body.appendChild(di);
 
   renderList();
 
@@ -1175,6 +1265,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   /* "Run on" target selector + dry-run preview */
   .workflows-page :global(.target-block) { border: 1px dashed var(--line); border-radius: 10px; padding: 12px; }
   .workflows-page :global(.target-grid) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0 8px; }
+  .workflows-page :global(.a-int-head) { display: flex; align-items: center; gap: 8px; }
+  .workflows-page :global(.a-int-mark:empty) { display: none; }
+  .workflows-page :global(.a-int-pickers:empty) { display: none; }
+  .workflows-page :global(.a-int-pickers) { display: flex; flex-direction: column; gap: 8px; }
   .workflows-page :global(.tf) { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
   .workflows-page :global(.tf > span) { color: var(--muted); }
   .workflows-page :global(.target-checks) { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 10px; }

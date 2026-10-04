@@ -15,6 +15,9 @@ class PluginProviderRead(_MarvinModel):
 
     slug: str
     name: str
+    icon: str = ""
+    """The provider's emoji — the fallback when it has no accepted logo."""
+    has_logo: bool = False
     actions: int = 0
     blueprints: int = 0
     """Content blueprints the provider offers workspaces on connect."""

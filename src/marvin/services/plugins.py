@@ -40,11 +40,19 @@ def connected_workspaces(session: Session) -> dict[str, int]:
     return dict(rows)
 
 
+def _has_logo(slug: str) -> bool:
+    from marvin.services.integrations import logos
+
+    return logos.has_logo(slug)
+
+
 def _provider_read(provider: Any, usage: dict[str, int]) -> PluginProviderRead:
     # getattr with defaults: a provider built against an older SDK may predate `content`.
     return PluginProviderRead(
         slug=provider.slug,
         name=getattr(provider, "name", "") or provider.slug,
+        icon=getattr(provider, "icon", "") or "",
+        has_logo=_has_logo(provider.slug),
         actions=len(getattr(provider, "actions", ()) or ()),
         blueprints=len(getattr(provider, "content", ()) or ()),
         workspaces=usage.get(provider.slug, 0),

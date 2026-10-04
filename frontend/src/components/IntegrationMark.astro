@@ -1,0 +1,29 @@
+---
+/**
+ * A provider's logo on a small white tile, or its emoji when it has no (accepted) logo or the image
+ * fails to load. Decorative: always render the provider/integration name next to it.
+ */
+import { logoUrl } from "@/lib/integrationLogo";
+
+interface Props {
+  slug: string;
+  icon?: string | null;
+  hasLogo?: boolean | null;
+}
+
+const { slug, icon, hasLogo } = Astro.props;
+---
+
+{hasLogo ? (
+  <span class="int-mark" data-emoji={icon ?? ""}>
+    <img class="int-mark-img" src={logoUrl(slug)} alt="" height="32" decoding="async" />
+  </span>
+) : icon ? (
+  <span class="int-mark-emoji" aria-hidden="true">{icon}</span>
+) : null}
+
+<script>
+  import { installLogoFallback } from "@/lib/integrationLogo";
+
+  installLogoFallback();
+</script>

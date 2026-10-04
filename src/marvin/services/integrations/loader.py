@@ -67,4 +67,8 @@ def load_providers(force: bool = False) -> list[ProviderLoadReport]:
     if _reports is not None and not force:
         return _reports
     _reports = _load_entry_points()
+    # Read + validate every provider's logo once, here, so a refused one is logged at startup.
+    from . import logos
+
+    logos.prime(INTEGRATION_REGISTRY.values())
     return _reports

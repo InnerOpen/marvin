@@ -10,6 +10,9 @@ export type PluginKind = "integration" | "ai_provider";
 export interface PluginProviderRead {
   slug: string;
   name: string;
+  /** Emoji fallback when there is no accepted logo. */
+  icon?: string;
+  hasLogo?: boolean;
   actions: number;
   blueprints: number;
   /** Distinct workspaces with at least one connection to this provider. */

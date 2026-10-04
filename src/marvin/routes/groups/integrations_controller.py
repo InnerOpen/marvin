@@ -10,7 +10,7 @@ import re
 from dataclasses import asdict
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import UUID4
 from slugify import slugify
 
@@ -30,6 +30,8 @@ from marvin.schemas.group.integration import (
     IntegrationEventSubscriptionCreate,
     IntegrationEventSubscriptionRead,
     IntegrationEventSubscriptionUpdate,
+    IntegrationOption,
+    IntegrationOptionsRequest,
     IntegrationPluginInfo,
     IntegrationProviderInfo,
     IntegrationRead,
@@ -45,12 +47,19 @@ from marvin.services.integrations import (
     get_provider,
     list_providers,
     load_reports,
+    logos,
 )
 from marvin.services.secrets import get_secret_backend
 from marvin.services.secrets.resolver import resolve_secret
 
 router = APIRouter(prefix="/groups/integrations")
+# Unauthenticated routes. Separate because `controller()` rewrites `router`'s prefix while binding the
+# class, so a plain function on it would lose `/groups/integrations`.
+public_router = APIRouter(prefix="/groups/integrations")
 logger = get_logger(__name__)
+
+OPTIONS_HINT = "x-marvin-options"
+MAX_OPTIONS = 500
 
 
 def _secret_ref(slug: str) -> str:
@@ -149,7 +158,8 @@ class IntegrationsController(BaseUserController):
     @router.get("/providers", response_model=list[IntegrationProviderInfo])
     def list_provider_catalog(self):
         """The available integration providers (the 'add integration' catalog)."""
-        return [IntegrationProviderInfo(**p.info()) for p in list_providers()]
+        # has_logo is core's verdict, not the SDK's: a logo the validator refused reads as none.
+        return [IntegrationProviderInfo(**{**p.info(), "has_logo": logos.has_logo(p.slug)}) for p in list_providers()]
 
     @router.get("/plugins", response_model=list[IntegrationPluginInfo])
     def list_plugins(self):
@@ -414,16 +424,19 @@ class IntegrationsController(BaseUserController):
 
     # ---- action test-fire --------------------------------------------------------
 
-    @router.post("/{integration_id}/actions/{action_key}", response_model=IntegrationActionResult)
-    def run_action(self, integration_id: UUID4, action_key: str, args: dict | None = None):
-        """Manually fire a provider action (also how the automation engine will call it)."""
+    def _runnable(self, integration_id: UUID4) -> tuple[IntegrationModel, IntegrationProvider]:
+        """The workspace's enabled connection and its installed provider, or the HTTP error why not."""
         row = self._get_or_404(integration_id)
         if not row.enabled:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Integration is disabled.")
-
         provider = self._provider_or_none(row.provider)
         if provider is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Provider '{row.provider}' is not installed.")
+        return row, provider
+
+    def _execute(self, row: IntegrationModel, provider: IntegrationProvider, action_key: str, args: dict | None) -> dict:
+        """Run one provider action with `{{SECRET}}` args resolved — the one path Run action and the
+        option picker share."""
         if provider.get_action(action_key) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No action '{action_key}' on this provider.")
 
@@ -439,7 +452,108 @@ class IntegrationsController(BaseUserController):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No action '{action_key}' on this provider.") from e
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e)) from e
-        return IntegrationActionResult(ok=True, result=result)
+        return result
+
+    @router.post("/{integration_id}/actions/{action_key}", response_model=IntegrationActionResult)
+    def run_action(self, integration_id: UUID4, action_key: str, args: dict | None = None):
+        """Manually fire a provider action (also how the automation engine will call it)."""
+        row, provider = self._runnable(integration_id)
+        return IntegrationActionResult(ok=True, result=self._execute(row, provider, action_key, args))
+
+    # ---- option source for action inputs -------------------------------------------
+
+    @router.post("/{integration_id}/options", response_model=list[IntegrationOption])
+    def action_input_options(self, integration_id: UUID4, data: IntegrationOptionsRequest):
+        """The choices for one action input, from the read action its `x-marvin-options` hint names.
+
+        Only that hinted action runs, with the hint's static args — the caller names an input, never an
+        action — so this can't be used to fire arbitrary actions. Same access as Run action. Errors come
+        back as a 4xx with a plain message; the picker shows it and keeps free text."""
+        row, provider = self._runnable(integration_id)
+        hint = _options_hint(provider, data.action_key, data.input)
+        try:
+            result = self._execute(row, provider, hint["action"], dict(hint.get("args") or {}))
+        except HTTPException as e:
+            if e.status_code < 500:
+                raise
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Couldn't load the options: {e.detail}") from e
+        except Exception as e:  # noqa: BLE001 — a provider bug must not 500 the picker
+            logger.warning(f"[integrations] options for {row.provider}.{data.action_key}.{data.input} failed: {e}")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Couldn't load the options: the integration failed.") from e
+        return _project_options(result, hint["value"], hint.get("label") or hint["value"])
+
+
+def _options_hint(provider: IntegrationProvider, action_key: str, input_key: str) -> dict:
+    """The validated `x-marvin-options` hint on one input of one of the provider's actions. The action
+    it names must be one of the same provider's actions."""
+    action = provider.get_action(action_key)
+    if action is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No action '{action_key}' on this provider.")
+    prop = ((action.input_schema or {}).get("properties") or {}).get(input_key)
+    hint = prop.get(OPTIONS_HINT) if isinstance(prop, dict) else None
+    if not isinstance(hint, dict):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"'{action_key}.{input_key}' has no option source.")
+    source, value, label, args = hint.get("action"), hint.get("value"), hint.get("label"), hint.get("args")
+    if not (isinstance(source, str) and isinstance(value, str) and value and (label is None or isinstance(label, str))):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"'{action_key}.{input_key}' has a malformed option source.")
+    if args is not None and not isinstance(args, dict):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"'{action_key}.{input_key}' has a malformed option source.")
+    source_action = provider.get_action(source)
+    if source_action is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"The option source '{source}' is not an action of this provider."
+        )
+    if getattr(source_action, "requires_approval", False):  # it runs whenever a picker opens — read actions only
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"The option source '{source}' needs approval to run.")
+    return hint
+
+
+def _project_options(result, value_field: str, label_field: str) -> list[IntegrationOption]:
+    """A read action's result — a list of objects, or an object with an `items` list — as up to
+    `MAX_OPTIONS` distinct {value, label}. Items without a usable value are skipped."""
+    items = result.get("items") if isinstance(result, dict) else result
+    if not isinstance(items, list):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Couldn't load the options: the integration returned no list.")
+    options: list[IntegrationOption] = []
+    seen: set = set()
+    for item in items:
+        if isinstance(item, dict):
+            value, label = item.get(value_field), item.get(label_field)
+        else:
+            value, label = item, None
+        if not isinstance(value, str | int | float) or value == "" or value in seen:
+            continue
+        seen.add(value)
+        options.append(IntegrationOption(value=value, label=str(label) if label not in (None, "") else str(value)))
+        if len(options) >= MAX_OPTIONS:
+            break
+    return options
+
+
+def _logo_headers(logo) -> dict[str, str]:
+    return {
+        "ETag": logo.etag,
+        "Cache-Control": "public, max-age=3600",
+        "X-Content-Type-Options": "nosniff",
+        # The logo is ours to serve but not ours to trust: nothing in it may load, run or navigate,
+        # even when opened directly rather than through <img>.
+        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    }
+
+
+@public_router.get(
+    "/providers/{slug}/logo", response_class=Response, responses={200: {"content": {"image/svg+xml": {}, "image/png": {}}}, 304: {}, 404: {}}
+)
+def provider_logo(slug: str, request: Request):
+    """A provider's validated logo. Public: logos aren't secret, they're platform-wide rather than
+    per-workspace, and an <img> can't send a Bearer header. 404 → the UI shows the provider's emoji."""
+    logo = logos.get_logo(slug)
+    if logo is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No logo.")
+    headers = _logo_headers(logo)
+    if logo.etag in [tag.strip() for tag in request.headers.get("if-none-match", "").split(",")]:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
+    return Response(content=logo.data, media_type=logo.content_type, headers=headers)
 
 
 def _delete_secret_quietly(ref: str, group_id) -> None:

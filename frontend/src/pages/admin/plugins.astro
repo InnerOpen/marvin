@@ -1,4 +1,5 @@
 ---
+import IntegrationMark from "@/components/IntegrationMark.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { listPlugins, type PluginKind, type PluginRead } from "@/lib/api/admin/plugins";
 import { getAuthToken } from "@/lib/api/client";
@@ -80,7 +81,10 @@ try {
                     {plugin.providers.map((provider) => (
                       <tr>
                         <td class="name-col">
-                          {provider.name}
+                          <span class="int-named">
+                            <IntegrationMark slug={provider.slug} icon={provider.icon} hasLogo={provider.hasLogo} />
+                            {provider.name}
+                          </span>
                           <code>{provider.slug}</code>
                         </td>
                         <td>{provider.actions}</td>

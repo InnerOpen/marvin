@@ -102,8 +102,8 @@ def test_list_plugins_reports_providers_and_workspace_usage(as_user, workspaces,
             "ok": True,
             "error": None,
             "providers": [
-                {"slug": rss, "name": "RSS Feed", "actions": 2, "blueprints": 1, "workspaces": 2},
-                {"slug": hook, "name": "Webhook Out", "actions": 1, "blueprints": 0, "workspaces": 0},
+                {"slug": rss, "name": "RSS Feed", "icon": "", "hasLogo": False, "actions": 2, "blueprints": 1, "workspaces": 2},
+                {"slug": hook, "name": "Webhook Out", "icon": "", "hasLogo": False, "actions": 1, "blueprints": 0, "workspaces": 0},
             ],
         }
     ]

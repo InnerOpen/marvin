@@ -1,4 +1,5 @@
 ---
+import IntegrationMark from "@/components/IntegrationMark.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import type { IntegrationPluginInfo, IntegrationWithHealth, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
@@ -113,7 +114,10 @@ function statusMeta(status: string): { text: string; cls: string } {
             <article class={`conn-card ${it.enabled ? "" : "is-disabled"}`} data-id={it.id}>
               <div class="conn-top">
                 <div class="conn-id">
-                  <strong>{prov?.icon ? `${prov.icon} ${it.name}` : it.name}</strong>
+                  <strong class="int-named">
+                    {prov && <IntegrationMark slug={prov.slug} icon={prov.icon} hasLogo={prov.hasLogo} />}
+                    {it.name}
+                  </strong>
                   <span class="conn-sub">
                     {prov?.name ?? it.provider}
                     {prov && ` · ${CATEGORY_LABEL[prov.category] ?? prov.category}`}
@@ -411,7 +415,10 @@ function statusMeta(status: string): { text: string; cls: string } {
         {providers.map((p) => (
           <article class="cat-card">
             <div class="cat-head">
-              <strong>{p.icon ? `${p.icon} ${p.name}` : p.name}</strong>
+              <strong class="int-named">
+                <IntegrationMark slug={p.slug} icon={p.icon} hasLogo={p.hasLogo} />
+                {p.name}
+              </strong>
               <span class="chip">{CATEGORY_LABEL[p.category] ?? p.category}</span>
             </div>
             <p class="cat-desc">{p.description}</p>
@@ -519,6 +526,8 @@ function statusMeta(status: string): { text: string; cls: string } {
     setErrorOverrides,
   } from "@/lib/api/integrations";
   import { overridesFrom } from "@/lib/integrationPolicy";
+  import { optionsHint } from "@/lib/integrationOptions";
+  import { optionPicker } from "@/lib/integrationOptionPicker";
   import { applyBlueprints, updateBlueprint } from "@/lib/api/blueprints";
   import type { IntegrationProviderInfo } from "@/lib/api/integrations";
 
@@ -852,17 +861,33 @@ function statusMeta(status: string): { text: string; cls: string } {
       (document.getElementById("action-title") as HTMLElement).textContent = action!.label;
       (document.getElementById("action-sub") as HTMLElement).textContent = action!.description || "";
       actionErrEl.hidden = true;
+      // An input with an `x-marvin-options` hint becomes a searchable picker fed through the connection
+      // (free text stays possible); the rest are plain text fields.
       actionFieldsEl.innerHTML = Object.entries(props)
         .map(([key, prop]) =>
-          fieldHtml({
-            kind: "config",
-            key,
-            label: prop.title || key,
-            required: required.includes(key),
-            type: prop.format === "uri" ? "url" : "text",
-          }),
+          optionsHint(prop)
+            ? `<div class="field"><span>${esc(prop.title || key)}${required.includes(key) ? ' <em class="req">Required</em>' : ""}</span><div class="opt-slot" data-input="${esc(key)}"></div></div>`
+            : fieldHtml({
+                kind: "config",
+                key,
+                label: prop.title || key,
+                required: required.includes(key),
+                type: prop.format === "uri" ? "url" : "text",
+              }),
         )
         .join("");
+      actionFieldsEl.querySelectorAll<HTMLElement>(".opt-slot").forEach((slot) => {
+        const key = slot.dataset.input!;
+        slot.replaceWith(
+          optionPicker({
+            integrationId: b.dataset.id!,
+            actionKey: b.dataset.action!,
+            input: key,
+            required: required.includes(key),
+            dataset: { kind: "config", key },
+          }),
+        );
+      });
       pendingAction = { id: b.dataset.id!, key: b.dataset.action! };
       actionOverlay.hidden = false;
     }),

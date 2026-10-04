@@ -14,6 +14,7 @@ import type {
   IntegrationProviderInfo,
   IntegrationUpdate,
 } from "@inneropen/marvin-sdk/platform";
+import type { InputOption } from "../integrationOptions";
 import type { ErrorOverrides, ErrorPolicyInfo, PolicyHandle } from "../integrationPolicy";
 import { createSdkClient } from "../sdk";
 import { fetchApi } from "./client";
@@ -56,6 +57,8 @@ export interface ProviderEventInfo {
 
 export type ProviderInfo = Omit<IntegrationProviderInfo, "actions"> & {
   icon?: string;
+  /** The provider ships a logo Marvin accepted (see lib/integrationLogo); otherwise show `icon`. */
+  hasLogo?: boolean;
   actions: ProviderActionInfo[];
   emits?: ProviderEventInfo[];
   /** How the provider handles its errors (SDK 0.5.0+; null on an older SDK). */
@@ -181,6 +184,24 @@ export async function setAlertRouting(
   return fetchApi(
     "/api/groups/integrations/alert-routing",
     { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) },
+    authToken,
+  );
+}
+
+/**
+ * The choices for one action input whose schema carries an `x-marvin-options` hint. Core runs the
+ * read action the hint names through this connection; a failure throws with a plain message, and the
+ * picker falls back to free text.
+ */
+export async function listInputOptions(
+  id: string,
+  actionKey: string,
+  input: string,
+  authToken?: string,
+): Promise<InputOption[]> {
+  return fetchApi(
+    `/api/groups/integrations/${encodeURIComponent(id)}/options`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actionKey, input }) },
     authToken,
   );
 }
