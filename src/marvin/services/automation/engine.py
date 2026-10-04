@@ -883,14 +883,17 @@ def run_retry(
             steps_failed=steps_failed,
             handled=not ok and run_handled(step_log),
         )
-        _announce(session, group_id, automation, ok, context["depth"], user_id, context, run_id=exec_id or uuid4(), retry_attempt=attempt)
 
-    session.refresh(row)
-    if row.status == "running":
-        # The policy never saw this attempt: the step passed without settling the row (it can't, but be
-        # safe), or the run failed before the provider was called (connection disabled, …).
-        if ok:
-            errors.finish_retry(session, row, "succeeded")
-        else:
-            errors.retry_failed_plainly(session, row, context.get("_error") or "the retry failed")
+        session.refresh(row)
+        if row.status == "running":
+            # The policy never saw this attempt: the step passed without settling the row (it can't, but be
+            # safe), or the run failed before the provider was called (connection disabled, …).
+            if ok:
+                errors.finish_retry(session, row, "succeeded")
+            else:
+                errors.retry_failed_plainly(session, row, context.get("_error") or "the retry failed")
+        # A chain announces its first failure (the original run) and how it ends — not every retry in
+        # between that fails again and schedules the next.
+        if ok or row.status not in RETRY_LIVE:
+            _announce(session, group_id, automation, ok, context["depth"], user_id, context, run_id=exec_id or uuid4(), retry_attempt=attempt)
     return "succeeded" if row.status == "succeeded" else "failed"

@@ -776,3 +776,18 @@ def test_the_sweep_runs_off_the_event_loop_within_a_time_budget(db_session, shop
     db_session.expire_all()
     (row,) = _retries(db_session, shop)
     assert row.attempt == 1 and row.status == "pending"
+
+
+def test_intermediate_retry_failures_are_not_announced(db_session, shop, events):
+    runner = _Runner(shop.integration.id)
+    policy = _handle(retry=_retry(60, max_attempts=2), then=_handle(review=True))
+    runner.failures = [runner.fail("unavailable", policy), runner.fail("unavailable", policy), runner.fail("unavailable", policy)]
+    _publish(db_session, shop, runner)
+    assert len(_failed_events(events)) == 1  # the first failure of the chain
+
+    _retry_now(db_session, shop, runner)  # fails again, next retry scheduled
+    assert len(_failed_events(events)) == 1
+
+    _retry_now(db_session, shop, runner)  # runs out: `then` applies
+    failed = _failed_events(events)
+    assert len(failed) == 2 and failed[-1].data.retry_attempt == 2 and failed[-1].data.handled is True
