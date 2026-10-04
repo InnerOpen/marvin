@@ -1,4 +1,5 @@
 ---
+import ApiTokenRevealModal from "@/components/ApiTokenRevealModal.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 ---
 
@@ -50,9 +51,13 @@ import AppLayout from "@/layouts/AppLayout.astro";
       </div>
     </form>
   </div>
+
+  <ApiTokenRevealModal title="Personal API Token" doneHref="/user/api-tokens" />
 </AppLayout>
 
 <script>
+  import { revealTokenOnce } from '@/lib/tokenReveal';
+
   // HttpOnly cookie is automatically sent with credentials: 'include'
   const form = document.getElementById('create-token-form');
 
@@ -71,8 +76,12 @@ import AppLayout from "@/layouts/AppLayout.astro";
 
       const data = await sdk.user.createApiToken(payload);
 
-      // Redirect to list page with token and name in query params
-      window.location.href = `/user/api-tokens?token=${data.token}&token_name=${encodeURIComponent(payload.name as string)}`;
+      // Shown once from the response; dismissing the dialog moves on to the tokens list.
+      const dialog = document.getElementById('api-token-modal') as HTMLDialogElement | null;
+      if (!dialog || !revealTokenOnce(dialog, data.token)) {
+        alert('Warning: Token created but no token was returned. Please rotate it to get a new one.');
+        window.location.href = '/user/api-tokens';
+      }
     } catch (error) {
       alert('Failed to create token. Please try again.');
       console.error('Error creating token:', error);

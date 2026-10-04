@@ -1,4 +1,5 @@
 ---
+import ApiTokenRevealModal from "@/components/ApiTokenRevealModal.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
@@ -7,8 +8,6 @@ const authToken = getAuthToken(Astro.cookies);
 const sdk = createSdkClient(authToken);
 let tokens = [];
 let error: string | null = null;
-const newToken = Astro.url.searchParams.get("token");
-const newTokenName = Astro.url.searchParams.get("token_name");
 
 try {
   tokens = await sdk.user.listApiTokens();
@@ -37,17 +36,6 @@ function formatDate(date: string | null | undefined): string {
   </div>
 
   <div class="page-container">
-    {newToken && newTokenName && (
-      <div class="alert alert-success">
-        <strong>✓ Token Created: {newTokenName}</strong>
-        <p>Copy this token now. It won't be shown again.</p>
-        <div class="token-display-wrapper">
-          <code class="token-display">{newToken}</code>
-          <button class="copy-button" id="copy-token-btn" data-token={newToken}>📋 Copy</button>
-        </div>
-      </div>
-    )}
-
     {error ? (
       <div class="alert alert-error"><strong>Error:</strong> {error}</div>
     ) : tokens.length === 0 ? (
@@ -81,23 +69,15 @@ function formatDate(date: string | null | undefined): string {
     )}
   </div>
 
+  <!-- Token Modal (shown after rotate) -->
+  <ApiTokenRevealModal title="Personal API Token" />
 </AppLayout>
 
 <script>
   // HttpOnly cookie is automatically sent with credentials: 'include'
   import { createSdkClient } from '@/lib/sdk';
+  import { revealTokenOnce } from '@/lib/tokenReveal';
   const sdk = createSdkClient();
-
-  // Copy token button
-  const copyBtn = document.getElementById('copy-token-btn');
-  copyBtn?.addEventListener('click', () => {
-    const token = copyBtn.getAttribute('data-token');
-    if (token) {
-      navigator.clipboard.writeText(token);
-      copyBtn.textContent = '✓ Copied';
-      setTimeout(() => copyBtn.textContent = '📋 Copy', 2000);
-    }
-  });
 
   // Rotate token
   document.querySelectorAll('[data-action="rotate"]').forEach(btn => {
@@ -109,8 +89,10 @@ function formatDate(date: string | null | undefined): string {
 
       try {
         const data = await sdk.user.rotateApiToken(id);
-
-        window.location.href = `/user/api-tokens?token=${data.token}&token_name=${encodeURIComponent(name)}`;
+        const dialog = document.getElementById('api-token-modal') as HTMLDialogElement | null;
+        if (!dialog || !revealTokenOnce(dialog, data.token)) {
+          alert('Token rotated, but no new token was returned. Rotate again to get one.');
+        }
       } catch (error) {
         alert('Failed to rotate token');
       }
@@ -174,54 +156,10 @@ function formatDate(date: string | null | undefined): string {
     border-color: var(--color-error);
   }
 
-  .alert-success {
-    background: rgba(79, 156, 132, 0.1);
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-
   .alert strong {
     display: block;
     margin-bottom: 8px;
     font-size: 16px;
-  }
-
-  .alert p {
-    margin: 0 0 12px;
-    font-size: 14px;
-  }
-
-  .token-display-wrapper {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 12px;
-    background: rgba(0, 0, 0, 0.05);
-    border-radius: var(--radius);
-  }
-
-  .token-display {
-    flex: 1;
-    font-family: ui-monospace, monospace;
-    font-size: 13px;
-    word-break: break-all;
-    background: transparent;
-    color: var(--ink);
-  }
-
-  .copy-button {
-    padding: 6px 12px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    font-size: 13px;
-    color: var(--ink);
-    cursor: pointer;
-    white-space: nowrap;
-  }
-
-  .copy-button:hover {
-    background: var(--panel-2);
   }
 
   .empty-state {

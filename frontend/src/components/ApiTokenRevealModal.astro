@@ -1,19 +1,21 @@
 ---
 /**
- * One-time display of a new API client token. Pages fill and open it with `revealTokenOnce` from
- * `@/lib/tokenReveal`, passing the token from the create/rotate response — never via the URL.
+ * One-time display of a new API token (API client or personal). Pages fill and open it with
+ * `revealTokenOnce` from `@/lib/tokenReveal`, passing the token from the create/rotate response —
+ * never via the URL.
  * `doneHref`: where to go once the dialog is dismissed (Done or Escape); omit to stay on the page.
  */
 interface Props {
   doneHref?: string;
+  title?: string;
 }
 
-const { doneHref } = Astro.props;
+const { doneHref, title = "API Client Token" } = Astro.props;
 ---
 
 <dialog id="api-token-modal" class="modal" data-done-href={doneHref}>
   <div class="modal-content">
-    <h3>API Client Token</h3>
+    <h3>{title}</h3>
     <p class="warning">
       ⚠️ Copy this token now and store it somewhere safe. It won't be shown again; if you lose it,
       rotate the token to get a new one.
