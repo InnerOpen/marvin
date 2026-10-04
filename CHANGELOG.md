@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.191 (2026-10-04)
+
+### Bug Fixes
+
+- **publishing**: Don't queue site rebuilds for changes no site can see
+  ([`e592989`](https://github.com/InnerOpen/marvin/commit/e5929899c992bf7de1785d530b02e43bb09f00c5))
+
+
 ## v1.0.0-rc.190 (2026-10-04)
 
 ### Bug Fixes
