@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.189 (2026-10-04)
+
+### Refactoring
+
+- Remove the built-in Apprise notifier — use the Apprise integration
+  ([`9ab9f40`](https://github.com/InnerOpen/marvin/commit/9ab9f40bbe6996764d8cc82cbcc1b436e069eb2e))
+
+### Breaking Changes
+
+- The /api/group/notifications and /api/event/options endpoints, the APPRISE_ENABLED / APPRISE_URL
+  settings and the about endpoints' Apprise fields are gone. Send notifications by connecting the
+  Apprise integration's notify action to events instead.
+
+
 ## v1.0.0-rc.188 (2026-10-04)
 
 ### Documentation
