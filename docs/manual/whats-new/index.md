@@ -73,3 +73,4 @@ The admin shows a "new version available" banner from `/version.json` (rc.64) ba
 - Dark mode applies before the first paint, with no white flash on load (rc.164).
 - Entry Details opens with a preview row of the entry's attached images, linking to each asset (rc.167).
 - The event log, dashboard activity list and workflow and scheduled-task toasts link each event's subject (rc.178).
+- The dashboard's **Needs Attention** panel also counts entries in Needs review (flagged submissions, entries a workflow sent to review), and the Review Queue's cards list why each one is there (after rc.192).

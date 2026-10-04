@@ -49,6 +49,7 @@ class AttentionCounts(_MarvinModel):
     # ?status=draft showed 11 "drafts" over a list of 2.
     inbox: int = 0  # entries in the inbox: form submissions and AI-written entries waiting for triage
     drafts: int = 0  # entries in draft
+    needs_review: int = 0  # entries in Needs review: flagged submissions, entries a workflow sent there (a refused signup)
     ai_suggestions: int = 0  # entities with a pending AI write-back (suggestion_json)
     failures: int = 0  # failed executions in the last 7 days (tasks/webhooks/AI)
 
@@ -156,6 +157,7 @@ class StatsController(BaseUserController):
 
         inbox = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "inbox"))
         drafts = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "draft"))
+        needs_review = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "needs_review"))
 
         suggestions = sum(_c(select(func.count(m.id)).where(m.group_id == gid, m.suggestion_json.isnot(None))) for m in (Entries, Assets, Resources))
 
@@ -171,5 +173,5 @@ class StatsController(BaseUserController):
 
         return DashboardData(
             recent_activity=recent,
-            attention=AttentionCounts(inbox=inbox, drafts=drafts, ai_suggestions=suggestions, failures=failures),
+            attention=AttentionCounts(inbox=inbox, drafts=drafts, needs_review=needs_review, ai_suggestions=suggestions, failures=failures),
         )

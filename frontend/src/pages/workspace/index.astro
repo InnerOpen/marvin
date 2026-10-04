@@ -46,9 +46,10 @@ const recentActivity: any[] = dashboard?.recentActivity ?? dashboard?.recent_act
 const attention = dashboard?.attention ?? {};
 const inbox: number = attention.inbox ?? 0;
 const drafts: number = attention.drafts ?? 0;
+const needsReview: number = attention.needsReview ?? attention.needs_review ?? 0;
 const aiSuggestions: number = attention.aiSuggestions ?? attention.ai_suggestions ?? 0;
 const failures: number = attention.failures ?? 0;
-const attentionTotal = inbox + drafts + aiSuggestions + failures;
+const attentionTotal = inbox + drafts + needsReview + aiSuggestions + failures;
 
 /** Compact "3m ago" / "2h ago" / "5d ago" from an ISO timestamp. */
 function relTime(iso?: string | null): string {
@@ -174,6 +175,10 @@ function relTime(iso?: string | null): string {
               <a href="/workspace/entries?status=draft" class="attention-item">
                 <span class={`attention-count ${drafts ? 'warn' : ''}`}>{drafts}</span>
                 <span class="attention-label">Drafts awaiting review</span>
+              </a>
+              <a href="/workspace/entries?status=needs_review" class="attention-item">
+                <span class={`attention-count ${needsReview ? 'warn' : ''}`}>{needsReview}</span>
+                <span class="attention-label">Needs review (flagged submissions, refused signups)</span>
               </a>
               <a href="/workspace/settings/ai-executions" class="attention-item">
                 <span class={`attention-count ${aiSuggestions ? 'info' : ''}`}>{aiSuggestions}</span>

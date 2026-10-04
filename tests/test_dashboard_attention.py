@@ -25,7 +25,7 @@ def workspace(db_session):
     et = EntryTypes(session=db_session, group_id=gid, name="Note", slug="note", schema_json={})
     db_session.add(et)
     db_session.flush()
-    for i, status in enumerate(["inbox"] * 3 + ["draft"] * 2 + ["published"]):
+    for i, status in enumerate(["inbox"] * 3 + ["draft"] * 2 + ["needs_review"] + ["published"]):
         db_session.add(Entries(session=db_session, group_id=gid, entry_type_id=et.id, title=f"E{i}", slug=f"e{i}-{gid.hex[:6]}", status=status))
     db_session.commit()
     yield gid
@@ -42,3 +42,14 @@ def test_inbox_and_drafts_are_counted_apart(db_session, workspace, monkeypatch):
     attention = object.__new__(sc.StatsController).get_dashboard().attention
 
     assert (attention.inbox, attention.drafts) == (3, 2)
+
+
+def test_entries_in_needs_review_are_counted_apart(db_session, workspace, monkeypatch):
+    # A flagged submission or a refused newsletter signup leaves the inbox for Needs review; it must
+    # still show here, behind the Review Queue's own filter.
+    for name, value in (("group_id", workspace), ("repos", SimpleNamespace(session=db_session))):
+        monkeypatch.setattr(sc.StatsController, name, property(lambda self, v=value: v), raising=False)
+
+    attention = object.__new__(sc.StatsController).get_dashboard().attention
+
+    assert attention.needs_review == 1
