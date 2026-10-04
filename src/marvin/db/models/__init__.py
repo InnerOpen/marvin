@@ -30,7 +30,6 @@ class BaseMixins:
                 setattr(self, k, v)
 
 
-from .events import EventNotifierOptionsModel  # noqa: E402, F401
 from .groups import *  # noqa: E402, F401, F403
 from .platform import APIClients, Collections, Entries, EntryCollections, EntryTypes  # noqa: E402, F401
 from .users import *  # noqa: E402, F401, F403

@@ -13,7 +13,6 @@ from pydantic import UUID4
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from marvin.db.models.groups.events import GroupEventNotifierModel, GroupEventNotifierOptionsModel
 from marvin.db.models.groups.invite_tokens import GroupInviteToken
 from marvin.db.models.groups.preferences import GroupPreferencesModel
 from marvin.db.models.groups.reports import ReportEntryModel, ReportModel
@@ -23,15 +22,12 @@ from marvin.db.models.platform.event_log import EventLogModel
 
 def purge_group_dependents(session: Session, group_id: UUID4) -> None:
     """Delete the non-cascading rows belonging to ``group_id``, leaving the group itself."""
-    notifier_ids = select(GroupEventNotifierModel.id).where(GroupEventNotifierModel.group_id == group_id)
     report_ids = select(ReportModel.id).where(ReportModel.group_id == group_id)
 
     statements = [
-        # Children first — these reference the per-group parents below, not the group itself.
-        delete(GroupEventNotifierOptionsModel).where(GroupEventNotifierOptionsModel.group_event_notifiers_id.in_(notifier_ids)),
+        # Children first — they reference the per-group parents below, not the group itself.
         delete(ReportEntryModel).where(ReportEntryModel.report_id.in_(report_ids)),
         # Then the group-scoped parents. webhook_execution_logs cascade off webhook_urls.
-        delete(GroupEventNotifierModel).where(GroupEventNotifierModel.group_id == group_id),
         delete(ReportModel).where(ReportModel.group_id == group_id),
         delete(GroupInviteToken).where(GroupInviteToken.group_id == group_id),
         delete(GroupWebhooksModel).where(GroupWebhooksModel.group_id == group_id),

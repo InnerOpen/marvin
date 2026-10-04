@@ -1,6 +1,7 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { listSubscriptions } from "@/lib/api/integrations";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -8,7 +9,7 @@ const sdk = createSdkClient(authToken);
 
 let eventTypes: any[] = [];
 let webhooks: any[] = [];
-let notifications: any[] = [];
+let integrationSubs: any[] = [];
 let emailSubscriptions: any[] = [];
 let error: string | null = null;
 
@@ -17,8 +18,9 @@ try {
     sdk.events.getOptions() as Promise<any[]>,
     sdk.webhooks.list().catch(() => []),
   ]);
-  const notifRes = await sdk.notifications.list().catch(() => ({ items: [] }));
-  notifications = Array.isArray(notifRes) ? notifRes : ((notifRes as any)?.items ?? []);
+  // Integration actions (e.g. Apprise notifications) wired to events are a connection type too.
+  const intSubsRes = await listSubscriptions(undefined, authToken).catch(() => []);
+  integrationSubs = Array.isArray(intSubsRes) ? intSubsRes : [];
   // Email subscriptions are a third connection type — count them too, or an event wired only
   // to an email (e.g. Incoming Webhook Received) wrongly reads as "not subscribed".
   const emailSubsRes = await fetchApi<any[]>("/api/groups/email-event-subscriptions", {}, authToken).catch(() => []);
@@ -33,12 +35,9 @@ function getConnections(eventType: string) {
     const sub = (w as any).subscribedEvents ?? (w as any).subscribed_events ?? [];
     return Array.isArray(sub) && sub.includes(eventType);
   });
-  const connectedNotifs = notifications.filter((n: any) => {
-    const opts: any[] = (n as any).options ?? [];
-    return opts.some((o: any) => (o.option || o.slug || o) === `core.${eventType}`);
-  });
+  const connectedIntegrations = integrationSubs.filter((s: any) => (s.eventType ?? s.event_type) === eventType);
   const connectedEmails = emailSubscriptions.filter((s: any) => (s.eventType ?? s.event_type) === eventType);
-  return { webhooks: connectedWebhooks, notifications: connectedNotifs, emails: connectedEmails };
+  return { webhooks: connectedWebhooks, integrations: connectedIntegrations, emails: connectedEmails };
 }
 
 const categories = [...new Set(eventTypes.map((e: any) => e.category).filter(Boolean))] as string[];
@@ -46,7 +45,7 @@ const groupedByCategory = categories.map((cat) => {
   const events = eventTypes.filter((e: any) => e.category === cat);
   const connectedCount = events.filter((e: any) => {
     const c = getConnections(e.value);
-    return c.webhooks.length + c.notifications.length + c.emails.length > 0;
+    return c.webhooks.length + c.integrations.length + c.emails.length > 0;
   }).length;
   return { category: cat, events, connectedCount };
 });
@@ -56,7 +55,7 @@ const groupedByCategory = categories.map((cat) => {
   <div class="toolbar">
     <div>
       <h2>Events</h2>
-      <p>Events fire when things happen in your workspace. Subscribe to trigger webhooks, notifications, and emails.</p>
+      <p>Events fire when things happen in your workspace. Subscribe to trigger webhooks, integration actions (e.g. notifications), and emails.</p>
     </div>
     <a href="/workspace/events" class="button secondary">View Event Log →</a>
   </div>
@@ -84,7 +83,7 @@ const groupedByCategory = categories.map((cat) => {
         <div class="chips" id="chips-all">
           {eventTypes.map((event: any) => {
             const conn = getConnections(event.value);
-            const total = conn.webhooks.length + conn.notifications.length + conn.emails.length;
+            const total = conn.webhooks.length + conn.integrations.length + conn.emails.length;
             return (
               <article
                 class:list={['event-chip', { connected: total > 0 }]}
@@ -105,7 +104,7 @@ const groupedByCategory = categories.map((cat) => {
                   {total > 0 && (
                     <span class="conn-dot" title={[
                       ...conn.webhooks.map((w: any) => w.name),
-                      ...conn.notifications.map((n: any) => n.name),
+                      ...conn.integrations.map((s: any) => s.integrationName ?? s.integration_name ?? s.provider),
                     ].join(', ')}>●</span>
                   )}
                   <a href={`/automation/events/${event.value}`} class="button secondary small">
@@ -136,7 +135,7 @@ const groupedByCategory = categories.map((cat) => {
             <div class="chips group-chips">
               {events.map((event: any) => {
                 const conn = getConnections(event.value);
-                const total = conn.webhooks.length + conn.notifications.length + conn.emails.length;
+                const total = conn.webhooks.length + conn.integrations.length + conn.emails.length;
                 return (
                   <article
                     class:list={['event-chip', { connected: total > 0 }]}
@@ -156,7 +155,7 @@ const groupedByCategory = categories.map((cat) => {
                       {total > 0 && (
                         <span class="conn-dot" title={[
                           ...conn.webhooks.map((w: any) => w.name),
-                          ...conn.notifications.map((n: any) => n.name),
+                          ...conn.integrations.map((s: any) => s.integrationName ?? s.integration_name ?? s.provider),
                         ].join(', ')}>●</span>
                       )}
                       <a href={`/automation/events/${event.value}`} class="button secondary small">

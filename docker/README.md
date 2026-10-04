@@ -24,7 +24,7 @@ This docker-compose configuration provides local services for testing all client
 #### 3. **Apprise** - Notification Gateway
 - **Port**: 8000
 - **URL**: http://localhost:8000
-- **Purpose**: Test event bus notifications
+- **Purpose**: Local Apprise API target for testing the Apprise integration (`marvin-integration-apprise`)
 - **Config**: `./docker/config/`
 
 #### 4. **HTTPBin** - HTTP Testing

@@ -1424,31 +1424,3 @@ def get_event_variables(event_type: str) -> list[EventVariable]:
 
 def get_catalog_entry(event_type: str) -> CatalogEntry | None:
     return CATALOG_BY_TYPE.get(event_type)
-
-
-def sync_notifier_options(session) -> int:
-    """Ensure every enabled catalog event is a subscribable notifier option.
-
-    The notifier-options catalog (``events_notifier_options``) is seeded from a static JSON that
-    drifts behind ``CATALOG`` as new events are added — so an event the UI offers a "Connect" button
-    for (e.g. ``incoming_webhook``) may be absent, and subscribing a notifier to it raises
-    "Notification option 'core.<slug>' does not exist" → 400. This reconciles the catalog to the
-    single source of truth: additive and idempotent — inserts missing ``core.<event_type>`` rows,
-    never touches existing rows' enabled flags. Returns the number inserted.
-    """
-    from marvin.db.models.events.events import EventNotifierOptionsModel
-
-    existing = {slug for (slug,) in session.query(EventNotifierOptionsModel.slug).all()}
-    inserted = 0
-    for entry in CATALOG:
-        if not entry.enabled or entry.event_type in existing:
-            continue
-        opt = EventNotifierOptionsModel(session=session, name=entry.name, namespace="core", enabled=True)
-        opt.slug = entry.event_type  # override decamelize(name); the subscribe validator matches on slug
-        opt.description = entry.description
-        session.add(opt)
-        existing.add(entry.event_type)
-        inserted += 1
-    if inserted:
-        session.commit()
-    return inserted

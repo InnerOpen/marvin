@@ -113,12 +113,6 @@ class AppStartupInfo(_MarvinModel):
     smtp_feature: FeatureStatus | None = None
     """Detailed SMTP feature status."""
 
-    # Apprise Notifications
-    apprise_enabled: bool = False
-    """Whether Apprise notifications are configured and enabled."""
-    apprise_feature: FeatureStatus | None = None
-    """Detailed Apprise feature status."""
-
     # LDAP Authentication
     ldap_enabled: bool = False
     """Whether LDAP authentication is configured and enabled."""

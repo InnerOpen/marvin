@@ -9,7 +9,6 @@ from sqlalchemy import func, select
 from marvin.db.models.groups import GroupWebhooksModel
 from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
 from marvin.db.models.groups.ai_executions import AIExecutionModel
-from marvin.db.models.groups.notification_execution_logs import NotificationExecutionLogModel
 from marvin.db.models.groups.secrets import WorkspaceSecret
 from marvin.db.models.groups.variables import WorkspaceVariable
 from marvin.db.models.groups.webhook_execution_logs import WebhookExecutionLogModel
@@ -51,7 +50,7 @@ class AttentionCounts(_MarvinModel):
     inbox: int = 0  # entries in the inbox: form submissions and AI-written entries waiting for triage
     drafts: int = 0  # entries in draft
     ai_suggestions: int = 0  # entities with a pending AI write-back (suggestion_json)
-    failures: int = 0  # failed executions in the last 7 days (tasks/webhooks/notifications/AI)
+    failures: int = 0  # failed executions in the last 7 days (tasks/webhooks/AI)
 
 
 class DashboardData(_MarvinModel):
@@ -166,7 +165,6 @@ class StatsController(BaseUserController):
             for model, ts in (
                 (ScheduledTaskExecutionLogModel, ScheduledTaskExecutionLogModel.executed_at),
                 (WebhookExecutionLogModel, WebhookExecutionLogModel.executed_at),
-                (NotificationExecutionLogModel, NotificationExecutionLogModel.executed_at),
                 (AIExecutionModel, AIExecutionModel.created_at),
             )
         )

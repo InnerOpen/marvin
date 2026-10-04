@@ -46,25 +46,3 @@ def test_gated_events_are_not_subscribable():
     disabled = {c.event_type for c in CATALOG if not c.enabled}
     still_on = sorted(_NO_EMITTER - disabled)
     assert not still_on, f"gated events still marked subscribable: {still_on}"
-
-
-def test_sync_notifier_options_is_idempotent_and_additive(db_session):
-    """The notifier-options catalog must not drift below the code catalog: sync inserts every
-    enabled event as a subscribable option (e.g. incoming_webhook), is idempotent, and additive
-    (never disturbs existing rows). Regression for the notifier-connect 400 ("option does not exist").
-    """
-    from marvin.db.models.events.events import EventNotifierOptionsModel as Opt
-    from marvin.services.events.event_catalog import sync_notifier_options
-
-    sync_notifier_options(db_session)  # reconcile (idempotent even if init already did)
-    assert db_session.query(Opt).filter_by(namespace="core", slug="incoming_webhook").first() is not None
-    assert sync_notifier_options(db_session) == 0  # second run is a no-op
-
-    # additive: drop one, it comes back on the next sync; nothing else changes
-    before = db_session.query(Opt).count()
-    db_session.query(Opt).filter_by(slug="incoming_webhook").delete()
-    db_session.commit()
-    assert sync_notifier_options(db_session) == 1
-    assert db_session.query(Opt).count() == before
-    row = db_session.query(Opt).filter_by(slug="incoming_webhook").first()
-    assert row is not None and row.enabled is True

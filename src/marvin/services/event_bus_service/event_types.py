@@ -79,7 +79,7 @@ class EventTypes(EventTypeBase):
     # System Events
     # ==========================================================================
     test_message = auto()
-    """A test message event, used for verifying notifier configurations."""
+    """A test message event, used for verifying event subscriptions."""
     webhook_task = auto()
     """An event that triggers scheduled webhook processing."""
 
@@ -1333,13 +1333,12 @@ class EventBusMessage(_MarvinModel):
 
     @field_validator("body", mode="before")  # Run before Pydantic's own validation
     @classmethod
-    def ensure_body_is_not_empty_for_apprise(cls, v: str | None) -> str:  # Renamed, added cls, type hint for v
+    def ensure_body_is_not_empty(cls, v: str | None) -> str:
         """
         Pydantic validator to ensure the 'body' field is not empty.
 
-        If the body is empty or None, it defaults to the string "generic".
-        This is to prevent issues with services like Apprise that might not
-        send notifications if the body is empty.
+        If the body is empty or None, it defaults to the string "generic". Downstream
+        consumers (e.g. notification integrations) treat "generic" as "no body".
 
         Args:
             v (str | None): The input value for the 'body' field.
@@ -1347,8 +1346,6 @@ class EventBusMessage(_MarvinModel):
         Returns:
             str: The validated (and potentially defaulted) body string.
         """
-        # If the body is empty or None, Apprise might not send the notification.
-        # Default to "generic" to ensure something is sent.
         return v if v and v.strip() else "generic"  # Ensure non-empty and not just whitespace
 
 

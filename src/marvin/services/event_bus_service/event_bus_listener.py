@@ -3,29 +3,24 @@ This module defines the base class and concrete implementations for event listen
 within the Marvin application's event bus system.
 
 Event listeners are responsible for:
-1. Identifying relevant subscribers (e.g., Apprise URLs, webhook configurations)
-   for a given event.
+1. Identifying relevant subscribers (e.g., webhook configurations) for a given event.
 2. Publishing the event data to these subscribers using an appropriate publisher
-   (e.g., `ApprisePublisher`, `WebhookPublisher`).
+   (e.g., `WebhookPublisher`).
 
 The module includes:
 - `EventListenerBase`: An abstract base class defining the event listener interface
   and providing context managers for resource management (DB sessions, repositories).
-- `AppriseEventListener`: A listener that finds Apprise URLs subscribed to an event
-  and publishes event data to them, potentially enriching URLs with event parameters.
 - `WebhookEventListener`: A listener that finds scheduled webhooks relevant to an event
   (specifically `webhook_task` events), potentially processes data based on webhook
   type, and publishes to the webhook URLs.
 """
 
 import contextlib  # For contextmanager decorator
-import json  # For serializing event data
 from abc import ABC, abstractmethod  # For abstract base classes
 from collections.abc import Generator  # For generator type hints
 from datetime import UTC, datetime  # For datetime operations
 from logging import Logger
 from typing import Any, cast  # For type casting
-from urllib.parse import parse_qs, urlencode, urlsplit, urlunsplit  # For URL manipulation
 
 from fastapi.encoders import jsonable_encoder  # For encoding Pydantic models to JSON-compatible dicts
 from pydantic import UUID4  # For UUID type hinting
@@ -39,19 +34,17 @@ from marvin.core.root_logger import get_logger  # Application logger
 from marvin.db.db_setup import session_context  # Context manager for DB sessions
 from marvin.db.models.groups.webhooks import GroupWebhooksModel  # , Method # Method enum not directly used here
 from marvin.repos.repository_factory import AllRepositories  # Central repository access
-from marvin.schemas.group.event import GroupEventNotifierPrivate  # Schema for private notifier details
 from marvin.schemas.group.webhook import WebhookRead  # Schema for reading webhook configurations
 from marvin.services.webhooks.all_webhooks import AllWebhooks, get_webhooks  # For accessing webhook runners
 
 from .event_types import (  # Core event system types
     Event,
-    EventNameSpace,
     EventOperation,
     EventTypes,
     EventWebhookData,
     event_entity,
 )
-from .publisher import ApprisePublisher, PublisherLike, WebhookPublisher  # Publisher implementations
+from .publisher import PublisherLike, WebhookPublisher  # Publisher implementations
 
 
 class EventListenerBase(ABC):
@@ -80,7 +73,7 @@ class EventListenerBase(ABC):
         Args:
             group_id (UUID4): The ID of the group this listener is associated with.
                               Events processed may be scoped to this group.
-            publisher (PublisherLike): An instance of a publisher (e.g., ApprisePublisher)
+            publisher (PublisherLike): An instance of a publisher (e.g., WebhookPublisher)
                                        used to send out notifications.
         """
         self.group_id: UUID4 = group_id
@@ -109,7 +102,7 @@ class EventListenerBase(ABC):
         Abstract method to get a list of all subscribers for a given event.
 
         Subclasses must implement this to determine who should receive the event
-        (e.g., list of Apprise URLs, list of WebhookRead objects).
+        (e.g., a list of WebhookRead objects).
 
         Args:
             event (Event): The event for which to find subscribers.
@@ -209,149 +202,6 @@ class EventListenerBase(ABC):
                 self._webhooks = None  # Clear after use if temporary
         else:
             yield self._webhooks
-
-
-class AppriseEventListener(EventListenerBase):
-    """
-    Event listener that publishes events to Apprise-compatible notification services.
-
-    It retrieves configured Apprise URLs for a group that are subscribed to the
-    specific event type. It can also update these URLs with event-specific data
-    as query parameters for certain Apprise URL schemes (e.g., JSON, XML).
-    """
-
-    _option_value_field_name: str = "option"  # Field name on GroupEventNotifierOptionsSummary to get "namespace.slug"
-
-    def __init__(self, group_id: UUID4) -> None:
-        """
-        Initializes the AppriseEventListener for a specific group.
-
-        Args:
-            group_id (UUID4): The ID of the group whose Apprise notifiers will be used.
-        """
-        super().__init__(group_id, ApprisePublisher())  # Uses ApprisePublisher for dispatching
-
-    def get_subscribers(self, event: Event) -> list[GroupEventNotifierPrivate]:
-        """
-        Retrieves a list of enabled notifier objects subscribed to the given event.
-
-        Returns the matching `GroupEventNotifierPrivate` objects so that
-        `publish_to_subscribers` can fire and log per-notifier.
-        """
-        if event.event_type == EventTypes.webhook_task:
-            return []
-
-        target_option = f"{EventNameSpace.namespace.value}.{event.event_type.name.replace('-', '_')}"
-        self.logger.debug(f"Target Event {target_option}")
-
-        matching: list[GroupEventNotifierPrivate] = []
-        with self.ensure_repos(self.group_id) as repos:
-            enabled_notifiers: list[GroupEventNotifierPrivate] = repos.group_event_notifier.multi_query(
-                {"enabled": True}, override_schema=GroupEventNotifierPrivate
-            )
-            for notifier in enabled_notifiers:
-                if not notifier.apprise_url:
-                    continue
-                for option_summary in notifier.options:
-                    if getattr(option_summary, self._option_value_field_name, None) == target_option:
-                        matching.append(notifier)
-                        break
-
-        return matching
-
-    def publish_to_subscribers(self, event: Event, subscribers: list[GroupEventNotifierPrivate]) -> None:
-        """
-        Publishes the event to each notifier individually, logging per-notifier.
-        """
-        from marvin.services.secrets.resolver import resolve
-
-        for notifier in subscribers:
-            resolved_url = resolve(notifier.apprise_url, group_id=self.group_id)
-            enriched = self.update_urls_with_event_data([resolved_url], event)
-            self.logger.info(f"Notifier '{notifier.name}' → {resolved_url}")
-            self.publisher.publish(
-                event,
-                enriched,
-                notifier_id=notifier.id,
-                group_id=self.group_id,
-                event_type=event.event_type.name,
-            )
-
-    @staticmethod
-    def update_urls_with_event_data(apprise_urls: list[str], event: Event) -> list[str]:
-        """
-        Updates Apprise URLs with event-specific data as query parameters.
-
-        For certain URL schemes (JSON, XML, FORM), it adds event details (like type, ID,
-        timestamp, and document_data) as query parameters prefixed with ":". This allows
-        Apprise to include this data in the notification payload for those services.
-
-        Args:
-            apprise_urls (list[str]): The list of raw Apprise URLs.
-            event (Event): The event containing data to be added to URLs.
-
-        Returns:
-            list[str]: The list of Apprise URLs, potentially updated with event data.
-        """
-        # Prepare event data parameters for URL encoding
-        event_params = {
-            "event_type": event.event_type.name,
-            "integration_id": event.integration_id,
-            # Serialize document_data to a JSON string for URL parameter
-            "document_data": json.dumps(jsonable_encoder(event.document_data)),
-            "event_id": str(event.event_id),  # Convert UUID to string
-            "timestamp": event.timestamp.isoformat() if event.timestamp else "",  # ISO format or empty string
-        }
-        # Filter out None values from params, as they shouldn't be in query string
-        filtered_event_params = {k: v for k, v in event_params.items() if v is not None}
-
-        processed_urls = []
-        for url in apprise_urls:
-            if AppriseEventListener.is_custom_data_url_scheme(url):  # Check if URL scheme supports custom data
-                # Prepend ":" to keys for Apprise custom key-value pairs via query params
-                apprise_custom_params = {f":{k}": v for k, v in filtered_event_params.items()}
-                processed_urls.append(AppriseEventListener.merge_query_parameters(url, apprise_custom_params))
-            else:
-                processed_urls.append(url)  # URL scheme does not support custom data, use as is
-        return processed_urls
-
-    @staticmethod
-    def merge_query_parameters(url_string: str, params_to_add: dict[str, str]) -> str:  # Renamed params
-        """
-        Merges additional query parameters into an existing URL string.
-
-        Args:
-            url_string (str): The original URL, which may or may not have existing query parameters.
-            params_to_add (dict[str, str]): A dictionary of query parameters to add or update.
-
-        Returns:
-            str: The new URL string with merged query parameters.
-        """
-        scheme, netloc, path, query_string, fragment = urlsplit(url_string)
-        existing_query_params = parse_qs(query_string)  # Parse existing query string into a dict
-
-        # Update with new parameters. parse_qs values are lists, so ensure new params are also lists for consistency.
-        for key, value in params_to_add.items():
-            existing_query_params[key] = [value]  # Override or add as a list with one item
-
-        new_query_string = urlencode(existing_query_params, doseq=True)  # Re-encode query parameters
-        return urlunsplit((scheme, netloc, path, new_query_string, fragment))  # Reconstruct the URL
-
-    @staticmethod
-    def is_custom_data_url_scheme(url_string: str) -> bool:  # Renamed from is_custom_url
-        """
-        Checks if the given URL string uses a scheme that supports Apprise custom key-value data via query parameters.
-
-        Args:
-            url_string (str): The Apprise URL string.
-
-        Returns:
-            bool: True if the scheme is one of "form(s)", "json(s)", or "xml(s)"; False otherwise.
-        """
-        # Ensure URL is a string before splitting
-        scheme = str(url_string).split(":", 1)[0].lower()
-        # List of Apprise schemes that are known to support custom data via query parameters prefixed with ":"
-        return scheme in ["form", "forms", "json", "jsons", "xml", "xmls"]
 
 
 def _resolve_webhook_headers(webhook_config: "WebhookRead", group_id) -> dict[str, str] | None:
@@ -1032,7 +882,7 @@ class SiteRebuildReactionListener(EventListenerBase):
     LEAVING_EVENTS = frozenset({EventTypes.entry_unpublished, EventTypes.entry_archived})
     # Document-data fields that name the changed thing, for a change line whose message doesn't.
     TITLE_FIELDS = ("entry_title", "collection_name", "resource_name", "name")
-    # EventBusMessage stores an empty body as "generic" (Apprise needs one) — not a description.
+    # EventBusMessage stores an empty body as the "generic" placeholder — not a description.
     EMPTY_BODY = "generic"
 
     def __init__(self, group_id: UUID4) -> None:
@@ -1415,7 +1265,7 @@ class IntegrationEventListener(EventListenerBase):
     """Runs integration actions wired to events (the integration_event_subscriptions table).
 
     This is how integrations are *consumed*: connect an integration's action to an event type and
-    it fires whenever that event happens — the same subscribe-to-an-event model webhooks, apprise,
+    it fires whenever that event happens — the same subscribe-to-an-event model webhooks
     and email use. The provider runs directly (no publisher), so there's no channel indirection.
     """
 

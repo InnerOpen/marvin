@@ -2,8 +2,7 @@
 This module defines the SQLAlchemy model for user groups.
 
 It includes the `Groups` model, which represents a user group within the application.
-Groups can have associated users, preferences, invite tokens, webhooks, reports,
-and event notifiers.
+Groups can have associated users, preferences, invite tokens, webhooks, and reports.
 """
 
 from typing import TYPE_CHECKING
@@ -27,7 +26,6 @@ if TYPE_CHECKING:
     from .ai_providers import AIProviderModel
     from .ai_settings import WorkspaceAISettingsModel
     from .automations import WorkspaceAutomationModel
-    from .events import GroupEventNotifierModel
     from .incoming_webhooks import WorkspaceIncomingWebhookModel
     from .integration_event_subscriptions import IntegrationEventSubscriptionModel
     from .integrations import IntegrationModel
@@ -134,10 +132,6 @@ class Groups(SqlAlchemyBase, BaseMixins):
     group_reports: Mapped[list["ReportModel"]] = orm.relationship(
         "ReportModel", **_common_relationship_args, doc="Reports generated for or by this group."
     )
-    # Relationship to GroupEventNotifierModel (one-to-many)
-    group_event_notifiers: Mapped[list["GroupEventNotifierModel"]] = orm.relationship(
-        "GroupEventNotifierModel", **_common_relationship_args, doc="Event notifiers configured for this group."
-    )
 
     # Relationship to AIProviderModel (one-to-many)
     ai_providers: Mapped[list["AIProviderModel"]] = orm.relationship(
@@ -174,7 +168,7 @@ class Groups(SqlAlchemyBase, BaseMixins):
             "webhooks",
             "preferences",
             "invite_tokens",
-            # "group_reports" and "group_event_notifiers" might also be candidates for exclusion
+            # "group_reports" might also be a candidate for exclusion
             # depending on serialization needs.
         },
     )

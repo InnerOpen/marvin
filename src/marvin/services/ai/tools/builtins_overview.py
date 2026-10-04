@@ -5,8 +5,8 @@ Semantic search answers "find me X"; it cannot answer "what is in here at all?" 
 ask as "summarise the RAG / what do you know?". This read-only tool answers that corpus-level
 question: entries by type and status, collections, assets, resources, tags, and how much of it the
 embedding index actually covers — plus `structure`, the workspace's configured elements by name
-(workflows, scheduled tasks, incoming webhooks, outgoing webhooks, notifiers, MCP servers,
-integrations, agents) so an agent can discover what exists before it acts on it by name.
+(workflows, scheduled tasks, incoming webhooks, outgoing webhooks, MCP servers, integrations,
+agents) so an agent can discover what exists before it acts on it by name.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ from sqlalchemy import func
 from marvin.db.models.groups.agents import WorkspaceAgentModel
 from marvin.db.models.groups.ai_embeddings import AIEmbeddingModel
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
-from marvin.db.models.groups.events import GroupEventNotifierModel
 from marvin.db.models.groups.groups import Groups
 from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
 from marvin.db.models.groups.integrations import IntegrationModel
@@ -43,7 +42,7 @@ from .base import ToolContext, register_tool
         "Summarise what this workspace CONTAINS: entries by type and status, collections with sizes, assets, "
         "resources, tags, how much of it the semantic index (the 'RAG' / knowledge base) covers, and its "
         "`structure` — every configured element by name and slug: workflows (automations), scheduled tasks, "
-        "incoming and outgoing webhooks, notifiers, MCP servers, integrations, agents. Call this first when the "
+        "incoming and outgoing webhooks, MCP servers, integrations, agents. Call this first when the "
         "user asks what is in the workspace, what you know, for a summary of the RAG/index, or names something "
         "(a workflow, a task, a webhook) you need the exact name or slug of; then use search_content or the "
         "list/get tools for specifics."
@@ -138,7 +137,6 @@ def workspace_structure(s, g) -> dict:
     tasks = s.query(ScheduledTaskModel).filter(ScheduledTaskModel.group_id == g).order_by(ScheduledTaskModel.name).all()
     incoming = s.query(WorkspaceIncomingWebhookModel).filter_by(group_id=g).order_by(WorkspaceIncomingWebhookModel.name).all()
     outgoing = s.query(GroupWebhooksModel).filter_by(group_id=g).order_by(GroupWebhooksModel.name).all()
-    notifiers = s.query(GroupEventNotifierModel).filter_by(group_id=g).order_by(GroupEventNotifierModel.name).all()
     servers = s.query(WorkspaceMcpServerModel).filter_by(group_id=g).order_by(WorkspaceMcpServerModel.name).all()
     integrations = s.query(IntegrationModel).filter_by(group_id=g).order_by(IntegrationModel.name).all()
     agents = s.query(WorkspaceAgentModel).filter_by(group_id=g).order_by(WorkspaceAgentModel.name).all()
@@ -147,7 +145,6 @@ def workspace_structure(s, g) -> dict:
         "scheduledTasks": _named(tasks, extra=lambda t: {"schedule": t.schedule_type}),
         "incomingWebhooks": _named(incoming),
         "outgoingWebhooks": _named(outgoing, slug_attr=None),
-        "notifiers": _named(notifiers, slug_attr=None),
         "mcpServers": _named(servers),
         "integrations": _named(integrations),
         "agents": [{"name": a.name, "slug": a.slug, "enabled": bool(a.enabled)} for a in agents[:STRUCTURE_LIMIT]],

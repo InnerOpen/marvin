@@ -205,7 +205,7 @@ class AdminMaintenanceController(BaseAdminController):
             SuccessResponse: A Pydantic model indicating the operation status.
         """
         # Event logging not yet implemented
-        # When implemented, this would clean up actual event log entries, not notifier configurations
+        # When implemented, this would clean up actual event log entries, not subscription configurations
         self.logger.info("Event cleanup called - event logging not yet implemented")
         return SuccessResponse.respond("Event cleanup skipped - event logging not yet implemented.")
 

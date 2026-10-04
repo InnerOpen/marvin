@@ -5,30 +5,18 @@ import { listEntries } from "@/lib/api/entries";
 import { getAssets, getSiteClients } from "@/lib/api/platform";
 import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
-import { createSdkClient } from "@/lib/sdk";
 import { nullIfForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
-const sdk = createSdkClient(authToken);
 const currentTab = Astro.url.searchParams.get("tab") || "general";
 
 let workspace: any = null;
-let appriseReady = false;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
 } catch (e) {
   console.error("[workspace/settings] Error loading workspace:", e);
   // Continue anyway - workspace name is optional for this page
-}
-
-// Check if Apprise is available
-try {
-  const configCheck = (await sdk.adminSystem.check()) as any;
-  appriseReady = (configCheck as any)?.appriseReady ?? configCheck?.apprise_ready ?? false;
-} catch (e) {
-  console.error("[workspace/settings] Error checking Apprise availability:", e);
-  // Default to false if check fails
 }
 
 // Integrations are an optional, plugin-only feature: the backend only mounts the routes when an
@@ -248,17 +236,10 @@ const tabs = [
               <strong>Incoming Webhooks</strong>
               <p>Tokened URLs external systems POST to, to trigger workflows</p>
             </a>
-            {appriseReady ? (
-              <a href="/automation/notifications" class="link-card">
-                <strong>Notifications</strong>
-                <p>80+ services: Slack, Discord, Email, SMS, and more</p>
-              </a>
-            ) : (
-              <div class="link-card disabled">
-                <strong>Notifications</strong>
-                <p>Requires notifications service (currently disabled)</p>
-              </div>
-            )}
+            <a href="/workspace/settings/integrations" class="link-card">
+              <strong>Notifications</strong>
+              <p>Slack, Discord, Telegram and 100+ services via the Apprise integration</p>
+            </a>
             <a href="/workspace/scheduled-tasks" class="link-card">
               <strong>Scheduler</strong>
               <p>Automate recurring workspace operations</p>

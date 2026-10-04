@@ -99,6 +99,5 @@ class CheckAppConfig(_MarvinModel):
     ldap_ready: bool  # True if LDAP authentication settings are configured and enabled.
     oidc_ready: bool  # True if OIDC authentication settings are configured and enabled.
     enable_openai: bool  # True if OpenAI integration is configured and enabled.
-    apprise_ready: bool  # True if Apprise notification service is configured and enabled.
     base_url_set: bool  # True if the application's BASE_URL has been changed from its default value.
     is_up_to_date: bool  # True if the current application version is the latest available, or if it's a development build.

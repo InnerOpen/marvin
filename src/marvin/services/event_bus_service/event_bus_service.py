@@ -4,7 +4,7 @@ within the Marvin application.
 
 The service allows different parts of the application to publish events,
 and it ensures these events are routed to appropriate listeners (like
-Apprise or webhook listeners) for further processing, such as sending
+webhook, integration or email listeners) for further processing, such as sending
 notifications. Events can be dispatched synchronously or as background tasks.
 
 The `EventSource` class is also defined here, potentially for structuring
@@ -23,7 +23,6 @@ from marvin.services import BaseService  # Base service class for common functio
 
 # Event listener implementations
 from marvin.services.event_bus_service.event_bus_listener import (
-    AppriseEventListener,
     AuditLogListener,
     AutomationReactionListener,
     ConsoleEventListener,
@@ -99,7 +98,7 @@ class EventBusService(BaseService):
     Service for dispatching events to registered listeners.
 
     This service takes an event, constructs a standardized `Event` object,
-    and then publishes it to relevant listeners (e.g., Apprise, Webhooks).
+    and then publishes it to relevant listeners (e.g., Webhooks, Integrations, Email).
     It can operate synchronously or dispatch event publishing as a background task
     if a `BackgroundTasks` instance is provided.
     """
@@ -136,7 +135,7 @@ class EventBusService(BaseService):
 
         The order of listeners determines the order in which they might process events.
         AuditLogListener MUST be first to ensure events are persisted even if other listeners fail.
-        Current order: AuditLog (persistence), Console (debug), Webhook, Apprise.
+        Current order: AuditLog (persistence), reactions, Console (debug), Webhook, Integration, Email.
 
         Args:
             group_id (UUID4): The ID of the group for which to get listeners.
@@ -160,7 +159,6 @@ class EventBusService(BaseService):
             ConsoleEventListener(group_id),  # Logs all events to console for debugging.
             WebhookEventListener(group_id),  # Handles custom webhook integrations for the group.
             IntegrationEventListener(group_id),  # Runs integration actions wired to events.
-            AppriseEventListener(group_id),  # Handles notifications via Apprise for the group.
             EmailEventListener(group_id),  # Fires email templates on matching events.
         ]
 
@@ -177,7 +175,7 @@ class EventBusService(BaseService):
             group_id (UUID4): The ID of the group associated with this event.
         """
         # Internal comments from original code:
-        # "my event tipe is webhook_task > Should I use the webhook listener or the apprise listener or just webhook_task"
+        # "my event tipe is webhook_task > Should I use the webhook listener or just webhook_task"
         # -> The current logic iterates all listeners. Each listener's `get_subscribers` method
         #    will determine if it's interested in the event type.
         # "are we sure we want to use the webhook listener first?"

@@ -48,7 +48,7 @@ def test_overview_structure_names_workflows_and_the_other_configured_elements(wo
         "enabled": True,
         "trigger": "manual",
     }
-    for key in ("scheduledTasks", "incomingWebhooks", "outgoingWebhooks", "notifiers", "mcpServers", "integrations", "agents"):
+    for key in ("scheduledTasks", "incomingWebhooks", "outgoingWebhooks", "mcpServers", "integrations", "agents"):
         assert structure[key] == [], key
 
 

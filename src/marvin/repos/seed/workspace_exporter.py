@@ -55,7 +55,7 @@ class WorkspaceExporter:
             "ai_settings": self._export_ai_settings(),
             "secrets": self._export_secrets(),
             # Connections & config (credentials travel via the secrets section above, referenced by
-            # secret_ref). Notifiers are intentionally omitted — Apprise is moving to an integration.
+            # secret_ref). Apprise notifications are an integration, so they travel with "integrations".
             "integrations": self._export_integrations(),
             "ai_providers": self._export_ai_providers(),
             "mcp_servers": self._export_mcp_servers(),

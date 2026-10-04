@@ -1,7 +1,7 @@
 """Deleting a workspace must not trip over the rows that don't cascade.
 
 Most workspace-scoped tables declare ondelete="CASCADE", but preferences, invite tokens, webhooks,
-event-log rows, notifiers and reports do not. A force delete used to leave them in place and then
+event-log rows and reports do not. A force delete used to leave them in place and then
 fail on a foreign key, so `force=true` could never actually delete anything.
 """
 
@@ -12,7 +12,6 @@ from pytest import fixture
 from sqlalchemy import delete, func, select
 
 from marvin.db.models.groups import Groups
-from marvin.db.models.groups.events import GroupEventNotifierModel, GroupEventNotifierOptionsModel
 from marvin.db.models.groups.invite_tokens import GroupInviteToken
 from marvin.db.models.groups.preferences import GroupPreferencesModel
 from marvin.db.models.groups.reports import ReportEntryModel, ReportModel
@@ -29,7 +28,6 @@ def loaded_group(db_session):
     db_session.add(Groups(session=db_session, id=gid, name=f"purge-{marker}", slug=f"purge-{marker}"))
     db_session.flush()
 
-    notifier_id = uuid.uuid4()
     report_id = uuid.uuid4()
     db_session.add_all(
         [
@@ -47,17 +45,13 @@ def loaded_group(db_session):
                 event_data={},
                 message_title="test",
             ),
-            GroupEventNotifierModel(session=db_session, id=notifier_id, group_id=gid, name="notifier", apprise_url="json://example.test"),
             ReportModel(session=db_session, id=report_id, group_id=gid, name="report", category="test", status="success"),
         ]
     )
     db_session.flush()
-    # Children of the per-group parents — these reference the parent rows, not the group.
+    # Children of the per-group parents — they reference the parent rows, not the group.
     db_session.add_all(
         [
-            GroupEventNotifierOptionsModel(
-                session=db_session, id=uuid.uuid4(), group_event_notifiers_id=notifier_id, namespace="core", slug="test_message"
-            ),
             ReportEntryModel(session=db_session, id=uuid.uuid4(), report_id=report_id, success=True),
         ]
     )
@@ -79,9 +73,6 @@ def _counts(session, gid):
         "invites": session.execute(select(func.count()).select_from(GroupInviteToken).where(GroupInviteToken.group_id == gid)).scalar(),
         "webhooks": session.execute(select(func.count()).select_from(GroupWebhooksModel).where(GroupWebhooksModel.group_id == gid)).scalar(),
         "event_log": session.execute(select(func.count()).select_from(EventLogModel).where(EventLogModel.workspace_id == gid)).scalar(),
-        "notifiers": session.execute(
-            select(func.count()).select_from(GroupEventNotifierModel).where(GroupEventNotifierModel.group_id == gid)
-        ).scalar(),
         "reports": session.execute(select(func.count()).select_from(ReportModel).where(ReportModel.group_id == gid)).scalar(),
     }
 
@@ -98,10 +89,9 @@ def test_purge_clears_every_non_cascading_table(db_session, loaded_group):
 
 
 def test_purge_also_clears_the_child_rows(db_session, loaded_group):
-    # Options and report entries hang off the per-group parents; leaving them would strand rows
-    # whose parent is gone.
+    # Report entries hang off the per-group parent; leaving them would strand rows whose parent
+    # is gone.
     purge_group_dependents(db_session, loaded_group)
-    assert db_session.execute(select(func.count()).select_from(GroupEventNotifierOptionsModel)).scalar() == 0
     assert db_session.execute(select(func.count()).select_from(ReportEntryModel)).scalar() == 0
 
 

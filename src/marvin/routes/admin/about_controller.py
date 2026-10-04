@@ -185,8 +185,6 @@ class AdminAboutController(BaseAdminController):
         data["OIDC_FEATURE"] = settings.OIDC_FEATURE._asdict() if settings.OIDC_FEATURE else None
         data["OPENAI_ENABLED"] = settings.OPENAI_ENABLED
         data["OPENAI_FEATURE"] = settings.OPENAI_FEATURE._asdict() if settings.OPENAI_FEATURE else None
-        data["APPRISE_READY"] = settings.APPRISE_READY
-        data["APPRISE_FEATURE"] = settings.APPRISE_FEATURE._asdict() if settings.APPRISE_FEATURE else None
         data["PLUGIN_ENABLED"] = settings.PLUGIN_ENABLED
         data["PLUGIN_FEATURE"] = settings.PLUGIN_FEATURE._asdict() if settings.PLUGIN_FEATURE else None
 
@@ -220,5 +218,4 @@ class AdminAboutController(BaseAdminController):
             is_up_to_date=is_up_to_date_status,  # Application version is current
             oidc_ready=settings.OIDC_READY,  # OIDC configured and ready
             enable_openai=settings.OPENAI_ENABLED,  # OpenAI configured and enabled
-            apprise_ready=settings.APPRISE_READY,  # Apprise notification service configured and enabled
         )

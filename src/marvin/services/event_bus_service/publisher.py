@@ -5,7 +5,6 @@ within the Marvin application.
 Publishers are responsible for taking a processed event and dispatching it
 to external services or URLs. It includes:
 - `PublisherLike`: A protocol defining the interface for publisher classes.
-- `ApprisePublisher`: Publishes events to various notification services using the Apprise library.
 - `WebhookPublisher`: Publishes events to specified URLs via HTTP requests (e.g., POST, GET).
 """
 
@@ -13,14 +12,12 @@ import time
 from datetime import UTC, datetime
 from typing import Any, Protocol  # For defining structural subtyping (interfaces)
 
-import apprise  # Library for sending notifications to many services
 import requests  # For making HTTP requests (used by WebhookPublisher)
 from fastapi.encoders import jsonable_encoder  # For encoding Pydantic models to JSON
 
 from marvin.core.root_logger import get_logger
 from marvin.db.db_setup import session_context
 from marvin.db.models._model_utils.guid import GUID
-from marvin.db.models.groups.notification_execution_logs import NotificationExecutionLogModel
 from marvin.db.models.groups.webhook_execution_logs import WebhookExecutionLogModel
 from marvin.services.event_bus_service.event_types import Event, event_entity  # Core Event model
 
@@ -59,67 +56,6 @@ class PublisherLike(Protocol):
         ...  # Ellipsis indicates this is a protocol method to be implemented.
 
 
-class ApprisePublisher:
-    """
-    Publishes events using the Apprise library to various notification services.
-    """
-
-    def __init__(self, hard_fail: bool = False) -> None:
-        self.hard_fail: bool = hard_fail
-
-    def publish(
-        self,
-        event: Event,
-        notification_urls: list[str],
-        notifier_id: GUID | None = None,
-        group_id: GUID | None = None,
-        event_type: str | None = None,
-        **_: Any,
-    ) -> None:
-        if not notification_urls:
-            return
-
-        asset = apprise.AppriseAsset(async_mode=False, image_url_mask="")
-        ap = apprise.Apprise(asset=asset)
-
-        tags: list[str] = []
-        for dest_url in notification_urls:
-            tag = str(event.event_id)
-            tags.append(tag)
-            added = ap.add(dest_url, tag=tag)
-            if not added and self.hard_fail:
-                raise Exception(f"Apprise failed to add URL: {dest_url}")
-
-        if not tags:
-            return
-
-        try:
-            result = ap.notify(
-                title=event.message.title,
-                body=event.message.body,
-                tag=list(set(tags)),
-            )
-            success = bool(result)
-        except Exception as exc:
-            _log_notification_execution(
-                notifier_id=notifier_id,
-                group_id=group_id,
-                status="failed",
-                event_type=event_type,
-                error_message=str(exc),
-                request_payload={"title": event.message.title, "body": event.message.body},
-            )
-            return
-
-        _log_notification_execution(
-            notifier_id=notifier_id,
-            group_id=group_id,
-            status="success" if success else "failed",
-            event_type=event_type,
-            request_payload={"title": event.message.title, "body": event.message.body},
-        )
-
-
 def _log_webhook_execution(
     webhook_id: GUID | None,
     group_id: GUID | None,
@@ -153,37 +89,6 @@ def _log_webhook_execution(
     except Exception as e:
         logger = get_logger()
         logger.error(f"Failed to log webhook execution: {e}")
-
-
-def _log_notification_execution(
-    notifier_id: GUID | None,
-    group_id: GUID | None,
-    status: str,
-    event_type: str | None = None,
-    error_message: str | None = None,
-    request_payload: dict | None = None,
-) -> None:
-    """Log Apprise notification execution to database."""
-    if notifier_id is None or group_id is None:
-        return
-
-    try:
-        with session_context() as session:
-            log = NotificationExecutionLogModel(
-                session=session,
-                notifier_id=notifier_id,
-                group_id=group_id,
-                executed_at=datetime.now(UTC),
-                status=status,
-                event_type=event_type,
-                error_message=error_message,
-                request_payload=request_payload,
-            )
-            session.add(log)
-            session.commit()
-    except Exception as e:
-        logger = get_logger()
-        logger.error(f"Failed to log notification execution: {e}")
 
 
 def _calculate_retry_delay(attempt: int) -> float:

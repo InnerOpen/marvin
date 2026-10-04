@@ -1,3 +1,4 @@
+from .agents import *
 from .ai_embeddings import *
 from .ai_executions import *
 from .ai_providers import *
@@ -7,14 +8,12 @@ from .automation_executions import *
 from .automations import *
 from .email_event_subscriptions import *
 from .email_templates import *
-from .events import *
 from .groups import *
 from .incoming_webhooks import *
 from .integration_event_subscriptions import *
 from .integrations import *
 from .invite_tokens import *
 from .mcp_servers import *
-from .notification_execution_logs import *
 from .preferences import *
 from .reports import *
 from .secrets import *
@@ -22,4 +21,3 @@ from .smtp_profiles import *
 from .variables import *
 from .webhook_execution_logs import *
 from .webhooks import *
-from .agents import *

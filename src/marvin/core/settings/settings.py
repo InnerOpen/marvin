@@ -953,30 +953,6 @@ class AppSettings(BaseSettings):
     """Default max output tokens for AI operations (None = provider default)."""
 
     # ===============================================
-    # Apprise Configuration
-
-    APPRISE_ENABLED: bool = True
-    """Flag to enable Apprise notification service."""
-    APPRISE_URL: str | None = None
-    """Base URL for Apprise API server. If None, uses local Apprise library."""
-
-    @property
-    def APPRISE_FEATURE(self) -> FeatureDetails:
-        """Details about the Apprise feature status."""
-        description = None if self.APPRISE_ENABLED else "APPRISE_ENABLED is false"
-
-        # Apprise is available if enabled (URL is optional - can use library directly)
-        return FeatureDetails(
-            enabled=self.APPRISE_ENABLED,
-            description=description,
-        )
-
-    @property
-    def APPRISE_READY(self) -> bool:
-        """Indicates if Apprise notification service is configured and ready to use."""
-        return self.APPRISE_FEATURE.enabled
-
-    # ===============================================
     # TLS
 
     TLS_CERTIFICATE_PATH: str | os.PathLike[str] | None = None

@@ -33,6 +33,12 @@ Providers published so far, all under `https://github.com/InnerOpen/marvin-integ
 | `marvin-integration-buttondown` | `buttondown` | destination | `subscribe`, `lookup_subscriber`, `create_issue_email`, `connect_webhooks` (**Connect Buttondown webhooks**); contributes a `buttondown` signature scheme and declares an incoming webhook plus workflows that run a site's newsletter through Buttondown (see [Newsletter with Buttondown](#newsletter-with-buttondown)) |
 | `marvin-integration-template` | `example` | destination | `ping`; the starting point for a new provider |
 
+### Event notifications (Apprise)
+
+Notifications to Slack, Discord, Telegram, email and 100+ other services go through the `apprise` integration. Install `marvin-integration-apprise`, add an **Apprise Notifications** integration under Settings → Integrations with one or more Apprise URLs (`slack://…`, `discord://…`; newline- or comma-separated) as its credential, then connect its `notify` action to an event at `/automation/events/[type]` or call it from a workflow step. The `title` and `body` args take `{{placeholders}}` filled from the event: `{{event_type}}` and any field of its data (for example `{{entry_title}}`).
+
+Marvin core no longer ships its own Apprise notifier: the Automation → Notifications pages, the `/api/group/notifications` routes, the `/api/event/options` catalog and the `APPRISE_ENABLED` / `APPRISE_URL` settings are gone, and migration `b3f7c2e9d1a4` drops their tables. Any notifiers that existed were copied onto `apprise` integrations by migration `e49ab4346b7b`.
+
 ## Where
 
 - **Settings → Integrations**: `/workspace/settings/integrations`.

@@ -16,7 +16,6 @@ let emailTemplates: any[] = [];
 let emailSubscriptions: any[] = [];
 let eventConnections: any[] = [];
 let webhooks: any[] = [];
-let notifications: any[] = [];
 let integrations: any[] = [];
 let integrationSubs: any[] = [];
 let integrationProviders: any[] = [];
@@ -40,14 +39,12 @@ try {
   const emailSubsRes = await fetchApi<any[]>("/api/groups/email-event-subscriptions", {}, authToken).catch(() => []);
   emailSubscriptions = Array.isArray(emailSubsRes) ? emailSubsRes : [];
 
-  const [emailRes, webhookRes, notifRes] = await Promise.all([
+  const [emailRes, webhookRes] = await Promise.all([
     wsId ? listEmailTemplates(wsId, authToken).catch(() => []) : Promise.resolve([]),
     sdk.webhooks.list().catch(() => []),
-    sdk.notifications.list().catch(() => ({ items: [] })),
   ]);
   emailTemplates = Array.isArray(emailRes) ? emailRes : ((emailRes as any)?.items ?? []);
   webhooks = Array.isArray(webhookRes) ? webhookRes : ((webhookRes as any)?.items ?? []);
-  notifications = Array.isArray(notifRes) ? notifRes : ((notifRes as any)?.items ?? []);
 
   [integrations, integrationSubs, integrationProviders] = await Promise.all([
     listIntegrations(authToken).catch(() => []),
@@ -285,50 +282,8 @@ const examplePayload =
 
         <section class="sub-section">
           <div class="sub-header">
-            <h3>Notifications</h3>
-            <p>Send a notification (Slack, email, SMS, etc.) when this event fires</p>
-          </div>
-          <div class="sub-options">
-            {notifications.map((n: any) => {
-              const opts: any[] = (n as any).options ?? [];
-              const isConnected = opts.some((o: any) => (o.option || o.slug) === ('core.' + type));
-              return (
-                <div class:list={['sub-option', { 'sub-option-connected': isConnected }]}>
-                  <div class="sub-option-info">
-                    <div class="sub-option-name-row">
-                      {isConnected && <span class="connected-check">&#10003;</span>}
-                      <strong>{n.name}</strong>
-                    </div>
-                  </div>
-                  <div class="sub-option-actions">
-                    {isConnected && (
-                      <a href={`/automation/notifications/${n.id}`} class="button secondary small">
-                        Edit
-                      </a>
-                    )}
-                    <button
-                      type="button"
-                      class:list={['button', 'small', isConnected ? 'secondary' : '']}
-                      data-notifier-id={n.id}
-                      data-event-type={type}
-                      data-connected={isConnected ? 'true' : 'false'}
-                    >
-                      {isConnected ? 'Disconnect' : 'Connect'}
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-            <a href="/automation/notifications/new" class="sub-option sub-option-create">
-              <span>+ Add notification endpoint</span>
-            </a>
-          </div>
-        </section>
-
-        <section class="sub-section">
-          <div class="sub-header">
             <h3>Integrations</h3>
-            <p>Run an integration action (Slack, deploy hook, …) when this event fires</p>
+            <p>Run an integration action (Slack, Apprise notifications, deploy hook, …) when this event fires</p>
           </div>
           <div class="sub-options">
             {!integrationsAvailable ? (
@@ -930,41 +885,6 @@ const examplePayload =
       emConfirm.disabled = false;
       emConfirm.textContent = emIsEdit ? 'Save' : 'Connect';
     }
-  });
-
-  // Notification connect/disconnect is wired in the bundled SDK script below (it needs the SDK,
-  // which an inline define:vars script can't import).
-</script>
-
-<!-- Bundled (Vite-processed) script: uses the marvin-sdk client so the notifier routes/payloads
-     stay in sync with the SDK instead of hand-rolled fetch paths. Reads button data-* attrs. -->
-<script>
-  document.querySelectorAll('[data-notifier-id]').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const el = btn as HTMLElement;
-      const notifierId = el.dataset.notifierId!;
-      const eventType = el.dataset.eventType || '';
-      const isConnected = el.dataset.connected === 'true';
-      const optionSlug = 'core.' + eventType;
-      if (isConnected) {
-        alert('To disconnect, edit the notification from the Notifications page.');
-        return;
-      }
-      try {
-        const { createSdkClient } = await import('@/lib/sdk');
-        const sdk = createSdkClient();
-        const notif: any = await sdk.notifications.get(notifierId);
-        // Read model returns option OBJECTS; the update wants slug STRINGS. Map before appending.
-        const currentSlugs = (notif.options ?? [])
-          .map((o: any) => o.option || o.slug)
-          .filter(Boolean);
-        if (currentSlugs.includes(optionSlug)) { window.location.reload(); return; }
-        await sdk.notifications.update(notifierId, { ...notif, options: [...currentSlugs, optionSlug] });
-        window.location.reload();
-      } catch (e) {
-        alert('Failed to update notification subscription: ' + (e instanceof Error ? e.message : String(e)));
-      }
-    });
   });
 </script>
 

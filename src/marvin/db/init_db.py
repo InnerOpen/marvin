@@ -70,7 +70,7 @@ def init_db(session: orm.Session) -> None:
     Initializes the main application database with default data.
 
     This includes creating a default group, a default admin user, and seeding
-    initial notifier options.
+    system entry types.
 
     Args:
         session (orm.Session): The active SQLAlchemy session.
@@ -82,16 +82,6 @@ def init_db(session: orm.Session) -> None:
     default_group = default_group_init(instance_repos, settings.DEFAULT_GROUP)
     group_repos = get_repositories(session, group_id=default_group.id)
     default_user_init(group_repos)
-
-    seeder_service = SeederService(group_repos)
-    seeder_service.seed_notifier_options("notification_options")
-    # Reconcile the notifier-options catalog to the code event catalog so newer subscribable
-    # events (e.g. incoming_webhook) aren't missing — the static seed JSON drifts behind CATALOG.
-    from marvin.services.events.event_catalog import sync_notifier_options
-
-    added = sync_notifier_options(session)
-    if added:
-        logger.info(f"Synced {added} notifier option(s) from the event catalog")
 
     # Seed system-level entry types (globally available to all workspaces)
     system_seeder_service = SeederService(instance_repos)  # Use instance_repos (no group_id) for system types
