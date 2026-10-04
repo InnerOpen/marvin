@@ -6,6 +6,35 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.190 (2026-10-04)
+
+### Bug Fixes
+
+- **ai**: End, refuse or re-check a carried-up ask where resuming could go wrong
+  ([`a6dd2a3`](https://github.com/InnerOpen/marvin/commit/a6dd2a37161e67062bab4d838a68fbf07a8019a6))
+
+### Documentation
+
+- A specialist's ask carried up to Marvin; tasks: C2 checklist and review
+  ([`329ac29`](https://github.com/InnerOpen/marvin/commit/329ac293d9df7be088bfea02dd40ea97520b8bc0))
+
+### Features
+
+- **admin**: Approve a specialist's ask from the Ask page, the bubble or a toast
+  ([`2595766`](https://github.com/InnerOpen/marvin/commit/25957666e0a164a2f51fbaa6c97ba6bcb178a668))
+
+- **ai**: Bubble tool list follows Marvin's matrix; drafts use the run's tone
+  ([`04fc46f`](https://github.com/InnerOpen/marvin/commit/04fc46f44e908e486c55bfa1187afeb97282a1f2))
+
+- **ai**: Carry a specialist's ask up to Marvin
+  ([`15d9e55`](https://github.com/InnerOpen/marvin/commit/15d9e556c273d49bc18e42b22201ee1aaa29e12a))
+
+### Testing
+
+- **admin**: Resume source checks follow the bubble's approval card
+  ([`829ab14`](https://github.com/InnerOpen/marvin/commit/829ab14a33f35619a14d1e0cd409835192f38a05))
+
+
 ## v1.0.0-rc.189 (2026-10-04)
 
 ### Refactoring
