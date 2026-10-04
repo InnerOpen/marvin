@@ -80,6 +80,13 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         server_default=sa.false(),
         doc="Scheduled publish only publishes due entries whose status is 'approved'; others wait for approval.",
     )
+    integration_alert_reminder_hours: Mapped[int] = mapped_column(
+        sa.Integer,
+        nullable=False,
+        default=24,
+        server_default="24",
+        doc="An open integration alert is announced again after this many hours (0 = never remind).",
+    )
     site_social_json: Mapped[dict | None] = mapped_column(
         sa.JSON, nullable=True, doc="Social media links and handles (e.g., {instagram: 'url', facebook: 'url'})."
     )

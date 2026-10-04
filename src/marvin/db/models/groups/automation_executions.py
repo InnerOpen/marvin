@@ -63,6 +63,11 @@ class AutomationExecutionModel(SqlAlchemyBase, BaseMixins):
     definition_snapshot: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     correlation_id: Mapped[str | None] = mapped_column(sa.String, nullable=True, index=True)
     triggered_by: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Integration error handling: every failure in the run was taken care of by the provider's error
+    # policy (sent to review, retry scheduled, …) — still a failed run, but nobody needs to act on it.
+    handled: Mapped[bool] = mapped_column(sa.Boolean, default=False, server_default=sa.false(), nullable=False)
+    # A retry run points at the run whose failed step it resumed (the chain reads back to the original).
+    retry_of_id: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("automation_executions.id", ondelete="SET NULL"), nullable=True, index=True)
 
     actions: Mapped[list["AutomationActionExecutionModel"]] = orm.relationship(
         "AutomationActionExecutionModel",
@@ -97,6 +102,8 @@ class AutomationActionExecutionModel(SqlAlchemyBase, BaseMixins):
     error: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
     output_snapshot: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)  # truncated
+    # How the provider's error policy handled this failed step: {code, policy, applied, summary, retry?}.
+    handling: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

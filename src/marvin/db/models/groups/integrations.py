@@ -54,6 +54,11 @@ class IntegrationModel(SqlAlchemyBase, BaseMixins):
     last_checked_at: Mapped[datetime | None] = mapped_column(sa.DateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(String, nullable=True)
 
+    error_overrides: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
+    """An admin's adjustments to the provider's error policy for this connection: {code: {review?, notify?}}.
+    Only those immediate flags — retries, backoff and `then` stay as the provider declared them. Kept
+    apart from `config` (the provider's own settings, which the provider sees)."""
+
     __table_args__ = (UniqueConstraint("group_id", "slug", name="uq_integrations_group_slug"),)
 
     @auto_init()

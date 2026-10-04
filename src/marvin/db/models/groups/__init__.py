@@ -10,6 +10,7 @@ from .email_event_subscriptions import *
 from .email_templates import *
 from .groups import *
 from .incoming_webhooks import *
+from .integration_errors import *
 from .integration_event_subscriptions import *
 from .integrations import *
 from .invite_tokens import *
