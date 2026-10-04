@@ -1,9 +1,11 @@
 ---
+import SaveErrorBanner from "@/components/SaveErrorBanner.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createEntry } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
+import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -12,6 +14,9 @@ if (!authToken) {
 }
 
 let error: string | null = null;
+// A failed create re-renders the form with what was submitted and says why above it.
+let saveError: SaveError | null = null;
+let submitted: Record<string, any> | null = null;
 
 // Handle form submission (server-side)
 if (Astro.request.method === "POST") {
@@ -48,17 +53,18 @@ if (Astro.request.method === "POST") {
       status: formData.get("status") as string,
       data_json: Object.keys(dataJson).length > 0 ? dataJson : {},
     };
+    submitted = data;
 
     const entry = await createEntry(data, authToken);
     return Astro.redirect(`/workspace/entries/${entry.id}`);
   } catch (e) {
     console.error("[NewEntry] Failed to create entry:", e);
-    error = e instanceof Error ? e.message : String(e);
+    saveError = describeSaveError(e);
   }
 }
 
-// Get pre-selected type from query parameter (e.g., from Quick Create)
-const preSelectedTypeId = Astro.url.searchParams.get("type");
+// Get pre-selected type from a failed submission, or the query parameter (e.g., from Quick Create)
+const preSelectedTypeId = submitted?.entry_type_id || Astro.url.searchParams.get("type");
 
 let entryTypes: EntryTypeRead[] = [];
 
@@ -96,6 +102,7 @@ const preSelectedSchema =
       </div>
 
       <section class="form-section">
+        {saveError && <SaveErrorBanner error={saveError} title="Not created" />}
         <form method="POST" class="form" id="entry-form">
           <div class="form-group">
             <label for="entry_type_id">Entry Type *</label>
@@ -118,6 +125,7 @@ const preSelectedSchema =
               name="title"
               required
               placeholder="e.g., My First Project"
+              value={submitted?.title ?? ""}
             />
           </div>
 
@@ -128,6 +136,8 @@ const preSelectedSchema =
               id="slug"
               name="slug"
               placeholder="Auto-generated from title, or enter custom"
+              value={submitted?.slug ?? ""}
+              data-manually-edited={submitted?.slug ? "true" : undefined}
             />
             <p class="form-help">Auto-generated from title, or enter a custom slug</p>
           </div>
@@ -139,7 +149,7 @@ const preSelectedSchema =
               name="summary"
               rows="2"
               placeholder="Brief description or excerpt"
-            ></textarea>
+            >{submitted?.summary ?? ""}</textarea>
             <p class="form-help">Short summary shown in lists and previews</p>
           </div>
 
@@ -150,20 +160,20 @@ const preSelectedSchema =
               name="description"
               rows="3"
               placeholder="Longer description or metadata"
-            ></textarea>
+            >{submitted?.description ?? ""}</textarea>
             <p class="form-help">Additional details about this entry</p>
           </div>
 
           {/* Schema-driven content fields - dynamically populated */}
           <div id="schema-fields-container">
-            {preSelectedSchema && <SchemaForm schema={preSelectedSchema} />}
+            {preSelectedSchema && <SchemaForm schema={preSelectedSchema} values={submitted?.data_json ?? {}} />}
           </div>
 
           <div class="form-group">
             <label for="status">Status</label>
             <select id="status" name="status">
-              <option value="inbox">Inbox</option>
-              <option value="draft" selected>Draft</option>
+              <option value="inbox" selected={submitted?.status === "inbox"}>Inbox</option>
+              <option value="draft" selected={submitted?.status !== "inbox"}>Draft</option>
             </select>
             <p class="form-help">New entries start as drafts. Add content and publish from the editor.</p>
           </div>
@@ -177,7 +187,7 @@ const preSelectedSchema =
               placeholder='{"text_field": "value", "number_field": 42}'
               class="data-json-editor"
             >{preSelectedSchema ? JSON.stringify(
-              preSelectedSchema.fields.reduce((acc: any, field: any) => {
+              submitted?.data_json ?? preSelectedSchema.fields.reduce((acc: any, field: any) => {
                 acc[field.key] = field.defaultValue ?? null;
                 return acc;
               }, {}),

@@ -1,0 +1,57 @@
+---
+// Why a server-rendered form's save failed, shown above the form that re-renders with what was
+// submitted. The publish gate's refusal lists each unmet requirement (see lib/saveError.ts).
+import type { SaveError } from "@/lib/saveError";
+
+interface Props {
+  error: SaveError;
+  /** What was being done, e.g. "Not saved" — leads the message. */
+  title?: string;
+}
+const { error, title = "Not saved" } = Astro.props;
+---
+
+<div class="save-error" role="alert">
+  <p class="save-error-message"><strong>{title}:</strong> {error.message}</p>
+  {error.issues.length > 0 && (
+    <ul class="save-error-issues">
+      {error.issues.map((issue) => <li>{issue}</li>)}
+    </ul>
+  )}
+  <p class="save-error-hint">
+    Your changes are still in the form below{error.issues.length > 0 ? " — fix these and try again." : "."}
+  </p>
+</div>
+
+<style>
+  .save-error {
+    margin: 0 0 1.25rem;
+    padding: 1rem 1.25rem;
+    background: var(--color-error-bg);
+    border: 1px solid var(--color-error);
+    border-left-width: 3px;
+    border-radius: var(--radius);
+    color: var(--ink);
+    display: grid;
+    gap: 0.5rem;
+  }
+
+  .save-error-message {
+    margin: 0;
+    color: var(--color-error);
+  }
+
+  .save-error-issues {
+    margin: 0;
+    padding-left: 1.25rem;
+    display: grid;
+    gap: 0.25rem;
+    font-size: 0.875rem;
+  }
+
+  .save-error-hint {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+</style>

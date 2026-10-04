@@ -1,6 +1,7 @@
 ---
 // Live activity toasts (a speech bubble off the bell; newest on top): what Marvin just did in this workspace — workflows that ran or failed,
-// webhooks received, site rebuilds sent (with a "N changes" list of what each covers), content changed by someone else.
+// webhooks received, site rebuilds sent (with a "N changes" list of what each covers), content changed by someone else, a scheduled
+// publish that is waiting (the entry can't publish yet, or needs approval).
 // A queued site rebuild and a running workflow show a pending toast that the event ending it (the rebuild
 // sent; the run's ran/failed) updates in place — keyed per workspace / per run (see planToasts in toast.ts).
 //
@@ -104,6 +105,8 @@ const { userId = null } = Astro.props;
       skip: (e) => (e.messageBody || "").startsWith("Auto-indexed"),
     },
     form_submission_received: { tone: "info", label: "Form submission", href: entryHref },
+    // The scheduled publish held an entry back (once per reason, not every run) — sticky until dismissed.
+    entry_scheduled_publish_blocked: { tone: "warn", label: "Scheduled publish waiting", href: entryHref },
     entry_published: { tone: "info", label: "Published", href: entryHref, othersOnly: true },
     entry_unpublished: { tone: "info", label: "Unpublished", href: entryHref, othersOnly: true },
     entry_created: { tone: "info", label: "Created", href: entryHref, othersOnly: true },

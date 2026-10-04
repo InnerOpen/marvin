@@ -1,4 +1,5 @@
 ---
+import SaveErrorBanner from "@/components/SaveErrorBanner.astro";
 import SchemaForm from "@/components/SchemaForm.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
@@ -8,13 +9,19 @@ import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { getAssets } from "@/lib/api/platform";
 import { listResources } from "@/lib/api/resources";
 import { createTag, listTags, type TagRead } from "@/lib/api/tags";
+import { withSubmittedValues } from "@/lib/entryForm";
+import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
 
-// Handle form submission (server-side)
+// Handle form submission (server-side). A failed save re-renders the form with what was submitted
+// (`submitted`, laid over the stored entry below) and says why above it (`saveError`).
+let saveError: SaveError | null = null;
+let submitted: Record<string, any> | null = null;
+let submittedMetadataText: string | null = null;
 if (Astro.request.method === "POST" && id && authToken) {
   try {
     const formData = await Astro.request.formData();
@@ -105,17 +112,40 @@ if (Astro.request.method === "POST" && id && authToken) {
       }
     }
 
-    // Parse metadata JSON
+    const updateData: Record<string, any> = {
+      entry_type_id: formData.get("entry_type_id") as string,
+      title: formData.get("title") as string,
+      slug: (formData.get("slug") as string) || null,
+      summary: (formData.get("summary") as string) || null,
+      description: (formData.get("description") as string) || null,
+      data_json: Object.keys(dataJson).length > 0 ? dataJson : null,
+      status: formData.get("status") as string,
+      collection_attachments: collectionAttachments,
+      asset_attachments: assetAttachments,
+      resource_attachments: resourceAttachments,
+    };
+    // Schedule fields come from hidden inputs the page script fills with UTC ISO strings (the
+    // datetime-local pickers carry no zone). Sent whenever present, so clearing one clears it.
+    // published_at is never sent: the API stamps it on first publish and clears it on unpublish,
+    // and sending it — even as null — would override that.
+    for (const key of ["publish_at", "expire_at"]) {
+      if (formData.has(key)) updateData[key] = (formData.get(key) as string) || null;
+    }
+    submitted = updateData;
+
+    // Metadata JSON that doesn't parse stops the save (it used to be sent as null, wiping the
+    // entry's metadata); the textarea keeps what was typed.
     const metadataJsonStr = formData.get("metadata_json") as string | null;
     let metadataJson = null;
     if (metadataJsonStr?.trim()) {
       try {
         metadataJson = JSON.parse(metadataJsonStr);
       } catch (error) {
-        console.error("[Entry] Invalid metadata JSON:", error);
-        // Let it pass as null
+        submittedMetadataText = metadataJsonStr;
+        throw new Error(`Metadata (JSON) isn't valid JSON: ${error instanceof Error ? error.message : error}`);
       }
     }
+    updateData.metadata_json = metadataJson;
 
     // Resolve the tag chips → tag_ids. Each chip is {name, id?}: an id means an existing tag
     // (use it directly); a bare name is create-on-type — POST /tags is find-or-create by slug,
@@ -145,33 +175,13 @@ if (Astro.request.method === "POST" && id && authToken) {
       }
     }
 
-    const updateData: Record<string, any> = {
-      entry_type_id: formData.get("entry_type_id") as string,
-      title: formData.get("title") as string,
-      slug: (formData.get("slug") as string) || null,
-      summary: (formData.get("summary") as string) || null,
-      description: (formData.get("description") as string) || null,
-      data_json: Object.keys(dataJson).length > 0 ? dataJson : null,
-      status: formData.get("status") as string,
-      metadata_json: metadataJson,
-      collection_attachments: collectionAttachments,
-      asset_attachments: assetAttachments,
-      resource_attachments: resourceAttachments,
-    };
     if (tagIds !== undefined) updateData.tag_ids = tagIds;
-    // Schedule fields come from hidden inputs the page script fills with UTC ISO strings (the
-    // datetime-local pickers carry no zone). Sent whenever present, so clearing one clears it.
-    // published_at is never sent: the API stamps it on first publish and clears it on unpublish,
-    // and sending it — even as null — would override that.
-    for (const key of ["publish_at", "expire_at"]) {
-      if (formData.has(key)) updateData[key] = (formData.get(key) as string) || null;
-    }
 
     await updateEntry(id, updateData, authToken);
     return Astro.redirect("/workspace/entries");
   } catch (e) {
     console.error("[Entry] Failed to update entry:", e);
-    // Error will be shown below
+    saveError = describeSaveError(e);
   }
 }
 
@@ -202,6 +212,21 @@ if (!id) {
     console.error("[Entry] Failed to load:", error);
   }
 }
+
+// The page title, slug lock and "not live yet" note follow what's stored, not a failed save.
+const storedStatus = entry?.status;
+const storedTitle = entry?.title;
+if (entry && submitted) {
+  entry = withSubmittedValues(entry, submitted, {
+    collections,
+    assets: allAssets,
+    resources: allResources,
+    tags: allTags,
+  });
+}
+// Why the Publish Scheduled Entries task is holding this entry back, if it is (set by the task,
+// cleared when the entry publishes or is rescheduled).
+const scheduledBlock = entry?.scheduledPublishBlocked ?? null;
 
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
 const sortedCollections = collections.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -285,10 +310,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
 ---
 
 <AppLayout
-  title={entry ? entry.title : "Edit Entry"}
+  title={storedTitle ?? "Edit Entry"}
   entityType="entry"
   entityId={id}
-  entityLabel={entry?.title}
+  entityLabel={storedTitle}
 >
   {error ? (
     <div class="error-banner">
@@ -297,6 +322,8 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     </div>
   ) : entry ? (
     <>
+      {saveError && <SaveErrorBanner error={saveError} />}
+
       <div class="toolbar">
         <div>
           <h2 style="margin:0;font-size:20px;">Edit Entry</h2>
@@ -430,7 +457,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 placeholder='{"key": "value"}'
                 form="entry-form"
                 class="metadata-editor"
-              >{entry.metadataJson ? JSON.stringify(entry.metadataJson, null, 2) : ""}</textarea>
+              >{submittedMetadataText ?? (entry.metadataJson ? JSON.stringify(entry.metadataJson, null, 2) : "")}</textarea>
               <small style="font-size: 11px; color: var(--muted);">
                 Must be valid JSON. Example: {`{"seo_title": "My Title", "featured": true}`}
               </small>
@@ -509,12 +536,12 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 id="slug"
                 name="slug"
                 value={entry.slug}
-                disabled={entry.status === "published"}
-                style={entry.status === "published" ? "background: var(--panel-2); color: var(--muted);" : ""}
+                disabled={storedStatus === "published"}
+                style={storedStatus === "published" ? "background: var(--panel-2); color: var(--muted);" : ""}
                 form="entry-form"
               />
               <small style="font-size: 12px; color: var(--muted);">
-                {entry.status === "published"
+                {storedStatus === "published"
                   ? "Slug is locked for published entries to protect external URLs"
                   : "Auto-generated from title, or enter custom slug"}
               </small>
@@ -523,7 +550,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
             {entry.pageUrl && (
               <div class="form-group">
                 <a href={entry.pageUrl} target="_blank" rel="noopener noreferrer" class="button secondary">View on site ↗</a>
-                {entry.status !== "published" && <p class="form-help">Not live until this entry is published</p>}
+                {storedStatus !== "published" && <p class="form-help">Not live until this entry is published</p>}
               </div>
             )}
 
@@ -581,6 +608,26 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               <p class="form-help" data-schedule-note="publish_at" data-note-prefix="Will publish">
                 Schedule when this entry should be published
               </p>
+              {scheduledBlock && (
+                <div class="schedule-waiting" role="status">
+                  <p class="schedule-waiting-title">
+                    {scheduledBlock.waitingFor === "approval"
+                      ? "Scheduled publish is waiting for approval"
+                      : "Scheduled publish is waiting — it can't publish yet:"}
+                  </p>
+                  <ul>
+                    {(scheduledBlock.issues?.length ? scheduledBlock.issues : [scheduledBlock.reason]).map((issue) => (
+                      <li>{issue}</li>
+                    ))}
+                  </ul>
+                  {scheduledBlock.at && (
+                    <p class="schedule-waiting-since">
+                      Held back since <span data-local-datetime={toUtcIso(scheduledBlock.at)}>{`${toUtcIso(scheduledBlock.at).slice(0, 16).replace("T", " ")} UTC`}</span>.
+                      It goes out on the next run (every 5 minutes) once this is resolved.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div class="form-group">
@@ -942,6 +989,38 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
 
   .form-help.warn {
     color: var(--warn);
+  }
+
+  /* The scheduled publish is holding this entry back (entries.scheduled_publish_blocked). */
+  .schedule-waiting {
+    margin-top: 0.25rem;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--warn);
+    border-left-width: 3px;
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--warn) 8%, var(--panel));
+    font-size: 0.8125rem;
+    color: var(--ink);
+  }
+
+  .schedule-waiting p {
+    margin: 0;
+  }
+
+  .schedule-waiting-title {
+    font-weight: 600;
+    color: var(--warn);
+  }
+
+  .schedule-waiting ul {
+    margin: 0.375rem 0;
+    padding-left: 1.125rem;
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .schedule-waiting-since {
+    color: var(--muted);
   }
 
   .readonly-datetime {

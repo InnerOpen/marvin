@@ -240,6 +240,21 @@ const success = urlParams.get("success") === "1";
               </span>
             </label>
 
+            <label class="checkbox-row">
+              <span>Scheduled publish only for approved entries</span>
+              <span>
+                <input
+                  type="checkbox"
+                  name="scheduled_publish_requires_approval"
+                  checked={preferences?.scheduledPublishRequiresApproval === true}
+                  disabled={!canManage}
+                />
+                When an entry's Scheduled Publish time arrives, publish it only if its status is <strong>Approved</strong>.
+                Other entries keep their schedule and wait; the entry editor and the activity bell say they're waiting
+                for approval. Off: any due entry that isn't archived is published.
+              </span>
+            </label>
+
             <label>
               <span>Social Links (JSON)</span>
               <textarea
@@ -393,6 +408,7 @@ const success = urlParams.get("success") === "1";
           site_timezone: formData.get('site_timezone') as string || null,
           site_contact_email: formData.get('site_contact_email') as string || null,
           site_auto_rebuild: formData.has('site_auto_rebuild'),
+          scheduled_publish_requires_approval: formData.has('scheduled_publish_requires_approval'),
         };
 
         // Parse JSON fields
@@ -486,6 +502,8 @@ const success = urlParams.get("success") === "1";
 
 <style>
   .checkbox-row input[type="checkbox"] { width: auto; margin: 0 6px 0 0; vertical-align: middle; }
+  /* Beside a taller field (the JSON editors) the row's grid would spread its text to the bottom. */
+  .form-grid label.checkbox-row { align-content: start; }
   .toolbar {
     display: flex;
     justify-content: space-between;
