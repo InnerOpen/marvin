@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.186 (2026-10-04)
+
+### Features
+
+- **collections**: "Visible to sites" toggle for a collection's is_public flag
+  ([`af9e609`](https://github.com/InnerOpen/marvin/commit/af9e609ad4c5cf956555042c3fdb4ae9d3334b65))
+
+
 ## v1.0.0-rc.185 (2026-10-04)
 
 ### Features
