@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.180 (2026-10-04)
+
+### Features
+
+- **ai**: Bubble lines written from the workspace persona
+  ([`0d9b662`](https://github.com/InnerOpen/marvin/commit/0d9b662c97e6448ec70e390dbc7f76cdc2837481))
+
+- **frontend**: The bubble speaks the workspace's own lines; AI settings edit them
+  ([`7741350`](https://github.com/InnerOpen/marvin/commit/7741350876620f7b7805406b9f8af474261b59e9))
+
+
 ## v1.0.0-rc.179 (2026-10-04)
 
 ### Features
