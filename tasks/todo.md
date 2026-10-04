@@ -552,3 +552,86 @@ might feel too technical"; the Ask page shows an empty attachment chip.
 Full backend suite, frontend tests, Biome and ruff green; `astro check` 50 errors, the same files and counts as
 the base. Browser-checked on SQLite + astro dev (headless Chromium): preview parts for frame / everywhere / drop,
 JSON panels collapsed, collapsed metadata still saved, invalid metadata reopens its panel, no empty Ask chip.
+
+# Integration-owned error handling (plan, 2026-10-04)
+
+**Goal:** when an integration step fails, Marvin looks up the provider's declared policy for that error code
+and applies it to any workflow using the integration — review the entry, retry with backoff, mark the
+connection "needs attention" and alert admins, ignore/succeed, or a combination. A workflow's own `on_failure`
+still wins. Run history shows the outcome. One deduped alert per connection+code, not one per item.
+Admin alerts (Jared): bell always; email to workspace admins configurable; Slack and/or Apprise configurable.
+
+**Today (origin/develop, SDK 0.4.0):** `actions/integration.py` copies `.code` into `AutomationActionError` and
+drops partial progress; `engine.py` stops at the first failure, runs `on_failure`, fires `automation_failed`;
+no retry store; connection `status`/`last_error` only from `check()`; other `run_action` callers
+(IntegrationEventListener, capability, scheduled integration task) have no policy; Square/Buttondown errors
+carry codes but providers declare no policy; Square `create_listing` is multi-call/non-atomic; close workflows
+call Square before marking `checkout_closed`.
+
+## Design
+1. **SDK 0.5.0:** `IntegrationError(ValueError)` (`code`, `partial`, `retry_after`); `Retry(backoff, max_attempts,
+   on_recovery)`; `Handle(review, notify, succeed, retry, then)`; `error_policy` on provider and per action
+   (lookup: action[code] > provider[code] > action["*"] > provider["*"] > none); `ctx.resume` (last partial for
+   entry+action) and `ctx.idempotency_seed` (stable across one retry chain); policy exposed in `info()`.
+2. **Engine** (`services/integrations/errors.py::handle_failure`): executor raises `IntegrationStepError`
+   (catch-all → `unknown`); `on_failure` present → run it, skip entry-level policy (connection notify still
+   recorded); `succeed` → step success `{ignored, code}`, pipeline continues; `review` → `request_review` + core
+   metadata `integration_error.<slug>` (no entry → notify); `retry` → upsert retry row; `notify` →
+   open/bump alert; partial saved and passed back as `ctx.resume`, cleared on success. Run still `failed`
+   unless all failures were `succeed`; `automation_failed` carries `handled`/`handling`.
+3. **Retries:** table `integration_retries` (unique live row per automation+target+step; lease; backoff;
+   `then`; snapshot of event + earlier outputs, never secrets; partial; seed). 60s system task claims due rows,
+   rebuilds context from the current entry, **re-checks the workflow's conditions** (fail → superseded), resumes
+   at the failed step (earlier steps never re-run), success → succeeded, failure → next backoff
+   (`retry_after` honoured), exhausted → `then`. Parked rows re-arm when the connection recovers. A fresh run
+   that passes the step supersedes a pending retry. Prune after 30 days.
+4. **Connection health:** table `integration_alerts` (open row per integration+code; count; samples; reminder);
+   card shows "Needs attention" + message + "N failures since …" + Resolve/Test. Resolves on successful
+   `check()`, next successful action, or manual Resolve → `integration_attention_resolved`, re-arms parked retries.
+5. **Alerts fan-out:** events `integration_attention_needed` / `_resolved` emitted only when an alert opens or on
+   a reminder window (default 24h). Bell gets it via the event feed; "Integration alerts" panel on Settings →
+   Integrations writes existing subscription rows: email admins (new system template), Slack `send_message`,
+   Apprise `notify` with templated args. Loop guard: failed alert delivery never emits another alert.
+6. **Non-workflow callers** (listener, capability, scheduled task): connection-scope notify only. Test-fire: none.
+7. **Run history:** `automation_action_executions.handling`, `automation_executions.handled` + `retry_of_id`;
+   messages like "failed — handled by Square: sent to review", "retry scheduled (2 of 3)", "succeeded on retry 2".
+
+**Migration:** `integration_retries`, `integration_alerts`, `handling`, `handled`, `retry_of_id`.
+**API/UI:** integrations list `attention`; resolve endpoint; `GET/PUT alert-routing`; execution schemas;
+card badge + "How errors are handled" table; routing panel; toaster tones; run detail retry chain.
+
+## Providers
+- **Buttondown:** add `auth`, `unavailable` codes; policy blocked/spammy/suppressed → review; unavailable → retry
+  (2m, 10m, 1h) then review; auth → notify + retry parked until recovery; `*` → review. Drop blueprint
+  `on_failure` (already-applied copies remain as overrides).
+- **Square:** auth/config → notify (close: retry parked ×10 then review; create: parked ×1); rate_limited →
+  retry (1m,5m,15m,1h, honour retry_after) then notify; unavailable → retry (2m,10m,30m,2h,6h) then notify +
+  review; conflict → retry (30s, 2m) then review; invalid → review; not_found → create: review, close: succeed;
+  unknown → retry 5m then review + notify.
+- **Square closing safely:** close workflows set `checkout_closed: true` + request rebuild **first**, then
+  `close_listing`, then `square_link_closed: true`; conditions key on `square_link_closed != true`; durable retry
+  covers unpublish/archive triggers that never re-fire.
+- **Square partial progress:** create_listing order upsert → image → stock → **create new link → delete old
+  link**; ids in `SquareError.partial`; `ctx.resume` reuses them (no orphan item, delete-old-link-only path);
+  seeded idempotency keys within a retry chain.
+
+## Checklist
+- [ ] SDK 0.5.0 (error class, Retry/Handle, error_policy, resume/seed, info) + tests + release
+- [ ] Core migration + models
+- [ ] Core `errors.py` (resolution, handle_failure, alerts + dedupe)
+- [ ] Core executor (IntegrationStepError, resume/seed) + engine hook + recorder + summary messages
+- [ ] Core retry sweep (60s task, condition re-check, resume-at-step, supersede, parked, prune)
+- [ ] Core events/payload, system email template, loop guard, connection-scope callers
+- [ ] Core API + frontend (card badge, policy table, routing panel, toaster, run history)
+- [ ] Buttondown policy + codes, drop on_failure
+- [ ] Square policy, close reorder + `square_link_closed`, create_listing reorder + partial + resume + seeded keys
+- [ ] Docs (integrations.md, INTEGRATIONS_PLUGIN_ARCHITECTURE.md)
+
+**Risks:** retries act on changed content (condition re-check is load-bearing); Square idempotency window
+(~24h, unverified); a still-live link may sell even if the site hides it; automation_failed toast volume in an
+outage; system templates used by real subscription rows unverified; first sub-5-minute system task.
+
+**Open questions:** 1) on_failure present → connection notify still fires? (rec. yes) 2) handled failures:
+still `automation_failed` + toast, softer warn tone? (rec. warn) 3) reminder window (24h?) and send "resolved"
+notices to Slack/email? 4) per-workflow opt-out (`integration_errors: "fail"`)? 5) Square close also zeroes stock
+as a backstop? 6) show `integration_error.<slug>` on the entry page next to review reasons?
