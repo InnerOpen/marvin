@@ -49,6 +49,14 @@ def test_put_sends_json_body_with_put_method(helper):
     assert req.get_header("Content-type") == "application/json"
 
 
+def test_patch_sends_json_body_with_patch_method(helper):
+    helper.patch("https://api.example.com/x/1", json={"status": "enabled"})
+    req = _sent(helper)
+    assert req.get_method() == "PATCH"
+    assert json.loads(req.data) == {"status": "enabled"}
+    assert req.get_header("Content-type") == "application/json"
+
+
 def test_delete_sends_delete_without_body(helper):
     response = helper.delete("https://api.example.com/x/1", headers={"Authorization": "Bearer t"})
     req = _sent(helper)
@@ -63,7 +71,7 @@ def test_post_still_sends_post(helper):
     assert _sent(helper).get_method() == "POST"
 
 
-@pytest.mark.parametrize("verb", ["put", "delete"])
+@pytest.mark.parametrize("verb", ["put", "patch", "delete"])
 def test_new_verbs_refuse_private_hosts(verb):
     with pytest.raises(SsrfError):
         getattr(MarvinHttpHelper(), verb)("http://127.0.0.1:8080/internal")

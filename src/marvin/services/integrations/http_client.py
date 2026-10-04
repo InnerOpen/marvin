@@ -114,6 +114,18 @@ class MarvinHttpHelper:
     ) -> Response:
         return self._with_body("PUT", url, json, data, headers, timeout)
 
+    def patch(
+        self,
+        url: str,
+        *,
+        json=None,
+        data: bytes | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float = 15,
+    ) -> Response:
+        # Some APIs (Buttondown's webhooks) update only by PATCH; providers feature-detect it on ctx.http.
+        return self._with_body("PATCH", url, json, data, headers, timeout)
+
     def delete(self, url: str, *, headers: dict[str, str] | None = None, timeout: float = 15) -> Response:
         req = urllib.request.Request(url, method="DELETE", headers=headers or {})
         return self._send(req, timeout)
