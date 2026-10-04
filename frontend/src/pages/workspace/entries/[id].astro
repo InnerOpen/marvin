@@ -9,6 +9,7 @@ import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { getAssets } from "@/lib/api/platform";
 import { listResources } from "@/lib/api/resources";
 import { createTag, listTags, type TagRead } from "@/lib/api/tags";
+import { keysHint } from "@/lib/disclosure";
 import { withSubmittedValues } from "@/lib/entryForm";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
@@ -432,50 +433,65 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </details>
             )}
 
-            <div class="form-group">
-              <label for="data_json_editor">Data JSON (Schema Fields)</label>
-              <p class="form-help">View or edit schema field data as JSON. Paste complete JSON to populate form fields.</p>
-              <textarea
-                id="data_json_editor"
-                rows="8"
-                placeholder='{"text_field": "value", "number_field": 42}'
-                class="data-json-editor"
-              >{entry.dataJson ? JSON.stringify(entry.dataJson, null, 2) : "{}"}</textarea>
-              <button type="button" id="apply-data-json-btn" class="button secondary" style="margin-top: 0.5rem;">Apply JSON to Form</button>
-              <small style="font-size: 11px; color: var(--muted); display: block; margin-top: 0.5rem;">
-                Changes here will update the form fields above when you click "Apply JSON to Form"
-              </small>
-            </div>
+            {/* Raw JSON is for power users: collapsed so it doesn't crowd (or intimidate) the form. A closed
+                <details> still submits its fields, and the JSON sync below works either way. */}
+            <details class="json-disclosure" data-remember="entry-data-json">
+              <summary>
+                Advanced: raw JSON of the fields
+                <span class="json-disclosure-hint">copy/paste all fields</span>
+              </summary>
+              <div class="json-disclosure-body">
+                <p class="form-help">View or edit schema field data as JSON. Paste complete JSON to populate form fields.</p>
+                <textarea
+                  id="data_json_editor"
+                  aria-label="Data JSON (schema fields)"
+                  rows="8"
+                  placeholder='{"text_field": "value", "number_field": 42}'
+                  class="data-json-editor"
+                >{entry.dataJson ? JSON.stringify(entry.dataJson, null, 2) : "{}"}</textarea>
+                <button type="button" id="apply-data-json-btn" class="button secondary" style="margin-top: 0.5rem;">Apply JSON to Form</button>
+                <small style="font-size: 11px; color: var(--muted); display: block; margin-top: 0.5rem;">
+                  Changes here will update the form fields above when you click "Apply JSON to Form"
+                </small>
+              </div>
+            </details>
 
-            <div class="form-group">
-              <label for="metadata_json">Metadata (JSON)</label>
-              <p class="form-help">Custom JSON metadata for this entry</p>
-              <textarea
-                id="metadata_json"
-                name="metadata_json"
-                rows="8"
-                placeholder='{"key": "value"}'
-                form="entry-form"
-                class="metadata-editor"
-              >{submittedMetadataText ?? (entry.metadataJson ? JSON.stringify(entry.metadataJson, null, 2) : "")}</textarea>
-              <small style="font-size: 11px; color: var(--muted);">
-                Must be valid JSON. Example: {`{"seo_title": "My Title", "featured": true}`}
-              </small>
+            {/* Opens by itself when a save was refused for invalid metadata JSON, so the error is in view. */}
+            <details class="json-disclosure" data-remember="entry-metadata-json" open={submittedMetadataText !== null}>
+              <summary>
+                Metadata (JSON)
+                <span class="json-disclosure-hint">{submittedMetadataText !== null ? "not valid JSON — fix it to save" : (keysHint(entry.metadataJson) || "none set")}</span>
+              </summary>
+              <div class="json-disclosure-body">
+                <p class="form-help">Custom JSON metadata for this entry</p>
+                <textarea
+                  id="metadata_json"
+                  aria-label="Metadata (JSON)"
+                  name="metadata_json"
+                  rows="8"
+                  placeholder='{"key": "value"}'
+                  form="entry-form"
+                  class="metadata-editor"
+                >{submittedMetadataText ?? (entry.metadataJson ? JSON.stringify(entry.metadataJson, null, 2) : "")}</textarea>
+                <small style="font-size: 11px; color: var(--muted);">
+                  Must be valid JSON. Example: {`{"seo_title": "My Title", "featured": true}`}
+                </small>
 
-              {entry.metadataJson && Object.keys(entry.metadataJson).length > 0 && (
-                <div class="metadata-preview">
-                  <p class="metadata-preview-title">Current Metadata:</p>
-                  <dl class="metadata-preview-list">
-                    {Object.entries(entry.metadataJson).map(([key, value]) => (
-                      <div class="metadata-preview-item">
-                        <dt>{key}</dt>
-                        <dd>{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              )}
-            </div>
+                {entry.metadataJson && Object.keys(entry.metadataJson).length > 0 && (
+                  <div class="metadata-preview">
+                    <p class="metadata-preview-title">Current Metadata:</p>
+                    <dl class="metadata-preview-list">
+                      {Object.entries(entry.metadataJson).map(([key, value]) => (
+                        <div class="metadata-preview-item">
+                          <dt>{key}</dt>
+                          <dd>{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                )}
+              </div>
+            </details>
 
             <div class="form-actions">
               <button type="submit" id="save-button" class="button">
@@ -699,10 +715,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                       <label>Role</label>
                       <input type="text" name={`collection_attachments[${idx}].role`} value={coll.role || ''} placeholder="e.g. primary, featured" form="entry-form" />
                     </div>
-                    <div class="field-row field-row-full">
-                      <label>Metadata</label>
-                      <textarea name={`collection_attachments[${idx}].metadata`} rows="2" placeholder='{"featured": true}' form="entry-form" class="attachment-metadata">{coll.placementMetadata ? JSON.stringify(coll.placementMetadata, null, 2) : ''}</textarea>
-                    </div>
+                    <details class="json-disclosure attachment-meta-disclosure">
+                      <summary>Placement metadata (JSON) <span class="json-disclosure-hint">{keysHint(coll.placementMetadata) || "none set"}</span></summary>
+                      <textarea name={`collection_attachments[${idx}].metadata`} aria-label="Placement metadata (JSON)" rows="2" placeholder='{"featured": true}' form="entry-form" class="attachment-metadata">{coll.placementMetadata ? JSON.stringify(coll.placementMetadata, null, 2) : ''}</textarea>
+                    </details>
                   </div>
                 </div>
               ))}
@@ -807,10 +823,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                       <label>Role</label>
                       <input type="text" name={`asset_attachments[${idx}].role`} value={asset.role || ''} placeholder="e.g. hero, thumbnail" form="entry-form" />
                     </div>
-                    <div class="field-row field-row-full">
-                      <label>Metadata</label>
-                      <textarea name={`asset_attachments[${idx}].metadata`} rows="2" placeholder='{"focal_point": "50% 30%"}' form="entry-form" class="attachment-metadata">{asset.placementMetadata ? JSON.stringify(asset.placementMetadata, null, 2) : ''}</textarea>
-                    </div>
+                    <details class="json-disclosure attachment-meta-disclosure">
+                      <summary>Placement metadata (JSON) <span class="json-disclosure-hint">{keysHint(asset.placementMetadata) || "none set"}</span></summary>
+                      <textarea name={`asset_attachments[${idx}].metadata`} aria-label="Placement metadata (JSON)" rows="2" placeholder='{"focal_point": "50% 30%"}' form="entry-form" class="attachment-metadata">{asset.placementMetadata ? JSON.stringify(asset.placementMetadata, null, 2) : ''}</textarea>
+                    </details>
                   </div>
                 </div>
               ))}
@@ -875,10 +891,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                       <label>Role</label>
                       <input type="text" name={`resource_attachments[${idx}].role`} value={resource.role || ''} placeholder="e.g. primary, accent" form="entry-form" />
                     </div>
-                    <div class="field-row field-row-full">
-                      <label>Metadata</label>
-                      <textarea name={`resource_attachments[${idx}].metadata`} rows="2" placeholder='{"quantity": "2.5", "unit": "yards"}' form="entry-form" class="attachment-metadata">{resource.placementMetadata ? JSON.stringify(resource.placementMetadata, null, 2) : ''}</textarea>
-                    </div>
+                    <details class="json-disclosure attachment-meta-disclosure">
+                      <summary>Placement metadata (JSON) <span class="json-disclosure-hint">{keysHint(resource.placementMetadata) || "none set"}</span></summary>
+                      <textarea name={`resource_attachments[${idx}].metadata`} aria-label="Placement metadata (JSON)" rows="2" placeholder='{"quantity": "2.5", "unit": "yards"}' form="entry-form" class="attachment-metadata">{resource.placementMetadata ? JSON.stringify(resource.placementMetadata, null, 2) : ''}</textarea>
+                    </details>
                   </div>
                 </div>
               ))}
@@ -1679,6 +1695,56 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     resize: vertical;
   }
 
+  /* Raw JSON fields, collapsed by default (see the markup). */
+  .json-disclosure {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 0.75rem;
+  }
+
+  .json-disclosure > summary {
+    cursor: pointer;
+    padding: 0.6rem 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .json-disclosure-hint {
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
+
+  .json-disclosure-body {
+    display: grid;
+    gap: 0.5rem;
+    padding-bottom: 0.75rem;
+  }
+
+  .attachment-meta-disclosure {
+    border: 0;
+    padding: 0;
+  }
+
+  .attachment-meta-disclosure > summary {
+    padding: 0.125rem 0;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--muted);
+  }
+
+  .attachment-meta-disclosure textarea {
+    display: block;
+    box-sizing: border-box;
+    width: 100%;
+    margin-top: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--bg);
+  }
+
   .add-picker {
     margin-top: 0.5rem;
   }
@@ -1888,11 +1954,13 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
 </style>
 
 <script>
+  import { rememberDisclosures } from '@/lib/disclosure';
   import { formatLocalDateTime, fromDatetimeLocalValue, hasPassed, toDatetimeLocalValue } from '@/lib/localDatetime';
   import { createSdkClient } from '@/lib/sdk';
 
   const sdk = createSdkClient();
   const form = document.getElementById('entry-form') as HTMLFormElement;
+  rememberDisclosures();
   const deleteButton = document.getElementById('delete-entry-button') as HTMLButtonElement;
 
   // AI suggestion (write-back) apply / reject
@@ -2588,10 +2656,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
             <label>Role</label>
             <input type="text" name="collection_attachments[${idx}].role" value="" placeholder="e.g. primary, featured" form="entry-form" />
           </div>
-          <div class="field-row field-row-full">
-            <label>Metadata</label>
-            <textarea name="collection_attachments[${idx}].metadata" rows="2" placeholder='{"featured": true}' form="entry-form" class="attachment-metadata"></textarea>
-          </div>
+          <details class="json-disclosure attachment-meta-disclosure">
+            <summary>Placement metadata (JSON) <span class="json-disclosure-hint">none set</span></summary>
+            <textarea name="collection_attachments[${idx}].metadata" aria-label="Placement metadata (JSON)" rows="2" placeholder='{"featured": true}' form="entry-form" class="attachment-metadata"></textarea>
+          </details>
         </div>
       `;
 
@@ -2642,10 +2710,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
             <label>Role</label>
             <input type="text" name="asset_attachments[${idx}].role" value="" placeholder="e.g. hero, thumbnail" form="entry-form" />
           </div>
-          <div class="field-row field-row-full">
-            <label>Metadata</label>
-            <textarea name="asset_attachments[${idx}].metadata" rows="2" placeholder='{"focal_point": "50% 30%"}' form="entry-form" class="attachment-metadata"></textarea>
-          </div>
+          <details class="json-disclosure attachment-meta-disclosure">
+            <summary>Placement metadata (JSON) <span class="json-disclosure-hint">none set</span></summary>
+            <textarea name="asset_attachments[${idx}].metadata" aria-label="Placement metadata (JSON)" rows="2" placeholder='{"focal_point": "50% 30%"}' form="entry-form" class="attachment-metadata"></textarea>
+          </details>
         </div>
       `;
 
@@ -2689,10 +2757,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
             <label>Role</label>
             <input type="text" name="resource_attachments[${idx}].role" value="" placeholder="e.g. primary, accent" form="entry-form" />
           </div>
-          <div class="field-row field-row-full">
-            <label>Metadata</label>
-            <textarea name="resource_attachments[${idx}].metadata" rows="2" placeholder='{"quantity": "2.5", "unit": "yards"}' form="entry-form" class="attachment-metadata"></textarea>
-          </div>
+          <details class="json-disclosure attachment-meta-disclosure">
+            <summary>Placement metadata (JSON) <span class="json-disclosure-hint">none set</span></summary>
+            <textarea name="resource_attachments[${idx}].metadata" aria-label="Placement metadata (JSON)" rows="2" placeholder='{"quantity": "2.5", "unit": "yards"}' form="entry-form" class="attachment-metadata"></textarea>
+          </details>
         </div>
       `;
 

@@ -178,27 +178,35 @@ const preSelectedSchema =
             <p class="form-help">New entries start as drafts. Add content and publish from the editor.</p>
           </div>
 
-          <div class="form-group" id="data-json-group" style={preSelectedSchema ? '' : 'display: none;'}>
-            <label for="data_json_editor">Data JSON (Schema Fields)</label>
-            <p class="form-help">Paste complete JSON to populate form fields above.</p>
-            <textarea
-              id="data_json_editor"
-              rows="8"
-              placeholder='{"text_field": "value", "number_field": 42}'
-              class="data-json-editor"
-            >{preSelectedSchema ? JSON.stringify(
-              submitted?.data_json ?? preSelectedSchema.fields.reduce((acc: any, field: any) => {
-                acc[field.key] = field.defaultValue ?? null;
-                return acc;
-              }, {}),
-              null,
-              2
-            ) : '{}'}</textarea>
-            <button type="button" id="apply-data-json-btn" class="button secondary" style="margin-top: 0.5rem;">Apply JSON to Form</button>
-            <small style="font-size: 11px; color: var(--muted); display: block; margin-top: 0.5rem;">
-              Changes here will update the form fields above when you click "Apply JSON to Form"
-            </small>
-          </div>
+          {/* Raw JSON is for power users: collapsed so it doesn't crowd the form. Same key as the entry
+              editor, so the open/closed choice carries over. Shown only when the type has a schema. */}
+          <details class="json-disclosure" id="data-json-group" data-remember="entry-data-json" style={preSelectedSchema ? '' : 'display: none;'}>
+            <summary>
+              Advanced: raw JSON of the fields
+              <span class="json-disclosure-hint">copy/paste all fields</span>
+            </summary>
+            <div class="json-disclosure-body">
+              <p class="form-help">Paste complete JSON to populate form fields above.</p>
+              <textarea
+                id="data_json_editor"
+                aria-label="Data JSON (schema fields)"
+                rows="8"
+                placeholder='{"text_field": "value", "number_field": 42}'
+                class="data-json-editor"
+              >{preSelectedSchema ? JSON.stringify(
+                submitted?.data_json ?? preSelectedSchema.fields.reduce((acc: any, field: any) => {
+                  acc[field.key] = field.defaultValue ?? null;
+                  return acc;
+                }, {}),
+                null,
+                2
+              ) : '{}'}</textarea>
+              <button type="button" id="apply-data-json-btn" class="button secondary" style="margin-top: 0.5rem;">Apply JSON to Form</button>
+              <small style="font-size: 11px; color: var(--muted); display: block; margin-top: 0.5rem;">
+                Changes here will update the form fields above when you click "Apply JSON to Form"
+              </small>
+            </div>
+          </details>
 
           <div class="form-actions">
             <button type="submit" class="button">Create Entry</button>
@@ -339,7 +347,40 @@ const preSelectedSchema =
     font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
     line-height: 1.6;
   }
+
+  /* Raw JSON, collapsed by default (matches the entry editor). */
+  .json-disclosure {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 0 0.75rem;
+  }
+
+  .json-disclosure > summary {
+    cursor: pointer;
+    padding: 0.6rem 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .json-disclosure-hint {
+    margin-left: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--muted);
+  }
+
+  .json-disclosure-body {
+    display: grid;
+    gap: 0.5rem;
+    padding-bottom: 0.75rem;
+  }
 </style>
+
+<script>
+  import { rememberDisclosures } from '@/lib/disclosure';
+
+  rememberDisclosures();
+</script>
 
 <script define:vars={{ entryTypes: sortedTypes }}>
   document.addEventListener('DOMContentLoaded', () => {
