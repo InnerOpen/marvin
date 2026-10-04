@@ -666,6 +666,8 @@ class ScheduledTaskListener(EventListenerBase):
                     event_type=EventTypes.scheduled_task_started,
                     document_data=event.document_data,  # Reuse same task data
                     message=f"Scheduled task '{task.name}' execution started",
+                    entity_id=task.id,
+                    entity_type="scheduled_task",
                 )
 
                 # Get and execute handler
@@ -677,13 +679,15 @@ class ScheduledTaskListener(EventListenerBase):
                 end_time = datetime.now(UTC)
                 duration_ms = int((end_time - start_time).total_seconds() * 1000)
 
-                # Log the run — unless a handler said there was nothing to report and nobody was
-                # watching. A frequent task (every 2 minutes is 720 runs a day) otherwise buries its
-                # own real events under identical "nothing happened" rows. Liveness is not lost:
-                # last_run_at/last_status below are updated either way. A run someone triggered by
-                # hand always logs, because they asked and deserve an answer.
+                # Log the run (execution row and scheduled_task_completed event) — unless a handler
+                # said there was nothing to report and nobody was watching. A frequent task (every 2
+                # minutes is 720 runs a day) otherwise buries its own real events under identical
+                # "nothing happened" rows. Liveness is not lost: last_run_at/last_status below are
+                # updated either way. A run someone triggered by hand always logs, because they asked
+                # and deserve an answer; a failure always logs (_handle_task_failure).
                 by_hand = event.integration_id != "scheduled_tasks"
-                if output is not None or by_hand:
+                worth_recording = output is not None or by_hand
+                if worth_recording:
                     repos.scheduled_task_executions.log_execution(
                         task_id=task.id,
                         group_id=task.group_id,
@@ -710,14 +714,16 @@ class ScheduledTaskListener(EventListenerBase):
                     # One-time task — clear next_run_at so scheduler won't re-fire it
                     repos.scheduled_tasks.update_next_run(task.id, None)
 
-                # Emit completed event
-                event_bus.dispatch(
-                    integration_id="scheduled_tasks",
-                    group_id=task.group_id,
-                    event_type=EventTypes.scheduled_task_completed,
-                    document_data=event.document_data,
-                    message=f"Scheduled task '{task.name}' completed successfully in {duration_ms}ms",
-                )
+                if worth_recording:
+                    event_bus.dispatch(
+                        integration_id="scheduled_tasks",
+                        group_id=task.group_id,
+                        event_type=EventTypes.scheduled_task_completed,
+                        document_data=event.document_data,
+                        message=f"Scheduled task '{task.name}' completed successfully in {duration_ms}ms",
+                        entity_id=task.id,
+                        entity_type="scheduled_task",
+                    )
 
                 self.logger.info(f"Scheduled task '{task.name}' completed successfully in {duration_ms}ms")
 
@@ -779,6 +785,8 @@ class ScheduledTaskListener(EventListenerBase):
             event_type=EventTypes.scheduled_task_failed,
             document_data=event.document_data,
             message=f"Scheduled task '{task.name}' failed: {error_message}",
+            entity_id=task.id,
+            entity_type="scheduled_task",
         )
 
 
@@ -882,7 +890,7 @@ class IndexingReactionListener(EventListenerBase):
 
         verb = "on " + event.event_type.name.split("_", 1)[-1]  # e.g. "on published", "on updated"
         self.logger.info(f"Auto-indexed {idx_desc.entity_type} {entity_id} ({chunks} chunk(s)) {verb}")
-        self._emit_reindexed(model, chunks, idx_desc.entity_type, verb)
+        self._emit_reindexed(model, chunks, idx_desc.entity_type, verb, entity_id=obj.id)
 
     def _has_index(self, session: Session, entity_type: str, entity_id: UUID4, model: str) -> bool:
         """True if this entity already has embedding chunks for the given model."""
@@ -893,8 +901,9 @@ class IndexingReactionListener(EventListenerBase):
             is not None
         )
 
-    def _emit_reindexed(self, model: str, chunks: int, entity_type: str = "entry", verb: str = "on publish") -> None:
-        """Surface the auto-index as an ai_embeddings_reindexed event (audit log + notifications)."""
+    def _emit_reindexed(self, model: str, chunks: int, entity_type: str = "entry", verb: str = "on publish", entity_id: UUID4 | None = None) -> None:
+        """Surface the auto-index as an ai_embeddings_reindexed event (audit log + notifications), about
+        the one item it indexed."""
         from marvin.services.event_bus_service.event_bus_service import EventBusService
 
         from .event_types import EventAIEmbeddingsData
@@ -916,6 +925,8 @@ class IndexingReactionListener(EventListenerBase):
                     workspace_name=workspace_name,
                 ),
                 message=f"Auto-indexed 1 {entity_type} ({chunks} chunks) {verb}",
+                entity_id=entity_id,
+                entity_type=entity_type if entity_id else None,
             )
         except Exception as e:
             self.logger.error(f"IndexingReactionListener: failed to emit reindexed event: {e}")

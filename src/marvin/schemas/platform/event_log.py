@@ -45,6 +45,11 @@ class EventLogSummary(_MarvinModel):
     correlation_id: str | None = None  # chain id — follow a cascade across events
     message_title: str
     message_body: str | None = None
+    related_entity_type: str | None = None
+    """A second subject the event names beside its entity — on a workflow run, what triggered it."""
+    related_entity_id: str | None = None
+    related_entity_label: str | None = None
+    """The related subject's name as the event recorded it (e.g. the entry's title)."""
 
     model_config = ConfigDict(from_attributes=True)
 

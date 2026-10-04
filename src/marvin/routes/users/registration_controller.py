@@ -88,6 +88,9 @@ class RegistrationController(BasePublicController):
             repos=get_repositories(self.session, group_id=None),  # Provide non-scoped repos
         )
 
+        # The invitation as it stands before this registration uses it — a last use deletes the token row.
+        invitation = get_repositories(self.session, group_id=None).group_invite_tokens.get_one(data.group_token, "token") if has_group_token else None
+
         # Attempt to register the user via the service layer
         # The service will handle password hashing, token validation (if any), and user creation.
         newly_registered_user = registration_service.register_user(data)
@@ -101,6 +104,8 @@ class RegistrationController(BasePublicController):
                 event_type=EventTypes.user_signup,
                 document_data=EventUserSignupData(username=newly_registered_user.username, email=newly_registered_user.email),
                 message=f"New user registered: {newly_registered_user.username}",
+                entity_id=newly_registered_user.id,
+                entity_type="user",
             )
             self.logger.info(f"User signup event dispatched for user: {newly_registered_user.username}")
         except Exception as e:
@@ -126,6 +131,8 @@ class RegistrationController(BasePublicController):
                         uses_left=token_obj.uses_left if token_obj else None,
                     ),
                     message=f"Invitation accepted by {newly_registered_user.username}",
+                    entity_id=invitation.id if invitation else None,
+                    entity_type="invitation" if invitation else None,
                 )
                 self.logger.info(f"Invitation accepted event dispatched for user: {newly_registered_user.username}")
             except Exception as e:

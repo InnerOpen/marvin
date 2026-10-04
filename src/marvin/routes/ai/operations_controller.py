@@ -2744,8 +2744,9 @@ class AIOperationsController(BaseUserController):
                 ),
                 message=f"AI operation '{execution.operation_slug}' {status}",
                 user_id=self.user.id if self.user else None,
-                entity_id=execution.entity_id,
-                entity_type=execution.entity_type,
+                # About what it acted on; an operation with no target (a chat answer) is about its run.
+                entity_id=execution.entity_id or execution.id,
+                entity_type=execution.entity_type if execution.entity_id else "ai_execution",
             )
         except Exception as e:
             self.logger.error(f"Failed to dispatch ai operation event: {e}", exc_info=True)

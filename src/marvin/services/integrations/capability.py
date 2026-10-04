@@ -168,6 +168,8 @@ class CapabilityHandler:
                     workspace_name=group_name,
                 ),
                 message=f"capability {self.capability} via {self.integration_name}",
+                entity_id=exec_id,
+                entity_type="ai_execution" if exec_id else None,
             )
         except Exception as e:  # noqa: BLE001 — event emit is best-effort, never breaks the call
             logger.warning(f"[capability] event emit failed: {e}")

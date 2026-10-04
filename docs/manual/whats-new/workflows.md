@@ -5,7 +5,7 @@ A workflow (an "automation" in the API) is a trigger, optional conditions and up
 ## What it does
 
 - **Triggers** decide when the workflow runs. **Conditions** gate it. **Steps** (`actions`) run in order; each step's output becomes `$previous` and `$steps.<id>.output`, and a failing step stops the rest.
-- Runs are recorded (status `success`, `partial` or `failed`, per-step timing and output) and every run emits `automation_ran` or `automation_failed`, which `chained` and `on_error` triggers react to. Chains are bounded: an event at reaction depth 3 or more triggers nothing.
+- Runs are recorded (status `success`, `partial` or `failed`, per-step timing and output) and every run emits `automation_ran` or `automation_failed`, which `chained` and `on_error` triggers react to. These events and `automation_started` are about the workflow (`entity_type: automation`). They also name the triggering event's subject in `trigger_entity_type`, `trigger_entity_id` and `trigger_entity_label`: the entry, the incoming webhook, or the workflow a chained run follows. A manual or scheduled run has none. `automation_ran`'s message names each step and its outcome, for example "Automation 'send-issue' ran — webhook 'Buttondown: send issue' → 201". It lists three steps and counts the rest, and a query run's repeats collapse to one line with a count (`×12`). `automation_failed`'s message names the failing step and its error. Both carry the steps in `steps`. Chains are bounded: an event at reaction depth 3 or more triggers nothing.
 - Steps run with the author's current workspace role (definer's rights): entry and emit-event steps need AUTHOR; task, webhook and integration steps need ADMIN; an AI operation needs its own minimum role. If the author is demoted or removed, steps above their new role fail.
 
 ### Trigger types
@@ -30,7 +30,7 @@ The builder sends every value as text. `eq` and `neq` convert it to the type of 
 
 | Namespace | Contents |
 |---|---|
-| `event.*` | Every field of the event's data, plus `event_type`, `entry_id`, `webhook_slug`, `payload`, `changed_fields`, `before`, `after`, `user_id`. Forms: `event.submission_data.<field>`. |
+| `event.*` | Every field of the event's data, plus `event_type`, `entry_id`, `entity_type`, `entity_id` (what the event is about), `webhook_slug`, `payload`, `changed_fields`, `before`, `after`, `user_id`. `entry_id` is set only when the event is about an entry. Forms: `event.submission_data.<field>`. |
 | `entry.*` | `id`, `entry_type`, `status`, `title`, `slug`, `summary`, `data.<field>` (the entry type's fields), `metadata.<key>`, `image` (the featured image's public URL, or empty). Present for entry events and for every row of a query run. |
 | `previous.*`, `steps.<id or index>.output.*` | Step outputs; usable in step inputs only, never in conditions. |
 

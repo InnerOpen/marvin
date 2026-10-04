@@ -110,6 +110,8 @@ class GroupInvitationsController(BaseUserController):
                 invitation_url=f"{self.settings.BASE_URL}/register?token={created_token.token}",
             ),
             message=f"Invitation token created with {created_token.uses_left} uses",
+            entity_id=created_token.id,
+            entity_type="invitation",
         )
 
         # Cast to InviteTokenSummary for proper JSON serialization
@@ -177,6 +179,8 @@ class GroupInvitationsController(BaseUserController):
                     uses_left=token.uses_left,
                 ),
                 message=f"Invitation sent to {invite_data.email}",
+                entity_id=token.id,
+                entity_type="invitation",
             )
             email_sent_successfully = True
             self.logger.info(f"Invitation event dispatched for {invite_data.email} with token {invite_data.token}")
@@ -227,6 +231,8 @@ class GroupInvitationsController(BaseUserController):
                 uses_left=token.uses_left,
             ),
             message="Invitation token revoked",
+            entity_id=token.id,
+            entity_type="invitation",
         )
 
         # Delete the token

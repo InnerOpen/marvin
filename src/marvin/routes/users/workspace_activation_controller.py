@@ -107,6 +107,9 @@ class WorkspaceActivationController(BaseUserController):
             event_type=EventTypes.workspace_activated,
             document_data=None,
             message=f"User '{self.user.username}' activated workspace '{workspace.name}'",
+            user_id=self.user.id,
+            entity_id=workspace.id,
+            entity_type="workspace",
         )
 
         return workspace

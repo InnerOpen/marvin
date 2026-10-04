@@ -116,6 +116,8 @@ def _emit_site_event(group_id, action: dict, context: dict, event_type, ev_name:
         status=status,
         error_message=error,
     )
+    from marvin.services.site_rebuild import deploy_target_fields
+
     try:
         EventBusService(bg_tasks=None).dispatch(
             integration_id="automation",
@@ -125,6 +127,7 @@ def _emit_site_event(group_id, action: dict, context: dict, event_type, ev_name:
             message=message,
             user_id=user_id,
             reaction_depth=depth,
+            **deploy_target_fields(group_id),
         )
     except Exception as e:
         raise AutomationActionError(f"emit_event '{ev_name}' failed: {e}") from e

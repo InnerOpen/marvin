@@ -51,6 +51,60 @@ def rebuild_change(label: str, event: str | None = None, entity_type: str | None
     }
 
 
+# The event a site's deploy hook subscribes to — what a sent rebuild goes out as.
+REBUILD_EVENT = "webhook_triggered"
+
+
+def deploy_target(session: Session, group_id: UUID) -> tuple[str, UUID] | None:
+    """What builds this workspace's site — ``("webhook", id)`` for an outgoing webhook (deploy hook) on
+    `webhook_triggered`, ``("integration", id)`` for an integration action wired to it — or None when
+    there is none or more than one, so a rebuild or deploy event never names the wrong one.
+
+    The site pipeline's events (site_rebuild_queued, webhook_triggered, site_deployment_*) are about
+    this target; the deployment id, when a host reports one, stays in the event's data.
+    """
+    from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+    from marvin.db.models.groups.webhooks import GroupWebhooksModel
+
+    try:
+        hooks = session.execute(
+            select(GroupWebhooksModel).where(GroupWebhooksModel.group_id == group_id, GroupWebhooksModel.enabled.is_(True))
+        ).scalars()
+        targets = {
+            ("webhook", hook.id)
+            for hook in hooks
+            if REBUILD_EVENT in (hook.subscribed_events or []) and getattr(hook.webhook_type, "value", None) == "event_driven"
+        }
+        integration_ids = session.execute(
+            select(IntegrationEventSubscriptionModel.integration_id).where(
+                IntegrationEventSubscriptionModel.group_id == group_id,
+                IntegrationEventSubscriptionModel.event_type == REBUILD_EVENT,
+                IntegrationEventSubscriptionModel.enabled.is_(True),
+            )
+        ).scalars()
+        targets |= {("integration", integration_id) for integration_id in integration_ids}
+    except Exception as e:  # noqa: BLE001 — naming the target is a nicety; the event goes out regardless
+        logger.warning("could not resolve the deploy target for %s: %s", group_id, e)
+        return None
+    return next(iter(targets)) if len(targets) == 1 else None
+
+
+def deploy_target_fields(group_id: UUID) -> dict:
+    """``entity_type``/``entity_id`` dispatch kwargs naming the workspace's deploy target (empty when none).
+
+    Looked up in a session of its own, so a failed lookup can never spoil the caller's transaction.
+    """
+    from marvin.db.db_setup import session_context
+
+    try:
+        with session_context() as session:
+            target = deploy_target(session, group_id)
+    except Exception as e:  # noqa: BLE001 — as in deploy_target: never block the event
+        logger.warning("could not open a session to resolve the deploy target for %s: %s", group_id, e)
+        target = None
+    return {"entity_type": target[0], "entity_id": target[1]} if target else {}
+
+
 def _change_key(item: dict) -> tuple:
     # The same entry edited twice is one change; without an entity, the same wording is.
     return ("entity", item.get("entity_type"), item["entity_id"]) if item.get("entity_id") else ("label", item.get("label"))
@@ -126,6 +180,7 @@ def _announce_queued(group_id: UUID, reason: str | None, change: dict | None, qu
                 expected_send_at=queued_at + timedelta(seconds=quiet),
             ),
             message=f"Site rebuild queued: {(change or {}).get('label') or reason or 'requested'}",
+            **deploy_target_fields(group_id),
         )
     except Exception as e:  # noqa: BLE001 — announcing must never lose the queued rebuild
         logger.warning("could not announce the queued site rebuild for %s: %s", group_id, e)

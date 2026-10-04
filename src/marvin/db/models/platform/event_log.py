@@ -76,6 +76,30 @@ class EventLogModel(SqlAlchemyBase, BaseMixins):
     message_body: Mapped[str | None] = mapped_column(Text, nullable=True)
     """Human-readable event description."""
 
+    # The event's related subject beside its own entity — what triggered a workflow run (an entry, an
+    # incoming webhook, the workflow it chained from). Read from the stored payload rather than kept in
+    # columns of its own: only automation events carry one, and nothing filters on it.
+    def _related(self, key: str):
+        data = self.event_data if isinstance(self.event_data, dict) else {}
+        doc = data.get("documentData") or data.get("document_data") or {}
+        if not isinstance(doc, dict):
+            return None
+        camel = "triggerEntity" + key.title()
+        value = doc.get(camel, doc.get(f"trigger_entity_{key}"))
+        return value if value else None
+
+    @property
+    def related_entity_type(self) -> str | None:
+        return self._related("type")
+
+    @property
+    def related_entity_id(self) -> str | None:
+        return self._related("id")
+
+    @property
+    def related_entity_label(self) -> str | None:
+        return self._related("label")
+
     __table_args__ = (
         # Composite index for common query pattern: workspace events by type and time
         Index(

@@ -326,6 +326,8 @@ def dispatch_site_rebuild(
     It carries what the rebuild covers (`changes`, newest last) so the admin can show what's building;
     a deploy hook ignores the body.
     """
+    from marvin.services.site_rebuild import deploy_target_fields
+
     changes = changes or []
     (event_bus or EventBusService(bg_tasks=None)).dispatch(
         integration_id="scheduled_tasks",
@@ -337,6 +339,7 @@ def dispatch_site_rebuild(
             changes=[SiteRebuildChange.model_validate(c) for c in changes],
         ),
         message=f"Site rebuild requested: {reason}",
+        **deploy_target_fields(group_id),
     )
 
 

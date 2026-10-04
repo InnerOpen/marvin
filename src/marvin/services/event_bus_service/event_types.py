@@ -1265,6 +1265,16 @@ class EventAutomationData(EventDocumentDataBase):
     """What started the run: manual, schedule, chat, event, incoming_webhook, chained or on_error."""
     target_count: int | None = None
     """For a target-query run, how many entries it acts on; None for a single-context run."""
+    trigger_entity_type: str | None = None
+    """What the triggering event was about (entry, incoming_webhook, automation, …) — the run's
+    related subject beside the workflow itself. None for a manual / scheduled run."""
+    trigger_entity_id: uuid.UUID | None = None
+    """Its id (any UUID version, so an odd id never costs the run its event)."""
+    trigger_entity_label: str | None = None
+    """Its name as the run saw it (an entry's title, a webhook's name), for display."""
+    steps: list[dict] = []
+    """On automation_ran / automation_failed: what each step did, in order — ``{kind, target,
+    outcome, ok, count}``, repeats across a target query's rows collapsed into one line with a count."""
 
 
 class EventAIBudgetData(EventDocumentDataBase):
@@ -1417,6 +1427,16 @@ class Event(_MarvinModel):
             self.timestamp = datetime.now(UTC)
 
 
+# A payload's own id field → the entity type it names, in precedence order (an asset attached to an
+# entry is about the entry).
+_DOCUMENT_ID_FIELDS = (
+    ("entry_id", "entry"),
+    ("collection_id", "collection"),
+    ("asset_id", "asset"),
+    ("api_client_id", "api_client"),
+)
+
+
 def event_entity(event: Any) -> tuple[str | None, Any]:
     """The (entity_type, entity_id) an event is about, as the event log records it.
 
@@ -1428,19 +1448,17 @@ def event_entity(event: Any) -> tuple[str | None, Any]:
     entity_id: Any = None
     data = getattr(event, "document_data", None)
     if data:
-        if hasattr(data, "entry_id"):
-            entity_type, entity_id = "entry", data.entry_id
-        elif hasattr(data, "collection_id"):
-            entity_type, entity_id = "collection", data.collection_id
-        elif hasattr(data, "asset_id"):
-            entity_type, entity_id = "asset", data.asset_id
-        elif hasattr(data, "workspace_id") and hasattr(data, "document_type"):
-            if data.document_type.value == "workspace":
+        # Most payloads carry a workspace_id beside their own id, so the subject is looked up by its
+        # own id field first and by document type last — never "has a workspace_id, so a workspace".
+        for field, kind in _DOCUMENT_ID_FIELDS:
+            if hasattr(data, field):
+                entity_type, entity_id = kind, getattr(data, field)
+                break
+        else:
+            document_type = getattr(getattr(data, "document_type", None), "value", None)
+            if document_type == "workspace" and hasattr(data, "workspace_id"):
                 entity_type, entity_id = "workspace", data.workspace_id
-        elif hasattr(data, "api_client_id"):
-            entity_type, entity_id = "api_client", data.api_client_id
-        elif hasattr(data, "user_id") and hasattr(data, "document_type"):
-            if data.document_type.value == "member":
+            elif document_type == "member" and hasattr(data, "user_id"):
                 entity_type, entity_id = "member", data.user_id
     if getattr(event, "entity_id", None):
         entity_id = event.entity_id

@@ -22,6 +22,7 @@ from .actions import run_action as _registry_run_action
 from .authz import resolve_authorizer_role
 from .matcher import explain, matches
 from .recorder import CollectingRecorder, NullRecorder
+from .summary import collapse, run_message, step_summary, trigger_ref
 
 MAX_ACTIONS = 10  # per-automation guardrail against a runaway pipeline
 MAX_REACTION_DEPTH = 3  # how many automation/emit_event hops a single chain may span before we stop
@@ -259,9 +260,13 @@ def _run_targets(
             target_count=len(runnable) if target else None,
             depth=int(base_context.get("depth", 0)),
             user_id=user_id,
+            context=base_context,
         )
 
     ran, ok_all, steps_ok, steps_failed = 0, True, 0, 0
+    # What each step did, across every target — the run's automation_ran / automation_failed names them.
+    step_log: list[dict] = []
+    base_context["_step_log"] = step_log
     for target_index, ctx, ref in runnable:
         ok, s_ok, s_failed = _run_pipeline(
             session,
@@ -277,6 +282,7 @@ def _run_targets(
             target_index=target_index,
             target_ref=ref,
             dry_run=dry_run,
+            step_log=step_log,
         )
         ok_all = ok_all and ok
         steps_ok += s_ok
@@ -319,14 +325,17 @@ def _target_ok(trig: dict, event_ctx: dict) -> bool:
 def _announce(session, group_id, automation, ok: bool, depth: int, user_id, context: dict, *, run_id=None) -> None:
     """Emit automation_ran / automation_failed so chained + on-error triggers can react.
 
-    Dispatched at reaction_depth+1 so chains stay bounded (the listener refuses past MAX_REACTION_DEPTH).
-    Best-effort — never breaks the run.
+    The event is about the workflow; it names what triggered the run (``trigger_entity_*``) and, in
+    its message and ``steps``, what each step did. Dispatched at reaction_depth+1 so chains stay
+    bounded (the listener refuses past MAX_REACTION_DEPTH). Best-effort — never breaks the run.
     """
     from marvin.services.event_bus_service.event_bus_service import EventBusService
     from marvin.services.event_bus_service.event_types import EventAutomationData, EventTypes
 
     event_type = EventTypes.automation_ran if ok else EventTypes.automation_failed
     try:
+        steps = collapse(context.get("_step_log") or [])
+        failed = next((s for s in reversed(steps) if not s["ok"]), None)
         EventBusService(bg_tasks=None).dispatch(
             integration_id="automation",
             group_id=group_id,
@@ -337,18 +346,22 @@ def _announce(session, group_id, automation, ok: bool, depth: int, user_id, cont
                 automation_name=getattr(automation, "name", None),
                 execution_id=run_id,
                 ok=ok,
-                error=None if ok else context.get("_error"),
+                error=None if ok else context.get("_error") or (failed or {}).get("error"),
                 workspace_id=group_id,
+                steps=steps,
+                **trigger_ref(context),
             ),
-            message=f"Automation '{automation.slug}' {'ran' if ok else 'failed'}",
+            message=run_message(automation.slug, ok, steps),
             user_id=user_id,
+            entity_id=automation.id,
+            entity_type="automation",
             reaction_depth=depth + 1,
         )
     except Exception:
         pass
 
 
-def _announce_start(group_id, automation, run_id, trigger: str, *, target_count: int | None, depth: int, user_id) -> None:
+def _announce_start(group_id, automation, run_id, trigger: str, *, target_count: int | None, depth: int, user_id, context: dict) -> None:
     """Emit automation_started so the admin sees a run in progress; its ran/failed event carries the same run id.
 
     Nothing reacts to it (it isn't a workflow trigger), but it goes out at depth+1 like the other
@@ -370,9 +383,12 @@ def _announce_start(group_id, automation, run_id, trigger: str, *, target_count:
                 trigger=trigger,
                 target_count=target_count,
                 workspace_id=group_id,
+                **trigger_ref(context),
             ),
             message=f"Automation '{automation.slug}' started",
             user_id=user_id,
+            entity_id=automation.id,
+            entity_type="automation",
             reaction_depth=depth + 1,
         )
     except Exception:
@@ -394,12 +410,13 @@ def _run_pipeline(
     target_index: int = 0,
     target_ref=None,
     dry_run: bool = False,
+    step_log: list | None = None,
 ) -> tuple[bool, int, int]:
     """Run one automation's action pipeline in order, recording each step. Returns
     ``(all_ok, steps_ok, steps_failed)``.
 
     A fresh `previous` is set so pipelines don't leak into each other; a failing step stops the rest
-    (later steps usually depend on it).
+    (later steps usually depend on it). Each step's summary is appended to ``step_log`` when given.
     """
     recorder = recorder or NullRecorder()
     actions = (automation.definition or {}).get("actions") or []
@@ -425,6 +442,8 @@ def _run_pipeline(
                 output=out,
                 duration_ms=_ms_since(started),
             )
+            if step_log is not None:
+                step_log.append(step_summary(session, action, output=out))
             out_dict = out if isinstance(out, dict) else {}
             context["previous"] = out_dict
             step_entry = {"output": out_dict}
@@ -444,6 +463,8 @@ def _run_pipeline(
                 duration_ms=_ms_since(started),
             )
             context["_error"] = str(e)
+            if step_log is not None:
+                step_log.append(step_summary(session, action, error=str(e)))
             steps_failed += 1
             if logger:
                 logger.warning(

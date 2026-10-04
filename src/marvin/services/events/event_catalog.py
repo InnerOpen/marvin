@@ -1014,7 +1014,7 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         event_type="scheduled_task_completed",
         name="Scheduled Task Completed",
-        description="A scheduled task ran successfully.",
+        description="A scheduled task ran successfully and had something to report, or was run by hand. Routine runs with nothing to do are not announced.",
         category="Automation",
         variables=COMMON_VARS
         + [
