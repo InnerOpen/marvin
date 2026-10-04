@@ -1,10 +1,17 @@
-// Who the admin treats as a workspace admin (workspaceRole.ts). Run with `npm test`. The backend gate it
+// Who the admin treats as a workspace admin, editor or author (workspaceRole.ts). Run with `npm test`. The backend gate it
 // mirrors is tested in tests/test_api_clients.py and tests/test_workspace_admin_gate.py.
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { canManageWorkspace, isForbidden, nullIfForbidden } from "./workspaceRole.ts";
+import {
+  canAuthorContent,
+  canEditContent,
+  canEditEntry,
+  canManageWorkspace,
+  isForbidden,
+  nullIfForbidden,
+} from "./workspaceRole.ts";
 
 const active = (role) => [
   { role: "OWNER", isActive: false },
@@ -34,6 +41,44 @@ describe("canManageWorkspace", () => {
 
   test("legacy admin flag can manage", () => {
     assert.equal(canManageWorkspace(active("VIEWER"), { admin: true }), true);
+  });
+});
+
+describe("canEditContent / canAuthorContent", () => {
+  const cases = { OWNER: [true, true], ADMIN: [true, true], EDITOR: [true, true], AUTHOR: [false, true], VIEWER: [false, false] };
+  for (const [role, [edit, author]] of Object.entries(cases)) {
+    test(`${role}: edit ${edit}, author ${author}`, () => {
+      assert.equal(canEditContent(active(role)), edit);
+      assert.equal(canAuthorContent(active(role)), author);
+    });
+  }
+
+  test("no active membership can do neither; a super admin can do both", () => {
+    assert.equal(canAuthorContent([]), false);
+    assert.equal(canEditContent([], { platformRole: "SUPER_ADMIN" }), true);
+  });
+});
+
+describe("canEditEntry", () => {
+  const me = { id: "u1" };
+  const mine = (status) => ({ createdBy: "u1", status });
+
+  test("an EDITOR edits anyone's entry, published or not", () => {
+    assert.equal(canEditEntry(active("EDITOR"), me, { createdBy: "u2", status: "published" }), true);
+  });
+
+  test("an AUTHOR edits their own entry until it is approved or published", () => {
+    for (const status of ["inbox", "draft", "needs_review", "archived"]) {
+      assert.equal(canEditEntry(active("AUTHOR"), me, mine(status)), true, status);
+    }
+    for (const status of ["approved", "published"]) {
+      assert.equal(canEditEntry(active("AUTHOR"), me, mine(status)), false, status);
+    }
+  });
+
+  test("an AUTHOR cannot edit someone else's entry; a VIEWER cannot edit their own", () => {
+    assert.equal(canEditEntry(active("AUTHOR"), me, { createdBy: "u2", status: "draft" }), false);
+    assert.equal(canEditEntry(active("VIEWER"), me, mine("draft")), false);
   });
 });
 

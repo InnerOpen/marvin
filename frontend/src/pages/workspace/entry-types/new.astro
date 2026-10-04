@@ -4,9 +4,15 @@ import EmojiPicker from "@/components/EmojiPicker.astro";
 import SchemaEditor from "@/components/SchemaEditor.astro";
 import SlugInput from "@/components/SlugInput.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
+
+const authToken = getAuthToken(Astro.cookies);
+// Entry types are admin-only to change (the API answers members with 403); if the role can't be read, let the API decide.
+const adminOnly = !!authToken && !(await canManageCurrentWorkspace(authToken).catch(() => true));
 ---
 
-<AppLayout title="Create Entry Type">
+<AppLayout adminOnly={adminOnly} title="Create Entry Type">
   <Breadcrumb items={[
     { label: "Workspace Settings", href: "/workspace/settings?tab=entry-types" },
     { label: "Entry Types", href: "/workspace/entry-types" },

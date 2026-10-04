@@ -2,9 +2,16 @@
 import ImageCropper from "@/components/ImageCropper.astro";
 import SlugInput from "@/components/SlugInput.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { AUTHORS_ONLY } from "@/lib/workspaceRole";
+
+const authToken = getAuthToken(Astro.cookies);
+// Uploading is AUTHOR+ (the API answers a VIEWER with 403).
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 ---
 
-<AppLayout title="Upload Asset" eyebrow="Assets">
+<AppLayout restrictedNote={access.canAuthor ? null : AUTHORS_ONLY} title="Upload Asset" eyebrow="Assets">
   <div class="toolbar">
     <div>
       <h2 style="margin:0;font-size:20px;">Upload Asset</h2>

@@ -7,9 +7,13 @@ import { getAuthToken } from "@/lib/api/client";
 import { getCollection, getCollectionEntries } from "@/lib/api/collections";
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
 import { listEntries } from "@/lib/api/entries";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
+// Editing a collection is EDITOR+ (the API answers others with 403).
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let collection: CollectionRead | null = null;
 let allEntries: EntryRead[] = [];
@@ -38,6 +42,7 @@ if (!authToken) {
 ---
 
 <AppLayout
+  restrictedNote={access.canEdit ? null : EDITORS_ONLY}
   title={collection ? `Edit ${collection.name}` : "Edit Collection"}
   entityType="collection"
   entityId={id}

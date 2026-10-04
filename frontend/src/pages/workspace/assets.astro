@@ -4,8 +4,11 @@ import TagList from "@/components/TagList.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getAssets } from "@/lib/api/platform";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; uploading is AUTHOR+, editing and deleting assets EDITOR+.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let assets = [];
 let error: string | null = null;
@@ -78,7 +81,7 @@ const sortedCategoryGroups = categoryOrder
               }
             ]}
           />
-          <a class="button" href="/workspace/assets/new">Upload Asset</a>
+          {access.canAuthor && <a class="button" href="/workspace/assets/new">Upload Asset</a>}
         </div>
       </div>
 
@@ -87,7 +90,7 @@ const sortedCategoryGroups = categoryOrder
           <div class="empty-icon">🖼️</div>
           <h3>No assets yet</h3>
           <p>Assets are images, videos, documents, and files that you can reference in your entries.</p>
-          <a href="/workspace/assets/new" class="button">Upload Your First Asset</a>
+          {access.canAuthor && <a href="/workspace/assets/new" class="button">Upload Your First Asset</a>}
         </div>
       ) : (
         <>
@@ -155,12 +158,16 @@ const sortedCategoryGroups = categoryOrder
                     <td>
                       <div class="actions">
                         <a href={`/workspace/assets/${asset.id}/view`} class="button secondary small">View</a>
+                        {access.canEdit && (
+                        <>
                         <a href={`/workspace/assets/${asset.id}`} class="button secondary small">Edit</a>
                         <form method="POST" action={`/api/assets/${asset.id}/delete`} style="display:inline;">
                           <button type="submit" class="button secondary small danger" onclick="return confirm('Delete this asset?')">
                             Delete
                           </button>
                         </form>
+                        </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -231,12 +238,16 @@ const sortedCategoryGroups = categoryOrder
                         <td>
                           <div class="actions">
                             <a href={`/workspace/assets/${asset.id}/view`} class="button secondary small">View</a>
+                            {access.canEdit && (
+                            <>
                             <a href={`/workspace/assets/${asset.id}`} class="button secondary small">Edit</a>
                             <form method="POST" action={`/api/assets/${asset.id}/delete`} style="display:inline;">
                               <button type="submit" class="button secondary small danger" onclick="return confirm('Delete this asset?')">
                                 Delete
                               </button>
                             </form>
+                            </>
+                            )}
                           </div>
                         </td>
                       </tr>

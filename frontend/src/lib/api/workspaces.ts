@@ -9,7 +9,7 @@ import type {
   WorkspaceWithMembership,
 } from "@inneropen/marvin-sdk/platform";
 import { createSdkClient } from "../sdk";
-import { canManageWorkspace } from "../workspaceRole";
+import { canAuthorContent, canEditContent, canEditEntry, canManageWorkspace } from "../workspaceRole";
 
 /**
  * Get the user's currently active workspace
@@ -37,6 +37,37 @@ export async function canManageCurrentWorkspace(authToken: string): Promise<bool
   const sdk = createSdkClient(authToken);
   const [memberships, user] = await Promise.all([sdk.workspaces.list(), sdk.user.getProfile()]);
   return canManageWorkspace(memberships, user);
+}
+
+/** What the caller may do with content in the active workspace (see lib/workspaceRole). */
+export interface ContentAccess {
+  /** OWNER/ADMIN: entry types, forms and settings. */
+  canManage: boolean;
+  /** EDITOR and above: change any content. */
+  canEdit: boolean;
+  /** AUTHOR and above: create entries, upload assets, add tags. */
+  canAuthor: boolean;
+  /** Whether the caller may change this entry (an AUTHOR: their own, until approved or published). */
+  canEditEntry: (entry: { createdBy?: string | null; status?: string | null }) => boolean;
+}
+
+/** Everything allowed: what a page assumes when the role can't be read, leaving the API to decide. */
+export const FULL_CONTENT_ACCESS: ContentAccess = { canManage: true, canEdit: true, canAuthor: true, canEditEntry: () => true };
+
+/** The caller's content access in the active workspace; FULL_CONTENT_ACCESS if it can't be read. */
+export async function getContentAccess(authToken: string): Promise<ContentAccess> {
+  try {
+    const sdk = createSdkClient(authToken);
+    const [memberships, user] = await Promise.all([sdk.workspaces.list(), sdk.user.getProfile()]);
+    return {
+      canManage: canManageWorkspace(memberships, user),
+      canEdit: canEditContent(memberships, user),
+      canAuthor: canAuthorContent(memberships, user),
+      canEditEntry: (entry) => canEditEntry(memberships, user, entry),
+    };
+  } catch {
+    return FULL_CONTENT_ACCESS;
+  }
 }
 
 /**

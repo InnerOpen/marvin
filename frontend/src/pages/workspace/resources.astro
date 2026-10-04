@@ -4,8 +4,11 @@ import TagList from "@/components/TagList.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listResources, type ResourceRead } from "@/lib/api/resources";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; adding, editing and deleting resources is EDITOR+.
+const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let resources: ResourceRead[] = [];
 let error: string | null = null;
@@ -56,7 +59,7 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
           }
         ]}
       />
-      <a href="/workspace/resources/new" class="button">Add Resource</a>
+      {canEdit && <a href="/workspace/resources/new" class="button">Add Resource</a>}
     </div>
   </div>
 
@@ -70,7 +73,7 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
       <div class="empty-icon">🔗</div>
       <h3>No resources yet</h3>
       <p>Resources are external references like suppliers, tools, fabrics, or documentation.</p>
-      <a href="/workspace/resources/new" class="button">Add Your First Resource</a>
+      {canEdit && <a href="/workspace/resources/new" class="button">Add Your First Resource</a>}
     </div>
   ) : (
     <>
@@ -116,7 +119,8 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
                 </td>
                 <td>
                   <div class="actions">
-                    <a href={`/workspace/resources/${resource.id}`} class="button secondary small">Edit</a>
+                    <a href={`/workspace/resources/${resource.id}`} class="button secondary small">{canEdit ? "Edit" : "View"}</a>
+                    {canEdit && (
                     <button
                       type="button"
                       class="button secondary small danger delete-resource-btn"
@@ -125,6 +129,7 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
                     >
                       Delete
                     </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -173,7 +178,8 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
                     </td>
                     <td>
                       <div class="actions">
-                        <a href={`/workspace/resources/${resource.id}`} class="button secondary small">Edit</a>
+                        <a href={`/workspace/resources/${resource.id}`} class="button secondary small">{canEdit ? "Edit" : "View"}</a>
+                        {canEdit && (
                         <button
                           type="button"
                           class="button secondary small danger delete-resource-btn"
@@ -182,6 +188,7 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
                         >
                           Delete
                         </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -197,6 +204,7 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
 
 <script>
   import { createSdkClient } from '@/lib/sdk';
+  import { isForbidden } from '@/lib/workspaceRole';
 
   const sdk = createSdkClient();
   const searchInput = document.getElementById('filter-search') as HTMLInputElement;
@@ -241,7 +249,7 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
         await sdk.resources.delete(resourceId);
         btn.closest('tr')?.remove();
       } catch (error: any) {
-        const message = error?.message || error?.detail || 'Failed to delete resource';
+        const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to delete resource';
         alert(message);
         btn.disabled = false;
         btn.textContent = 'Delete';

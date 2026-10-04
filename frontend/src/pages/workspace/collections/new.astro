@@ -7,11 +7,15 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createCollection } from "@/lib/api/collections";
 import { IS_PUBLIC_FIELD, isPublicFromForm } from "@/lib/collectionForm";
+import { getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 if (!authToken) {
   return Astro.redirect("/auth/login");
 }
+// Creating collections is EDITOR+ (the API answers others with 403).
+const access = await getContentAccess(authToken);
 
 // Handle form submission (server-side)
 if (Astro.request.method === "POST") {
@@ -53,7 +57,7 @@ if (Astro.request.method === "POST") {
 }
 ---
 
-<AppLayout title="Create Collection">
+<AppLayout restrictedNote={access.canEdit ? null : EDITORS_ONLY} title="Create Collection">
   <div class="toolbar">
     <div>
       <h2 style="margin:0;font-size:20px;">New Collection</h2>

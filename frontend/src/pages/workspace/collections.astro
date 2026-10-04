@@ -3,8 +3,11 @@ import FilterBar from "@/components/FilterBar.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { type CollectionRead, listCollections } from "@/lib/api/collections";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; creating, reordering, editing and deleting collections is EDITOR+.
+const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let collections: CollectionRead[] = [];
 let error: string | null = null;
@@ -66,7 +69,7 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
               }
             ]}
           />
-          <a class="button" href="/workspace/collections/new">Create Collection</a>
+          {canEdit && <a class="button" href="/workspace/collections/new">Create Collection</a>}
         </div>
       </div>
 
@@ -75,7 +78,7 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
           <div class="empty-icon">📚</div>
           <h3>No collections yet</h3>
           <p>Collections are curated groupings of entries, like Featured Projects or Recent Articles.</p>
-          <a href="/workspace/collections/new" class="button">Create Your First Collection</a>
+          {canEdit && <a href="/workspace/collections/new" class="button">Create Your First Collection</a>}
         </div>
       ) : (
         <>
@@ -99,7 +102,7 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
               </div>
               {customCollections.length > 0 ? (
                 <>
-                  <p class="reorder-hint">Drag the <span class="grip-inline">⠿</span> handle to reorder. Order is saved automatically.</p>
+                  {canEdit && <p class="reorder-hint">Drag the <span class="grip-inline">⠿</span> handle to reorder. Order is saved automatically.</p>}
                   <table class="table">
                     <thead>
                       <tr>
@@ -113,10 +116,10 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
                         <th>Actions</th>
                       </tr>
                     </thead>
-                    <tbody id="reorderable">
+                    <tbody id={canEdit ? "reorderable" : undefined}>
                       {customCollections.map((collection) => (
-                        <tr class="collection-row" data-type={collection.isSmart ? 'smart' : 'manual'} data-id={collection.id} draggable="true">
-                          <td class="drag-col"><span class="grip" title="Drag to reorder">⠿</span></td>
+                        <tr class="collection-row" data-type={collection.isSmart ? 'smart' : 'manual'} data-id={collection.id} draggable={canEdit ? "true" : undefined}>
+                          <td class="drag-col">{canEdit && <span class="grip" title="Drag to reorder">⠿</span>}</td>
                           <td>
                             {collection.icon ? (
                               <span style={`font-size:1.5rem;${collection.color ? `color:${collection.color}` : ''}`}>
@@ -132,6 +135,7 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
                           <td><span class="pill">{collection.isSmart ? 'Smart' : 'Manual'}</span></td>
                           <td class="count-cell">{collection.entryCount ?? 0}</td>
                           <td>
+                            {canEdit && (
                             <div class="actions">
                               <a href={`/workspace/collections/${collection.id}/edit`} class="button secondary small">Edit</a>
                               <form method="POST" action={`/api/collections/${collection.id}/delete`} style="display:inline;">
@@ -140,6 +144,7 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
                                 </button>
                               </form>
                             </div>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -147,7 +152,7 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
                   </table>
                 </>
               ) : (
-                <p class="section-empty">No custom collections yet. <a href="/workspace/collections/new">Create one</a>.</p>
+                <p class="section-empty">No custom collections yet.{canEdit && <> <a href="/workspace/collections/new">Create one</a>.</>}</p>
               )}
             </section>
 
@@ -240,7 +245,7 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
                         <td>
                           {collection.isSystem ? (
                             <span class="locked-note" title="System workflow collection — managed by Marvin">🔒 Locked</span>
-                          ) : (
+                          ) : canEdit && (
                             <div class="actions">
                               <a href={`/workspace/collections/${collection.id}/edit`} class="button secondary small">Edit</a>
                               <form method="POST" action={`/api/collections/${collection.id}/delete`} style="display:inline;">
@@ -297,7 +302,7 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
                         <td>
                           {collection.isSystem ? (
                             <span class="locked-note" title="System workflow collection — managed by Marvin">🔒 Locked</span>
-                          ) : (
+                          ) : canEdit && (
                             <div class="actions">
                               <a href={`/workspace/collections/${collection.id}/edit`} class="button secondary small">Edit</a>
                               <form method="POST" action={`/api/collections/${collection.id}/delete`} style="display:inline;">

@@ -3,8 +3,11 @@ import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listTags, type TagRead } from "@/lib/api/tags";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; adding a tag is AUTHOR+, renaming or deleting one EDITOR+.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let tags: TagRead[] = [];
 let error: string | null = null;
@@ -44,15 +47,17 @@ const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
         </div>
       </header>
 
-      <form id="new-tag-form" class="new-tag">
-        <input type="text" id="new-tag-name" placeholder="New tag name…" autocomplete="off" />
-        <input type="color" id="new-tag-color" value="#a94d3f" title="Color" />
-        <button type="submit" class="button">Add Tag</button>
-      </form>
+      {access.canAuthor && (
+        <form id="new-tag-form" class="new-tag">
+          <input type="text" id="new-tag-name" placeholder="New tag name…" autocomplete="off" />
+          <input type="color" id="new-tag-color" value="#a94d3f" title="Color" />
+          <button type="submit" class="button">Add Tag</button>
+        </form>
+      )}
       <p id="tags-status" class="tags-status" role="status" hidden></p>
 
       {sortedTags.length === 0 ? (
-        <div class="empty">No tags yet. Add one above, or create them on the fly while editing an entry.</div>
+        <div class="empty">{access.canAuthor ? "No tags yet. Add one above, or create them on the fly while editing an entry." : "No tags yet."}</div>
       ) : (
         <table class="tags-table">
           <thead>
@@ -68,16 +73,20 @@ const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
             {sortedTags.map((tag) => (
               <tr class="tag-row" data-tag-id={tag.id} data-orig-name={tag.name} data-orig-color={tag.color || ""}>
                 <td class="col-color">
-                  <input type="color" class="tag-color" value={tag.color || "#a94d3f"} />
+                  <input type="color" class="tag-color" value={tag.color || "#a94d3f"} disabled={!access.canEdit} />
                 </td>
                 <td class="col-name">
-                  <input type="text" class="tag-name" value={tag.name} />
+                  <input type="text" class="tag-name" value={tag.name} disabled={!access.canEdit} />
                 </td>
                 <td class="col-slug"><code>{tag.slug}</code></td>
                 <td class="col-count">{tag.usageCount ?? tag.entryCount ?? 0}</td>
                 <td class="col-actions">
-                  <button type="button" class="button small save-tag" disabled>Save</button>
-                  <button type="button" class="button small danger delete-tag">Delete</button>
+                  {access.canEdit && (
+                    <>
+                      <button type="button" class="button small save-tag" disabled>Save</button>
+                      <button type="button" class="button small danger delete-tag">Delete</button>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
@@ -90,9 +99,13 @@ const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
 
 <script>
   import { createSdkClient } from "@/lib/sdk";
+  import { isForbidden } from "@/lib/workspaceRole";
 
   const sdk = createSdkClient();
   const statusEl = document.getElementById("tags-status") as HTMLElement | null;
+
+  const failure = (e: unknown) =>
+    isForbidden(e) ? "You don't have permission to do this." : e instanceof Error ? e.message : String(e);
 
   function showStatus(msg: string, isError = false) {
     if (!statusEl) return;
@@ -107,8 +120,8 @@ const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
     const name = (row.querySelector(".tag-name") as HTMLInputElement).value.trim();
     const color = (row.querySelector(".tag-color") as HTMLInputElement).value;
     const dirty = name !== row.dataset.origName || color !== (row.dataset.origColor || "#a94d3f");
-    const saveBtn = row.querySelector(".save-tag") as HTMLButtonElement;
-    saveBtn.disabled = !dirty || !name;
+    const saveBtn = row.querySelector<HTMLButtonElement>(".save-tag");
+    if (saveBtn) saveBtn.disabled = !dirty || !name;
   }
 
   document.querySelectorAll<HTMLElement>(".tag-row").forEach((row) => {
@@ -130,7 +143,7 @@ const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
         row.dataset.origColor = color;
         showStatus(`Saved “${name}”.`);
       } catch (e) {
-        showStatus(`Failed to save: ${e instanceof Error ? e.message : e}`, true);
+        showStatus(`Failed to save: ${failure(e)}`, true);
         btn.disabled = false;
       }
     });
@@ -144,7 +157,7 @@ const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
         row.remove();
         showStatus(`Deleted “${name}”.`);
       } catch (e) {
-        showStatus(`Failed to delete: ${e instanceof Error ? e.message : e}`, true);
+        showStatus(`Failed to delete: ${failure(e)}`, true);
       }
     });
   });
@@ -160,7 +173,7 @@ const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
       await sdk.tags.create({ name, color: colorEl.value });
       window.location.reload();
     } catch (err) {
-      showStatus(`Failed to add: ${err instanceof Error ? err.message : err}`, true);
+      showStatus(`Failed to add: ${failure(err)}`, true);
     }
   });
 </script>

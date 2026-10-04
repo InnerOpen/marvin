@@ -35,9 +35,15 @@ interface Props {
    * admins-only note in place of the page body, so a member never sees controls the API refuses.
    */
   adminOnly?: boolean;
+  /**
+   * The caller's role can't use this page (e.g. EDITORS_ONLY or AUTHORS_ONLY from lib/workspaceRole):
+   * show this note in place of the page body. `adminOnly` is the same with ADMINS_ONLY.
+   */
+  restrictedNote?: string | null;
 }
 
-const { title, eyebrow = "Marvin Platform", entityType, entityId, entityLabel, adminOnly = false } = Astro.props;
+const { title, eyebrow = "Marvin Platform", entityType, entityId, entityLabel, adminOnly = false, restrictedNote = null } = Astro.props;
+const blockedNote = adminOnly ? ADMINS_ONLY : restrictedNote;
 const path = Astro.url.pathname;
 
 // Check if user is admin and get platform role
@@ -206,8 +212,8 @@ function isActive(itemPath: string, currentPath: string): boolean {
           </div>
         </header>
         <section class="content">
-          {adminOnly ? (
-            <div class="alert alert-info" role="status">{ADMINS_ONLY}</div>
+          {blockedNote ? (
+            <div class="alert alert-info" role="status">{blockedNote}</div>
           ) : (
             <slot />
           )}

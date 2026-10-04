@@ -4,9 +4,14 @@ import SchemaEditor from "@/components/SchemaEditor.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getEntryType } from "@/lib/api/entryTypes";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 import { splitRecipe } from "@/lib/recipeForm";
+import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
 const { id } = Astro.params;
+const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; changing an entry type is admin-only (if the role can't be read, let the API decide).
+const canManage = authToken ? await canManageCurrentWorkspace(authToken).catch(() => true) : true;
 
 let entryType = null;
 let error: string | null = null;
@@ -15,7 +20,6 @@ if (!id) {
   error = "Entry type ID is required";
 } else {
   try {
-    const authToken = await getAuthToken(Astro.cookies);
     entryType = await getEntryType(id, authToken);
   } catch (e) {
     error = e instanceof Error ? e.message : String(e);
@@ -64,8 +68,11 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
         <a class="button secondary" href="/workspace/entry-types">Back</a>
       </div>
 
+      {!canManage && <div class="alert alert-info" role="status">{ADMINS_ONLY}</div>}
+
       <section class="form-section">
         <form method="POST" action={`/api/entry-types/${id}/update`} class="form">
+          <fieldset disabled={!canManage} style="border:0;margin:0;padding:0;min-width:0;">
           <div class="form-group">
             <label for="name">Name *</label>
             <input
@@ -326,10 +333,13 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
             </div>
           )}
 
-          <div class="form-actions">
-            <button type="submit" class="button">Save Changes</button>
-            <a href="/workspace/entry-types" class="button secondary">Cancel</a>
-          </div>
+          </fieldset>
+          {canManage && (
+            <div class="form-actions">
+              <button type="submit" class="button">Save Changes</button>
+              <a href="/workspace/entry-types" class="button secondary">Cancel</a>
+            </div>
+          )}
         </form>
       </section>
     </>

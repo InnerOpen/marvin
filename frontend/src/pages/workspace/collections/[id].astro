@@ -9,9 +9,13 @@ import {
 } from "@/lib/api/collections";
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
 import { listEntryTypes } from "@/lib/api/entryTypes";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
+// Everyone reads; changing a collection is EDITOR+.
+const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let collection: CollectionRead | null = null;
 let entries: EntryRead[] = [];
@@ -99,10 +103,11 @@ function fmtDate(d?: string | null): string {
           </h2>
           {collection.description && <p class="col-desc">{collection.description}</p>}
         </div>
-        {!collection.isSystem && (
+        {canEdit && !collection.isSystem && (
           <a class="button secondary" href={`/workspace/collections/${id}/edit`}>Edit collection</a>
         )}
       </div>
+      {!canEdit && !collection.isSystem && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
 
       {totalCount === 0 ? (
         <div class="empty-state">

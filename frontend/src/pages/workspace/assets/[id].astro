@@ -5,10 +5,14 @@ import TagChips from "@/components/TagChips.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listTags, type TagRead } from "@/lib/api/tags";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
+// Everyone reads; changing, deleting or applying a suggestion to an asset is EDITOR+.
+const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let asset: PlatformAsset | null = null;
 let allTags: TagRead[] = [];
@@ -71,18 +75,25 @@ const showAiPanel = aiEnabled && isImage;
           <p style="margin:4px 0 0;color:var(--muted);">Update asset metadata and details</p>
         </div>
         <div style="display:flex;gap:0.75rem;">
-          <button type="button" id="delete-button" class="button secondary">
-            Delete
-          </button>
+          {canEdit && (
+            <button type="button" id="delete-button" class="button secondary">
+              Delete
+            </button>
+          )}
           <a class="button secondary" href="/workspace/assets">Back</a>
         </div>
       </div>
 
-      <SuggestionBanner suggestion={(asset as any)?.suggestionJson} entity={asset} apiBase="/api/assets" entityId={id!} />
+      {canEdit ? (
+        <SuggestionBanner suggestion={(asset as any)?.suggestionJson} entity={asset} apiBase="/api/assets" entityId={id!} />
+      ) : (
+        <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>
+      )}
 
       <div class="editor-layout">
         <section class="main-section">
           <form id="asset-form" class="form">
+            <fieldset disabled={!canEdit} style="border:0;margin:0;padding:0;min-width:0;">
             <div class="form-group">
               <label for="name">Name *</label>
               <input
@@ -156,10 +167,13 @@ const showAiPanel = aiEnabled && isImage;
 
             <TagChips attachedTags={attachedTags} allTags={(allTags || []).map((t) => ({ id: t.id, name: t.name, slug: t.slug }))} />
 
-            <div class="form-actions">
-              <button type="submit" class="button">Save Changes</button>
-              <a href="/workspace/assets" class="button secondary">Cancel</a>
-            </div>
+            </fieldset>
+            {canEdit && (
+              <div class="form-actions">
+                <button type="submit" class="button">Save Changes</button>
+                <a href="/workspace/assets" class="button secondary">Cancel</a>
+              </div>
+            )}
           </form>
         </section>
 
@@ -190,7 +204,7 @@ const showAiPanel = aiEnabled && isImage;
             )}
           </div>
 
-          {showAiPanel && (
+          {canEdit && showAiPanel && (
             <div class="sidebar-section ai-assist">
               <h3>AI Assist</h3>
               <p class="ai-help">Generate accessible alt text and a description for this image.</p>
@@ -453,6 +467,7 @@ const showAiPanel = aiEnabled && isImage;
 <script>
   import { createSdkClient } from '@/lib/sdk';
   import { resolveTagIds } from '@/lib/api/tagChips';
+  import { isForbidden } from '@/lib/workspaceRole';
 
   console.log('[Asset Edit] Script loading...');
 
@@ -467,7 +482,7 @@ const showAiPanel = aiEnabled && isImage;
   if (!form) {
     console.error('[Asset Edit] Form not found!');
   }
-  if (!submitButton) {
+  if (!submitButton && deleteButton) {
     console.error('[Asset Edit] Submit button not found!');
   }
 
@@ -487,7 +502,7 @@ const showAiPanel = aiEnabled && isImage;
   }
 
   // Handle delete via SDK
-  deleteButton.addEventListener('click', async () => {
+  deleteButton?.addEventListener('click', async () => {
     if (!confirm('Delete this asset? This cannot be undone.')) {
       return;
     }
@@ -500,7 +515,7 @@ const showAiPanel = aiEnabled && isImage;
       await sdk.assets.delete(assetId);
       window.location.href = '/workspace/assets';
     } catch (error: any) {
-      const message = error?.message || error?.detail || 'Failed to delete asset';
+      const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to delete asset';
       alert(message);
       deleteButton.disabled = false;
       deleteButton.textContent = 'Delete';
@@ -557,7 +572,7 @@ const showAiPanel = aiEnabled && isImage;
         window.location.href = '/workspace/assets';
       }, 500);
     } catch (error: any) {
-      const message = error?.message || error?.detail || 'Failed to update asset';
+      const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to update asset';
       alert(message);
       submitButton.disabled = false;
       submitButton.textContent = 'Save Changes';

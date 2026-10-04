@@ -3,11 +3,15 @@ import SlugInput from "@/components/SlugInput.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createResource } from "@/lib/api/resources";
+import { getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 if (!authToken) {
   return Astro.redirect("/auth/login");
 }
+// Creating resources is EDITOR+ (the API answers others with 403).
+const access = await getContentAccess(authToken);
 
 let error: string | null = null;
 
@@ -43,7 +47,7 @@ if (Astro.request.method === "POST") {
 }
 ---
 
-<AppLayout title="New Resource" eyebrow="Resources">
+<AppLayout restrictedNote={access.canEdit ? null : EDITORS_ONLY} title="New Resource" eyebrow="Resources">
   <div class="toolbar">
     <div>
       <h2 style="margin:0;font-size:20px;">New Resource</h2>

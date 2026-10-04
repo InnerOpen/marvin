@@ -5,9 +5,13 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getResource } from "@/lib/api/resources";
 import { listTags, type TagRead } from "@/lib/api/tags";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
+// Everyone reads; changing, deleting or applying a suggestion to a resource is EDITOR+.
+const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let resource = null;
 let allTags: TagRead[] = [];
@@ -51,17 +55,24 @@ const attachedTags = ((resource?.tags as string[] | undefined) || [])
           <p style="margin:4px 0 0;color:var(--muted);">Update resource details</p>
         </div>
         <div style="display:flex;gap:0.75rem;">
-          <button type="button" id="delete-button" class="button secondary">
-            Delete
-          </button>
+          {canEdit && (
+            <button type="button" id="delete-button" class="button secondary">
+              Delete
+            </button>
+          )}
           <a class="button secondary" href="/workspace/resources">Back</a>
         </div>
       </div>
 
-      <SuggestionBanner suggestion={(resource as any)?.suggestionJson} entity={resource} apiBase="/api/resources" entityId={id!} />
+      {canEdit ? (
+        <SuggestionBanner suggestion={(resource as any)?.suggestionJson} entity={resource} apiBase="/api/resources" entityId={id!} />
+      ) : (
+        <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>
+      )}
 
       <section class="form-section">
         <form id="resource-form" class="form">
+          <fieldset disabled={!canEdit} style="border:0;margin:0;padding:0;min-width:0;">
           <div class="form-group">
             <label for="name">Name *</label>
             <input
@@ -164,10 +175,13 @@ const attachedTags = ((resource?.tags as string[] | undefined) || [])
 
           <TagChips attachedTags={attachedTags} allTags={(allTags || []).map((t) => ({ id: t.id, name: t.name, slug: t.slug }))} />
 
-          <div class="form-actions">
-            <button type="submit" class="button">Save Changes</button>
-            <a href="/workspace/resources" class="button secondary">Cancel</a>
-          </div>
+          </fieldset>
+          {canEdit && (
+            <div class="form-actions">
+              <button type="submit" class="button">Save Changes</button>
+              <a href="/workspace/resources" class="button secondary">Cancel</a>
+            </div>
+          )}
         </form>
       </section>
     </>
@@ -177,6 +191,7 @@ const attachedTags = ((resource?.tags as string[] | undefined) || [])
 <script>
   import { createSdkClient } from '@/lib/sdk';
   import { resolveTagIds } from '@/lib/api/tagChips';
+  import { isForbidden } from '@/lib/workspaceRole';
 
   console.log('[Resources] Script loading...');
 
@@ -206,7 +221,7 @@ const attachedTags = ((resource?.tags as string[] | undefined) || [])
         console.log('[Resources] Delete successful');
         window.location.href = '/workspace/resources';
       } catch (error: any) {
-        const message = error?.message || error?.detail || 'Failed to delete resource';
+        const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to delete resource';
         alert(message);
         deleteButton.disabled = false;
         deleteButton.textContent = 'Delete';
@@ -273,7 +288,7 @@ const attachedTags = ((resource?.tags as string[] | undefined) || [])
         // Redirect back to resources list
         window.location.href = '/workspace/resources';
       } catch (error: any) {
-        const message = error?.message || error?.detail || 'Failed to update resource';
+        const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to update resource';
         alert(message);
         submitButton.disabled = false;
         submitButton.textContent = 'Save Changes';

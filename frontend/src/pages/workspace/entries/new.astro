@@ -5,13 +5,17 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createEntry } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
+import { getContentAccess } from "@/lib/api/workspaces";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
+import { AUTHORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 if (!authToken) {
   return Astro.redirect("/auth/login");
 }
+// Creating entries is AUTHOR+ (the API answers a VIEWER with 403).
+const access = await getContentAccess(authToken);
 
 let error: string | null = null;
 // A failed create re-renders the form with what was submitted and says why above it.
@@ -85,7 +89,7 @@ const preSelectedSchema =
     : null;
 ---
 
-<AppLayout title="New Entry" eyebrow="Entries">
+<AppLayout restrictedNote={access.canAuthor ? null : AUTHORS_ONLY} title="New Entry" eyebrow="Entries">
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading entry types:</strong> {error}</p>

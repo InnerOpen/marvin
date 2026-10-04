@@ -3,10 +3,13 @@ import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
 import TagList from "@/components/TagList.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
+// Everyone views; editing an asset is EDITOR+.
+const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let asset: PlatformAsset | null = null;
 let error: string | null = null;
@@ -56,9 +59,11 @@ const isPdf = asset?.mimeType?.includes("pdf");
           <a href={asset.publicUrl} target="_blank" rel="noopener noreferrer" class="button secondary">
             Open Raw ↗
           </a>
-          <a href={`/workspace/assets/${asset.id}`} class="button secondary">
-            Edit
-          </a>
+          {canEdit && (
+            <a href={`/workspace/assets/${asset.id}`} class="button secondary">
+              Edit
+            </a>
+          )}
           <a href="/workspace/assets" class="button secondary">
             Back
           </a>

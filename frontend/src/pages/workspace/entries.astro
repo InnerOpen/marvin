@@ -7,8 +7,11 @@ import { type CollectionRead, listCollections } from "@/lib/api/collections";
 import { type EntryRead, listEntries } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { listTags, type TagRead } from "@/lib/api/tags";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
 const authToken = getAuthToken(Astro.cookies);
+// Everyone reads; creating entries is AUTHOR+.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 // Get URL parameters for pre-filtering
 const statusParam = Astro.url.searchParams.get("status");
@@ -120,7 +123,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
               }] : [])
             ]}
           />
-          <a class="button" href="/workspace/entries/new">New Entry</a>
+          {access.canAuthor && <a class="button" href="/workspace/entries/new">New Entry</a>}
         </div>
       </div>
 
@@ -129,7 +132,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
           <div class="empty-icon">📝</div>
           <h3>No entries yet</h3>
           <p>Entries are your content items like blog posts, products, pages, or any structured content.</p>
-          <a href="/workspace/entries/new" class="button">Create Your First Entry</a>
+          {access.canAuthor && <a href="/workspace/entries/new" class="button">Create Your First Entry</a>}
         </div>
       ) : (
         <>

@@ -14,7 +14,9 @@ import { viewOnSite, withSubmittedValues } from "@/lib/entryForm";
 import { integrationErrors, reviewReasons } from "@/lib/reviewReasons";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
+import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
@@ -215,6 +217,13 @@ if (!id) {
   }
 }
 
+// Who may change this entry: EDITOR+ any entry; an AUTHOR their own until it's approved or published
+// (judged on the stored entry, not a failed save). Setting approved/published or a scheduled
+// publish is EDITOR+ only.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const canEditThis = entry ? access.canEditEntry(entry) : false;
+const canPublish = access.canEdit;
+
 // The page title, slug lock and "not live yet" note follow what's stored, not a failed save.
 const storedStatus = entry?.status;
 // View on site: a link once published; before that a disabled button (the type has a page URL, nothing is live yet).
@@ -340,7 +349,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
           <p style="margin:4px 0 0;color:var(--muted);">Update entry details and content</p>
         </div>
         <div style="display:flex;gap:0.75rem;">
-          {aiEditorEnabled && (
+          {aiEditorEnabled && canEditThis && (
             <div class="ai-menu-wrap">
               <button type="button" id="ai-menu-btn" class="button secondary"
                 aria-haspopup="menu" aria-expanded="false">✨ AI</button>
@@ -360,12 +369,16 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </div>
             </div>
           )}
-          <button type="button" id="delete-entry-button" class="button secondary">
-            Delete
-          </button>
+          {canEditThis && (
+            <button type="button" id="delete-entry-button" class="button secondary">
+              Delete
+            </button>
+          )}
           <a class="button secondary" href="/workspace/entries">Back</a>
         </div>
       </div>
+
+      {!canEditThis && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
 
       {/* Always mounted (even when empty) so a staged suggestion can be rendered in place
           after an AI action, without reloading and discarding unsaved form edits. */}
@@ -387,10 +400,12 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </li>
             ))}
           </ul>
-          <div class="suggestion-actions">
-            <button type="button" id="apply-suggestion" class="button">Apply changes</button>
-            <button type="button" id="reject-suggestion" class="button secondary">Reject</button>
-          </div>
+          {canEditThis && (
+            <div class="suggestion-actions">
+              <button type="button" id="apply-suggestion" class="button">Apply changes</button>
+              <button type="button" id="reject-suggestion" class="button secondary">Reject</button>
+            </div>
+          )}
         </div>
       )}
       </div>
@@ -398,6 +413,8 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
       <div class="editor-layout">
         <section class="main-editor">
           <form id="entry-form" method="POST" class="form">
+            {/* Read-only for a caller who can't change this entry; display:contents keeps the layout. */}
+            <fieldset disabled={!canEditThis} style="display:contents;">
             <div class="form-group">
               <label for="title">Title *</label>
               <input
@@ -502,18 +519,24 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </div>
             </details>
 
-            <div class="form-actions">
-              <button type="submit" id="save-button" class="button">
-                Save
-              </button>
-              <button type="button" id="publish-button" class="button secondary">
-                Publish
-              </button>
-            </div>
+            </fieldset>
+            {canEditThis && (
+              <div class="form-actions">
+                <button type="submit" id="save-button" class="button">
+                  Save
+                </button>
+                {canPublish && (
+                  <button type="button" id="publish-button" class="button secondary">
+                    Publish
+                  </button>
+                )}
+              </div>
+            )}
           </form>
         </section>
 
         <aside class="sidebar-editor">
+          <fieldset disabled={!canEditThis} style="display:contents;">
           <div class="sidebar-section">
             <h3>Entry Details</h3>
 
@@ -613,8 +636,9 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
                 <option value="inbox" selected={entry.status === "inbox"}>Inbox</option>
                 <option value="draft" selected={entry.status === "draft"}>Draft</option>
                 <option value="needs_review" selected={entry.status === "needs_review"}>Needs Review</option>
-                <option value="approved" selected={entry.status === "approved"}>Approved</option>
-                <option value="published" selected={entry.status === "published"}>Published</option>
+                {/* Only an EDITOR or above may approve or publish (an AUTHOR keeps their own drafts). */}
+                {(canPublish || entry.status === "approved") && <option value="approved" selected={entry.status === "approved"}>Approved</option>}
+                {(canPublish || entry.status === "published") && <option value="published" selected={entry.status === "published"}>Published</option>}
               </select>
             </div>
 
@@ -656,8 +680,9 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
 
             <div class="form-group">
               <label for="publish_at">Scheduled Publish</label>
-              <input type="datetime-local" id="publish_at" data-utc-input="publish_at_utc" form="entry-form" />
-              <input type="hidden" id="publish_at_utc" name="publish_at" value={toUtcIso(entry.publishAt)} form="entry-form" />
+              {/* Scheduling is EDITOR+; disabled, the hidden field isn't submitted so an AUTHOR's save leaves it alone. */}
+              <input type="datetime-local" id="publish_at" data-utc-input="publish_at_utc" form="entry-form" disabled={!canPublish} />
+              <input type="hidden" id="publish_at_utc" name="publish_at" value={toUtcIso(entry.publishAt)} form="entry-form" disabled={!canPublish} />
               <p class="form-help" data-schedule-note="publish_at" data-note-prefix="Will publish">
                 Schedule when this entry should be published
               </p>
@@ -964,6 +989,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
               </div>
             </details>
           </div>
+          </fieldset>
 
         </aside>
       </div>
@@ -1997,6 +2023,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   import { rememberDisclosures } from '@/lib/disclosure';
   import { formatLocalDateTime, fromDatetimeLocalValue, hasPassed, toDatetimeLocalValue } from '@/lib/localDatetime';
   import { createSdkClient } from '@/lib/sdk';
+  import { isForbidden } from '@/lib/workspaceRole';
 
   const sdk = createSdkClient();
   const form = document.getElementById('entry-form') as HTMLFormElement;
@@ -2013,10 +2040,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     rejectSuggestionBtn?.setAttribute('disabled', 'true');
     try {
       const res = await fetch(`/api/entries/${entryId}/${kind}-suggestion`, { method: 'POST' });
-      if (!res.ok) throw new Error(String(res.status));
+      if (!res.ok) throw Object.assign(new Error(String(res.status)), { status: res.status });
       window.location.reload();
     } catch (e) {
-      alert(`Failed to ${kind} suggestion.`);
+      alert(isForbidden(e) ? "You don't have permission to do this." : `Failed to ${kind} suggestion.`);
       applySuggestionBtn?.removeAttribute('disabled');
       rejectSuggestionBtn?.removeAttribute('disabled');
     }
@@ -2041,10 +2068,10 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
         rejectBtn?.setAttribute('disabled', 'true');
         try {
           const res = await fetch(`/api/entries/${entryId}/suggested-assets/${assetId}/${kind}`, { method: 'POST' });
-          if (!res.ok) throw new Error(String(res.status));
+          if (!res.ok) throw Object.assign(new Error(String(res.status)), { status: res.status });
           window.location.reload();
         } catch (e) {
-          alert(`Failed to ${kind} suggested asset.`);
+          alert(isForbidden(e) ? "You don't have permission to do this." : `Failed to ${kind} suggested asset.`);
           approveBtn?.removeAttribute('disabled');
           rejectBtn?.removeAttribute('disabled');
         }
@@ -2543,7 +2570,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
         await sdk.entries.delete(entryId);
         window.location.href = '/workspace/entries';
       } catch (error: any) {
-        const message = error?.message || error?.detail || 'Failed to delete entry';
+        const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to delete entry';
         alert(message);
         deleteButton.disabled = false;
         deleteButton.textContent = 'Delete';

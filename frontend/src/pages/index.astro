@@ -6,6 +6,7 @@ import { listEntries } from "@/lib/api/entries";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import { getSiteClients } from "@/lib/api/platform";
 import { listResources } from "@/lib/api/resources";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import type { APIClientRead, CollectionRead, EntryRead, EntryTypeRead, ResourceRead } from "@/lib/api/types";
 import { requireAuth } from "@/lib/auth";
 import { nullIfForbidden } from "@/lib/workspaceRole";
@@ -13,6 +14,8 @@ import { nullIfForbidden } from "@/lib/workspaceRole";
 // Require authentication
 await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
+// Quick Create offers only what the caller's workspace role may create.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let entries: EntryRead[] = [];
 let siteClients: APIClientRead[] = [];
@@ -177,11 +180,12 @@ function getStatusClass(status: string): string {
       )}
 
       <!-- Quick Create -->
+      {(access.canAuthor || access.canEdit) && (
       <section class="dashboard-section">
         <h2 class="section-title">Quick Create</h2>
         <div class="quick-create-grid">
           {entryTypes.length > 0 ? (
-            entryTypes.slice(0, 6).map((type) => (
+            access.canAuthor && entryTypes.slice(0, 6).map((type) => (
               <a href={`/workspace/entries/new?type=${type.id}`} class="quick-create-card">
                 <span class="quick-create-icon" style={type.color ? `color: ${type.color}` : undefined}>
                   {type.icon || '▤'}
@@ -189,18 +193,21 @@ function getStatusClass(status: string): string {
                 <span class="quick-create-label">{type.name}</span>
               </a>
             ))
-          ) : (
+          ) : access.canManage && (
             <a href="/workspace/entry-types" class="quick-create-card">
               <span class="quick-create-icon">◈</span>
               <span class="quick-create-label">Create Entry Type</span>
             </a>
           )}
-          <a href="/workspace/collections/new" class="quick-create-card">
-            <span class="quick-create-icon">☰</span>
-            <span class="quick-create-label">New Collection</span>
-          </a>
+          {access.canEdit && (
+            <a href="/workspace/collections/new" class="quick-create-card">
+              <span class="quick-create-icon">☰</span>
+              <span class="quick-create-label">New Collection</span>
+            </a>
+          )}
         </div>
       </section>
+      )}
 
       <div class="dashboard-columns">
         <!-- Recent Work -->
@@ -234,7 +241,7 @@ function getStatusClass(status: string): string {
           ) : (
             <div class="empty-state-small">
               <p>No entries yet</p>
-              <a href="/workspace/entries/new" class="button small">Create Entry</a>
+              {access.canAuthor && <a href="/workspace/entries/new" class="button small">Create Entry</a>}
             </div>
           )}
         </section>
