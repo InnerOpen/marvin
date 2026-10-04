@@ -1,0 +1,196 @@
+---
+import type { PlatformAPIClient } from "@inneropen/marvin-sdk/platform";
+import ApiClientPermissionFields from "@/components/ApiClientPermissionFields.astro";
+import SaveErrorBanner from "@/components/SaveErrorBanner.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { permissionsFromChecked } from "@/lib/apiClientPermissions";
+import { describeSaveError, type SaveError } from "@/lib/saveError";
+import { createSdkClient } from "@/lib/sdk";
+
+const authToken = getAuthToken(Astro.cookies);
+const sdk = createSdkClient(authToken);
+const id = Astro.params.id ?? "";
+
+let client: PlatformAPIClient | null = null;
+let loadError: string | null = null;
+let saveError: SaveError | null = null;
+
+try {
+  client = await sdk.apiClients.get(id);
+} catch (e) {
+  console.error("[clients/edit] Error loading:", e);
+  loadError = e instanceof Error ? e.message : String(e);
+}
+
+let name = client?.name ?? "";
+let description = client?.description ?? "";
+let permissions: Record<string, unknown> = client?.permissions ?? {};
+
+if (client && Astro.request.method === "POST") {
+  const formData = await Astro.request.formData();
+  name = String(formData.get("name") ?? "").trim();
+  description = String(formData.get("description") ?? "").trim();
+  permissions = permissionsFromChecked(formData.getAll("permission").map(String));
+
+  try {
+    const updated = await sdk.apiClients.update(client.id, {
+      name,
+      description: description || null,
+      permissions,
+    });
+    return Astro.redirect(`/publishing/clients?updated=${encodeURIComponent(updated.name)}`, 303);
+  } catch (e) {
+    console.error("[clients/edit] Error saving:", e);
+    saveError = describeSaveError(e);
+  }
+}
+---
+
+<AppLayout title="Edit API Client" eyebrow="Publishing">
+  <div class="toolbar">
+    <div>
+      <h2>Edit API Client</h2>
+      {client && <p>Change the name, description or permissions of <code>{client.slug}</code></p>}
+    </div>
+    <a class="button secondary" href="/publishing/clients">Back to Clients</a>
+  </div>
+
+  {loadError || !client ? (
+    <div class="alert alert-error">
+      <strong>Error:</strong> {loadError ?? "API client not found."}
+    </div>
+  ) : (
+    <form method="POST" class="edit-form">
+      {saveError && <SaveErrorBanner error={saveError} />}
+
+      <section class="form-section">
+        <h3>Client Details</h3>
+        <div class="form-grid">
+          <label>
+            <span>Name <span class="required">*</span></span>
+            <input type="text" name="name" required value={name} />
+            <small>The slug and token stay the same</small>
+          </label>
+
+          <label>
+            <span>Description</span>
+            <textarea name="description" rows="3">{description}</textarea>
+          </label>
+        </div>
+      </section>
+
+      <ApiClientPermissionFields permissions={permissions} />
+
+      <div class="form-actions">
+        <button type="submit" class="button">Save Changes</button>
+        <a href="/publishing/clients" class="button secondary">Cancel</a>
+      </div>
+    </form>
+  )}
+</AppLayout>
+
+<style>
+  .toolbar {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .toolbar h2 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+  }
+
+  .toolbar p {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .alert {
+    padding: 16px;
+    border-radius: var(--radius);
+    font-size: 14px;
+  }
+
+  .alert-error {
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border: 1px solid var(--color-error);
+  }
+
+  .edit-form {
+    max-width: 700px;
+    display: grid;
+    gap: 24px;
+  }
+
+  .form-section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+  }
+
+  .form-section h3 {
+    margin: 0 0 16px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+
+  .form-grid {
+    display: grid;
+    gap: 16px;
+  }
+
+  .form-grid label {
+    display: grid;
+    gap: 6px;
+  }
+
+  .form-grid label > span {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+  }
+
+  .required {
+    color: var(--warn);
+  }
+
+  .form-grid input,
+  .form-grid textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    font-size: 14px;
+    color: var(--ink);
+  }
+
+  .form-grid input:focus,
+  .form-grid textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .form-grid textarea {
+    resize: vertical;
+  }
+
+  .form-grid small {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .form-actions {
+    display: flex;
+    gap: 12px;
+  }
+</style>

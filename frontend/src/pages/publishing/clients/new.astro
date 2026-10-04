@@ -1,4 +1,5 @@
 ---
+import ApiClientPermissionFields from "@/components/ApiClientPermissionFields.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 ---
 
@@ -38,59 +39,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
       </div>
     </section>
 
-    <section class="form-section">
-      <h3>Permissions</h3>
-      <p class="section-description">What this client can access</p>
-      <div class="permissions-grid">
-        <label class="checkbox-label">
-          <input type="checkbox" name="read:published_entries" checked />
-          <div>
-            <strong>Read Published Entries</strong>
-            <small>Access all published entries (production sites)</small>
-          </div>
-        </label>
-
-        <label class="checkbox-label">
-          <input type="checkbox" name="read:draft_entries" />
-          <div>
-            <strong>Read Draft Entries</strong>
-            <small>Access draft/unpublished entries (preview environments)</small>
-          </div>
-        </label>
-
-        <label class="checkbox-label">
-          <input type="checkbox" name="read:all_entries" />
-          <div>
-            <strong>Read All Entries</strong>
-            <small>Access all entries regardless of status (admin tools)</small>
-          </div>
-        </label>
-
-        <label class="checkbox-label">
-          <input type="checkbox" name="read:collections" checked />
-          <div>
-            <strong>Read Collections</strong>
-            <small>Access collection metadata and entry lists</small>
-          </div>
-        </label>
-
-        <label class="checkbox-label">
-          <input type="checkbox" name="read:assets" checked />
-          <div>
-            <strong>Read Assets</strong>
-            <small>Access uploaded media files</small>
-          </div>
-        </label>
-
-        <label class="checkbox-label">
-          <input type="checkbox" name="read:resources" />
-          <div>
-            <strong>Read Resources</strong>
-            <small>Access resource metadata</small>
-          </div>
-        </label>
-      </div>
-    </section>
+    <ApiClientPermissionFields />
 
     <div class="form-actions">
       <button type="submit" class="button">Create Client</button>
@@ -105,6 +54,8 @@ import AppLayout from "@/layouts/AppLayout.astro";
 </AppLayout>
 
 <script>
+  import { permissionsFromChecked } from '@/lib/apiClientPermissions';
+
   interface APIClientWithToken {
     id: string;
     groupId: string;
@@ -138,15 +89,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
         return;
       }
 
-      const permissions: Record<string, boolean> = {};
-
-      // Convert checkboxes to permissions object with colon format
-      const checkboxes = form.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
-      checkboxes.forEach((checkbox) => {
-        if (checkbox.checked && checkbox.name) {
-          permissions[checkbox.name] = true;
-        }
-      });
+      const permissions = permissionsFromChecked(formData.getAll('permission').map(String));
 
       const data: APIClientCreatePayload = {
         name: nameValue,
@@ -274,43 +217,6 @@ import AppLayout from "@/layouts/AppLayout.astro";
   }
 
   .form-grid small {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .permissions-grid {
-    display: grid;
-    gap: 12px;
-  }
-
-  .checkbox-label {
-    display: flex;
-    gap: 12px;
-    padding: 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: background 0.2s;
-  }
-
-  .checkbox-label:hover {
-    background: var(--panel-2);
-  }
-
-  .checkbox-label input[type="checkbox"] {
-    margin-top: 2px;
-    cursor: pointer;
-  }
-
-  .checkbox-label strong {
-    display: block;
-    font-size: 14px;
-    font-weight: 500;
-    margin-bottom: 2px;
-  }
-
-  .checkbox-label small {
-    display: block;
     font-size: 12px;
     color: var(--muted);
   }
