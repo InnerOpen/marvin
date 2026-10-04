@@ -20,6 +20,10 @@ class _Session:
     def get(self, _model, entry_id):
         return self._by_id.get(entry_id)
 
+    def query(self, *_columns):
+        # Only the workspace's Canonical URL (`${site.url}`) is queried here: none configured.
+        return SimpleNamespace(filter=lambda *_: SimpleNamespace(scalar=lambda: None))
+
 
 def _entry(slug, **data):
     return SimpleNamespace(

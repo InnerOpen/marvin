@@ -194,8 +194,15 @@ class _FakeQuery:
     def filter_by(self, **kw):
         return self
 
+    def filter(self, *criteria):
+        return self
+
     def all(self):
         return self._rows
+
+    def scalar(self):
+        # The workspace's Canonical URL (`${site.url}`): none configured in these tests.
+        return None
 
 
 class _FakeSession:

@@ -145,7 +145,7 @@ def validate_definition(definition: dict | None) -> list[dict]:
                     i,
                 )
             )
-        elif seg and seg not in namespaces and seg not in ("event", "entry"):
+        elif seg and seg not in namespaces and seg not in ("event", "entry", "site"):
             issues.append(
                 _issue(
                     "warning",

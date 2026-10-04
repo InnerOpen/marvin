@@ -88,9 +88,22 @@ def _featured_image_url(entry) -> str | None:
         return None
 
 
+def _site_context(session, group_id) -> dict:
+    """The workspace's site, so a step can hand it on: `${site.url}` is the Canonical URL (None when unset)
+    — e.g. the base a newsletter integration makes an issue's relative links absolute against."""
+    from marvin.services.entry_urls import site_base_url
+
+    return {"url": site_base_url(session, group_id)}
+
+
 def match_context(session, group_id, event_ctx: dict) -> dict:
-    """The context an event's automations match and act on: the event, plus the entry it refers to."""
-    context: dict = {"event": event_ctx, "previous": {}, "depth": int(event_ctx.get("reaction_depth", 0))}
+    """The context an event's automations match and act on: the event, the entry it refers to, and the site."""
+    context: dict = {
+        "event": event_ctx,
+        "previous": {},
+        "depth": int(event_ctx.get("reaction_depth", 0)),
+        "site": _site_context(session, group_id),
+    }
     if event_ctx.get("entry_id"):
         entry_ctx = _entry_context(session, group_id, event_ctx["entry_id"])
         if entry_ctx:
@@ -468,6 +481,7 @@ def run_automation_now(
         "event": {"event_type": "manual", "user_id": str(user_id) if user_id else None},
         "previous": {},
         "depth": 0,
+        "site": _site_context(session, group_id),
     }
     # A dry run captures the resolved plan in memory and persists nothing; a real run uses the caller's
     # recorder (or none).

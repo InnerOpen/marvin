@@ -361,3 +361,44 @@ def test_search_content_entry_hits_include_url(db_session, gallery, monkeypatch)
     results = {r["title"]: r for r in json.loads(get_tool("search_content").handler(ctx, {"query": "heron"}))["results"]}
     assert results["Blue Heron"]["url"] == f"{SITE}/works/{gallery.work.slug}"
     assert "url" not in results["Memo"]
+
+
+# --- workflows: ${site.url} ---------------------------------------------------------------------
+
+
+def test_workflow_context_carries_the_site_url(db_session, gallery):
+    from marvin.services.automation import engine, matcher
+
+    ctx = engine.match_context(db_session, gallery.gid, {"event_type": "entry_published", "entry_id": gallery.work.id})
+    assert ctx["site"] == {"url": SITE}
+    assert matcher.interpolate({"site_url": "${site.url}", "link": "${site.url}/notes"}, ctx) == {"site_url": SITE, "link": f"{SITE}/notes"}
+
+
+def test_workflow_context_site_url_is_none_without_a_canonical_url(db_session, gallery):
+    from marvin.services.automation import engine, matcher
+
+    gallery.prefs.site_canonical_url = None
+    db_session.commit()
+    ctx = engine.match_context(db_session, gallery.gid, {"event_type": "entry_published"})
+    assert ctx["site"] == {"url": None} and matcher.interpolate("${site.url}", ctx) is None
+
+
+def test_a_manual_workflow_run_sees_the_site_url():
+    from marvin.services.automation import engine
+
+    # Only the Canonical URL is read from the session on a manual run without a target.
+    session = SimpleNamespace(query=lambda *_: SimpleNamespace(filter=lambda *_: SimpleNamespace(scalar=lambda: SITE)))
+    seen = []
+
+    def runner(session, group_id, action, context, **kw):
+        seen.append(context["site"]["url"])
+        return {}
+
+    auto = SimpleNamespace(
+        slug="site-url",
+        enabled=True,
+        group_id="G",
+        definition={"trigger": {"type": "manual"}, "actions": [{"kind": "handler", "task": "request_site_rebuild"}]},
+    )
+    engine.run_automation_now(session, "G", auto, run_action=runner)
+    assert seen == [SITE]
