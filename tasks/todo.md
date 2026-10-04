@@ -789,21 +789,47 @@ card badge + "How errors are handled" table; routing panel; toaster tones; run d
 
 ## Checklist
 - [ ] SDK 0.5.0 (error class, Retry/Handle, error_policy, resume/seed, info) + tests + release
-- [ ] Core migration + models
-- [ ] Core `errors.py` (resolution, handle_failure, alerts + dedupe)
-- [ ] Core executor (IntegrationStepError, resume/seed) + engine hook + recorder + summary messages
-- [ ] Core retry sweep (60s task, condition re-check, resume-at-step, supersede, parked, prune)
-- [ ] Core events/payload, system email template, loop guard, connection-scope callers
-- [ ] Core API + frontend (card badge, policy table, routing panel, toaster, run history)
+- [x] Core migration + models
+- [x] Core `errors.py` (resolution, handle_failure, alerts + dedupe)
+- [x] Core executor (IntegrationStepError, resume/seed) + engine hook + recorder + summary messages
+- [x] Core retry sweep (60s task, condition re-check, resume-at-step, supersede, parked, prune)
+- [x] Core events/payload, system email template, loop guard, connection-scope callers
+- [x] Core API + frontend (card badge, policy table, routing panel, toaster, run history)
 - [ ] Buttondown policy + codes, drop on_failure
 - [ ] Square policy, close reorder + `square_link_closed`, create_listing reorder + partial + resume + seeded keys
-- [ ] Docs (integrations.md, INTEGRATIONS_PLUGIN_ARCHITECTURE.md)
+- [x] Docs (integrations.md, INTEGRATIONS_PLUGIN_ARCHITECTURE.md) — core side; provider READMEs are the provider passes'
+- [x] Per-connection policy overrides (decision 7) + published entries are flagged, not reviewed (decision 8)
 
 **Risks:** retries act on changed content (condition re-check is load-bearing); Square idempotency window
 (~24h, unverified); a still-live link may sell even if the site hides it; automation_failed toast volume in an
 outage; system templates used by real subscription rows unverified; first sub-5-minute system task.
 
-**Open questions:** 1) on_failure present → connection notify still fires? (rec. yes) 2) handled failures:
-still `automation_failed` + toast, softer warn tone? (rec. warn) 3) reminder window (24h?) and send "resolved"
-notices to Slack/email? 4) per-workflow opt-out (`integration_errors: "fail"`)? 5) Square close also zeroes stock
-as a backstop? 6) show `integration_error.<slug>` on the entry page next to review reasons?
+**Decisions (Jared, 2026-10-04):**
+1. A workflow's own `on_failure` still runs instead of the entry-level policy, but connection-level notify (the
+   policy's `notify`) still fires.
+2. Handled failures still emit `automation_failed` (with `handled` / `handling` in the payload); the toaster shows
+   them as a yellow warning, red stays for unhandled.
+3. Alerts follow the routing configuration (Settings → Integrations → Integration alerts). The reminder window is
+   configurable there (default 24h). The "resolved" notice goes to every channel that delivered the alert, from
+   the channels recorded on the alert row, not the current routing (a route turned off is disabled, not deleted,
+   so it can still carry the resolved notice). The bell always gets both.
+4. Per-workflow opt-out: a definition may set `integration_errors: "fail"` to skip provider policies for its steps
+   (connection notify still fires, per 1). Validated with the definition schema; documented.
+5. Square close zeroing stock as a backstop: provider work (Square pass), kept in this plan.
+6. Show `integration_error.<slug>` on the entry page next to the review reasons notice, e.g.
+   "Square · invalid — <message>".
+7. (Added) Admins can adjust a provider's policy per connection: `integrations.error_overrides`
+   `{code: {review?, notify?}}` (only those flags; retries/backoff/`then` stay the provider's), applied with
+   `dataclasses.replace`; Review / Alert checkboxes with defaults and "reset to default" in the policy table.
+8. (Added) `review` never unpublishes: a published entry keeps its status, gets `integration_error.<slug>` and the
+   review reason ("<Provider> · <code> — <message>"), and the connection alert fires as if `notify` were set.
+   Draft/new entries move to Needs review as planned.
+
+**Build notes (core, 2026-10-04):** migration `c9e2f4a6b8d1`. The retry sweep runs on the scheduler's minutely
+tick (`sweep_integration_retries`, leader only), not as a scheduled-task row: a task row's interval re-arms after
+each run (so 60s fires about every 120s) and would log a row a minute. `error_overrides` is its own column on
+`integrations`, not inside `config` (the provider's settings, which the provider receives and which its
+config_schema validates). An untagged provider failure now has `code` "unknown" (`${error.code}` was empty).
+
+**Later:** retry/alert metrics on the dashboard; pruning resolved alerts' samples sooner; a per-workflow
+"retries" view.

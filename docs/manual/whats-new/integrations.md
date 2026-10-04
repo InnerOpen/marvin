@@ -77,10 +77,11 @@ Press ✎ (**Edit integration**) on the card. The panel opens as **Edit <name>**
 
 ### Read the card
 
-Each connected card has a status badge, an enable toggle, the last error, "Credential: workspace secret `{{SLUG}}`" when the credential is a reference, and up to two expandable sections:
+Each connected card has a status badge, an enable toggle, the last error, a **Needs attention** notice while the connection has an open alert (see [Integration alerts](#integration-alerts)), "Credential: workspace secret `{{SLUG}}`" when the credential is a reference, and up to three expandable sections:
 
 - **Content**, split into **Needed to work** (content an action reads or writes; missing items get a warning badge and an **Add N missing items** button) and **Optional — set these up if you want them**. Each row has its own **Add** button and, where the blueprint asks for parameters, dropdowns prefilled with defaults; an applied workflow with a newer version shows **Update**. Both come from the provider's declared [blueprints](blueprints.md). Nothing is applied on install; applying creates only what is missing.
 - **What you can do with this**: every action with its description, the arguments it takes, and badges for capability routing (for example `image.generate`), `needs approval` and cost hint, followed by **Events it can raise**.
+- **How errors are handled**: the provider's error policy, code by code, with per-connection **Review** / **Alert** adjustments (see [When an integration fails](#when-an-integration-fails)). Shown when the provider declares a policy.
 
 The footer shows the integration's slug (what workflows reference), one button per action, ✎ edit, ↻ **Run health check** and ✕ **Delete integration**. An action with inputs opens **Run action** to collect them; one without fires at once. What the action returns opens in a **Result** panel (**Copy**, **Done**).
 
@@ -93,6 +94,27 @@ On `/automation/events/[type]` choose **+ Connect an integration action**, pick 
 ### Run an action from a workflow
 
 A workflow's **Run integration** step calls one action of one integration (by its slug) with templated args and hands the result to later steps as `$steps.<id>.output`. See [Workflows](workflows.md).
+
+### When an integration fails
+
+A provider names its failures with a code (`auth`, `rate_limited`, `invalid`, …) and, from `marvin-integration-sdk` 0.5.0, declares how each code is handled: its **error policy**, set on the provider and per action (the most specific entry wins: action code, provider code, action `*`, provider `*`). Core applies it to any workflow that uses the integration, so a workflow needs no on-failure steps of its own for the common cases. A policy entry combines:
+
+- **Review**: the entry goes to Needs review with the reason "Square · invalid — <message>", and `integration_error.<slug>` (`{provider_name, code, message, action, workflow, at}`) is recorded on it; the entry page and the Review Queue card show it, and it is cleared once the step next succeeds. A **published** entry is never taken off the site: it keeps its status, gets the note and the reason, and the connection's alert fires so a person hears about it. With no entry to review (a manual or webhook run), the alert fires instead.
+- **Retry**: the step is retried later with the provider's backoff (a remote `Retry-After` is honoured). A retry re-reads the entry, re-checks the workflow's conditions (an entry that no longer matches is not retried), and resumes the run at the failed step: earlier steps never run again, and their outputs are kept. The provider gets its partial progress back (`ctx.resume`) and the same `ctx.idempotency_seed` across the chain. Once retries run out, the policy's `then` applies. A retry that waits for the connection to recover (`on_recovery`, for credentials a timer won't fix) is parked until the alert resolves. A fresh run that passes the step supersedes a pending retry. Retries are checked every minute; finished ones are kept 30 days.
+- **Alert** (`notify`): the connection is marked **Needs attention** (see [Integration alerts](#integration-alerts)).
+- **Succeed**: the failure is ignored and the workflow carries on (for example closing a listing that is already gone).
+
+The run is still `failed` (unless every failure was ignored) and still emits `automation_failed`, now with `handled: true` and `handling` (for example "handled by Square: sent to review"), so the toast is a yellow warning instead of a red error and **Runs** shows the handling under the step, a **handled** tag, and each retry linked to the run it retried ("succeeded on retry 2"). With no policy (an SDK before 0.5.0, or a provider that declares none) a failure behaves exactly as before.
+
+A workflow's own [on-failure steps](workflows.md#when-a-step-fails) run **instead of** the policy, and `integration_errors: "fail"` in a definition opts a workflow out; in both cases only the alert still fires. Event subscriptions, capability calls and **Run Integration Action** tasks get the alert only (nothing to review or retry); a test-fire from the card gets nothing.
+
+**Adjusting a policy.** The card's **How errors are handled** table lists each code the provider declares (plus **Any other error**), what happens, and **Review** and **Alert** checkboxes showing the provider's default; an admin can change them per connection (stored as `error_overrides`), and **Reset to default** undoes it. Retries, backoff and `then` stay as the provider declares them.
+
+### Integration alerts
+
+One alert per connection and error code, counted, never one per item. It opens on the first failure whose policy says notify and emits `integration_attention_needed` (in the bell always), again after each reminder window while it stays open, and resolves on a passing health check, the connection's next successful action, or **Resolve** on the card, emitting `integration_attention_resolved` and re-arming parked retries. The card shows **Needs attention**, the latest message, "N failures since …", **Test** (runs the health check) and **Resolve**.
+
+Where alerts go besides the bell is set under **Settings → Integrations → Integration alerts** (admins): email the workspace's owners and admins (the **Integration Alert** system template), and any Slack (`send_message`) or Apprise (`notify`) connection, plus the reminder window (default 24 hours; 0 never reminds). It writes ordinary event subscriptions for `integration_attention_needed`; turning a route off disables its subscription rather than deleting it. Each alert records the subscriptions it went out through, and its "working again" notice goes back through exactly those, even if the routing changed in between. Delivering an alert never raises another one: a failing Slack connection does not alert about itself through itself.
 
 ### Newsletter with Buttondown
 
@@ -117,12 +139,15 @@ All routes are workspace-scoped under `/api/groups/integrations` and mounted onl
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| GET | `/providers` | Provider catalog (`slug`, `name`, `description`, `category`, `icon`, `config_schema`, `credentials`, `actions`, `emits`) |
+| GET | `/providers` | Provider catalog (`slug`, `name`, `description`, `category`, `icon`, `config_schema`, `credentials`, `actions`, `emits`, and from SDK 0.5.0 `error_policy`, also per action) |
 | GET | `/plugins` | Load reports per entry point: distribution, version, `ok`, `error` |
-| GET / POST | `` | List / create; `credential` is write-only and may be `{{SECRET_NAME}}`. Reads return `has_credential` and `credential_secret` (the referenced secret's slug, if any) |
+| GET / POST | `` | List / create; `credential` is write-only and may be `{{SECRET_NAME}}`. Reads return `has_credential`, `credential_secret` (the referenced secret's slug, if any), `attention` (open alerts) and `error_overrides` |
 | PATCH / DELETE | `/{integration_id}` | Rename, enable, change config, replace the credential / delete with its own stored secret |
 | POST | `/{integration_id}/check` | Run `check()` and persist `status`, `last_error`, `last_checked_at` |
 | POST | `/{integration_id}/actions/{action_key}` | Run an action; body is the args dict, where a top-level `{{SECRET_NAME}}` value is resolved for the call. Returns `{ok, result}`. 409 if disabled or the provider is not installed, 422 for a missing secret, 502 on a provider `ValueError` |
+| POST | `/{integration_id}/resolve?alert_id=` | Resolve the connection's open alerts (or one), announce it and re-arm parked retries (admin) |
+| PUT | `/{integration_id}/error-overrides` | `{overrides: {code: {review?, notify?}}}` for declared codes or `*`; `{}` resets (admin) |
+| GET / PUT | `/alert-routing` | Where alerts go: `email_admins`, `targets` (connections that can carry them, with `enabled`) / `integration_ids`, `reminder_hours` (admin) |
 | GET / POST | `/subscriptions?event_type=` | List / create `event_type → action + args` |
 | PATCH / DELETE | `/subscriptions/{sub_id}` | Toggle `enabled` or replace `args` / remove |
 
@@ -138,7 +163,7 @@ No setting switches integrations on; presence of an installed provider does. Cre
 
 ## Since
 
-Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145. **Admin → Extensions → Plugins** and `GET /api/admin/plugins`: rc.158. HTTP `patch`: rc.182. The Buttondown provider is a separate package; it relies on `${site.url}` (rc.177), `${entry.url}` and `if_none: skip` (rc.179).
+Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145. **Admin → Extensions → Plugins** and `GET /api/admin/plugins`: rc.158. HTTP `patch`: rc.182. Integration-owned error handling (error policies, retries, alerts, **How errors are handled**, **Integration alerts**): unreleased, migration `c9e2f4a6b8d1`; providers declare policies from `marvin-integration-sdk` 0.5.0. The Buttondown provider is a separate package; it relies on `${site.url}` (rc.177), `${entry.url}` and `if_none: skip` (rc.179).
 
 Note: `docs/INTEGRATIONS_DESIGN.md` and the plugin architecture doc predate the implementation and describe polling that nothing calls; the SDK package is the contract.
 

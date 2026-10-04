@@ -243,6 +243,41 @@ plainly. Later options, in order of effort:
 
 ---
 
+## Error handling (integration-owned, SDK 0.5.0)
+
+Built 2026-10-04. The provider owns *what a failure means*; the core owns *what happens next*.
+
+- **Contract (SDK).** A provider raises `IntegrationError(message, code=, partial=, retry_after=)` (any
+  `ValueError` with a `.code` works too) and declares `error_policy = {code: Handle(...)}` on the class
+  and/or per `ProviderAction`. `Handle(review, notify, succeed, retry=Retry(backoff, max_attempts,
+  on_recovery), then=Handle)`; lookup is action[code] > provider[code] > action["*"] > provider["*"].
+  `IntegrationContext` gains `resume` (the last partial progress) and `idempotency_seed` (stable across a
+  retry chain). The policy is in `info()` (`error_policy`) for the catalog.
+- **Core.** `services/integrations/errors.py`: `policy_for` (resolve + per-connection `error_overrides`,
+  review/notify only), `handle_failure` (the engine's hook: review / notify / succeed / start a retry
+  chain), alerts (`integration_alerts`, one open row per integration + code, reminder window from
+  `group_preferences.integration_alert_reminder_hours`), and the connection-scope hooks
+  (`connection_failed` / `connection_succeeded`) used by the event-subscription listener, capability
+  handlers and the scheduled integration task (notify only). The workflow step raises
+  `IntegrationStepError` with the resolved policy; `engine._StepRunner` applies it, records `handling` on
+  the step and `handled` on the run. `engine.run_retry` resumes a run at its failed step from the
+  `integration_retries` snapshot (event + earlier step outputs, never secrets), after re-reading the entry
+  and re-checking conditions; the minutely scheduler tick `sweep_integration_retries` claims due rows
+  (lease 5 min) and prunes history after 30 days.
+- **Precedence.** A workflow's own `on_failure` steps, or `integration_errors: "fail"`, replace the policy;
+  only its `notify` still fires. A published entry is never moved to review (it is flagged and the alert
+  fires instead).
+- **Alerts out.** `integration_attention_needed` / `_resolved` are audited (bell) and routed through
+  ordinary subscription rows the Integration alerts panel writes (email admins via the `integration_alert`
+  system template; Slack `send_message`, Apprise `notify`). An alert row records the subscription ids it
+  went out through, and the email and integration listeners also deliver the resolved event to those rows.
+  Loop guard: alert delivery never opens, bumps or resolves alerts (contextvar + listener check), and
+  neither event is a workflow trigger.
+- **Degrades.** With SDK 0.4.0 there is no `resolve_policy`: no policy, no resume/seed fields passed,
+  every failure behaves as before (`code` defaults to `unknown`).
+
+---
+
 ## Decisions
 
 Resolved:

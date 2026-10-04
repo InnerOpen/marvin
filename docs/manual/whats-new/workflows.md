@@ -72,7 +72,7 @@ Only the first 10 steps run; the validator warns when there are more.
 
 ### When a step fails
 
-`on_failure` is a second list of steps, run when any step of `actions` fails: in the same run, on the same entry (each row's own entry in a query run), after the failed step. They read the failure as `${error.message}` (the step's error), `${error.code}` (the provider's code, when it gave one, else empty), `${error.step}` (the failed step's `id`, else its position from 0), `${error.kind}` and `${error.at}` (when it failed, ISO 8601). A typical pair records the reason and sends the entry to review, so a refused signup doesn't sit in the inbox looking like a pending one:
+`on_failure` is a second list of steps, run when any step of `actions` fails: in the same run, on the same entry (each row's own entry in a query run), after the failed step. They read the failure as `${error.message}` (the step's error), `${error.code}` (the provider's code; `unknown` when it gave none), `${error.step}` (the failed step's `id`, else its position from 0), `${error.kind}` and `${error.at}` (when it failed, ISO 8601). A typical pair records the reason and sends the entry to review, so a refused signup doesn't sit in the inbox looking like a pending one:
 
 ```json
 "on_failure": [
@@ -84,6 +84,7 @@ Only the first 10 steps run; the validator warns when there are more.
 
 - The run is still recorded `failed` and still emits `automation_failed` (so `on_error` workflows and the toast still fire): the workflow's own work didn't happen. Its message ends "(on-failure steps ran)", or "(an on-failure step failed too)". **Runs** lists the on-failure steps after the workflow's own, labelled "on failure: …"; the run's step counts are the workflow's own steps.
 - They run once. A failing on-failure step stops the rest and has no handler of its own, so a broken handler can't loop. A successful run skips them.
+- An integration step's failure may already be handled by the integration's own error policy: review, retry, an admin alert (see [When an integration fails](integrations.md#when-an-integration-fails)). A workflow with on-failure steps runs those **instead of** the policy (only the connection's alert still fires), and `"integration_errors": "fail"` at the top of a definition opts a workflow out of policies without on-failure steps. The default, `"policy"`, applies them.
 - The guided builder has no fields for them: it says when a workflow has them and keeps them on save. Edit them in **Edit as JSON**. They're validated like `actions`, and up to 10 run.
 
 ## Where
