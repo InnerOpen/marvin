@@ -48,6 +48,7 @@ from marvin.schemas.publishing import (
     WorkspaceSiteInfo,
 )
 from marvin.services.entry_urls import best_entry_url, site_base_url
+from marvin.services.media_embeds.publish import embeds_for_entries, site_embeds
 from marvin.services.publish_visibility import non_publishable_type_ids
 from marvin.services.storage.provider_factory import get_storage_provider
 
@@ -147,7 +148,26 @@ def _resolve_featured_asset(entry: Entries, workspace_slug: str) -> PublishedAss
     return None
 
 
-def _entry_to_list_item(entry: Entries, workspace_slug: str, include_order: bool = False, site_url: str | None = None) -> PublishedEntryListItem:
+def _site_metadata(session: Session, group_id) -> dict | None:
+    from marvin.db.models.groups import GroupPreferencesModel
+
+    prefs = session.query(GroupPreferencesModel).filter(GroupPreferencesModel.group_id == group_id).first()
+    return prefs.site_metadata_json if prefs else None
+
+
+def _list_items(session: Session, group, entries: list[Entries], site_url: str | None) -> list[PublishedEntryListItem]:
+    """List items for a page of entries, with their media ``embeds`` (one cache query for the page)."""
+    embeds = embeds_for_entries(session, entries, site_embeds(_site_metadata(session, group.id))) if entries else {}
+    return [_entry_to_list_item(entry, group.slug, site_url=site_url, embeds=embeds.get(entry.id)) for entry in entries]
+
+
+def _entry_to_list_item(
+    entry: Entries,
+    workspace_slug: str,
+    include_order: bool = False,
+    site_url: str | None = None,
+    embeds: dict | None = None,
+) -> PublishedEntryListItem:
     """
     Convert an entry model to a PublishedEntryListItem with relationships.
 
@@ -156,6 +176,7 @@ def _entry_to_list_item(entry: Entries, workspace_slug: str, include_order: bool
         workspace_slug: Workspace slug for building asset URLs
         include_order: Whether to include sort order from junction table
         site_url: The workspace's site address (``site_base_url``) for the entry's ``url``
+        embeds: The entry's resolved media embeds (``embeds_for_entries``), keyed by URL as written
 
     Returns:
         PublishedEntryListItem with populated relationships
@@ -195,6 +216,7 @@ def _entry_to_list_item(entry: Entries, workspace_slug: str, include_order: bool
         "tags": list(entry.tag_names),
         "metadata": entry.metadata_json,
         "featured_asset": _resolve_featured_asset(entry, workspace_slug),
+        "embeds": embeds or {},
     }
 
     if hasattr(entry, "status") and entry.status:
@@ -265,6 +287,7 @@ async def get_site_configuration(
     site_metadata = prefs.site_metadata_json if prefs else None
     seo_raw = (site_metadata or {}).get("seo")
     seo = SiteSeo(**seo_raw) if isinstance(seo_raw, dict) and seo_raw else None
+    embeds = site_embeds(site_metadata)
 
     # Build site configuration from preferences (with sensible defaults)
     site_config = SiteConfiguration(
@@ -279,6 +302,7 @@ async def get_site_configuration(
         contact_email=prefs.site_contact_email if prefs else None,
         social=prefs.site_social_json if prefs else None,
         seo=seo,
+        embeds=embeds,
         metadata=site_metadata,
     )
 
@@ -494,7 +518,7 @@ async def list_published_entries(
 
     # Convert to list items
     site_url = site_base_url(session, group.id)
-    data = [_entry_to_list_item(entry, group.slug, site_url=site_url) for entry in entries]
+    data = _list_items(session, group, entries, site_url)
 
     return PublishedEntriesResponse(
         data=data,
@@ -625,6 +649,7 @@ async def get_published_entry(
         resources=resources,
         assets=assets,
         tags=list(entry.tag_names),
+        embeds=embeds_for_entries(session, [entry], site_embeds(_site_metadata(session, group.id))).get(entry.id, {}),
     )
 
 
@@ -790,8 +815,7 @@ async def get_published_collection(
 
     # Convert to list items
     entry_items = []
-    for entry in entries:
-        item = _entry_to_list_item(entry, group.slug, site_url=site_url)
+    for entry, item in zip(entries, _list_items(session, group, entries, site_url), strict=True):
         # Add collection-specific sort order
         order = next((ec.sort_order for ec in entry.entry_collections if ec.collection_id == collection.id), None)
         if order is not None:
@@ -1209,4 +1233,4 @@ async def get_resource_entries(
 
     # Convert to list items using shared helper
     site_url = site_base_url(session, group.id)
-    return [_entry_to_list_item(entry, group.slug, site_url=site_url) for entry in entries]
+    return _list_items(session, group, entries, site_url)

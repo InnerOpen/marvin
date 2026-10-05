@@ -6,10 +6,12 @@ all admin fields, internal metadata, and unpublished content.
 """
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import UUID4, ConfigDict, Field, field_validator
 
 from marvin.schemas._marvin import _MarvinModel
+from marvin.services.media_embeds.html import DEFAULT_CONSENT_TEXT
 
 
 class PublishedAssetRead(_MarvinModel):
@@ -116,6 +118,52 @@ class PublishedEntryTypeRead(_MarvinModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PublishedEmbedIframe(_MarvinModel):
+    """A Marvin-built player: every attribute comes from Marvin's provider registry, never from the provider."""
+
+    src: str
+    title: str
+    allow: str
+    sandbox: str
+    referrerpolicy: str
+    aspect_ratio: str | None = None
+    """CSS aspect ratio for video players, e.g. ``"16/9"``."""
+    height: int | None = None
+    """Fixed player height in px for audio / podcast / playlist players."""
+
+
+class PublishedEmbedLink(_MarvinModel):
+    """The plain link to the media on its provider — the fallback and the link card."""
+
+    href: str
+    title: str
+    provider_name: str
+
+
+class PublishedEmbed(_MarvinModel):
+    """A media link in an entry (a bare provider URL in a markdown field, or an ``embed`` field) resolved
+    to a player. Keyed in ``embeds`` by the URL exactly as written in the field."""
+
+    url: str
+    """The URL as written in the field (also its key in ``embeds``)."""
+    canonical_url: str
+    provider: str
+    """Registry key, e.g. ``youtube``."""
+    provider_name: str
+    """Display name, e.g. ``YouTube``."""
+    kind: Literal["video", "audio", "podcast", "playlist"]
+    status: Literal["ok", "link", "unavailable"]
+    """``ok``: ``iframe`` is set. ``link``: no safe player — show ``link``. ``unavailable``: the provider says
+    it is private, removed or blocked — show ``link``."""
+    title: str | None = None
+    author_name: str | None = None
+    thumbnail_url: str | None = None
+    iframe: PublishedEmbedIframe | None = None
+    link: PublishedEmbedLink
+    html: str
+    """Ready-to-insert HTML built by Marvin per ``site.embeds.mode`` (a facade, the player, or a link card)."""
+
+
 class PublishedEntryRead(_MarvinModel):
     """
     Schema for published entries in the publishing API.
@@ -177,6 +225,15 @@ class PublishedEntryRead(_MarvinModel):
 
     tags: list[str] = []
     """Tag slugs applied to this entry."""
+
+    embeds: dict[str, PublishedEmbed] = Field(default_factory=dict)
+    """Media players for this entry's media links, keyed by the URL as written ({} when none)."""
+
+    @field_validator("embeds", mode="before")
+    @classmethod
+    def _embeds_never_null(cls, value: object) -> dict:
+        """``embeds`` is always an object ({} when the entry has no media links)."""
+        return value if isinstance(value, dict) else {}
 
     order: int | None = None
     """Sort order within a collection. Only populated when querying entries for a specific collection."""
@@ -250,6 +307,15 @@ class PublishedEntryListItem(_MarvinModel):
 
     featured_asset: PublishedAssetRead | None = Field(default=None, serialization_alias="featuredAsset")
     """First hero/featured asset, or first asset by position."""
+
+    embeds: dict[str, PublishedEmbed] = Field(default_factory=dict)
+    """Media players for this entry's media links, keyed by the URL as written ({} when none)."""
+
+    @field_validator("embeds", mode="before")
+    @classmethod
+    def _embeds_never_null(cls, value: object) -> dict:
+        """``embeds`` is always an object ({} when the entry has no media links)."""
+        return value if isinstance(value, dict) else {}
 
     order: int | None = None
     """Sort order within a collection. Only populated when querying entries for a specific collection."""
@@ -481,6 +547,19 @@ class SiteSeo(_MarvinModel):
     """Search-engine ownership verification tokens."""
 
 
+class SiteEmbeds(_MarvinModel):
+    """How a site shows media embeds. Stored under ``group_preferences.site_metadata_json['embeds']``
+    (``mode``, ``consentText``); ``frame_sources`` is computed from Marvin's provider registry."""
+
+    mode: Literal["direct", "click_to_load"] = "click_to_load"
+    """``click_to_load`` (default): a facade — nothing third-party loads until the visitor clicks.
+    ``direct``: the player iframe itself."""
+    consent_text: str = DEFAULT_CONSENT_TEXT
+    """Shown on the click-to-load facade; ``{provider}`` is replaced with the provider's name."""
+    frame_sources: list[str] = Field(default_factory=list)
+    """Every origin a Marvin-built player may load from (for a site's ``frame-src``)."""
+
+
 class SiteConfiguration(_MarvinModel):
     """
     Site configuration for publishing API.
@@ -521,6 +600,9 @@ class SiteConfiguration(_MarvinModel):
 
     seo: SiteSeo | None = None
     """Structured SEO / social-sharing metadata (also present under ``metadata.seo``)."""
+
+    embeds: SiteEmbeds = Field(default_factory=SiteEmbeds)
+    """Media-embed privacy mode, consent text and the player origins (always present)."""
 
     metadata: dict | None = Field(default=None, serialization_alias="metadataJson")
     """Framework-specific or custom site metadata."""
