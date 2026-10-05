@@ -553,6 +553,100 @@ Full backend suite, frontend tests, Biome and ruff green; `astro check` 50 error
 the base. Browser-checked on SQLite + astro dev (headless Chromium): preview parts for frame / everywhere / drop,
 JSON panels collapsed, collapsed metadata still saved, invalid metadata reopens its panel, no empty Ask chip.
 
+# Media embeds — paste a link, get a player (plan, 2026-10-05)
+
+**Goal:** paste a YouTube, Vimeo, Bandcamp, Spotify, SoundCloud, Apple Music/Podcasts, Tidal or podcast
+(Simplecast/Transistor) link and get a player — in the admin editor and on published sites. One generic feature:
+provider allow-list + server-side oEmbed resolution with a cache + Marvin-built iframes. Named "media embeds" in code
+("embed" already means vector embeddings: `IndexingReactionListener`, `services/ai/embeddings_registry.py`).
+
+**Today (origin/develop `5eaf4737`; MarvinAstro main 1.1.1; RenderersCore 1.1.0-next.10; SDK develop 4.0.0):**
+- Bodies are **markdown strings in `data_json`** — no blocks/shortcodes/embed concept. Field types:
+  `schemas/platform/entry_type_schema.py` (13 types), validated in `services/content_validator.py::_validate_field`.
+  Editor: `entries/[id].astro` → `SchemaForm.astro` → `schema-fields/MarkdownField.astro` (textarea + regex preview
+  `parseMarkdown`, which also lets `javascript:` links through).
+- **The publishing API returns raw markdown** (`publishing_controller.py` `_entry_to_list_item`,
+  `get_published_entry`), so embed data must be structured and the site renders it. `site.seo` is the pattern for a
+  site setting.
+- Sites render via **MarvinAstro** `src/markdown.ts` (marked + GFM) and `f.markdown()` → `set:html`; Grace and Mash &
+  Burn also call `renderMarkdown` directly in a few files. RenderersCore Page/ArticleRenderer `set:html` raw
+  unconverted markdown (separate bug; not used for bodies by these sites).
+- **No sanitisation of content HTML anywhere**; no CSP on the admin or either site.
+- Safe outbound HTTP: `services/integrations/http_client.py` (`_guard`, `MarvinHttpHelper`). A second guard copy in
+  `builtins_actions._public_url_error`; `services/ai/media/enrichment.py` fetches unguarded with redirects.
+- Providers (checked 2026-10-05): oembed.com lists YouTube, Vimeo, Spotify, SoundCloud, Simplecast, Apple Podcasts;
+  Tidal and Apple Music answer but aren't listed; Transistor unconfirmed; **Bandcamp has no oEmbed and bot-challenges
+  server fetches** (works only from pasted embed code).
+- MarvinAstro peers `@inneropen/marvin-sdk ^3.0.0` (SDK is 4.0.0).
+
+## Design
+1. **Authoring (one mechanism underneath):** a **bare provider URL on its own line** in a markdown field becomes an
+   embed (older sites just show the link; `<url>` / `[text](url)` keeps it a link); an **"Embed" button** in
+   `MarkdownField` (paste link *or* provider embed code → reduced to a canonical URL); a new **`embed` field type**
+   (URL value, optional `providers` filter) for structured "the player" slots. No block editor.
+2. **Provider registry** (`services/media_embeds/providers.py`, data only): host/path patterns → match; optional
+   oEmbed endpoint; `frame_hosts`; iframe src template; allow-listed params; `allow`/`sandbox`; aspect ratio or fixed
+   height. Most providers build `src` from the URL alone (works without oEmbed); oEmbed adds title/thumbnail, resolves
+   short links and supplies ids not in the URL (Simplecast). YouTube always via `youtube-nocookie.com`; Vimeo `dnt=1`.
+3. **Resolution** (`resolver.py`): normalise → match → build src → oEmbed via `MarvinHttpHelper` (256 KB, 5 s, UA
+   `marvin-cms/embeds`). Provider `html` never stored/passed on; where an id lives only in it, parse the `src`, require
+   an allow-listed host/path, rebuild. 401/403/404 → `unavailable` (link card).
+4. **Cache:** platform-wide table `media_embed_cache` (url_hash unique, provider, kind, status, embed_src, title,
+   author, thumbnail, dims, aspect, error, fetched_at, expires_at — ok 30 d, else 1 d). Filled by the editor resolve
+   endpoint and a best-effort `MediaEmbedReactionListener` on entry create/update/publish (≤20 URLs); **publishing
+   reads never call out**.
+5. **Fallback link card** when no safe src: `<a class="marvin-embed-link">` with title + "on {Provider}".
+6. **Security:** allow-listed providers only; iframes always rebuilt by one escaped builder (`title`, `loading=lazy`,
+   `referrerpolicy=strict-origin-when-cross-origin`, per-provider `sandbox`/`allow`, `allowfullscreen` video only).
+   Core publishes `site.embeds.frameSources` so sites can generate `frame-src` later.
+7. **Privacy mode:** site setting `site.embeds.mode` = `direct` | `click_to_load` (+ `consent_text`). Click-to-load
+   renders a facade (button + plain provider link; no remote thumbnail) — no third-party cookies before a click,
+   consistent with the Brain note *Marvin Privacy and Cookie Settings*.
+8. **Publishing API:** `embeds: {<url as written>: PublishedEmbed}` on entry + list item — structured fields
+   (provider, kind video|audio|podcast|playlist, status ok|link|unavailable, title, iframe{src, allow, sandbox,
+   aspectRatio|height}, link) plus Marvin-built `html` per the site's mode. Additive; stored markdown never rewritten.
+9. **Sites:** MarvinAstro 1.2.0 `renderMarkdown(source, {embeds})` (paragraph hook: a paragraph that is exactly a
+   URL with an `embeds` entry → `embed.html`), `f.markdown()` passes embeds, `f.embed(key)`, `EmbedLoader.astro`
+   (facade → iframe on click, host-checked), own `MarvinEmbed` type, peer `^3 || ^4`. RenderersCore `Embed.astro`.
+10. **Admin:** `POST /api/platform/media-embeds/resolve` (AUTHOR+, rate-limited) + `GET .../providers`;
+    `MarkdownField` preview moves to marked + DOMPurify and shows resolved players; Embed dialog; `EmbedField`.
+11. **Agent:** `add_embed(entry, url, field?, after_heading?)` (EDITOR; staged as a suggestion like `revise_entry`;
+    idempotent) + read-only `preview_embed(url)`; exposed over MCP; compose/revise guidance.
+
+**Migration:** `media_embed_cache` only.
+
+## Checklist
+- [ ] Registry + matcher + src/attribute builders, per-provider URL-form tests incl. look-alike hosts rejected
+- [ ] Resolver (oEmbed via MarvinHttpHelper, src extraction with host/path check, statuses, recorded fixtures; verify
+      Simplecast/Transistor/Apple Music endpoints first)
+- [ ] `media_embed_cache` model + migration; `MediaEmbedReactionListener`; shared URL extractor
+- [ ] Publishing: `PublishedEmbed`, `embeds` on entry/list item, `SiteEmbeds` (+ `frameSources`), `html` per mode;
+      tests incl. no outbound call on read
+- [ ] `embed` field type (schema, validator, compose map, schema editor, `EmbedField.astro`, docs)
+- [ ] Admin endpoints + MarkdownField preview (marked + DOMPurify) + Embed dialog
+- [ ] Site settings "Embeds & privacy" section
+- [ ] Agent tools `add_embed` (staged) + `preview_embed`
+- [ ] Before enabling: count published entries with a bare provider URL on its own line (they'll change on rebuild)
+- [ ] SDK 4.1.0 (types + `PublishedEmbed`), MarvinAstro 1.2.0, RenderersCore `Embed.astro`
+- [ ] Sites: Grace + Mash & Burn bump MarvinAstro, add `EmbedLoader`, pass `{embeds}` where they call
+      `renderMarkdown` directly, base `.marvin-embed` CSS
+- [ ] Docs: manual, `whats-new/media-embeds.md`, `docs/publishing-api.md`
+- [ ] Rollout: core → SDK → MarvinAstro → RenderersCore → sites; browser check of every provider in both modes
+
+## Later
+Generic oEmbed discovery fallback; Instagram/TikTok/X/Bluesky; consent-manager-aware facades; thumbnails proxied via
+Marvin; CSPs from `frameSources`; markdown HTML sanitiser in MarvinAstro (+ fix RenderersCore raw `set:html`); one
+shared SSRF guard (also guard `enrichment.py`); periodic cache refresh/pruning; caption/start-time options.
+
+**Risks:** existing bare provider URLs change on the next build; provider schemes/sandbox needs drift; Bandcamp only
+via embed code; Simplecast/Transistor unverified; too-strict sandbox silently breaks a player; facades need
+`EmbedLoader`; raw `<iframe>` in markdown stays unsanitised (pre-existing).
+
+**Open questions:** 1) bare-URL auto-embed on for every markdown field, with a per-field `autoEmbed: false`? (rec.
+yes, after the existing-content count) 2) default privacy mode? (rec. `click_to_load`) 3) `add_embed` writes directly
+or stages a suggestion? (rec. stage) 4) `embed` field type in v1? (rec. yes) 5) cache platform-wide? (rec. yes)
+6) separate `podcast` kind? (rec. yes)
+
 # Form submissions: one entry per person (dedupe in Marvin) (plan, 2026-10-05)
 
 **Goal:** a repeat form submission from the same person updates their existing entry instead of creating a
