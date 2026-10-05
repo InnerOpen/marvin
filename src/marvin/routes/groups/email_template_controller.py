@@ -172,15 +172,7 @@ class EmailTemplateController(BaseUserController):
             Email template details
         """
         self._check_workspace_access(group_id)
-
-        template = self.repo.get_one(template_id)
-        if not template:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Email template not found: {template_id}",
-            )
-
-        return EmailTemplateRead.model_validate(template)
+        return self._template_or_404(group_id, template_id)
 
     @router.post("", response_model=EmailTemplateRead, status_code=status.HTTP_201_CREATED, summary="Create Email Template")
     def create_template(self, group_id: UUID4, data: EmailTemplateCreate) -> EmailTemplateRead:
@@ -290,13 +282,8 @@ class EmailTemplateController(BaseUserController):
         """
         self._check_admin_access(group_id)
 
-        # Verify template exists and belongs to this workspace
-        template = self.repo.get_one(template_id)
-        if not template:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Email template not found: {template_id}",
-            )
+        # This workspace's template, or a system one (refused below); anything else is a 404.
+        template = self._template_or_404(group_id, template_id)
 
         # Don't allow updating system templates from workspace controller
         if template.group_id is None:
@@ -337,13 +324,8 @@ class EmailTemplateController(BaseUserController):
         """
         self._check_admin_access(group_id)
 
-        # Verify template exists and belongs to this workspace
-        template = self.repo.get_one(template_id)
-        if not template:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Email template not found: {template_id}",
-            )
+        # This workspace's template, or a system one (refused below); anything else is a 404.
+        template = self._template_or_404(group_id, template_id)
 
         # Don't allow deleting system templates from workspace controller
         if template.group_id is None:
@@ -388,14 +370,7 @@ class EmailTemplateController(BaseUserController):
             Success message
         """
         self._check_admin_access(group_id)
-
-        # Get the template
-        template = self.repo.get_one(template_id)
-        if not template:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Email template not found: {template_id}",
-            )
+        template = self._template_or_404(group_id, template_id)
 
         # Send test email
         from marvin.services.email.email_service import EmailService
@@ -435,6 +410,29 @@ class EmailTemplateController(BaseUserController):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error sending test email: {str(e)}",
             ) from e
+
+    def _template_or_404(self, group_id: UUID4, template_id: UUID4) -> EmailTemplateRead:
+        """The template if it belongs to `group_id` or is a system template (no workspace).
+
+        Another workspace's template gets the same 404 as a missing id, so its ids don't leak. Callers
+        that change a template refuse system ones themselves (workspaces override them by creating
+        their own template of that type, never by editing the system row).
+        """
+        from sqlalchemy import or_
+
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+
+        template = (
+            self.repos.session.query(EmailTemplateModel)
+            .filter(
+                EmailTemplateModel.id == template_id,
+                or_(EmailTemplateModel.group_id == group_id, EmailTemplateModel.group_id.is_(None)),
+            )
+            .first()
+        )
+        if template is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Email template not found: {template_id}")
+        return EmailTemplateRead.model_validate(template)
 
     def _check_workspace_access(self, group_id: UUID4) -> bool:
         """Check if user has access to workspace."""

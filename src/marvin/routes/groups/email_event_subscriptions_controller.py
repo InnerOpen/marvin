@@ -22,6 +22,24 @@ class EmailEventSubscriptionsController(BaseUserController):
     def repo(self):
         return self.repos.email_event_subscriptions
 
+    def _require_usable_template(self, template_id: UUID4) -> None:
+        """A subscription may send this workspace's templates or a system one (no workspace). Another
+        workspace's template gets the same 404 as a missing id, so its ids don't leak."""
+        from sqlalchemy import or_
+
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+
+        found = (
+            self.session.query(EmailTemplateModel.id)
+            .filter(
+                EmailTemplateModel.id == template_id,
+                or_(EmailTemplateModel.group_id == self.group_id, EmailTemplateModel.group_id.is_(None)),
+            )
+            .first()
+        )
+        if found is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email template not found")
+
     @router.get("", response_model=list[EmailEventSubscriptionRead])
     def get_all(self) -> list[EmailEventSubscriptionRead]:
         """List all email event subscriptions for the current workspace."""
@@ -32,6 +50,7 @@ class EmailEventSubscriptionsController(BaseUserController):
     def create_one(self, data: EmailEventSubscriptionCreate) -> EmailEventSubscriptionRead:
         """Create a new email event subscription."""
         require_workspace_admin(self.user, self.group_id)
+        self._require_usable_template(data.template_id)
         save_data = data.model_copy(update={"group_id": self.group_id})
         return self.repo.create(save_data)
 

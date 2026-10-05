@@ -1211,6 +1211,9 @@ class EmailEventListener(EventListenerBase):
         with self.ensure_session() as session:
             for sub in subscribers:
                 template = session.get(EmailTemplateModel, sub.template_id)
+                if template is not None and template.group_id is not None and str(template.group_id) != str(sub.group_id):
+                    # Only this workspace's templates or system ones; never another workspace's.
+                    template = None
                 if template is None or not template.enabled:
                     self.logger.warning(f"EmailEventListener: template {sub.template_id} not found or disabled")
                     continue
