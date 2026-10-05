@@ -11,6 +11,7 @@ All routes are mounted under /api/platform/ prefix:
 - /api/platform/workspace - Workspace export/import
 - /api/platform/workspaces/{id}/members - Workspace member management
 - /api/platform/scheduled-tasks - Scheduled task automation
+- /api/platform/site/rebuild - Request a site rebuild / read its status
 """
 
 from marvin.routes._base.routers import UserAPIRouter
@@ -28,6 +29,7 @@ from . import (
     # END: PLATFORM_ROUTE_IMPORTS
     resources_controller,
     scheduled_tasks_controller,
+    site_controller,
     stats_controller,
     tags_controller,
     workspace_controller,
@@ -50,6 +52,7 @@ router.include_router(events_controller.router, tags=["Platform: Events"])
 router.include_router(scheduled_tasks_controller.router, tags=["Platform: Scheduled Tasks"])
 router.include_router(stats_controller.router, tags=["Platform: Stats"])
 router.include_router(email_controller.router, tags=["Platform: Email"])
+router.include_router(site_controller.router, tags=["Platform: Site"])
 
 # CODE_GEN_ID: PLATFORM_ROUTE_INCLUDES
 # END: PLATFORM_ROUTE_INCLUDES

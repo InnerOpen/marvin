@@ -21,6 +21,7 @@ opening one: a bulk edit can add hundreds of requests to the same batch.
 """
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -55,6 +56,51 @@ def rebuild_change(label: str, event: str | None = None, entity_type: str | None
 REBUILD_EVENT = "webhook_triggered"
 
 
+@dataclass(frozen=True)
+class DeployTarget:
+    """Something that builds the site when a rebuild is sent: an outgoing webhook (a host's deploy hook)
+    or an enabled integration whose action is subscribed to `webhook_triggered`."""
+
+    kind: str
+    """"webhook" or "integration"."""
+    id: UUID
+    name: str | None = None
+    provider: str | None = None
+    """The integration's provider (e.g. cloudflare_pages); None for a webhook."""
+    action: str | None = None
+    """The integration action the rebuild runs (e.g. deploy); None for a webhook."""
+
+
+def deploy_targets(session: Session, group_id: UUID) -> list[DeployTarget]:
+    """Everything a sent rebuild reaches: the enabled event-driven outgoing webhooks on `webhook_triggered`
+    and the enabled integrations with an enabled action subscribed to it — the same ones the event bus
+    delivers to. Empty means a rebuild builds nothing. Sorted by kind and name, one per webhook or integration.
+    """
+    from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+    from marvin.db.models.groups.integrations import IntegrationModel
+    from marvin.db.models.groups.webhooks import GroupWebhooksModel
+
+    hooks = session.execute(select(GroupWebhooksModel).where(GroupWebhooksModel.group_id == group_id, GroupWebhooksModel.enabled.is_(True))).scalars()
+    targets = {
+        hook.id: DeployTarget("webhook", hook.id, hook.name)
+        for hook in hooks
+        if REBUILD_EVENT in (hook.subscribed_events or []) and getattr(hook.webhook_type, "value", None) == "event_driven"
+    }
+    subscribed = session.execute(
+        select(IntegrationModel, IntegrationEventSubscriptionModel.action)
+        .join(IntegrationModel, IntegrationModel.id == IntegrationEventSubscriptionModel.integration_id)
+        .where(
+            IntegrationEventSubscriptionModel.group_id == group_id,
+            IntegrationEventSubscriptionModel.event_type == REBUILD_EVENT,
+            IntegrationEventSubscriptionModel.enabled.is_(True),
+            IntegrationModel.enabled.is_(True),
+        )
+    ).all()
+    for integration, action in subscribed:
+        targets.setdefault(integration.id, DeployTarget("integration", integration.id, integration.name, integration.provider, action))
+    return sorted(targets.values(), key=lambda t: (t.kind, t.name or "", str(t.id)))
+
+
 def deploy_target(session: Session, group_id: UUID) -> tuple[str, UUID] | None:
     """What builds this workspace's site — ``("webhook", id)`` for an outgoing webhook (deploy hook) on
     `webhook_triggered`, ``("integration", id)`` for an integration action wired to it — or None when
@@ -63,30 +109,12 @@ def deploy_target(session: Session, group_id: UUID) -> tuple[str, UUID] | None:
     The site pipeline's events (site_rebuild_queued, webhook_triggered, site_deployment_*) are about
     this target; the deployment id, when a host reports one, stays in the event's data.
     """
-    from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
-    from marvin.db.models.groups.webhooks import GroupWebhooksModel
-
     try:
-        hooks = session.execute(
-            select(GroupWebhooksModel).where(GroupWebhooksModel.group_id == group_id, GroupWebhooksModel.enabled.is_(True))
-        ).scalars()
-        targets = {
-            ("webhook", hook.id)
-            for hook in hooks
-            if REBUILD_EVENT in (hook.subscribed_events or []) and getattr(hook.webhook_type, "value", None) == "event_driven"
-        }
-        integration_ids = session.execute(
-            select(IntegrationEventSubscriptionModel.integration_id).where(
-                IntegrationEventSubscriptionModel.group_id == group_id,
-                IntegrationEventSubscriptionModel.event_type == REBUILD_EVENT,
-                IntegrationEventSubscriptionModel.enabled.is_(True),
-            )
-        ).scalars()
-        targets |= {("integration", integration_id) for integration_id in integration_ids}
+        targets = deploy_targets(session, group_id)
     except Exception as e:  # noqa: BLE001 — naming the target is a nicety; the event goes out regardless
         logger.warning("could not resolve the deploy target for %s: %s", group_id, e)
         return None
-    return next(iter(targets)) if len(targets) == 1 else None
+    return (targets[0].kind, targets[0].id) if len(targets) == 1 else None
 
 
 def deploy_target_fields(group_id: UUID) -> dict:
@@ -156,6 +184,22 @@ def request_rebuild(session: Session, group_id: UUID, reason: str | None, *, cha
     if opened:
         _announce_queued(group_id, reason, change, now)
     return session.execute(select(SiteRebuildRequestModel.request_count).where(SiteRebuildRequestModel.group_id == group_id)).scalar_one()
+
+
+def pending_rebuild(session: Session, group_id: UUID) -> SiteRebuildRequestModel | None:
+    """The workspace's queued rebuild that hasn't been sent yet, if any."""
+    return session.execute(select(SiteRebuildRequestModel).where(SiteRebuildRequestModel.group_id == group_id)).scalar_one_or_none()
+
+
+def expected_send_at(first_requested_at: datetime, last_requested_at: datetime) -> datetime:
+    """When a queued rebuild goes out if nothing else joins it: once requests have been quiet for
+    SITE_REBUILD_QUIET_SECONDS, but no later than SITE_REBUILD_MAX_WAIT_SECONDS after the first (the
+    scheduler sends it on its next tick after that)."""
+    settings = get_app_settings()
+    return min(
+        last_requested_at + timedelta(seconds=settings.SITE_REBUILD_QUIET_SECONDS),
+        first_requested_at + timedelta(seconds=settings.SITE_REBUILD_MAX_WAIT_SECONDS),
+    )
 
 
 def _announce_queued(group_id: UUID, reason: str | None, change: dict | None, queued_at: datetime) -> None:
