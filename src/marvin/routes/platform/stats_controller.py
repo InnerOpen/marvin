@@ -131,11 +131,14 @@ class StatsController(BaseUserController):
 
         recent: list[RecentEvent] = []
         try:
-            rows = (
-                session.execute(select(EventLogModel).where(EventLogModel.workspace_id == gid).order_by(EventLogModel.occurred_at.desc()).limit(8))
-                .scalars()
-                .all()
-            )
+            from marvin.services.ai.executions import user_sees_every_run, visible_events_clause
+
+            stmt = select(EventLogModel).where(EventLogModel.workspace_id == gid)
+            # Other members' AI-run events are admin-only, like the event log.
+            visible = visible_events_clause(sees_all=user_sees_every_run(self.user, gid), user_id=self.user.id)
+            if visible is not None:
+                stmt = stmt.where(visible)
+            rows = session.execute(stmt.order_by(EventLogModel.occurred_at.desc()).limit(8)).scalars().all()
             recent = [
                 RecentEvent(
                     event_type=e.event_type,

@@ -51,6 +51,7 @@ class EventLogRepository(GroupRepositoryGeneric):
         entity_type: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        visible=None,
     ) -> list[EventLogRead]:
         """
         Get all events for a specific entity.
@@ -60,6 +61,8 @@ class EventLogRepository(GroupRepositoryGeneric):
             entity_type: Optional entity type filter (e.g., "entry", "asset")
             limit: Maximum number of events to return
             offset: Number of events to skip
+            visible: Optional extra WHERE condition limiting what the caller may see
+                (services.ai.executions.visible_events_clause)
 
         Returns:
             List of events for the entity, ordered by occurred_at descending
@@ -68,6 +71,9 @@ class EventLogRepository(GroupRepositoryGeneric):
 
         if entity_type:
             stmt = stmt.where(EventLogModel.entity_type == entity_type)
+
+        if visible is not None:  # services.ai.executions.visible_events_clause: the caller's view
+            stmt = stmt.where(visible)
 
         results = self.session.execute(stmt).scalars().all()
         return [EventLogRead.model_validate(r) for r in results]
@@ -80,6 +86,7 @@ class EventLogRepository(GroupRepositoryGeneric):
         end_date: datetime | None = None,
         limit: int = 50,
         offset: int = 0,
+        visible=None,
     ) -> list[EventLogRead]:
         """
         Get all events triggered by a specific user.
@@ -91,6 +98,8 @@ class EventLogRepository(GroupRepositoryGeneric):
             end_date: Optional end date filter (UTC)
             limit: Maximum number of events to return
             offset: Number of events to skip
+            visible: Optional extra WHERE condition limiting what the caller may see
+                (services.ai.executions.visible_events_clause)
 
         Returns:
             List of events triggered by the user, ordered by occurred_at descending
@@ -106,6 +115,9 @@ class EventLogRepository(GroupRepositoryGeneric):
         if end_date:
             stmt = stmt.where(EventLogModel.occurred_at <= end_date)
 
+        if visible is not None:  # services.ai.executions.visible_events_clause: the caller's view
+            stmt = stmt.where(visible)
+
         results = self.session.execute(stmt).scalars().all()
         return [EventLogRead.model_validate(r) for r in results]
 
@@ -120,6 +132,7 @@ class EventLogRepository(GroupRepositoryGeneric):
         end_date: datetime | None = None,
         limit: int = 50,
         offset: int = 0,
+        visible=None,
     ) -> list[EventLogRead]:
         """
         Get events for a workspace with optional filters.
@@ -134,6 +147,8 @@ class EventLogRepository(GroupRepositoryGeneric):
             end_date: Optional end date filter (UTC)
             limit: Maximum number of events to return
             offset: Number of events to skip
+            visible: Optional extra WHERE condition limiting what the caller may see
+                (services.ai.executions.visible_events_clause)
 
         Returns:
             List of events matching the filters, ordered by occurred_at descending
@@ -163,6 +178,9 @@ class EventLogRepository(GroupRepositoryGeneric):
 
         if end_date:
             stmt = stmt.where(EventLogModel.occurred_at <= end_date)
+
+        if visible is not None:  # services.ai.executions.visible_events_clause: the caller's view
+            stmt = stmt.where(visible)
 
         results = self.session.execute(stmt).scalars().all()
         return [EventLogRead.model_validate(r) for r in results]

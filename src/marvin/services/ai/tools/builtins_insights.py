@@ -11,7 +11,7 @@ Handlers reuse the same repos the platform controllers use, so the shapes match 
 return. Return a JSON string (fed to the model verbatim / parsed by the invoke endpoint).
 
 AI executions follow the execution log's rule: OWNERs/ADMINs see every run, other members only the runs
-they triggered (services/ai/executions.py).
+they triggered (services/ai/executions.py). The event tools apply it to AI-run events the same way.
 """
 
 import json
@@ -147,6 +147,13 @@ def get_ai_settings(ctx: ToolContext, _args: dict) -> str:
     )
 
 
+def _visible_events(ctx: ToolContext):
+    """Other members' AI-run events are admin-only, as in the event log routes."""
+    from marvin.services.ai.executions import sees_every_run, visible_events_clause
+
+    return visible_events_clause(sees_all=sees_every_run(ctx.user, caller_role(ctx)), user_id=getattr(ctx.user, "id", None))
+
+
 @register_tool(
     name="list_events",
     description="List recent events from the workspace audit log (entry/asset/collection lifecycle, automations, …). Optionally filter by event_type, entity_type, or correlation_id (to follow one causal chain). Use for 'what happened recently' or to trace a cascade.",  # noqa: E501
@@ -168,6 +175,7 @@ def list_events(ctx: ToolContext, args: dict) -> str:
         entity_type=args.get("entity_type"),
         correlation_id=args.get("correlation_id"),
         limit=min(int(args.get("limit", 25) or 25), 100),
+        visible=_visible_events(ctx),
     )
     out = [
         {
@@ -202,6 +210,7 @@ def get_entity_history(ctx: ToolContext, args: dict) -> str:
         entity_id=args.get("entity_id"),
         entity_type=args.get("entity_type"),
         limit=min(int(args.get("limit", 50) or 50), 100),
+        visible=_visible_events(ctx),
     )
     events = [e for e in events if str(e.workspace_id) == str(ctx.group_id)]
     out = [

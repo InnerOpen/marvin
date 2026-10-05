@@ -55,3 +55,43 @@ def may_see_run(row, *, sees_all: bool, user_id) -> bool:
     if sees_all:
         return True
     return user_id is not None and row.triggered_by is not None and str(row.triggered_by) == str(user_id)
+
+
+# ── The event log's AI-run events follow the same rule ─────────────────
+# An AI run's events (completed/failed, and the approval events, which carry the paused tool calls'
+# arguments) are the caller's own below ADMIN: a member sees them only where they are the event's
+# user. Events with no user are admin-only. Every other event is visible to every member as before.
+
+AI_RUN_EVENT_TYPES = frozenset({"ai_operation_executed", "ai_operation_failed", "approval_requested", "approval_granted", "approval_rejected"})
+
+
+def user_sees_every_run(user, group_id) -> bool:
+    """`sees_every_run` for a caller whose numeric role isn't to hand: OWNER/ADMIN in `group_id`, a
+    platform super admin, or a legacy `admin`."""
+    from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
+
+    if getattr(user, "admin", False):
+        return True
+    role = user.get_workspace_role(group_id) if hasattr(user, "get_workspace_role") else None
+    return sees_every_run(user, WORKSPACE_ROLE_HIERARCHY.get(role, 0))
+
+
+def visible_events_clause(*, sees_all: bool, user_id):
+    """A WHERE condition on EventLogModel for what the caller may see, or None when they see everything."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.platform.event_log import EventLogModel
+
+    if sees_all:
+        return None
+    not_a_run = EventLogModel.event_type.notin_(AI_RUN_EVENT_TYPES)
+    if user_id is None:
+        return not_a_run
+    return sa.or_(not_a_run, EventLogModel.user_id == user_id)
+
+
+def may_see_event(event, *, sees_all: bool, user_id) -> bool:
+    """The single-event form of `visible_events_clause`."""
+    if sees_all or event.event_type not in AI_RUN_EVENT_TYPES:
+        return True
+    return user_id is not None and event.user_id is not None and str(event.user_id) == str(user_id)

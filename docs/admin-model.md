@@ -113,6 +113,13 @@ super admins) every run; other members see only the runs they triggered, and ano
 404. Runs with no user (system, workflow and scheduled runs) are admin-only. Deleting a run needs ADMIN.
 Aggregate counts and costs on the dashboard and stats still cover every run.
 
+The event log follows the same rule for AI-run events (`ai_operation_executed`, `ai_operation_failed`
+and the `approval_*` events, which carry the paused tool calls' arguments): below ADMIN a member sees
+them only where they are the event's user, on the event list and its filters, entity and user history,
+a single event (another member's is a 404), the activity feed the toaster polls, the dashboard's recent
+activity and the `list_events` / `get_entity_history` tools. AI-run events with no user are admin-only.
+Every other event stays visible to every member.
+
 ### OWNER
 
 Full control over the workspace.

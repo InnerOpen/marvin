@@ -85,20 +85,35 @@ def _feed_item(event) -> EventFeedItem:
     )
 
 
-def build_feed(event_log_repo, workspace_id, since: datetime | None, now: datetime | None = None) -> EventFeed:
+def build_feed(event_log_repo, workspace_id, since: datetime | None, now: datetime | None = None, visible=None) -> EventFeed:
     now = now or datetime.now(UTC)
     if since is None:
         start = now - FEED_FIRST_LOOK
     else:
         start = (since.astimezone(UTC) if since.tzinfo else since.replace(tzinfo=UTC)) - FEED_OVERLAP
-    events = event_log_repo.get_by_workspace(workspace_id=workspace_id, start_date=start, limit=FEED_LIMIT)
+    events = event_log_repo.get_by_workspace(workspace_id=workspace_id, start_date=start, limit=FEED_LIMIT, visible=visible)
     items = [_feed_item(e) for e in reversed(events)]
     return EventFeed(now=now, events=items)
 
 
 @controller(router)
 class EventsController(BaseUserController):
-    """Controller for event log query endpoints."""
+    """Controller for event log query endpoints.
+
+    Every member sees the workspace's events, except AI-run events (an AI run completing or failing,
+    and its approval events, which carry the paused tool calls' arguments): below ADMIN those are only
+    the caller's own (services/ai/executions.py), on every route here.
+    """
+
+    def _sees_all_runs(self) -> bool:
+        from marvin.services.ai.executions import user_sees_every_run
+
+        return user_sees_every_run(self.user, self.group_id)
+
+    def _visible(self):
+        from marvin.services.ai.executions import visible_events_clause
+
+        return visible_events_clause(sees_all=self._sees_all_runs(), user_id=self.user.id)
 
     @router.get("", response_model=list[EventLogSummary])
     def list_events(
@@ -146,6 +161,7 @@ class EventsController(BaseUserController):
             end_date=end_date,
             limit=limit,
             offset=offset,
+            visible=self._visible(),
         )
 
         # Filter by entity_id if provided (repo method doesn't support this param yet)
@@ -162,7 +178,7 @@ class EventsController(BaseUserController):
         activity toaster polls this. Pass the previous response's `now` as the next `since`.
         Returns at most the newest FEED_LIMIT events.
         """
-        return build_feed(self.repos.event_log, self.group_id, since)
+        return build_feed(self.repos.event_log, self.group_id, since, visible=self._visible())
 
     @router.get("/{event_id}", response_model=EventLogRead)
     def get_event(
@@ -183,7 +199,13 @@ class EventsController(BaseUserController):
         Raises:
             HTTPException: 404 if event not found or not in current workspace
         """
+        from marvin.services.ai.executions import may_see_event
+
         event = self.repos.event_log.get_by_event_id(event_id)
+
+        # Another member's AI-run event, below ADMIN, is the same 404 as a missing one.
+        if event and event.workspace_id == self.group_id and not may_see_event(event, sees_all=self._sees_all_runs(), user_id=self.user.id):
+            event = None
 
         if not event:
             raise HTTPException(
@@ -232,6 +254,7 @@ class EventsController(BaseUserController):
             entity_type=entity_type,
             limit=limit,
             offset=offset,
+            visible=self._visible(),
         )
 
         # Filter to only events in current workspace
@@ -278,6 +301,7 @@ class EventsController(BaseUserController):
             end_date=end_date,
             limit=limit,
             offset=offset,
+            visible=self._visible(),
         )
 
         # Filter to only events in current workspace
