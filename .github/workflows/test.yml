@@ -69,7 +69,8 @@ jobs:
   # reversibility (up → down → up), and the full suite run against PostgreSQL.
   postgres-tests:
     name: Backend Tests (PostgreSQL)
-    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
+    # Always GitHub-hosted: the Postgres service container isn't reachable from the self-hosted dind runners.
+    runs-on: ubuntu-latest
 
     services:
       postgres:
