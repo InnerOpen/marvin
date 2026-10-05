@@ -93,7 +93,10 @@ function statusMeta(status: string): { text: string; cls: string } {
       <h2>Integrations</h2>
       <p>Connect external services — sources that feed content in, destinations that react when you publish.</p>
     </div>
-    <a href="/workspace/settings?tab=integrations" class="button secondary small">Back to Settings</a>
+    <div class="header-links">
+      <a href="/workspace/settings/integration-health" class="button secondary small">Alerts &amp; health</a>
+      <a href="/workspace/settings?tab=integrations" class="button secondary small">Back to Settings</a>
+    </div>
   </div>
 
   {error && (
@@ -1042,6 +1045,7 @@ function statusMeta(status: string): { text: string; cls: string } {
     border-bottom: 1px solid var(--line);
   }
   .page-header h2 { margin: 0; font-size: 24px; font-weight: 600; }
+  .header-links { display: flex; gap: 8px; flex-wrap: wrap; flex-shrink: 0; }
   .page-header p { margin: 8px 0 0; color: var(--muted); font-size: 14px; max-width: 60ch; }
 
   .alert {

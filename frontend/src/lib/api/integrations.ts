@@ -155,9 +155,10 @@ export async function deleteSubscription(id: string, authToken?: string): Promis
 
 // Integration error handling — not in the SDK yet, so plain API calls.
 
-/** Mark the connection's open alerts resolved ("I fixed it"); re-arms retries waiting on it. */
-export async function resolveAttention(id: string, authToken?: string): Promise<{ resolved: number }> {
-  return fetchApi(`/api/groups/integrations/${encodeURIComponent(id)}/resolve`, { method: "POST" }, authToken);
+/** Mark the connection's open alerts (or just `alertId`) resolved ("I fixed it"); re-arms retries waiting on it. */
+export async function resolveAttention(id: string, alertId?: string, authToken?: string): Promise<{ resolved: number }> {
+  const query = alertId ? `?alert_id=${encodeURIComponent(alertId)}` : "";
+  return fetchApi(`/api/groups/integrations/${encodeURIComponent(id)}/resolve${query}`, { method: "POST" }, authToken);
 }
 
 /** Save the connection's review/alert adjustments to its provider's error policy ({} = all defaults). */
@@ -204,4 +205,140 @@ export async function listInputOptions(
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ actionKey, input }) },
     authToken,
   );
+}
+
+// ---- Alerts & health page ----------------------------------------------------------------------
+
+/** One connection at a glance. */
+export interface IntegrationHealthRow {
+  id: string;
+  name: string;
+  slug: string;
+  provider: string;
+  providerName: string;
+  enabled: boolean;
+  /** The last health check's result: ok | error | unconfigured | unavailable. */
+  status: string;
+  lastCheckedAt?: string | null;
+  lastError?: string | null;
+  lastSuccessAt?: string | null;
+  /** Failed workflow steps through this connection in the last 7 days. */
+  failures7d: number;
+  openAlerts: number;
+  alertCodes: string[];
+  liveRetries: number;
+}
+
+/** A connection alert, open or resolved. */
+export interface IntegrationAlert {
+  id: string;
+  integrationId: string;
+  integrationName?: string | null;
+  integrationSlug: string;
+  provider: string;
+  providerName: string;
+  code: string;
+  message?: string | null;
+  count: number;
+  status: "open" | "resolved";
+  firstAt?: string | null;
+  lastAt?: string | null;
+  notifiedAt?: string | null;
+  /** An open alert is announced again on its next failure after this; null while reminders are off. */
+  remindAfter?: string | null;
+  reminderHours: number;
+  resolvedAt?: string | null;
+  resolution?: "manual" | "check" | "action" | null;
+  resolvedByName?: string | null;
+  openSeconds?: number | null;
+}
+
+/** A failed workflow step waiting to be retried (or running right now). */
+export interface IntegrationRetry {
+  id: string;
+  status: "pending" | "parked" | "running";
+  automationId: string;
+  automationName?: string | null;
+  automationEnabled: boolean;
+  entryId?: string | null;
+  entryTitle?: string | null;
+  entryExists: boolean;
+  integrationId?: string | null;
+  integrationName?: string | null;
+  integrationSlug: string;
+  provider: string;
+  providerName: string;
+  action: string;
+  code: string;
+  attempt: number;
+  maxAttempts: number;
+  nextAttemptAt?: string | null;
+  leaseUntil?: string | null;
+  lastError?: string | null;
+  createdAt?: string | null;
+}
+
+/** A failed integration step that the provider's error policy handled. */
+export interface HandledFailure {
+  id: string;
+  executionId: string;
+  runStatus: string;
+  isRetry: boolean;
+  at?: string | null;
+  automationId?: string | null;
+  automationName?: string | null;
+  entryId?: string | null;
+  entryTitle?: string | null;
+  entryExists: boolean;
+  integrationId?: string | null;
+  integrationSlug?: string | null;
+  provider?: string | null;
+  providerName?: string | null;
+  action?: string | null;
+  code?: string | null;
+  error?: string | null;
+  outcome: string;
+  retryStatus?: string | null;
+}
+
+export interface Paged<T> {
+  items: T[];
+  page: number;
+  perPage: number;
+  total: number;
+}
+
+export async function getIntegrationHealth(authToken?: string): Promise<IntegrationHealthRow[]> {
+  return fetchApi("/api/groups/integrations/health", {}, authToken);
+}
+
+export async function listIntegrationAlerts(
+  status: "open" | "resolved",
+  page = 1,
+  perPage = 25,
+  authToken?: string,
+): Promise<Paged<IntegrationAlert>> {
+  return fetchApi(`/api/groups/integrations/alerts?status=${status}&page=${page}&per_page=${perPage}`, {}, authToken);
+}
+
+export async function listIntegrationRetries(authToken?: string): Promise<IntegrationRetry[]> {
+  return fetchApi("/api/groups/integrations/retries", {}, authToken);
+}
+
+export async function listHandledFailures(
+  page = 1,
+  perPage = 25,
+  authToken?: string,
+): Promise<Paged<HandledFailure> & { since: string }> {
+  return fetchApi(`/api/groups/integrations/handled-failures?page=${page}&per_page=${perPage}`, {}, authToken);
+}
+
+/** Make a pending or parked retry due now; the retry sweep runs it within about a minute. */
+export async function retryNow(id: string, authToken?: string): Promise<IntegrationRetry> {
+  return fetchApi(`/api/groups/integrations/retries/${encodeURIComponent(id)}/retry-now`, { method: "POST" }, authToken);
+}
+
+/** Stop retrying a failed step. Nothing else happens (no review, no alert). */
+export async function giveUpRetry(id: string, authToken?: string): Promise<IntegrationRetry> {
+  return fetchApi(`/api/groups/integrations/retries/${encodeURIComponent(id)}/give-up`, { method: "POST" }, authToken);
 }

@@ -1233,12 +1233,20 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   renderList();
 
   // ?workflow=<id> (the event log links a run's workflow here): bring that card into view with its runs open.
-  const linked = new URLSearchParams(location.search).get("workflow");
+  // &run=<execution id> (Alerts & health links a handled failure's run) also opens that run, if it's among the recent ones.
+  const params = new URLSearchParams(location.search);
+  const linked = params.get("workflow");
+  const linkedRun = params.get("run");
   const linkedCard = linked ? $("wf-list").querySelector(`.wf-card[data-id="${CSS.escape(linked)}"]`) : null;
   if (linked && linkedCard) {
     linkedCard.classList.add("linked");
     linkedCard.scrollIntoView({ block: "center" });
-    toggleHistory(linkedCard, linked);
+    toggleHistory(linkedCard, linked).then(() => {
+      const runRow = linkedRun ? linkedCard.querySelector<HTMLElement>(`.run-row[data-exec="${CSS.escape(linkedRun)}"]`) : null;
+      if (!runRow) return;
+      runRow.click();
+      runRow.scrollIntoView({ block: "center" });
+    });
   }
 </script>
 

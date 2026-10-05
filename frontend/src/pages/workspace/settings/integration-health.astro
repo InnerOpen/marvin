@@ -1,0 +1,570 @@
+---
+// Settings → Integrations → Alerts & health: what integration error handling is doing across the
+// workspace — each connection at a glance, open alerts (Test / Resolve), retries waiting to run (Retry
+// now / Give up), failures a provider's policy handled, resolved alerts, and where alerts go. Admins
+// only (every route behind it is). Server strings are rendered with Astro JSX only, never innerHTML.
+import IntegrationAlertsPanel from "@/components/IntegrationAlertsPanel.astro";
+import IntegrationMark from "@/components/IntegrationMark.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { ApiRequestError, getAuthToken } from "@/lib/api/client";
+import {
+  type AlertRouting,
+  getAlertRouting,
+  getIntegrationHealth,
+  type HandledFailure,
+  type IntegrationAlert,
+  type IntegrationHealthRow,
+  type IntegrationRetry,
+  listHandledFailures,
+  listIntegrationAlerts,
+  listIntegrationRetries,
+  listProviders,
+  type Paged,
+  type ProviderInfo,
+} from "@/lib/api/integrations";
+import {
+  duration,
+  failureLine,
+  pageCount,
+  pageHref,
+  pageParam,
+  relative,
+  reminderText,
+  resolutionLabel,
+  retryState,
+} from "@/lib/integrationHealth";
+import { isForbidden } from "@/lib/workspaceRole";
+
+const authToken = getAuthToken(Astro.cookies);
+const search = Astro.url.search;
+const historyPage = pageParam(Astro.url.searchParams.get("history"));
+const handledPage = pageParam(Astro.url.searchParams.get("handled"));
+const PER_PAGE = 20;
+
+let health: IntegrationHealthRow[] = [];
+let openAlerts: IntegrationAlert[] = [];
+let history: Paged<IntegrationAlert> = { items: [], page: 1, perPage: PER_PAGE, total: 0 };
+let retries: IntegrationRetry[] = [];
+let handled: Paged<HandledFailure> = { items: [], page: 1, perPage: PER_PAGE, total: 0 };
+let routing: AlertRouting | null = null;
+let providers: ProviderInfo[] = [];
+let adminOnly = false;
+let notInstalled = false;
+let error: string | null = null;
+
+try {
+  let open: Paged<IntegrationAlert>;
+  [health, open, history, retries, handled, routing] = await Promise.all([
+    getIntegrationHealth(authToken),
+    listIntegrationAlerts("open", 1, 100, authToken),
+    listIntegrationAlerts("resolved", historyPage, PER_PAGE, authToken),
+    listIntegrationRetries(authToken),
+    listHandledFailures(handledPage, PER_PAGE, authToken),
+    getAlertRouting(authToken),
+  ]);
+  openAlerts = open.items;
+} catch (e) {
+  if (isForbidden(e)) adminOnly = true;
+  // The integration routes are only mounted when an integration package is installed.
+  else if (e instanceof ApiRequestError && e.status === 404) notInstalled = true;
+  else {
+    console.error("[integration-health] load error:", e);
+    error = e instanceof Error ? e.message : String(e);
+  }
+}
+if (!adminOnly && !notInstalled) {
+  try {
+    providers = await listProviders(authToken);
+  } catch (e) {
+    console.error("[integration-health] could not load providers for logos:", e);
+  }
+}
+
+const providersBySlug = new Map(providers.map((p) => [p.slug, p]));
+const now = new Date();
+
+function when(iso: string | null | undefined): string {
+  return iso ? new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "";
+}
+
+function checkMeta(status: string): { text: string; cls: string } {
+  if (status === "ok") return { text: "Check passed", cls: "ok" };
+  if (status === "error") return { text: "Check failed", cls: "err" };
+  if (status === "unavailable") return { text: "Provider not installed", cls: "err" };
+  return { text: "Not checked", cls: "muted" };
+}
+
+const workflowHref = (id: string) => `/automation/workflows?workflow=${encodeURIComponent(id)}`;
+const runHref = (workflowId: string, runId: string) => `${workflowHref(workflowId)}&run=${encodeURIComponent(runId)}`;
+const entryHref = (id: string) => `/workspace/entries/${encodeURIComponent(id)}`;
+const historyPages = pageCount(history.total, history.perPage);
+const handledPages = pageCount(handled.total, handled.perPage);
+---
+
+<AppLayout adminOnly={adminOnly} title="Alerts & health" eyebrow="Settings · Integrations">
+  <div class="health-page">
+    <div class="page-header">
+      <div>
+        <h2>Alerts &amp; health</h2>
+        <p>
+          How your integrations are doing: connections that need attention, failed steps waiting to be retried, failures
+          an integration's error policy took care of, and where alerts go.
+        </p>
+      </div>
+      <div class="header-links">
+        <a href="/workspace/settings/integrations" class="button secondary small">Integrations</a>
+        <a href="/workspace/settings?tab=integrations" class="button secondary small">Back to Settings</a>
+      </div>
+    </div>
+
+    {error && <div class="alert"><strong>Couldn't load alerts &amp; health.</strong> {error}</div>}
+
+    {notInstalled && (
+      <div class="empty">
+        <p>Integrations aren't installed.</p>
+        <p class="hint">Install an integration package and restart the server to use this page.</p>
+      </div>
+    )}
+
+    {!notInstalled && !error && (
+      <>
+        <p class="status-line" id="health-status" role="status"></p>
+
+        <!-- Health summary -->
+        <section class="block" aria-labelledby="h-health">
+          <h3 class="block-title" id="h-health">Connections</h3>
+          {health.length === 0 ? (
+            <div class="empty">
+              <p>No integrations connected yet.</p>
+              <p class="hint">Add one under <a href="/workspace/settings/integrations">Integrations</a>.</p>
+            </div>
+          ) : (
+            <div class="health-grid">
+              {health.map((h) => {
+                const prov = providersBySlug.get(h.provider);
+                const check = checkMeta(h.status);
+                return (
+                  <article class={`card ${h.enabled ? "" : "is-disabled"}`}>
+                    <div class="card-top">
+                      <strong class="int-named">
+                        {prov && <IntegrationMark slug={prov.slug} icon={prov.icon} hasLogo={prov.hasLogo} />}
+                        {h.name}
+                      </strong>
+                      <span class="sub">{h.providerName}</span>
+                    </div>
+                    <div class="badges">
+                      {h.openAlerts > 0 ? (
+                        <span class="badge warn" title={h.alertCodes.join(", ")}>
+                          Needs attention{h.openAlerts > 1 ? ` (${h.openAlerts})` : ""}
+                        </span>
+                      ) : (
+                        <span class="badge ok">No open alerts</span>
+                      )}
+                      {!h.enabled && <span class="badge muted">Disabled</span>}
+                    </div>
+                    <dl class="facts">
+                      <dt>Last successful action</dt>
+                      <dd>
+                        {h.lastSuccessAt ? (
+                          <time datetime={h.lastSuccessAt} title={when(h.lastSuccessAt)}>{relative(h.lastSuccessAt, now)}</time>
+                        ) : (
+                          <span class="muted">None recorded yet</span>
+                        )}
+                      </dd>
+                      <dt>Last check</dt>
+                      <dd>
+                        {h.lastCheckedAt ? (
+                          <>
+                            <time datetime={h.lastCheckedAt} title={when(h.lastCheckedAt)}>{relative(h.lastCheckedAt, now)}</time>{" "}
+                            <span class={`badge ${check.cls}`}>{check.text}</span>
+                          </>
+                        ) : (
+                          <span class={`badge ${check.cls}`}>{check.text}</span>
+                        )}
+                      </dd>
+                      <dt>Failed steps, 7 days</dt>
+                      <dd class={h.failures7d ? "warn-text" : ""}>{h.failures7d}</dd>
+                      <dt>Retries waiting</dt>
+                      <dd>{h.liveRetries}</dd>
+                    </dl>
+                    {h.status !== "ok" && h.lastError && <p class="err-text">{h.lastError}</p>}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <!-- Open alerts -->
+        <section class="block" aria-labelledby="h-open">
+          <h3 class="block-title" id="h-open">Open alerts</h3>
+          <p class="block-sub">
+            One alert per connection and error code. <strong>Test</strong> runs the connection's health check (a pass
+            resolves it); <strong>Resolve</strong> marks it fixed and retries what was waiting for it.
+          </p>
+          {openAlerts.length === 0 ? (
+            <div class="empty"><p>No open alerts.</p></div>
+          ) : (
+            <div class="list">
+              {openAlerts.map((a) => {
+                const prov = providersBySlug.get(a.provider);
+                return (
+                  <article class="card attention">
+                    <div class="card-top">
+                      <strong class="int-named">
+                        {prov && <IntegrationMark slug={prov.slug} icon={prov.icon} hasLogo={prov.hasLogo} />}
+                        {a.integrationName ?? a.integrationSlug}
+                      </strong>
+                      <span class="sub">
+                        <code>{a.code}</code> · {a.count} {a.count === 1 ? "failure" : "failures"}
+                      </span>
+                    </div>
+                    {a.message && <p class="message">{a.message}</p>}
+                    <p class="meta">
+                      First seen <time datetime={a.firstAt ?? ""} title={when(a.firstAt)}>{relative(a.firstAt, now)}</time> · last{" "}
+                      <time datetime={a.lastAt ?? ""} title={when(a.lastAt)}>{relative(a.lastAt, now)}</time>
+                    </p>
+                    <p class="meta">{reminderText(a, now)}</p>
+                    <div class="actions">
+                      <button type="button" class="button small secondary" data-act="check" data-integration={a.integrationId}>
+                        Test
+                      </button>
+                      <button type="button" class="button small" data-act="resolve" data-integration={a.integrationId} data-alert={a.id}>
+                        Resolve
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <!-- Pending retries -->
+        <section class="block" aria-labelledby="h-retries">
+          <h3 class="block-title" id="h-retries">Retries waiting</h3>
+          <p class="block-sub">
+            Failed workflow steps the integration asked to retry. <strong>Retry now</strong> runs it on the next minute's
+            sweep; <strong>Give up</strong> stops retrying and does nothing else.
+          </p>
+          {retries.length === 0 ? (
+            <div class="empty"><p>No retries waiting.</p></div>
+          ) : (
+            <div class="list">
+              {retries.map((r) => {
+                const prov = providersBySlug.get(r.provider);
+                const state = retryState(r, now);
+                return (
+                  <article class={`card ${r.status === "parked" ? "is-parked" : ""}`}>
+                    <div class="card-top">
+                      <strong class="int-named">
+                        {prov && <IntegrationMark slug={prov.slug} icon={prov.icon} hasLogo={prov.hasLogo} />}
+                        {r.integrationName ?? r.integrationSlug} · {r.action}
+                      </strong>
+                      <span class="sub"><code>{r.code}</code></span>
+                    </div>
+                    <div class="badges">
+                      {r.status === "parked" && <span class="badge warn">Parked until the connection recovers</span>}
+                      {r.status === "running" && <span class="badge ok">Running</span>}
+                      <span class={`state ${state.tone}`}>{state.text}</span>
+                    </div>
+                    <p class="meta">
+                      Workflow <a href={workflowHref(r.automationId)}>{r.automationName ?? "(deleted)"}</a>
+                      {r.entryId && (
+                        <>
+                          {" "}· entry{" "}
+                          {r.entryExists ? (
+                            <a href={entryHref(r.entryId)}>{r.entryTitle || "Untitled"}</a>
+                          ) : (
+                            <span>{r.entryTitle || "Untitled"} <span class="muted">(deleted)</span></span>
+                          )}
+                        </>
+                      )}
+                    </p>
+                    {r.lastError && <p class="err-text">{r.lastError}</p>}
+                    <div class="actions">
+                      <button type="button" class="button small secondary" data-act="retry-now" data-retry={r.id} disabled={r.status === "running"}>
+                        Retry now
+                      </button>
+                      <button type="button" class="button small danger" data-act="give-up" data-retry={r.id} disabled={r.status === "running"}>
+                        Give up
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <!-- Recent handled failures -->
+        <section class="block" id="handled" aria-labelledby="h-handled">
+          <h3 class="block-title" id="h-handled">Handled failures, last 7 days</h3>
+          <p class="block-sub">Failed integration steps that the integration's error policy took care of, newest first.</p>
+          {handled.items.length === 0 ? (
+            <div class="empty"><p>No handled failures in the last 7 days.</p></div>
+          ) : (
+            <>
+              <div class="list">
+                {handled.items.map((f) => {
+                  const prov = f.provider ? providersBySlug.get(f.provider) : undefined;
+                  return (
+                    <article class="card row">
+                      <p class="line">
+                        <span class="int-named">
+                          {prov && <IntegrationMark slug={prov.slug} icon={prov.icon} hasLogo={prov.hasLogo} />}
+                          <strong>{failureLine(f)}</strong>
+                        </span>
+                        {f.isRetry && <span class="badge muted">retry run</span>}
+                      </p>
+                      <p class="meta">
+                        <time datetime={f.at ?? ""} title={when(f.at)}>{relative(f.at, now)}</time>
+                        {f.automationId ? (
+                          <>
+                            {" "}· <a href={runHref(f.automationId, f.executionId)}>run of {f.automationName ?? "workflow"}</a>
+                          </>
+                        ) : (
+                          <> · run of {f.automationName ?? "a deleted workflow"}</>
+                        )}
+                        {f.entryId && (
+                          <>
+                            {" "}· entry{" "}
+                            {f.entryExists ? (
+                              <a href={entryHref(f.entryId)}>{f.entryTitle || "Untitled"}</a>
+                            ) : (
+                              <span class="muted">(deleted)</span>
+                            )}
+                          </>
+                        )}
+                      </p>
+                      {f.error && <p class="err-text">{f.error}</p>}
+                    </article>
+                  );
+                })}
+              </div>
+              {handledPages > 1 && (
+                <nav class="pager" aria-label="Handled failures pages">
+                  {handled.page > 1 ? <a class="button small secondary" href={pageHref(search, "handled", handled.page - 1, "handled")}>Newer</a> : <span />}
+                  <span class="muted">Page {handled.page} of {handledPages}</span>
+                  {handled.page < handledPages ? <a class="button small secondary" href={pageHref(search, "handled", handled.page + 1, "handled")}>Older</a> : <span />}
+                </nav>
+              )}
+            </>
+          )}
+        </section>
+
+        <!-- Alert history -->
+        <section class="block" id="history" aria-labelledby="h-history">
+          <h3 class="block-title" id="h-history">Alert history</h3>
+          <p class="block-sub">Resolved alerts from the last 30 days: how long each was open and what resolved it.</p>
+          {history.items.length === 0 ? (
+            <div class="empty"><p>No resolved alerts.</p></div>
+          ) : (
+            <>
+              <div class="list">
+                {history.items.map((a) => {
+                  const prov = providersBySlug.get(a.provider);
+                  return (
+                    <article class="card row">
+                      <p class="line">
+                        <span class="int-named">
+                          {prov && <IntegrationMark slug={prov.slug} icon={prov.icon} hasLogo={prov.hasLogo} />}
+                          <strong>{a.integrationName ?? a.integrationSlug}</strong>
+                        </span>
+                        <code>{a.code}</code>
+                        <span class="muted">{a.count} {a.count === 1 ? "failure" : "failures"}</span>
+                      </p>
+                      {a.message && <p class="message">{a.message}</p>}
+                      <p class="meta">
+                        Open for {duration(a.openSeconds) || "—"} · {resolutionLabel(a.resolution, a.resolvedByName)}{" "}
+                        <time datetime={a.resolvedAt ?? ""} title={when(a.resolvedAt)}>{relative(a.resolvedAt, now)}</time>
+                      </p>
+                    </article>
+                  );
+                })}
+              </div>
+              {historyPages > 1 && (
+                <nav class="pager" aria-label="Alert history pages">
+                  {history.page > 1 ? <a class="button small secondary" href={pageHref(search, "history", history.page - 1, "history")}>Newer</a> : <span />}
+                  <span class="muted">Page {history.page} of {historyPages}</span>
+                  {history.page < historyPages ? <a class="button small secondary" href={pageHref(search, "history", history.page + 1, "history")}>Older</a> : <span />}
+                </nav>
+              )}
+            </>
+          )}
+        </section>
+
+        <!-- Where alerts go -->
+        <section class="block" aria-labelledby="h-routing">
+          <h3 class="block-title" id="h-routing">Where alerts go</h3>
+          {routing && <IntegrationAlertsPanel routing={routing} />}
+        </section>
+      </>
+    )}
+  </div>
+</AppLayout>
+
+<script>
+  import { checkIntegration, giveUpRetry, resolveAttention, retryNow } from "@/lib/api/integrations";
+
+  const status = document.getElementById("health-status");
+
+  function say(message: string, ok = true) {
+    if (!status) return;
+    status.textContent = message;
+    status.classList.toggle("is-error", !ok);
+  }
+
+  function errorMessage(e: unknown): string {
+    // API and SDK errors both carry the server's `detail` (e.g. "It's running right now.").
+    const detail = (e as { body?: { detail?: unknown } } | null)?.body?.detail;
+    if (typeof detail === "string") return detail;
+    return e instanceof Error ? e.message : "Something went wrong.";
+  }
+
+  const ACTIONS: Record<string, (b: HTMLButtonElement) => Promise<string | null>> = {
+    check: async (b) => {
+      const result = await checkIntegration(b.dataset.integration!);
+      return result.status === "ok" ? "The check passed — the alert is resolved." : `The check failed: ${result.lastError ?? result.status}`;
+    },
+    resolve: async (b) => {
+      await resolveAttention(b.dataset.integration!, b.dataset.alert);
+      return "Resolved.";
+    },
+    "retry-now": async (b) => {
+      await retryNow(b.dataset.retry!);
+      return "Retry scheduled — it runs within a minute.";
+    },
+    "give-up": async (b) => {
+      if (!confirm("Stop retrying this step? Nothing else happens: the entry isn't sent to review and no alert goes out.")) return null;
+      await giveUpRetry(b.dataset.retry!);
+      return "Retry given up.";
+    },
+  };
+
+  document.querySelectorAll<HTMLButtonElement>("button[data-act]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const act = ACTIONS[b.dataset.act ?? ""];
+      if (!act) return;
+      b.disabled = true;
+      try {
+        const message = await act(b);
+        if (message === null) {
+          b.disabled = false;
+          return;
+        }
+        say(message);
+        setTimeout(() => window.location.reload(), 900);
+      } catch (e) {
+        say(errorMessage(e), false);
+        b.disabled = false;
+      }
+    }),
+  );
+</script>
+
+<style>
+  .health-page { max-width: 1000px; }
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--line);
+  }
+  .page-header h2 { margin: 0; font-size: 24px; font-weight: 600; }
+  .page-header p { margin: 8px 0 0; color: var(--muted); font-size: 14px; max-width: 64ch; }
+  .header-links { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .alert {
+    padding: 14px 16px;
+    margin-bottom: 20px;
+    border-radius: var(--radius);
+    background: var(--color-error-bg);
+    color: var(--color-error);
+    border: 1px solid var(--color-error);
+    font-size: 14px;
+  }
+  .status-line { min-height: 1.2em; margin: 0 0 12px; font-size: 13px; color: var(--good); }
+  .status-line:empty { display: none; }
+  .status-line.is-error { color: var(--color-error); }
+
+  .block { margin-bottom: 36px; }
+  .block-title { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+  .block-sub { margin: 0 0 14px; font-size: 13px; color: var(--muted); max-width: 72ch; }
+
+  .empty {
+    padding: 28px 20px;
+    text-align: center;
+    color: var(--muted);
+    background: var(--panel);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius);
+  }
+  .empty p { margin: 0; }
+  .empty .hint { margin-top: 6px; font-size: 13px; }
+
+  .health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+  .list { display: grid; gap: 10px; }
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    padding: 14px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: 13px;
+  }
+  .card.is-disabled { opacity: 0.62; }
+  .card.attention, .card.is-parked { border-left: 3px solid var(--warn); }
+  .card-top { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; }
+  .card-top strong { font-size: 14px; }
+  .sub { color: var(--muted); }
+  .badges { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
+  .badge {
+    font-size: 12px;
+    font-weight: 500;
+    padding: 2px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .badge.ok { color: var(--good); border-color: var(--good); background: rgb(53 122 85 / 0.08); }
+  .badge.err { color: var(--color-error); border-color: var(--color-error); background: var(--color-error-bg); }
+  .badge.warn { color: #9a7b00; border-color: #d9c07a; background: rgb(217 192 122 / 0.12); }
+  .badge.muted { color: var(--muted); }
+  .state.warn { color: #9a7b00; }
+  .state.ok { color: var(--good); }
+  .state.muted { color: var(--muted); }
+
+  .facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+
+  .line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 0; }
+  .message { margin: 0; overflow-wrap: anywhere; }
+  .meta { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+  .meta a, .empty a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .err-text { margin: 0; color: var(--color-error); overflow-wrap: anywhere; }
+  .warn-text { color: #9a7b00; font-weight: 600; }
+  code { font-family: ui-monospace, monospace; font-size: 12px; padding: 1px 6px; background: var(--panel-2); border-radius: 4px; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+  .button.small { min-height: 30px; padding: 4px 10px; font-size: 13px; }
+  .button.danger { background: var(--panel); color: var(--color-error); border-color: var(--color-error); }
+  .button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 13px; }
+
+  @media (max-width: 640px) {
+    .health-grid { grid-template-columns: 1fr; }
+    .card-top { flex-direction: column; align-items: flex-start; }
+    .actions .button { flex: 1 1 auto; justify-content: center; }
+  }
+</style>
