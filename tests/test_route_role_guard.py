@@ -89,10 +89,6 @@ OPEN_ROUTES = {
 
 # In-scope routes with no gate today that look like real gaps. Each runs as xfail(strict=True).
 KNOWN_GAPS = {
-    ("POST", "/api/platform/workspaces/{group_id}/email-templates/{template_id}/test"): (
-        "only checks membership: any member (VIEWER) can send a template test email through the workspace SMTP "
-        "to any address, the hole c5c948b5 closed on /api/platform/email/templates/{id}/test"
-    ),
     ("GET", "/api/groups/secrets"): (
         "lists every secret's name, slug and metadata (no values) to any member; docs/admin-model.md says secret "
         "reads are admin-only except the slugs, and the only caller (settings/environment) is admin-only"
@@ -315,7 +311,12 @@ IDIOM_SAMPLE = [
     ("has_workspace_role", "GET", "/api/platform/workspace/backup-key", None),
     ("Depends(require_workspace_role(ADMIN))", "DELETE", f"/api/platform/workspaces/{{gid}}/members/{NOPE}", None),
     ("AISettingsController._require_admin", "DELETE", "/api/groups/ai-settings/bubble-lines", None),
-    ("EmailTemplateController._check_admin_access", "DELETE", f"/api/platform/workspaces/{{gid}}/email-templates/{NOPE}", None),
+    (
+        "EmailTemplateController._check_admin_access",
+        "POST",
+        f"/api/platform/workspaces/{{gid}}/email-templates/{NOPE}/test",
+        {"recipient_email": "a@example.com"},
+    ),
     ("GroupPreferencesController._user_has_admin_access", "PATCH", "/api/groups/{gid}/preferences", {}),
 ]
 

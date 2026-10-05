@@ -376,7 +376,8 @@ class EmailTemplateController(BaseUserController):
     @router.post("/{template_id}/test", status_code=status.HTTP_200_OK, summary="Send Test Email")
     def send_test_email(self, group_id: UUID4, template_id: UUID4, data: TestEmailRequest) -> dict:
         """
-        Send a test email using the specified template.
+        Send a test email using the specified template. Workspace OWNER/ADMIN only: it sends mail
+        through the workspace's SMTP to any address, like the /platform/email test routes.
 
         Args:
             group_id: Workspace ID
@@ -386,7 +387,7 @@ class EmailTemplateController(BaseUserController):
         Returns:
             Success message
         """
-        self._check_workspace_access(group_id)
+        self._check_admin_access(group_id)
 
         # Get the template
         template = self.repo.get_one(template_id)
