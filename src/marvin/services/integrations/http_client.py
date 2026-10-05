@@ -1,5 +1,8 @@
 """Core implementation of the SDK's HttpHelper — the safe HTTP client handed to providers.
 
+Also core's own guarded client for outbound fetches that aren't integrations (media-embed oEmbed
+lookups), so it must import without the optional ``marvin_integration_sdk``.
+
 Enforces timeouts, a response-size cap (INTEGRATION_HTTP_MAX_BYTES), and an SSRF guard (refuses to call private/loopback/
 link-local/reserved hosts, and re-checks on redirect). Providers get safe outbound HTTP for free.
 """
@@ -10,9 +13,34 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 
-from marvin_integration_sdk.http import Response
-
 from marvin.core.config import get_app_settings
+
+try:  # the SDK's Response when integrations are installed, so providers get exactly the type they import
+    from marvin_integration_sdk.http import Response
+except ImportError:  # core features (media embeds) use this client without the optional SDK
+    import json as _json
+    from dataclasses import dataclass, field
+    from typing import Any
+
+    @dataclass
+    class Response:  # type: ignore[no-redef]
+        """Same shape as ``marvin_integration_sdk.http.Response``: status, headers, raw bytes."""
+
+        status_code: int
+        headers: dict[str, str] = field(default_factory=dict)
+        content: bytes = b""
+
+        @property
+        def ok(self) -> bool:
+            return 200 <= self.status_code < 300
+
+        @property
+        def text(self) -> str:
+            return self.content.decode("utf-8", "replace")
+
+        def json(self) -> Any:
+            return _json.loads(self.content)
+
 
 # urllib's default "Python-urllib/x.y" is refused outright by Cloudflare's bot rules (error 1010), so
 # a provider fetching anything behind Cloudflare — including this install's own public asset URLs —

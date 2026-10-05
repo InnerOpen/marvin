@@ -7,6 +7,7 @@ from pytest import MonkeyPatch, fixture
 mp = MonkeyPatch()
 mp.setenv("PRODUCTION", "False")  # Set to False for testing (enables debug handlers)
 mp.setenv("TESTING", "True")
+mp.setenv("MEDIA_EMBEDS_FETCH_ENABLED", "False")  # no test may reach a media provider (oEmbed) over the network
 
 # The suite defaults to SQLite, matching the app's own default, so a checkout whose .env points at a
 # real Postgres dev database doesn't become the target of a schema-dropping test run. This must run

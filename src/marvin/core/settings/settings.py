@@ -446,6 +446,12 @@ class AppSettings(BaseSettings):
     PUBLISHING_UNKNOWN_ENTRY_TYPE: str = "unknown"
     """Fallback value when entry type is missing. Default: unknown"""
 
+    MEDIA_EMBEDS_FETCH_ENABLED: bool = True
+    """Ask media providers' oEmbed endpoints (YouTube, Vimeo, Spotify, …) for a pasted link's title and
+    thumbnail, and for the player id of links that don't carry one (Simplecast episodes, short links).
+    Off: players are built from the link alone and links that need a lookup show as link cards.
+    The test suite turns it off so no test reaches the network. Default: true"""
+
     # ===============================================
     # Storage Configuration
 

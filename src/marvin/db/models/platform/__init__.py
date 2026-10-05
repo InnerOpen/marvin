@@ -14,6 +14,7 @@ from .entry_resources import EntryResources
 from .entry_tags import EntryTags
 from .entry_types import EntryTypes
 from .event_log import EventLogModel
+from .media_embed_cache import MediaEmbedCacheModel
 from .platform_settings import PlatformSettingsModel
 from .resource_tags import ResourceTags
 from .resources import Resources
@@ -42,6 +43,7 @@ __all__ = [
     "EntryTags",
     "EntryTypes",
     "EventLogModel",
+    "MediaEmbedCacheModel",
     "PlatformSettingsModel",
     "ResourceTags",
     "Resources",

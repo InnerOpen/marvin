@@ -838,6 +838,55 @@ class SmartCollectionReactionListener(EventListenerBase):
                 self.logger.warning(f"SmartCollectionReactionListener: sync failed for entry {entry_id}: {e}")
 
 
+class MediaEmbedReactionListener(EventListenerBase):
+    """
+    Warms the platform-wide media-embed cache when an entry is saved, so the publishing API (which
+    never calls a provider) has titles, thumbnails and players for the entry's media links by the time
+    the site rebuilds. Runs before the site-rebuild listener for that reason.
+
+    Best-effort: at most ``MAX_URLS`` links per save, only links without a fresh cache row, and any
+    failure is logged and swallowed — it can never break a write. Emits nothing.
+    """
+
+    MAX_URLS = 20
+    _TRIGGERS = (EventTypes.entry_created, EventTypes.entry_updated, EventTypes.entry_published)
+
+    def __init__(self, group_id: UUID4) -> None:
+        from .publisher import ConsolePublisher  # We act on the event; we don't publish through it.
+
+        super().__init__(group_id, ConsolePublisher())
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        """Act only on entry saves; cheap check, no DB access."""
+        return ["media_embeds"] if event.event_type in self._TRIGGERS else []
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id
+        if not entry_id:
+            return
+
+        from marvin.db.models.platform.entries import Entries
+        from marvin.db.models.platform.entry_types import EntryTypes
+        from marvin.services.media_embeds.cache import warm
+        from marvin.services.media_embeds.extract import entry_embed_urls
+
+        with self.ensure_session() as session:
+            entry = session.get(Entries, entry_id)
+            if not entry or entry.group_id != self.group_id:
+                return
+            entry_type = session.get(EntryTypes, entry.entry_type_id) if entry.entry_type_id else None
+            urls = entry_embed_urls(entry_type.schema_json if entry_type else None, entry.data_json)
+            if not urls:
+                return
+            try:
+                n = warm(session, urls, limit=self.MAX_URLS)
+                if n:
+                    self.logger.info(f"Media embeds: resolved {n} link(s) for entry {entry_id}")
+            except Exception as e:
+                session.rollback()
+                self.logger.warning(f"MediaEmbedReactionListener: resolving links for entry {entry_id} failed: {e}")
+
+
 class SiteRebuildReactionListener(EventListenerBase):
     """
     Requests a static-site rebuild when published content changes, so a publish, an edit to a live
