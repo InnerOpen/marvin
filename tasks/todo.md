@@ -553,6 +553,71 @@ Full backend suite, frontend tests, Biome and ruff green; `astro check` 50 error
 the base. Browser-checked on SQLite + astro dev (headless Chromium): preview parts for frame / everywhere / drop,
 JSON panels collapsed, collapsed metadata still saved, invalid metadata reopens its panel, no empty Ask chip.
 
+# CLI 3.1 — catch up with the API (plan, 2026-10-05)
+
+**Goal:** make `@inneropen/marvin-cli` safe to script again and cover the two most-used new areas — workflows and
+integrations — plus a real "rebuild the site" call. Jared 2026-10-05: plan batches 0–2 + the rebuild endpoint.
+
+**Today (CLI 3.0.0 `8671977`, SDK 4.0.0 types from rc.197, core rc.198):** the CLI wraps 213 of 355 manageable API
+operations (60%) and calls no dead endpoint. Missing entirely: workflows, integrations, blueprints, incoming webhooks,
+tags, review/suggestions, SMTP, agents/threads, tones/characters. The 3.0.0 changelog points users at the Apprise
+integration, which the CLI can't reach. Quality: ~114 write commands print "✓ Created…" to stdout before JSON
+(`--output json | jq` breaks); 44 commands define an input `--json <payload>` that shadows the global `--json` output
+flag; `-o <file>` on export/download shadows `--output <format>`; webhooks/invites/admin-groups lists return page 1
+only; `secrets create/update --value` lands in shell history; README shows non-existent `marvin site/entries`
+commands; 4 stale help texts; the coverage drift gate's snapshot is rc.189 (8 newer endpoints unclassified). There is
+no core endpoint to rebuild a site — only the `request_site_rebuild` task/workflow step.
+
+## Design
+**Batch 0 — output hygiene (no SDK work):**
+- All human messages (✓/progress/warnings) go to **stderr**; stdout carries only data. Deletes/removes/revokes emit
+  `{"deleted": "<id>"}` (and `{"ok": true, …}` for run/test/rerun/import) in JSON mode; prose otherwise.
+- Input payload flag renamed **`--data <json|@file|->`**; `--json <payload>` kept one minor as a deprecated alias
+  (warns on stderr) that no longer forces JSON output. `-o <file>` → **`--out-file`** (old spelling kept as alias).
+- `--page/--all` on webhooks, invites and admin groups lists; `limit/offset` on form submissions.
+- `secrets create/update`: value from `--value-stdin` or an interactive prompt; `--value` still accepted with a
+  warning.
+- Fix the README (publish commands, platform/admin overview), the 4 stale help texts, and refresh the drift
+  snapshot to rc.198 so new endpoints are classified.
+
+**Batch 1 — `marvin workflows`** (SDK ready except samples): `list`, `get`, `create/update --data`, `delete`,
+`enable/disable`, `validate`, `preview`, `run [--dry-run] [--entry-id|--event-id]`, `executions [--status] [--limit]`,
+`execution <id>` (steps, handling, retry chain), `samples` (adds the SDK method). Named "workflows" as in the manual.
+
+**Batch 2 — `marvin integrations`:** `list` (with **needs attention**), `get`, `providers`, `plugins`, `check`,
+`resolve [--alert-id]`, `run <id> <action> --data`, `options <id> <action> <input>`, `errors <id>` (the policy table)
+and `errors set <id> <code> --review/--no-review --alert/--no-alert` / `errors reset`, `alert-routing` show/set,
+`subscriptions` CRUD, `create/update/delete`. SDK 4.1.0 adds the rc.197 methods: options, resolve, error-overrides,
+alert-routing, provider logo URL helper, admin plugins.
+
+**Core — one rebuild call:** `POST /api/platform/site/rebuild` (EDITOR; same role as publishing) → requests a
+rebuild through the existing debounced site-rebuild path (`site_rebuild_requests`, honours
+`SITE_REBUILD_QUIET_SECONDS`), returns `{requested: true, queued_at, reason}`; `GET /api/platform/site/rebuild`
+→ last request/build status if known. Used by `marvin site rebuild`, available to n8n and the UI. Covered by the
+route role guard.
+
+## Checklist
+- [ ] Core: rebuild endpoint + tests (role, debounce, no integration configured → clear 409) + manual + whats-new
+- [ ] SDK 4.1.0: rc.197 integration methods, workflow samples, site rebuild; regenerate types; tests; release
+      (trusted publishing)
+- [ ] CLI batch 0: stderr messages + JSON delete/run outputs; `--data`/`--out-file` with aliases; pagination;
+      secrets stdin/prompt; README + help fixes; drift snapshot rc.198. Tests: `create --output json | jq` parses
+      for every write command (one table-driven test), alias warnings, stdin secret
+- [ ] CLI batch 1: `workflows` commands + tests against the integration-test backend in `cli.yml`
+- [ ] CLI batch 2: `integrations` commands + tests
+- [ ] CLI: `site rebuild`
+- [ ] Docs: CLI reference pages, CHANGELOG via semantic-release (`feat:` commits → 3.1.0), migration note for
+      `--data`/`--out-file`
+- [ ] Release: SDK 4.1.0 → CLI 3.1.0 (both trusted publishing); core rebuild endpoint ships first
+
+## Later (3.2+)
+Review queue (`entries list --status`, counts, apply/reject suggestions, dashboard attention); `blueprints`;
+publish-date/expiry flags and `publish entries --tag/--slug/--updated-since`; incoming webhooks + tags; smart
+collection preview/members; MCP servers, embeddings status, tools, compose/revise; agents + threads (approve
+ask-first via resume); SMTP profiles, submission protection, roles matrix; tones/characters (probably never).
+
+**Decisions (Jared 2026-10-05):** remove the deprecated `--json <payload>` alias in 4.0; rebuild endpoint role EDITOR.
+
 # Media embeds — paste a link, get a player (plan, 2026-10-05)
 
 **Goal:** paste a YouTube, Vimeo, Bandcamp, Spotify, SoundCloud, Apple Music/Podcasts, Tidal or podcast
@@ -641,6 +706,13 @@ shared SSRF guard (also guard `enrichment.py`); periodic cache refresh/pruning; 
 **Risks:** existing bare provider URLs change on the next build; provider schemes/sandbox needs drift; Bandcamp only
 via embed code; Simplecast/Transistor unverified; too-strict sandbox silently breaks a player; facades need
 `EmbedLoader`; raw `<iframe>` in markdown stays unsanitised (pre-existing).
+
+**Decisions (Jared 2026-10-05):** 1) yes — bare-URL auto-embed on for markdown fields, `autoEmbed: false` per field,
+after the existing-content count. 2) yes — default `click_to_load`. 3) **(b)** — `add_embed` stages a suggestion you
+approve. 4) yes — `embed` field type in v1. 5) yes — platform-wide cache. 6) yes — separate `podcast` kind.
+**RenderersCore:** keep the renderer concept; it becomes the site-side component library (Form, Embed, link card;
+later the privacy-policy table) — fix Page/Article's raw markdown `set:html`, move the peer to SDK ^4, cut a stable
+release. **Fold RenderersCore into MarvinAstro (Jared 2026-10-05)** — `@inneropen/marvin-astro/components`; RenderersCore deprecated.
 
 **Open questions:** 1) bare-URL auto-embed on for every markdown field, with a per-field `autoEmbed: false`? (rec.
 yes, after the existing-content count) 2) default privacy mode? (rec. `click_to_load`) 3) `add_embed` writes directly
