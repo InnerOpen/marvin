@@ -6,6 +6,36 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.199 (2026-10-05)
+
+### Continuous Integration
+
+- Cache pip downloads in the cli, sdk and release workflows
+  ([`8d59a18`](https://github.com/InnerOpen/marvin/commit/8d59a1844a2b5b15921e8cc687095f704a76c78a))
+
+- Optional self-hosted runner for push builds (CI_RUNNER)
+  ([`5a1bf65`](https://github.com/InnerOpen/marvin/commit/5a1bf657354ef8d657fd930bac7b9360e3e799ad))
+
+- Publish test results with the composite (non-Docker) action
+  ([`cb75109`](https://github.com/InnerOpen/marvin/commit/cb751097d6930e587112adc66e80d21d5dc45723))
+
+- Run the PostgreSQL job on GitHub-hosted runners only
+  ([`38d6550`](https://github.com/InnerOpen/marvin/commit/38d65504963ca007683ac059e7345a1207bdf583))
+
+### Documentation
+
+- Media embeds (manual, what's new, publishing API); tasks: tick the core plan
+  ([`2dee73d`](https://github.com/InnerOpen/marvin/commit/2dee73de9e83bc0c7794d024d8837cfd00be8e09))
+
+- **manual**: Alerts & health page; tasks: tick the plan
+  ([`26cd40c`](https://github.com/InnerOpen/marvin/commit/26cd40c8f16396892a24841724edeaf7a8abe510))
+
+### Features
+
+- **publish**: ?expand=full returns full entries from the list endpoints
+  ([`2a9d833`](https://github.com/InnerOpen/marvin/commit/2a9d83334de32917fa4a6b80ea8f666d150673c4))
+
+
 ## v1.0.0-rc.198 (2026-10-05)
 
 ### Bug Fixes
