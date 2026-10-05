@@ -13,8 +13,9 @@ credentials, and the workflow engine already requires ADMIN for integration acti
 import re
 from dataclasses import asdict
 from datetime import UTC, datetime
+from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from pydantic import UUID4
 from slugify import slugify
 
@@ -26,7 +27,9 @@ from marvin.routes._base.checks import require_workspace_admin
 from marvin.schemas.group.integration import (
     AlertRouting,
     AlertRoutingUpdate,
+    HandledFailurePage,
     IntegrationActionResult,
+    IntegrationAlertPage,
     IntegrationAttention,
     IntegrationCheckResult,
     IntegrationCreate,
@@ -34,12 +37,14 @@ from marvin.schemas.group.integration import (
     IntegrationEventSubscriptionCreate,
     IntegrationEventSubscriptionRead,
     IntegrationEventSubscriptionUpdate,
+    IntegrationHealthRow,
     IntegrationOption,
     IntegrationOptionsRequest,
     IntegrationPluginInfo,
     IntegrationProviderInfo,
     IntegrationRead,
     IntegrationResolveResult,
+    IntegrationRetryRead,
     IntegrationUpdate,
 )
 from marvin.services.integrations import (
@@ -49,6 +54,7 @@ from marvin.services.integrations import (
     build_http,
     errors,
     get_provider,
+    health,
     list_providers,
     load_reports,
     logos,
@@ -193,6 +199,55 @@ class IntegrationsController(BaseUserController):
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
         return AlertRouting(**routing)
+
+    # ---- alerts & health page ----------------------------------------------------
+
+    @router.get("/health", response_model=list[IntegrationHealthRow])
+    def get_health(self):
+        """Each connection at a glance: last successful action, last check, 7-day failures, open alerts."""
+        require_workspace_admin(self.user, self.group_id)
+        return health.health(self.session, self.group_id)
+
+    @router.get("/alerts", response_model=IntegrationAlertPage)
+    def list_alerts(self, status_: Literal["open", "resolved"] = Query("open", alias="status"), page: int = 1, per_page: int = 25):
+        """The workspace's open alerts, or its resolved ones (how long each was open, how it resolved)."""
+        require_workspace_admin(self.user, self.group_id)
+        return health.list_alerts(self.session, self.group_id, status=status_, page=page, per_page=per_page)
+
+    @router.get("/retries", response_model=list[IntegrationRetryRead])
+    def list_retries(self):
+        """Failed workflow steps waiting to be retried (pending, parked until the connection recovers, running)."""
+        require_workspace_admin(self.user, self.group_id)
+        return health.list_retries(self.session, self.group_id)
+
+    def _retry_lever(self, lever, retry_id: UUID4) -> IntegrationRetryRead:
+        try:
+            row = lever(self.session, self.group_id, retry_id)
+        except health.RetryConflict as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+        if row is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Retry not found.")
+        return row
+
+    @router.post("/retries/{retry_id}/retry-now", response_model=IntegrationRetryRead)
+    def retry_now(self, retry_id: UUID4):
+        """Make a pending or parked retry due now. The retry sweep runs it on its next tick (about a
+        minute) — never this request. 409 while it is running, or once it has finished."""
+        require_workspace_admin(self.user, self.group_id)
+        return self._retry_lever(health.retry_now, retry_id)
+
+    @router.post("/retries/{retry_id}/give-up", response_model=IntegrationRetryRead)
+    def give_up_retry(self, retry_id: UUID4):
+        """Stop retrying: the chain ends as superseded and nothing else happens (no review, no alert).
+        409 while it is running, or once it has finished."""
+        require_workspace_admin(self.user, self.group_id)
+        return self._retry_lever(health.give_up, retry_id)
+
+    @router.get("/handled-failures", response_model=HandledFailurePage)
+    def list_handled_failures(self, since: datetime | None = None, page: int = 1, per_page: int = 25):
+        """Failed integration steps an error policy took in hand (default: the last 7 days), newest first."""
+        require_workspace_admin(self.user, self.group_id)
+        return health.handled_failures(self.session, self.group_id, since=since, page=page, per_page=per_page)
 
     # ---- event connections (integration action ⇄ event) -------------------------
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
+from .._model_utils.datetime import DateTime
 from .._model_utils.guid import GUID
 
 if TYPE_CHECKING:
@@ -53,6 +54,8 @@ class IntegrationModel(SqlAlchemyBase, BaseMixins):
 
     last_checked_at: Mapped[datetime | None] = mapped_column(sa.DateTime, nullable=True)
     last_error: Mapped[str | None] = mapped_column(String, nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    """When a provider action through this connection last succeeded (any caller; see errors.connection_succeeded)."""
 
     error_overrides: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
     """An admin's adjustments to the provider's error policy for this connection: {code: {review?, notify?}}.

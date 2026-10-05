@@ -1,6 +1,7 @@
 """Schemas for workspace integrations — credentialed connections to external services."""
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import UUID4, Field, SecretStr
 
@@ -218,3 +219,128 @@ class AlertRoutingUpdate(_MarvinModel):
     integration_ids: list[UUID4] = Field(default_factory=list)
     """The connections alerts go to (each must be one of the routing's targets)."""
     reminder_hours: int = Field(default=24, ge=0, le=24 * 30)
+
+
+# ---- Alerts & health page ---------------------------------------------------------------------------
+
+
+class IntegrationAlertRead(_MarvinModel):
+    """One connection alert, open or resolved, with how long it was open and how it ended."""
+
+    id: UUID
+    integration_id: UUID
+    integration_name: str | None = None
+    integration_slug: str
+    provider: str
+    provider_name: str
+    code: str
+    message: str | None = None
+    """The latest failure's message (redacted when it was stored)."""
+    count: int
+    status: str
+    """open | resolved"""
+    first_at: datetime | None = None
+    last_at: datetime | None = None
+    notified_at: datetime | None = None
+    """When the alert was last announced (the open, or the latest reminder)."""
+    remind_after: datetime | None = None
+    """An open alert is announced again on its next failure after this; None while reminders are off."""
+    reminder_hours: int = 0
+    resolved_at: datetime | None = None
+    resolution: str | None = None
+    """manual | check | action"""
+    resolved_by_name: str | None = None
+    open_seconds: int | None = None
+    """How long it stayed open (resolved alerts only)."""
+
+
+class IntegrationAlertPage(_MarvinModel):
+    items: list[IntegrationAlertRead]
+    page: int
+    per_page: int
+    total: int
+
+
+class IntegrationRetryRead(_MarvinModel):
+    """A failed workflow step that is waiting to be retried (or running right now)."""
+
+    id: UUID
+    status: str
+    """pending | parked (waits for the connection to recover) | running"""
+    automation_id: UUID
+    automation_name: str | None = None
+    automation_enabled: bool = True
+    """A disabled workflow's retries wait until it is enabled again."""
+    entry_id: UUID | None = None
+    entry_title: str | None = None
+    entry_exists: bool = False
+    integration_id: UUID | None = None
+    integration_name: str | None = None
+    integration_slug: str
+    provider: str
+    provider_name: str
+    action: str
+    code: str
+    attempt: int
+    """Retries made so far."""
+    max_attempts: int
+    next_attempt_at: datetime | None = None
+    lease_until: datetime | None = None
+    last_error: str | None = None
+    created_at: datetime | None = None
+
+
+class HandledFailureRead(_MarvinModel):
+    """A failed integration step that the provider's error policy took in hand."""
+
+    id: UUID
+    execution_id: UUID
+    run_status: str
+    is_retry: bool = False
+    """The step ran in a retry run (the original failure has a row of its own)."""
+    at: datetime | None = None
+    automation_id: UUID | None = None
+    automation_name: str | None = None
+    entry_id: UUID | None = None
+    entry_title: str | None = None
+    entry_exists: bool = False
+    integration_id: UUID | None = None
+    integration_slug: str | None = None
+    provider: str | None = None
+    provider_name: str | None = None
+    action: str | None = None
+    code: str | None = None
+    error: str | None = None
+    outcome: str
+    """What came of it, e.g. "retried, succeeded on retry 1" or "sent to review"."""
+    retry_status: str | None = None
+    """The retry chain's status now, when the policy started one and it is still on record."""
+
+
+class HandledFailurePage(_MarvinModel):
+    items: list[HandledFailureRead]
+    page: int
+    per_page: int
+    total: int
+    since: datetime
+
+
+class IntegrationHealthRow(_MarvinModel):
+    """One connection at a glance."""
+
+    id: UUID
+    name: str
+    slug: str
+    provider: str
+    provider_name: str
+    enabled: bool
+    status: str
+    """The last health check's result: ok | error | unconfigured | unavailable"""
+    last_checked_at: datetime | None = None
+    last_error: str | None = None
+    last_success_at: datetime | None = None
+    failures_7d: int = 0
+    """Failed workflow steps through this connection in the last 7 days."""
+    open_alerts: int = 0
+    alert_codes: list[str] = Field(default_factory=list)
+    live_retries: int = 0

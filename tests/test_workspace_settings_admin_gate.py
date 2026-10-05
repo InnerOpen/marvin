@@ -49,6 +49,13 @@ GATED = [
     ("POST", f"{INTEGRATIONS}/subscriptions", {"integration_id": NOPE, "event_type": "entry_created", "action": "a"}),
     ("PATCH", f"{INTEGRATIONS}/subscriptions/{NOPE}", {}),
     ("DELETE", f"{INTEGRATIONS}/subscriptions/{NOPE}", None),
+    # integrations: the Alerts & health page
+    ("GET", f"{INTEGRATIONS}/health", None),
+    ("GET", f"{INTEGRATIONS}/alerts", None),
+    ("GET", f"{INTEGRATIONS}/retries", None),
+    ("POST", f"{INTEGRATIONS}/retries/{NOPE}/retry-now", None),
+    ("POST", f"{INTEGRATIONS}/retries/{NOPE}/give-up", None),
+    ("GET", f"{INTEGRATIONS}/handled-failures", None),
     # outgoing webhooks
     ("GET", WEBHOOKS, None),
     ("POST", WEBHOOKS, _WEBHOOK),

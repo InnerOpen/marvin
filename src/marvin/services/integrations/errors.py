@@ -837,7 +837,10 @@ def claim_next(session, now: datetime | None = None) -> IntegrationRetryModel | 
     """Claim the next due retry (or one whose lease ran out mid-run), one at a time so a tick can stop
     when its time is up and leave the rest pending. Retries of a disabled workflow wait (they run once
     it is enabled again). A reclaimed lease counts as an attempt, so a run that keeps crashing the
-    process still runs out of retries."""
+    process still runs out of retries.
+
+    The claim is a conditional update: if the row changed between being picked and being claimed (an
+    admin gave it up on the Alerts & health page), it is left alone and the next due row is tried."""
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
 
     now = now or _now()
@@ -846,22 +849,35 @@ def claim_next(session, now: datetime | None = None) -> IntegrationRetryModel | 
         .filter(WorkspaceAutomationModel.id == IntegrationRetryModel.automation_id, WorkspaceAutomationModel.enabled.is_(True))
         .exists()
     )
-    row = (
-        session.query(IntegrationRetryModel)
-        .filter(
-            ((IntegrationRetryModel.status == "pending") & (IntegrationRetryModel.next_attempt_at <= now))
-            | ((IntegrationRetryModel.status == "running") & (IntegrationRetryModel.lease_until < now)),
-            enabled,
-        )
-        .order_by(IntegrationRetryModel.next_attempt_at.asc())
-        .first()
+    due = ((IntegrationRetryModel.status == "pending") & (IntegrationRetryModel.next_attempt_at <= now)) | (
+        (IntegrationRetryModel.status == "running") & (IntegrationRetryModel.lease_until < now)
     )
-    if row is None:
-        return None
-    row.attempt += 1
-    row.status, row.lease_until = "running", now + RETRY_LEASE
-    session.commit()
-    return row
+    skipped: set = set()
+    while True:
+        query = session.query(IntegrationRetryModel.id).filter(due, enabled)
+        if skipped:
+            query = query.filter(IntegrationRetryModel.id.notin_(skipped))
+        picked = query.order_by(IntegrationRetryModel.next_attempt_at.asc()).first()
+        if picked is None:
+            return None
+        claimed = (
+            session.query(IntegrationRetryModel)
+            .filter(IntegrationRetryModel.id == picked.id, due)
+            .update(
+                {
+                    IntegrationRetryModel.attempt: IntegrationRetryModel.attempt + 1,
+                    IntegrationRetryModel.status: "running",
+                    IntegrationRetryModel.lease_until: now + RETRY_LEASE,
+                },
+                synchronize_session=False,
+            )
+        )
+        session.commit()
+        if claimed:
+            row = session.get(IntegrationRetryModel, picked.id)
+            session.refresh(row)
+            return row
+        skipped.add(picked.id)
 
 
 def claim_due(session, now: datetime | None = None, limit: int = 25) -> list[IntegrationRetryModel]:
@@ -1208,17 +1224,34 @@ def connection_failed(group_id, integration_id, provider, action_key: str, exc: 
 
 def connection_succeeded(group_id, integration_id, *, resolution: str = "action", session=None, user_id=None) -> int:
     """The connection worked (an action succeeded, or a check passed): resolve its open alerts. Cheap
-    when there are none. Best-effort, never raises."""
+    when there are none. An action also stamps the connection's ``last_success_at``. Best-effort,
+    never raises."""
     if _delivering_alert.get() or integration_id is None:
         return 0
     try:
         with _session_scope(session) as s:
+            if resolution == "action":
+                _stamp_success(s, group_id, integration_id)
             if not _has_open_alert(s, group_id, integration_id):
                 return 0
             return resolve_alerts(s, group_id, integration_id, resolution=resolution, user_id=user_id)
     except Exception as e:  # noqa: BLE001
         logger.warning("could not resolve alerts for integration %s: %s", integration_id, e)
         return 0
+
+
+def _stamp_success(session, group_id, integration_id) -> None:
+    """Record when the connection last did something successfully (the Alerts & health page shows it)."""
+    from marvin.db.models.groups.integrations import IntegrationModel
+
+    try:
+        session.query(IntegrationModel).filter(IntegrationModel.id == integration_id, IntegrationModel.group_id == group_id).update(
+            {"last_success_at": _now()}, synchronize_session=False
+        )
+        session.commit()
+    except Exception as e:  # noqa: BLE001 — bookkeeping; never in the way of resolving the alert
+        session.rollback()
+        logger.warning("could not record a successful action for integration %s: %s", integration_id, e)
 
 
 def open_alerts(session, group_id) -> dict:
