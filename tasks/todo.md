@@ -1012,3 +1012,68 @@ reclaimed leases count; automation_failed only for a chain's first failure and i
 
 **Later:** retry/alert metrics on the dashboard; pruning resolved alerts' samples sooner; a per-workflow
 "retries" view.
+
+# Integration alerts & health page (plan, 2026-10-05)
+
+**Goal:** one admin page, **Settings → Integrations → Alerts & health**, that shows what integration error
+handling is doing across the workspace: open alerts, pending retries (retry now / give up), recent handled
+failures, alert history, where alerts go, and a per-integration health summary on top. Scope approved by Jared
+2026-10-05: items 1–5 and 7; item 6 (per-integration overrides table) is later.
+
+**Today (origin/develop `99723737`):**
+- `integration_alerts` already stores how an alert ended: `resolution` (`check` | `action` | `manual`),
+  `resolved_at`, `resolved_by`; reminders are `notified_at` + `group_preferences.integration_alert_reminder_hours`
+  (a reminder goes out on the next failure after the window, not on a timer). Resolved alerts and finished retries
+  are pruned after 30 days.
+- `integration_retries` live rows are `pending` / `parked` / `running` (lease 5 min). `errors.claim_next` selects a
+  due row and then writes `running` by primary key, so a concurrent write in between would be overwritten.
+- Run history: `automation_action_executions.handling` (`{code, provider_name, summary, applied, retry{id, …}}`),
+  label `<integration slug>.<action>`; `automation_executions.handled` / `retry_of_id`.
+- Nothing records an integration's last successful call (only `last_checked_at` / `status` from `check()`).
+- UI: the routing card (`IntegrationAlertsPanel`) sits on Settings → Integrations; each connection card shows
+  **Needs attention** with Test / Resolve. Workflows deep-link with `/automation/workflows?workflow=<id>`, no run id.
+
+## Design
+1. **Service** `services/integrations/health.py` (SDK-free queries, so its tests run without the SDK): open /
+   resolved alerts (paged), live retries, retry-now, give-up, handled failures (paged), health summary.
+2. **API** on the integrations controller, every route `require_workspace_admin` first and filtered by
+   `group_id` (another workspace's id → 404): `GET /alerts?status=open|resolved&page&per_page`, `GET /retries`,
+   `POST /retries/{id}/retry-now`, `POST /retries/{id}/give-up`, `GET /handled-failures?since&page&per_page`
+   (default the last 7 days), `GET /health`. No secrets: rows carry the stored (already redacted) messages only;
+   no snapshots, partials, seeds or samples beyond what the card already shows.
+3. **Retry now** = one conditional `UPDATE … SET status='pending', next_attempt_at=now WHERE id AND group AND
+   status IN (pending, parked)`; 0 rows → 409 (running or finished). The sweep runs it on its next tick, never the
+   request. **Give up** = the same conditional update to `superseded` (clears `live_key`, `finished_at`, reason
+   "given up by an admin"), nothing else applied (no `then`). A running row is refused unless its lease has run
+   out. `claim_next` becomes a conditional update too (skip the row if it changed since it was selected), so an
+   admin's give-up can't be overwritten by a claim.
+4. **Handled failures:** step rows with `handling` set joined to their run; a line like "Square · rate_limited —
+   retried, succeeded on retry 1" from the retry row's current status when it still exists, else the stored
+   summary. Links: run (`/automation/workflows?workflow=<id>&run=<exec>`, the page opens that run) and entry.
+5. **Alert history:** resolved alerts, open for how long (`resolved_at − first_at`), how (manual + who / passing
+   check / successful action). No migration needed for this.
+6. **Health summary:** per integration — last successful action (new `integrations.last_success_at`, stamped by
+   `connection_succeeded` for actions, every caller), last check (time + status + error), failed workflow steps in
+   7 days, open alerts badge, live retries.
+7. **Frontend** `pages/workspace/settings/integration-health.astro`: SSR with Astro JSX (no innerHTML of server
+   strings), `adminOnly` via the existing 403 handling, stacked cards on mobile, empty states, Prev/Next paging via
+   query params; **Where alerts go** reuses `IntegrationAlertsPanel` unchanged. Linked from the Integrations page
+   header and a Settings → Integrations link card that replaces the routing card.
+
+**Migration:** `integrations.last_success_at` (batch mode, nullable).
+
+## Checklist
+- [ ] Plan (this section)
+- [ ] Migration + model `last_success_at`; `connection_succeeded` stamps it
+- [ ] `claim_next` conditional claim
+- [ ] `health.py` service + schemas + controller routes
+- [ ] Tests: shapes, scoping (other workspace → 404/absent), admin-only (gate list), retry-now / give-up incl.
+      leased/running rows, pagination; skip API tests without the SDK
+- [ ] Frontend page + `lib/integrationHealth.ts` (+ node test), API client, links (Integrations header, Settings
+      card), workflows `&run=` deep link
+- [ ] Docs: manual integrations page, what's new
+- [ ] Verify: full suite with and without the SDK, `npm test`, biome on touched files, `astro check` at 51
+
+## Later
+Per-integration overrides table on this page (item 6); counting non-workflow failures (event subscriptions,
+capabilities, scheduled tasks) in the 7-day figure; live refresh; filters by integration.
