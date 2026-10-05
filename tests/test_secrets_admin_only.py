@@ -1,5 +1,5 @@
-"""Workspace secrets: only workspace OWNERs/ADMINs (and platform super admins) may create, change or
-delete them. Members can still list the slugs (no values) — workflow and webhook forms reference them."""
+"""Workspace secrets: only workspace OWNERs/ADMINs (and platform super admins) may list, create, change
+or delete them. Members can still list the slugs (no values) — workflow and webhook forms reference them."""
 
 import uuid
 from types import SimpleNamespace
@@ -79,6 +79,7 @@ def _create(client: TestClient, slug: str = "SITE_KEY") -> dict:
 def test_owner_or_admin_can_create_update_and_delete_secrets(workspace, role):
     client = _sign_in(workspace, role)
     secret = _create(client)
+    assert [s["slug"] for s in client.get(BASE).json()] == ["SITE_KEY"]
     assert client.patch(f"{BASE}/{secret['id']}", json={"value": "rotated"}).status_code == 200
     assert client.delete(f"{BASE}/{secret['id']}").status_code == 204
 
@@ -90,10 +91,12 @@ def test_platform_super_admin_can_manage_secrets_without_membership(workspace):
 
 
 @pytest.mark.parametrize("role", [WorkspaceRole.EDITOR, WorkspaceRole.AUTHOR, WorkspaceRole.VIEWER])
-def test_members_below_admin_cannot_write_secrets(workspace, role):
+def test_members_below_admin_cannot_list_or_write_secrets(workspace, role):
     secret = _create(_sign_in(workspace, WorkspaceRole.OWNER))
     member = _sign_in(workspace, role)
 
+    # The full list (names, descriptions, dates) is settings-page data, admin-only like the rest.
+    assert member.get(BASE).status_code == 403
     assert member.post(BASE, json={"name": "X", "slug": "OTHER_KEY", "value": "v"}).status_code == 403
     assert member.patch(f"{BASE}/{secret['id']}", json={"value": "hijacked"}).status_code == 403
     assert member.delete(f"{BASE}/{secret['id']}").status_code == 403

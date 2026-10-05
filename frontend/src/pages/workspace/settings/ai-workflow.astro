@@ -9,6 +9,7 @@ import { sourceAllowed } from "@/lib/marvin/gate";
 import { voiceFor } from "@/lib/marvin/persona";
 import { createSdkClient } from "@/lib/sdk";
 import type { TonesState } from "@/lib/tones";
+import { nullIfForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 
@@ -24,7 +25,8 @@ try {
   const sdk = createSdkClient(authToken);
   [settings, secrets, sources, characterCatalog, characterLibrary, tones] = await Promise.all([
     sdk.ai.settings.get(),
-    sdk.secrets.list(),
+    // Admin-only (members read this page but can't save it): no picker options for them.
+    nullIfForbidden(sdk.secrets.list()).then((list) => list ?? []),
     sdk.ai.settings.sources().catch(() => []), // catalog for the invocation-sources editor
     // The file names each bubble-character state picks up (services/ai/character.py) — upload hints.
     fetchApi<any[]>("/api/groups/ai-settings/character/catalog", {}, authToken).catch(() => []),
@@ -205,6 +207,9 @@ const modCfg = s.moderationConfig ?? {};
           <span class="label">Secret Reference</span>
           <select name="secret_ref" class="input">
             <option value="" selected={!s.secretRef}>— none —</option>
+            {s.secretRef && !secrets.some((sec: any) => sec.slug === s.secretRef) && (
+              <option value={s.secretRef} selected>{s.secretRef}</option>
+            )}
             {secrets.map((sec: any) => (
               <option value={sec.slug} selected={s.secretRef === sec.slug}>{sec.name} ({sec.slug})</option>
             ))}

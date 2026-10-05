@@ -88,12 +88,7 @@ OPEN_ROUTES = {
 }
 
 # In-scope routes with no gate today that look like real gaps. Each runs as xfail(strict=True).
-KNOWN_GAPS = {
-    ("GET", "/api/groups/secrets"): (
-        "lists every secret's name, slug and metadata (no values) to any member; docs/admin-model.md says secret "
-        "reads are admin-only except the slugs, and the only caller (settings/environment) is admin-only"
-    ),
-}
+KNOWN_GAPS: dict[tuple[str, str], str] = {}
 
 # Controller-local gates that predate checks.py. (module, qualname): the rule it enforces.
 # Each is called as a VIEWER and an ADMIN in test_viewer_is_refused_by_each_gate_idiom.
@@ -242,6 +237,10 @@ def _guarded_params():
     return params
 
 
+def _key_params(entries: dict) -> list:
+    return [pytest.param(key, id=f"{key[0]} {key[1]}") for key in sorted(entries)]
+
+
 def _mounted(key) -> bool:
     return any((m, p) == key for m, p, _ in _endpoints())
 
@@ -256,7 +255,7 @@ def test_route_enforces_a_workspace_role(method, path, route):
     assert gates_for(route), f"{method} {path} ({_where(route)}) has no workspace role check, so any member (a VIEWER too) can call it.\n{FIX_HINT}"
 
 
-@pytest.mark.parametrize("key", sorted(OPEN_ROUTES), ids=lambda k: f"{k[0]} {k[1]}")
+@pytest.mark.parametrize("key", _key_params(OPEN_ROUTES))
 def test_open_route_entries_are_mounted_and_ungated(key):
     if _sdk_only(key[1]):
         pytest.skip("integration routes need marvin_integration_sdk")
@@ -268,9 +267,9 @@ def test_open_route_entries_are_mounted_and_ungated(key):
     assert _in_scope(method, matches[0]), f"{method} {path} is out of scope (a read off SETTINGS_MODULES): remove it from OPEN_ROUTES."
 
 
-@pytest.mark.parametrize("key", sorted(KNOWN_GAPS), ids=lambda k: f"{k[0]} {k[1]}")
-def test_known_gap_entries_are_mounted(key):
-    assert _mounted(key), f"KNOWN_GAPS lists {key[0]} {key[1]}, which is not mounted any more: remove the entry."
+def test_known_gap_entries_are_mounted():
+    stale = [f"{m} {p}" for m, p in KNOWN_GAPS if not _sdk_only(p) and not _mounted((m, p))]
+    assert not stale, f"KNOWN_GAPS lists routes that are not mounted any more: {stale}. Remove those entries."
 
 
 @pytest.mark.parametrize("module", sorted(SETTINGS_MODULES))

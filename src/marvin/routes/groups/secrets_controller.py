@@ -67,7 +67,9 @@ class SecretsController(BaseUserController):
 
     @router.get("", response_model=list[WorkspaceSecretRead])
     def list_secrets(self):
-        """List all secrets (slugs + metadata only — no values)."""
+        """List all secrets (slugs + metadata only — no values). OWNER/ADMIN only, like the rest of the
+        workspace settings; members who need a slug for {{SLUG}} autocomplete use /slugs."""
+        require_workspace_admin(self.user, self.group_id)
         return self.repos.workspace_secrets().get_all(order_by="name")
 
     @router.get("/slugs", response_model=list[str])
