@@ -5,6 +5,7 @@ from . import (
     builtins_authoring,  # registers authoring tools (compose_entry / revise_entry)  # noqa: F401
     builtins_docs,  # registers search_docs / read_doc (Marvin's own user manual)  # noqa: F401
     builtins_insights,  # registers insights tools (executions/events/tasks)  # noqa: F401
+    builtins_media,  # registers add_embed (staged) / preview_embed (media players)  # noqa: F401
     builtins_overview,  # registers workspace_overview (what the workspace contains + index coverage)  # noqa: F401
     builtins_vision,  # registers view_image (read-only look at an image asset)  # noqa: F401
 )

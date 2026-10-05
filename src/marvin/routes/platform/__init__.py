@@ -12,6 +12,7 @@ All routes are mounted under /api/platform/ prefix:
 - /api/platform/workspaces/{id}/members - Workspace member management
 - /api/platform/scheduled-tasks - Scheduled task automation
 - /api/platform/site/rebuild - Request a site rebuild / read its status
+- /api/platform/media-embeds - Media-embed providers and link resolution (editor previews)
 """
 
 from marvin.routes._base.routers import UserAPIRouter
@@ -25,6 +26,7 @@ from . import (
     entry_types_controller,
     events_controller,
     forms_controller,
+    media_embeds_controller,
     # CODE_GEN_ID: PLATFORM_ROUTE_IMPORTS
     # END: PLATFORM_ROUTE_IMPORTS
     resources_controller,
@@ -53,6 +55,7 @@ router.include_router(scheduled_tasks_controller.router, tags=["Platform: Schedu
 router.include_router(stats_controller.router, tags=["Platform: Stats"])
 router.include_router(email_controller.router, tags=["Platform: Email"])
 router.include_router(site_controller.router, tags=["Platform: Site"])
+router.include_router(media_embeds_controller.router, tags=["Platform: Media Embeds"])
 
 # CODE_GEN_ID: PLATFORM_ROUTE_INCLUDES
 # END: PLATFORM_ROUTE_INCLUDES

@@ -302,7 +302,7 @@ def test_permission_matrix_rows_cover_the_catalog_and_keep_mcp():
     entries = next(r for r in rows if r["id"] == "entries_read")
     assert entries["default"] == POLICY_ALLOW and all(t["decision"] == POLICY_ALLOW for t in entries["tools"])
     author = next(r for r in rows if r["id"] == "entries_author")
-    assert author["default"] == POLICY_BLOCK and {t["name"] for t in author["tools"]} == {"compose_entry", "revise_entry"}
+    assert author["default"] == POLICY_BLOCK and {t["name"] for t in author["tools"]} == {"compose_entry", "revise_entry", "add_embed"}
     assert next(r for r in rows if r["id"] == "mcp")["tools"] == []
     # discovered MCP tools handed in by the controller land in their hinted rows
     with_mcp = catalog_tools() + [

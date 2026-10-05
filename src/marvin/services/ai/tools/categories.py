@@ -49,8 +49,10 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "list_entry_types": "entries_read",
     "get_entry_type": "entries_read",
     "get_entity_history": "entries_read",
+    "preview_embed": "entries_read",  # what a media link becomes; writes no entry
     "compose_entry": "entries_author",
     "revise_entry": "entries_author",
+    "add_embed": "entries_author",  # staged as a suggestion, like a staged revise
     "attach_tag": "links",
     "detach_tag": "links",
     "attach_asset": "links",
