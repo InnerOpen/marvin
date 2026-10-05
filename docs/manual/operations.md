@@ -103,6 +103,7 @@ Admin: **Admin → Operations → Backups** (`/admin/backups`) and `/api/admin/b
 | `SITE_REBUILD_QUIET_SECONDS` | `60` | quiet period before a queued site rebuild is sent; see [Site rebuilds](#site-rebuilds) |
 | `SITE_REBUILD_MAX_WAIT_SECONDS` | `600` | longest a queued rebuild waits; must be at least `SITE_REBUILD_QUIET_SECONDS` |
 | `INTEGRATION_HTTP_MAX_BYTES` | `5000000` | largest response an integration provider may download; must be at least 1 |
+| `MEDIA_EMBEDS_FETCH_ENABLED` | `true` | ask media providers' oEmbed for link titles and player ids; off builds players from the link alone. See [Media embeds](whats-new/media-embeds.md#settings) |
 | `EVENT_LOG_RETENTION_DAYS` / `AI_EXECUTION_RETENTION_DAYS` | `90` / `90` | |
 | `STORAGE_PROVIDER` | `local` | see Storage |
 | `SECRET_BACKEND` | `database` | `disk`, `env`, `vault`, `bitwarden` |

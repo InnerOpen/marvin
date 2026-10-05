@@ -6,7 +6,7 @@ Marvin is a headless CMS. Every workspace has its own content model, automation,
 
 | Area | What it is |
 |---|---|
-| Entry types and entries | You define entry types (field schemas); entries are the content. Each entry has one status: `inbox`, `processing`, `draft`, `needs_review`, `approved`, `published`, `archived`. New entries start in `inbox`. |
+| Entry types and entries | You define entry types (field schemas); entries are the content. Each entry has one status: `inbox`, `processing`, `draft`, `needs_review`, `approved`, `published`, `archived`. New entries start in `inbox`. A YouTube, Vimeo, Spotify, SoundCloud, Apple, TIDAL or podcast link on its own line, or in a **Media embed** field, becomes a player on the site ([Media embeds](whats-new/media-embeds.md)). |
 | Collections | Manual lists of entries, or smart collections whose membership follows rules (entry types, statuses, field conditions, rolling `published_within_days` / `created_within_days` windows), built visually and previewed with **Run Query**. **Visible to sites** decides whether the publishing API serves a collection. |
 | Assets and resources | Uploaded files (local disk or S3) and external links, attachable to entries and served through the publishing API. |
 | Forms | A submittable entry type is a form. A public submit creates an `inbox` entry and emits `form_submission_received`, guarded by rate limits, honeypot, CAPTCHA and submission protection. |

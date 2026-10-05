@@ -126,7 +126,8 @@ GET /api/publish/{group_slug}/entries/{entry_slug}
 Authorization: Bearer <site_client_token>
 ```
 
-Returns a single published entry with full Markdown content and metadata.
+Returns a single published entry with full Markdown content and metadata. Media links in the entry are
+resolved under `embeds` (see [Media embeds](#media-embeds)); list items carry the same `embeds`.
 
 **Response:**
 
@@ -273,6 +274,94 @@ Downloads or redirects to the asset file.
 May return:
 - `200 OK` with file content and appropriate `Content-Type` header
 - `302 Found` redirect to cloud storage (S3, etc)
+
+## Media embeds
+
+Entries carry their media players under `embeds`, on both the entry (`GET .../entries/{slug}`) and every
+list item (`GET .../entries`, collection and resource entry lists). Stored markdown is never rewritten:
+`data` still holds the link, and a site that ignores `embeds` keeps showing it as a link.
+
+A link becomes an embed when it is from an allow-listed provider (YouTube, Vimeo, Spotify, SoundCloud,
+Apple Music, Apple Podcasts, TIDAL, Simplecast, Transistor; Bandcamp only from its embed code) and either
+
+- sits **alone on its own line** in a markdown field (a paragraph that is exactly the URL; `<https://…>`,
+  `[text](https://…)` and a URL inside a sentence, list, quote or code stay links), unless the field sets
+  `autoEmbed: false`; or
+- is the value of an `embed` field.
+
+`embeds` is keyed by the **URL exactly as written** in the field (trimmed; http(s) only), so a renderer
+that meets a paragraph consisting of one link looks the link's text up in `embeds` and, on a hit, uses
+the entry's `html` in place of the paragraph. `embeds` is `{}` when the entry has none.
+
+```json
+"embeds": {
+  "https://www.youtube.com/watch?v=dQw4w9WgXcQ": {
+    "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "canonicalUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    "provider": "youtube",
+    "providerName": "YouTube",
+    "kind": "video",
+    "status": "ok",
+    "title": "Never Gonna Give You Up",
+    "authorName": "Rick Astley",
+    "thumbnailUrl": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg",
+    "iframe": {
+      "src": "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+      "title": "Never Gonna Give You Up",
+      "allow": "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen",
+      "sandbox": "allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-presentation",
+      "referrerpolicy": "strict-origin-when-cross-origin",
+      "aspectRatio": "16/9",
+      "height": null
+    },
+    "link": { "href": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": "Never Gonna Give You Up", "providerName": "YouTube" },
+    "html": "<figure class=\"marvin-embed marvin-embed--video marvin-embed--facade\" …>…</figure>"
+  }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `kind` | `video`, `audio`, `podcast` or `playlist` |
+| `status` | `ok` — `iframe` is set; `link` — no safe player (a plain Bandcamp page, a link whose player id needs a lookup that hasn't happened yet); `unavailable` — the provider says private, removed or blocked. For `link`/`unavailable` show `link` |
+| `title`, `authorName`, `thumbnailUrl` | from the provider's oEmbed; `null` until Marvin has looked the link up. The thumbnail is the provider's URL — loading it contacts the provider |
+| `iframe` | only when `status` is `ok`. Every attribute comes from Marvin's provider registry; the `src` is rebuilt by Marvin and always on one of `site.embeds.frameSources`. Video players carry `aspectRatio` (e.g. `"16/9"`, `"9/16"` for Shorts), audio/podcast/playlist players a fixed `height` in px |
+| `html` | ready-to-insert HTML built by Marvin per `site.embeds.mode`; every attribute is escaped |
+
+**`html` shapes.**
+
+- *click_to_load* (the default):
+  `<figure class="marvin-embed marvin-embed--{kind} marvin-embed--facade" data-provider="youtube" style="--marvin-embed-aspect:16/9">`
+  holding a `<button type="button" class="marvin-embed__load" data-marvin-embed-src="…" data-marvin-embed-attrs="{…}" data-marvin-embed-hosts="[…]">`
+  (spans `marvin-embed__provider`, `marvin-embed__title`, `marvin-embed__consent`) and then a plain
+  `<a class="marvin-embed__link" href="…" rel="noopener noreferrer">` fallback. Nothing third-party loads
+  until the visitor clicks; no remote thumbnail is used. `data-marvin-embed-attrs` is a JSON object of
+  string attributes for the iframe (`src`, `title`, `allow`, `sandbox`, `referrerpolicy`, `loading`);
+  `data-marvin-embed-hosts` is a JSON list of the hostnames the src may load from. A loader should check
+  the src host against that list before creating the iframe. Fullscreen is granted through `allow`.
+- *direct*: the same figure (without `marvin-embed--facade`) holding the `<iframe>` itself.
+- *link card* (`status` `link`/`unavailable`): `<a class="marvin-embed-link" href="…" rel="noopener noreferrer" data-provider="…">`.
+
+Sizing travels on the figure as a CSS custom property: `--marvin-embed-aspect:{ratio}` for video players,
+`--marvin-embed-height:{n}px` for fixed-height ones.
+
+Publishing reads never contact a provider: details come from Marvin's embed cache, which the editor's
+preview and a save of the entry fill. A link with nothing cached yet still publishes, as a player when
+the link alone is enough to build one, else as a link card.
+
+**`site.embeds`** (on `GET /api/publish/{workspace_slug}/site`, beside `site.seo`, always present):
+
+```json
+"embeds": {
+  "mode": "click_to_load",
+  "consentText": "Loading this player connects to {provider}, which may set cookies.",
+  "frameSources": ["https://bandcamp.com", "https://embed.music.apple.com", "https://www.youtube-nocookie.com", "…"]
+}
+```
+
+`mode` is `click_to_load` or `direct` (Site settings → Embeds & privacy). `consentText` may contain
+`{provider}`, replaced with the provider's name; Marvin's own facade html already has it substituted.
+`frameSources` lists every origin a Marvin-built player may load from, for a site's `frame-src` CSP.
 
 ## Error Responses
 

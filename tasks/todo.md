@@ -681,22 +681,29 @@ provider allow-list + server-side oEmbed resolution with a cache + Marvin-built 
 **Migration:** `media_embed_cache` only.
 
 ## Checklist
-- [ ] Registry + matcher + src/attribute builders, per-provider URL-form tests incl. look-alike hosts rejected
-- [ ] Resolver (oEmbed via MarvinHttpHelper, src extraction with host/path check, statuses, recorded fixtures; verify
+- [x] Registry + matcher + src/attribute builders, per-provider URL-form tests incl. look-alike hosts rejected
+- [x] Resolver (oEmbed via MarvinHttpHelper, src extraction with host/path check, statuses, recorded fixtures; verify
       Simplecast/Transistor/Apple Music endpoints first)
-- [ ] `media_embed_cache` model + migration; `MediaEmbedReactionListener`; shared URL extractor
-- [ ] Publishing: `PublishedEmbed`, `embeds` on entry/list item, `SiteEmbeds` (+ `frameSources`), `html` per mode;
+- [x] `media_embed_cache` model + migration; `MediaEmbedReactionListener`; shared URL extractor
+- [x] Publishing: `PublishedEmbed`, `embeds` on entry/list item, `SiteEmbeds` (+ `frameSources`), `html` per mode;
       tests incl. no outbound call on read
-- [ ] `embed` field type (schema, validator, compose map, schema editor, `EmbedField.astro`, docs)
-- [ ] Admin endpoints + MarkdownField preview (marked + DOMPurify) + Embed dialog
-- [ ] Site settings "Embeds & privacy" section
-- [ ] Agent tools `add_embed` (staged) + `preview_embed`
-- [ ] Before enabling: count published entries with a bare provider URL on its own line (they'll change on rebuild)
+- [x] `embed` field type (schema, validator, compose map, schema editor, `EmbedField.astro`, docs)
+- [x] Admin endpoints + MarkdownField preview (marked + DOMPurify) + Embed dialog
+- [x] Site settings "Embeds & privacy" section
+- [x] Agent tools `add_embed` (staged) + `preview_embed`
+- [x] Before enabling: count published entries with a bare provider URL on its own line (they'll change on rebuild) — **0** in every workspace (default 57 published, grace-martin-franklin 299, mash-burn-co 96; no published entry mentions a provider host at all), 2026-10-05
 - [ ] SDK 4.1.0 (types + `PublishedEmbed`), MarvinAstro 1.2.0, RenderersCore `Embed.astro`
 - [ ] Sites: Grace + Mash & Burn bump MarvinAstro, add `EmbedLoader`, pass `{embeds}` where they call
       `renderMarkdown` directly, base `.marvin-embed` CSS
-- [ ] Docs: manual, `whats-new/media-embeds.md`, `docs/publishing-api.md`
+- [x] Docs: manual, `whats-new/media-embeds.md`, `docs/publishing-api.md`
 - [ ] Rollout: core → SDK → MarvinAstro → RenderersCore → sites; browser check of every provider in both modes
+
+**Review (core, 2026-10-05, branch `feat/media-embeds`):** core items done — migration `a78a8895a6a1` (revises `d5b1e8a3c7f2`).
+Providers verified with real requests: YouTube, Vimeo, Spotify, SoundCloud, Apple Podcasts, Apple Music (`music.apple.com/api/oembed`),
+TIDAL (`oembed.tidal.com`), Simplecast (`api.simplecast.com/oembed` — the oembed.com-listed `simplecast.com/oembed` only redirects),
+Transistor (`share.transistor.fm/oembed`); fixtures in `tests/fixtures/media_embeds`. Bandcamp stays embed-code only.
+Contract additions agreed with the MarvinAstro side: figure `style="--marvin-embed-aspect:…"` / `--marvin-embed-height:…px`,
+iframe attrs limited to src/title/allow/sandbox/referrerpolicy/loading (fullscreen via `allow`), `data-marvin-embed-attrs` includes `src`.
 
 ## Later
 Generic oEmbed discovery fallback; Instagram/TikTok/X/Bluesky; consent-manager-aware facades; thumbnails proxied via

@@ -64,10 +64,10 @@ Field names are camelCase on the wire; the `PublishedEntriesResponse` schema is 
 | Method | Path | Query | Permission |
 | --- | --- | --- | --- |
 | GET | `/` | — | `read:published_entries` or `read:all_entries` |
-| GET | `/site` | — | same; returns site configuration (SEO, verification tags) |
+| GET | `/site` | — | same; returns site configuration (SEO, verification tags, `embeds`: media privacy mode, consent text, player origins) |
 | GET | `/entry-types` | — | same; ordered by `sort_order`, name |
 | GET | `/entries` | `entry_type`, `collection`, `tag` (comma, any), `slug` (comma), `updated_since` (ISO), `limit`, `offset` | same |
-| GET | `/entries/{slug}` | — | same; full `PublishedEntryRead` with collections, resources, assets |
+| GET | `/entries/{slug}` | — | same; full `PublishedEntryRead` with collections, resources, assets and media `embeds` (list items carry `embeds` too; see [Media embeds](media-embeds.md)) |
 | GET | `/collections` | `limit`, `offset` | `read:collections`; public collections only |
 | GET | `/collections/{slug}` | — | `read:collections`; entries ordered by junction `sort_order` then `published_at` desc. With `read:all_entries` the token also sees non-published members |
 | GET | `/assets` | `type` (MIME prefix: image, video, audio, application), `limit`, `offset` | `read:assets` |
@@ -146,6 +146,7 @@ A draft saved or moved between workflow collections queues nothing, and neither 
 | `PUBLISHING_MAX_PAGE_SIZE` | 100 | upper bound on `limit` |
 | `PUBLISHING_DEFAULT_STATUS` | `published` | the only entry status served |
 | `PUBLISHING_UNKNOWN_ENTRY_TYPE` | `unknown` | `entry_type` value for entries without a type |
+| `MEDIA_EMBEDS_FETCH_ENABLED` | `true` | look up media links' titles and player ids through the providers' oEmbed (never on a publishing read); see [Media embeds](media-embeds.md#settings) |
 
 ## Since
 
@@ -154,5 +155,6 @@ Endpoints predate rc.40. `data`/`description` on list items: rc.48 (`fadb3f52`).
 ## Related
 
 - [Collections](collections.md) — public and smart collections as served here.
+- [Media embeds](media-embeds.md) — `embeds` and `site.embeds`.
 - Design: [publishing-api.md](https://github.com/InnerOpen/marvin/blob/develop/docs/publishing-api.md), [site-clients-and-publishing.md](https://github.com/InnerOpen/marvin/blob/develop/docs/site-clients-and-publishing.md)
 - [Glossary](../glossary.md)
