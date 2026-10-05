@@ -1,6 +1,6 @@
 # Marvin
 
-Marvin is a headless CMS. Every workspace has its own content model, automation, AI setup and API credentials; the admin UI, the platform API under `/api/platform/…` and the publishing API under `/api/publish/{workspace_slug}/…` are all scoped to one workspace at a time. This site is the manual for version 1.0.0-rc.186.
+Marvin is a headless CMS. Every workspace has its own content model, automation, AI setup and API credentials; the admin UI, the platform API under `/api/platform/…` and the publishing API under `/api/publish/{workspace_slug}/…` are all scoped to one workspace at a time. This site is the manual for version 1.0.0-rc.197.
 
 ## What a workspace contains
 
