@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.198 (2026-10-05)
+
+### Bug Fixes
+
+- **deps**: Declare requests; install the integration SDK in the SDK gate
+  ([`ca2b238`](https://github.com/InnerOpen/marvin/commit/ca2b238e7a4f904c699bb5a31b4d012a2fa1b1b6))
+
+### Documentation
+
+- **manual**: Catch up with rc.197: n8n, integration errors, roles
+  ([`b6f5349`](https://github.com/InnerOpen/marvin/commit/b6f53499cafb6ab7ddeec83e58fd1ca4b74952a6))
+
+- **manual**: What's new through rc.197
+  ([`18d826e`](https://github.com/InnerOpen/marvin/commit/18d826ee99c85edc20a985e463844aaee9502a3c))
+
+
 ## v1.0.0-rc.197 (2026-10-04)
 
 ### Bug Fixes
