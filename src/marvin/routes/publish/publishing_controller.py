@@ -5,6 +5,8 @@ Provides read-only access to published content for external sites (Astro, etc.).
 All routes require API client token authentication (marvin_sk_ prefix).
 """
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, selectinload
 
@@ -29,9 +31,11 @@ from marvin.schemas.publishing import (
     PaginationMeta,
     PublishedAssetRead,
     PublishedAssetsResponse,
+    PublishedCollectionExpandedRead,
     PublishedCollectionRead,
     PublishedCollectionsResponse,
     PublishedCollectionSummary,
+    PublishedEntriesExpandedResponse,
     PublishedEntriesResponse,
     PublishedEntryAsset,
     PublishedEntryCollection,
@@ -56,13 +60,27 @@ settings = get_app_settings()
 
 router = APIRouter()
 
+EXPAND_FULL = "full"
+"""``?expand=full``: a list endpoint returns each entry in the shape of the single-entry read."""
+
+_EXPAND_DESCRIPTION = (
+    "`full` returns each entry in the shape of the single-entry read (`PublishedEntryRead`: "
+    "`assets[]`, `resources[]`, full collection memberships, `data`, `embeds`) instead of a list item, "
+    "so a site needs no per-entry reads. Only published entries are included, and the token needs "
+    "`read:published_entries` or `read:all_entries`, as for the single read."
+)
+
 
 def _entry_eager_options():
-    """Common eager loading options for entry relationships."""
+    """Common eager loading options for entry relationships.
+
+    Asset and resource tags are loaded here too: every serialized asset/resource lists its tags,
+    and lazy-loading them would cost one query per attachment on the page.
+    """
     return [
         selectinload(Entries.entry_collections).joinedload(EntryCollections.collection),
-        selectinload(Entries.entry_assets).joinedload(EntryAssets.asset),
-        selectinload(Entries.entry_resources).joinedload(EntryResources.resource),
+        selectinload(Entries.entry_assets).joinedload(EntryAssets.asset).selectinload(Assets.tags),
+        selectinload(Entries.entry_resources).joinedload(EntryResources.resource).selectinload(Resources.tags),
         selectinload(Entries.tags),
     ]
 
@@ -155,10 +173,117 @@ def _site_metadata(session: Session, group_id) -> dict | None:
     return prefs.site_metadata_json if prefs else None
 
 
-def _list_items(session: Session, group, entries: list[Entries], site_url: str | None) -> list[PublishedEntryListItem]:
-    """List items for a page of entries, with their media ``embeds`` (one cache query for the page)."""
+def _list_items(
+    session: Session,
+    group,
+    entries: list[Entries],
+    site_url: str | None,
+    expand: str | None = None,
+) -> list[PublishedEntryListItem] | list[PublishedEntryRead]:
+    """Serialize a page of entries: list items, or full reads with ``expand=full``.
+
+    The entries must have been loaded with ``_entry_eager_options_with_type()``; the media
+    ``embeds`` for the whole page come from one cache query. Nothing here queries per entry.
+    """
     embeds = embeds_for_entries(session, entries, site_embeds(_site_metadata(session, group.id))) if entries else {}
-    return [_entry_to_list_item(entry, group.slug, site_url=site_url, embeds=embeds.get(entry.id)) for entry in entries]
+    build = _entry_to_read if expand == EXPAND_FULL else _entry_to_list_item
+    return [build(entry, group.slug, site_url=site_url, embeds=embeds.get(entry.id)) for entry in entries]
+
+
+def _expandable(expand: str | None, entries: list[Entries]) -> str | None:
+    """``expand`` for an unpaginated endpoint (a collection, a resource's entries), honoured up to
+    ``PUBLISHING_MAX_EXPANDED_ENTRIES``. Past that the response is the plain list — what a server
+    without ``expand`` returns — and a client falls back to reading entries one at a time."""
+    return expand if expand == EXPAND_FULL and len(entries) <= settings.PUBLISHING_MAX_EXPANDED_ENTRIES else None
+
+
+def _require_entry_read(perms, expand: str | None, resource: str) -> None:
+    """An expanded response carries full entries, so it needs the single read's permission too."""
+    if expand == EXPAND_FULL:
+        perms.require_any_permission([Permissions.READ_PUBLISHED_ENTRIES, Permissions.READ_ALL_ENTRIES], resource)
+
+
+def _entry_to_read(
+    entry: Entries,
+    workspace_slug: str,
+    site_url: str | None = None,
+    embeds: dict | None = None,
+) -> PublishedEntryRead:
+    """Convert an entry model to the single-entry read shape (``PublishedEntryRead``).
+
+    Shared by ``GET /entries/{slug}`` and the ``?expand=full`` lists, so an expanded item is the
+    single read. Only public collections and non-suggested assets are included.
+    """
+    collections = [
+        PublishedEntryCollection(
+            role=ec.role,
+            position=ec.sort_order,
+            metadata=ec.metadata_json,
+            collection=PublishedCollectionSummary(
+                slug=ec.collection.slug,
+                name=ec.collection.name,
+                description=ec.collection.description,
+                is_smart=ec.collection.is_smart,
+                smart_rules=ec.collection.smart_rules,
+                metadata=ec.collection.metadata_json,
+                entry_count=0,
+                sort_order=ec.collection.sort_order,
+                icon=ec.collection.icon,
+                color=ec.collection.color,
+            ),
+        )
+        for ec in entry.entry_collections
+        if ec.collection and ec.collection.is_public
+    ]
+
+    resources = [
+        PublishedEntryResource(
+            role=er.role,
+            position=er.position,
+            metadata=er.metadata_json,
+            resource=PublishedResourceSummary(
+                slug=er.resource.slug,
+                name=er.resource.name,
+                resource_type=er.resource.resource_type,
+                description=er.resource.description,
+                url=er.resource.url,
+                external_id=er.resource.external_id,
+                metadata=er.resource.metadata_json,
+                tags=list(er.resource.tag_names),
+            ),
+        )
+        for er in entry.entry_resources
+        if er.resource
+    ]
+
+    assets = [
+        PublishedEntryAsset(
+            role=ea.role,
+            position=ea.position,
+            metadata=ea.metadata_json,
+            asset=_build_published_asset(ea, workspace_slug),
+        )
+        for ea in entry.entry_assets
+        if ea.asset and not _is_suggested(ea)
+    ]
+
+    return PublishedEntryRead(
+        slug=entry.slug,
+        title=entry.title,
+        entry_type=entry.entry_type.slug if entry.entry_type else settings.PUBLISHING_UNKNOWN_ENTRY_TYPE,
+        entry_type_info=_build_entry_type_info(entry),
+        url=best_entry_url(entry, site_url),
+        summary=entry.summary,
+        description=entry.description,
+        data=entry.data_json,
+        published_at=entry.published_at,
+        metadata=entry.metadata_json,
+        collections=collections,
+        resources=resources,
+        assets=assets,
+        tags=list(entry.tag_names),
+        embeds=embeds or {},
+    )
 
 
 def _entry_to_list_item(
@@ -372,7 +497,7 @@ async def list_entry_types(
 
 @router.get(
     "/{workspace_slug}/entries",
-    response_model=PublishedEntriesResponse,
+    response_model=PublishedEntriesResponse | PublishedEntriesExpandedResponse,
     summary="List Published Entries",
 )
 async def list_published_entries(
@@ -385,7 +510,8 @@ async def list_published_entries(
     updated_since: str | None = Query(None, description="Filter by entries updated since ISO datetime"),
     limit: int = Query(settings.PUBLISHING_DEFAULT_PAGE_SIZE, ge=1, le=settings.PUBLISHING_MAX_PAGE_SIZE, description="Max results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
-) -> PublishedEntriesResponse:
+    expand: Literal["full"] | None = Query(None, description=_EXPAND_DESCRIPTION),
+) -> PublishedEntriesResponse | PublishedEntriesExpandedResponse:
     """
     List all published entries in the workspace.
 
@@ -406,6 +532,10 @@ async def list_published_entries(
     - `?tag=leather,waxed` - Get entries tagged leather OR waxed
     - `?slug=about,contact,sizing` - Batch fetch specific pages
     - `?updated_since=2026-07-01T00:00:00Z` - Incremental builds
+    - `?collection=projects&expand=full` - A page of full entries (the single-read shape), no per-entry reads
+
+    `expand=full` keeps the same filters and pagination, including the `limit` cap
+    (`PUBLISHING_MAX_PAGE_SIZE`, 100).
 
     **Authentication**: Requires API client token (marvin_sk_*)
     **Permissions**: read:published_entries OR read:all_entries
@@ -417,6 +547,8 @@ async def list_published_entries(
 
     # Get repositories scoped to this workspace
     get_repositories(session, group_id=group.id)
+
+    response_model = PublishedEntriesExpandedResponse if expand == EXPAND_FULL else PublishedEntriesResponse
 
     # Build query for published entries with eager loading to prevent N+1 queries
     query = (
@@ -437,7 +569,7 @@ async def list_published_entries(
 
         if not entry_type_obj:
             # Return empty list if entry type doesn't exist
-            return PublishedEntriesResponse(
+            return response_model(
                 data=[],
                 meta=PaginationMeta(
                     total=0,
@@ -466,7 +598,7 @@ async def list_published_entries(
 
         if not collection_obj:
             # Return empty list if collection doesn't exist or is private
-            return PublishedEntriesResponse(
+            return response_model(
                 data=[],
                 meta=PaginationMeta(
                     total=0,
@@ -516,11 +648,11 @@ async def list_published_entries(
     # Apply pagination
     entries = query.order_by(Entries.published_at.desc()).offset(offset).limit(limit).all()
 
-    # Convert to list items
+    # Convert to list items (full reads with expand=full)
     site_url = site_base_url(session, group.id)
-    data = _list_items(session, group, entries, site_url)
+    data = _list_items(session, group, entries, site_url, expand)
 
-    return PublishedEntriesResponse(
+    return response_model(
         data=data,
         meta=PaginationMeta(
             total=total,
@@ -578,79 +710,7 @@ async def get_published_entry(
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found")
 
-    # Get collections with junction context + collection data
-    collections = [
-        PublishedEntryCollection(
-            role=ec.role,
-            position=ec.sort_order,
-            metadata=ec.metadata_json,
-            collection=PublishedCollectionSummary(
-                slug=ec.collection.slug,
-                name=ec.collection.name,
-                description=ec.collection.description,
-                is_smart=ec.collection.is_smart,
-                smart_rules=ec.collection.smart_rules,
-                metadata=ec.collection.metadata_json,
-                entry_count=0,
-                sort_order=ec.collection.sort_order,
-                icon=ec.collection.icon,
-                color=ec.collection.color,
-            ),
-        )
-        for ec in entry.entry_collections
-        if ec.collection and ec.collection.is_public
-    ]
-
-    # Get resources for this entry (wrapped with relationship context)
-    resources = [
-        PublishedEntryResource(
-            role=er.role,
-            position=er.position,
-            metadata=er.metadata_json,
-            resource=PublishedResourceSummary(
-                slug=er.resource.slug,
-                name=er.resource.name,
-                resource_type=er.resource.resource_type,
-                description=er.resource.description,
-                url=er.resource.url,
-                external_id=er.resource.external_id,
-                metadata=er.resource.metadata_json,
-                tags=list(er.resource.tag_names),
-            ),
-        )
-        for er in entry.entry_resources
-        if er.resource
-    ]
-
-    # Get assets for this entry (wrapped with relationship context)
-    assets = [
-        PublishedEntryAsset(
-            role=ea.role,
-            position=ea.position,
-            metadata=ea.metadata_json,
-            asset=_build_published_asset(ea, group.slug),
-        )
-        for ea in entry.entry_assets
-        if ea.asset and not _is_suggested(ea)
-    ]
-
-    return PublishedEntryRead(
-        slug=entry.slug,
-        title=entry.title,
-        entry_type=entry.entry_type.slug if entry.entry_type else settings.PUBLISHING_UNKNOWN_ENTRY_TYPE,
-        entry_type_info=_build_entry_type_info(entry),
-        url=best_entry_url(entry, site_base_url(session, group.id)),
-        summary=entry.summary,
-        description=entry.description,
-        data=entry.data_json,
-        published_at=entry.published_at,
-        metadata=entry.metadata_json,
-        collections=collections,
-        resources=resources,
-        assets=assets,
-        tags=list(entry.tag_names),
-        embeds=embeds_for_entries(session, [entry], site_embeds(_site_metadata(session, group.id))).get(entry.id, {}),
-    )
+    return _list_items(session, group, [entry], site_base_url(session, group.id), EXPAND_FULL)[0]
 
 
 @router.get(
@@ -753,14 +813,15 @@ async def list_published_collections(
 
 @router.get(
     "/{workspace_slug}/collections/{collection_slug}",
-    response_model=PublishedCollectionRead,
+    response_model=PublishedCollectionRead | PublishedCollectionExpandedRead,
     summary="Get Collection with Entries",
 )
 async def get_published_collection(
     collection_slug: str,
     context: tuple = Depends(get_publishing_context),
     session: Session = Depends(generate_session),
-) -> PublishedCollectionRead:
+    expand: Literal["full"] | None = Query(None, description=_EXPAND_DESCRIPTION),
+) -> PublishedCollectionRead | PublishedCollectionExpandedRead:
     """
     Get a collection with its published entries.
 
@@ -769,16 +830,21 @@ async def get_published_collection(
     **Filters:**
     - Only includes entries with `status = 'published'`
 
+    **Expand:** `?expand=full` returns every entry in the single-read shape, in one response.
+    Published entries only, even for a `read:all_entries` token. Honoured up to
+    `PUBLISHING_MAX_EXPANDED_ENTRIES` (500) entries; a larger collection comes back unexpanded.
+
     **Authentication**: Requires API client token (marvin_sk_*)
-    **Permissions**: read:collections
+    **Permissions**: read:collections (plus read:published_entries OR read:all_entries with `expand=full`)
 
     **Raises:**
     - 404: Collection not found
     """
     api_client, group, perms = context
 
-    # Require permission to read collections
+    # Require permission to read collections (and entries, when they come back full)
     perms.require_permission(Permissions.READ_COLLECTIONS, "collection")
+    _require_entry_read(perms, expand, "collection")
 
     # Get collection (public only — system/internal collections are not published)
     collection = (
@@ -806,23 +872,26 @@ async def get_published_collection(
     )
     query = _only_publishable_types(session, group.id, query)
 
-    # Only filter to published entries if user doesn't have permission to read all
-    if not perms.has_permission(Permissions.READ_ALL_ENTRIES):
+    # Only filter to published entries if user doesn't have permission to read all. Expanded
+    # entries are single reads, which never serve an unpublished entry.
+    if expand == EXPAND_FULL or not perms.has_permission(Permissions.READ_ALL_ENTRIES):
         query = query.filter(Entries.status == settings.PUBLISHING_DEFAULT_STATUS)
 
     entries = query.order_by(EntryCollections.sort_order.asc(), Entries.published_at.desc()).all()
     site_url = site_base_url(session, group.id)
+    expand = _expandable(expand, entries)
 
-    # Convert to list items
+    # Convert to list items (full reads with expand=full)
     entry_items = []
-    for entry, item in zip(entries, _list_items(session, group, entries, site_url), strict=True):
+    for entry, item in zip(entries, _list_items(session, group, entries, site_url, expand), strict=True):
         # Add collection-specific sort order
         order = next((ec.sort_order for ec in entry.entry_collections if ec.collection_id == collection.id), None)
         if order is not None:
             item.order = order
         entry_items.append(item)
 
-    return PublishedCollectionRead(
+    response_model = PublishedCollectionExpandedRead if expand == EXPAND_FULL else PublishedCollectionRead
+    return response_model(
         slug=collection.slug,
         name=collection.name,
         description=collection.description,
@@ -1170,14 +1239,15 @@ async def get_published_resource(
 
 @router.get(
     "/{workspace_slug}/resources/{resource_slug}/entries",
-    response_model=list[PublishedEntryListItem],
+    response_model=list[PublishedEntryListItem] | list[PublishedEntryRead],
     summary="Get Resource Entries",
 )
 async def get_resource_entries(
     resource_slug: str,
     context: tuple = Depends(get_publishing_context),
     session: Session = Depends(generate_session),
-) -> list[PublishedEntryListItem]:
+    expand: Literal["full"] | None = Query(None, description=_EXPAND_DESCRIPTION),
+) -> list[PublishedEntryListItem] | list[PublishedEntryRead]:
     """
     Get all published entries that reference a resource.
 
@@ -1188,8 +1258,11 @@ async def get_resource_entries(
 
     **Use case**: "View projects using this fabric" links on resource pages.
 
+    **Expand:** `?expand=full` returns each entry in the single-read shape. Honoured up to
+    `PUBLISHING_MAX_EXPANDED_ENTRIES` (500) entries; past that the response is unexpanded.
+
     **Authentication**: Requires API client token (marvin_sk_*)
-    **Permissions**: read:resources
+    **Permissions**: read:resources (plus read:published_entries OR read:all_entries with `expand=full`)
 
     **Raises:**
     - 404: Resource not found
@@ -1198,6 +1271,7 @@ async def get_resource_entries(
 
     # Require permission to read resources
     perms.require_permission(Permissions.READ_RESOURCES, "resource entries")
+    _require_entry_read(perms, expand, "resource entries")
 
     # Get resource
     resource = (
@@ -1231,6 +1305,6 @@ async def get_resource_entries(
         .all()
     )
 
-    # Convert to list items using shared helper
+    # Convert to list items (full reads with expand=full) using shared helper
     site_url = site_base_url(session, group.id)
-    return _list_items(session, group, entries, site_url)
+    return _list_items(session, group, entries, site_url, _expandable(expand, entries))

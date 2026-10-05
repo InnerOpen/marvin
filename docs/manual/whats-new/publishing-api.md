@@ -10,6 +10,7 @@ Only entries with status `published` are served, and only from entry types whose
 
 What is new in this release:
 
+- **`expand=full` on the list endpoints.** `/collections/{slug}`, `/entries` and `/resources/{slug}/entries` return each entry in the single-read shape, so a site gets asset roles and resources for a whole collection in one request instead of one per entry. See [Full entries in one request](#full-entries-in-one-request-expandfull).
 - **List items carry `data` and `description`** (fadb3f52). `PublishedEntryListItem` now includes the entry's schema fields (`data`, never null) and its `description`, so a whole collection or entries page renders from one request. `marvin-astro` skips its per-entry hydrate fetch when `data` is present, which removes an N+1 on large collections.
 - **Entries of non-publishable types are never served** (0e676a23). An entry of a submittable type (a contact message, a newsletter signup) with status `published` used to be returned with its data to any site token. Types whose capabilities say `publishable: false` are now excluded from the entries list, entry detail, collection entries and resource entries, whatever the status. Absent capabilities count as publishable.
 
@@ -59,6 +60,15 @@ Sample `GET /entries` response (fields abbreviated):
 
 Field names are camelCase on the wire; the `PublishedEntriesResponse` schema is the reference.
 
+### Full entries in one request: `expand=full`
+
+A list item has asset and resource *slugs* only. A site that needs asset roles (the hero image), resources or every collection membership used to read each item again through `/entries/{slug}`, one request per entry. Add `expand=full` to `/collections/{slug}`, `/entries` or `/resources/{slug}/entries` and each entry comes back in the single-read shape (`PublishedEntryRead`: `assets[]` and `resources[]` placements, full `collections`, `data`, `embeds`), the same JSON `/entries/{slug}` returns for it. A collection's entries also keep their `order`.
+
+- Filters and pagination are unchanged. `/entries` keeps its `limit` cap (`PUBLISHING_MAX_PAGE_SIZE`, 100). The two unpaginated endpoints expand up to `PUBLISHING_MAX_EXPANDED_ENTRIES` entries (default 500); past that they return plain list items, as a server without `expand` does, and a client falls back to per-entry reads.
+- Expanding never shows more than the single read: published entries only (a `read:all_entries` token's drafts drop out of an expanded collection), and the token needs `read:published_entries` or `read:all_entries` on top of the endpoint's own key, else 403.
+- The cost is a fixed number of queries per response, however many entries it holds. Any other value of `expand` is a 422; without it the response is exactly as before.
+- Detect a server that ignores the parameter by the items: a list item has `assetSlugs`, an expanded one has `assets[]`. `marvin-astro` does this and falls back to per-entry reads.
+
 ## API
 
 | Method | Path | Query | Permission |
@@ -66,16 +76,16 @@ Field names are camelCase on the wire; the `PublishedEntriesResponse` schema is 
 | GET | `/` | — | `read:published_entries` or `read:all_entries` |
 | GET | `/site` | — | same; returns site configuration (SEO, verification tags, `embeds`: media privacy mode, consent text, player origins) |
 | GET | `/entry-types` | — | same; ordered by `sort_order`, name |
-| GET | `/entries` | `entry_type`, `collection`, `tag` (comma, any), `slug` (comma), `updated_since` (ISO), `limit`, `offset` | same |
+| GET | `/entries` | `entry_type`, `collection`, `tag` (comma, any), `slug` (comma), `updated_since` (ISO), `limit`, `offset`, `expand` | same |
 | GET | `/entries/{slug}` | — | same; full `PublishedEntryRead` with collections, resources, assets and media `embeds` (list items carry `embeds` too; see [Media embeds](media-embeds.md)) |
 | GET | `/collections` | `limit`, `offset` | `read:collections`; public collections only |
-| GET | `/collections/{slug}` | — | `read:collections`; entries ordered by junction `sort_order` then `published_at` desc. With `read:all_entries` the token also sees non-published members |
+| GET | `/collections/{slug}` | `expand` | `read:collections`; entries ordered by junction `sort_order` then `published_at` desc. With `read:all_entries` the token also sees non-published members (not with `expand=full`) |
 | GET | `/assets` | `type` (MIME prefix: image, video, audio, application), `limit`, `offset` | `read:assets` |
 | GET | `/assets/{slug}` | — | `read:assets` |
 | GET | `/assets/{slug}/file` | — | `read:assets`; streams the file |
 | GET | `/resources` | `resource_type`, `limit`, `offset` | `read:resources` |
 | GET | `/resources/{slug}` | — | `read:resources` |
-| GET | `/resources/{slug}/entries` | — | `read:resources`; published entries linked to the resource |
+| GET | `/resources/{slug}/entries` | `expand` | `read:resources`; published entries linked to the resource |
 | GET | `/forms/{slug}` | — | `read:published_entries`; form definition, success message, honeypot field name when enabled |
 | POST | `/forms/{slug}/submit` | body: submission dict | `write:public_entries` or `write:form_submissions` |
 

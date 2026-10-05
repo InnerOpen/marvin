@@ -83,6 +83,7 @@ Returns all published entries, optionally filtered by collection.
 - `limit`: Entries per page (default: 20, max: 100)
 - `collection_slug`: Filter by collection slug (optional)
 - `entry_type`: Filter by entry type (optional)
+- `expand`: `full` returns each entry in the [Get Entry](#get-entry) shape (optional; see [Expanded lists](#expanded-lists-expandfull))
 
 **Response:**
 
@@ -274,6 +275,61 @@ Downloads or redirects to the asset file.
 May return:
 - `200 OK` with file content and appropriate `Content-Type` header
 - `302 Found` redirect to cloud storage (S3, etc)
+
+## Expanded lists (`expand=full`)
+
+List items carry asset and resource slugs, not their placements. A site that needs an asset's role
+(the hero image), the resources or every collection membership would otherwise read each item again
+through [Get Entry](#get-entry): one request per entry, hundreds on a large site. `expand=full`
+returns the full entries in the list response instead.
+
+```http
+GET /api/publish/{group_slug}/collections/{collection_slug}?expand=full
+GET /api/publish/{group_slug}/entries?collection=projects&expand=full&limit=100
+GET /api/publish/{group_slug}/resources/{resource_slug}/entries?expand=full
+Authorization: Bearer <site_client_token>
+```
+
+Each entry is the same JSON [Get Entry](#get-entry) returns for it (`PublishedEntryRead`), with
+`order` set on a collection's entries:
+
+```json
+{
+  "slug": "projects",
+  "name": "Projects",
+  "entryCount": 1,
+  "entries": [
+    {
+      "slug": "waxed-tote",
+      "title": "Waxed Tote",
+      "entryType": "project",
+      "data": {"body": "…"},
+      "collections": [{"role": "item", "position": 0, "collection": {"slug": "projects", "name": "Projects", "isSmart": false, "entryCount": 0, "sortOrder": 0}}],
+      "assets": [{"role": "hero", "position": 0, "asset": {"slug": "tote-hero", "publicUrl": "…", "mimeType": "image/jpeg", "tags": []}}],
+      "resources": [{"role": "primary-material", "position": 0, "resource": {"slug": "waxed-canvas", "name": "Waxed Canvas", "resourceType": "material"}}],
+      "tags": [],
+      "embeds": {},
+      "order": 0
+    }
+  ]
+}
+```
+
+**Rules:**
+- Without `expand` every response is exactly as before. Any value other than `full` is a 422.
+- Filters and pagination are unchanged. `/entries` keeps its page cap (`limit` at most
+  `PUBLISHING_MAX_PAGE_SIZE`, 100). The unpaginated endpoints (a collection, a resource's entries)
+  expand up to `PUBLISHING_MAX_EXPANDED_ENTRIES` entries (default 500). Past that they return plain
+  list items, as a server without `expand` does.
+- Visibility and permissions are the single read's: only published entries of publishable types
+  (a `read:all_entries` token's drafts are left out of an expanded collection), only public
+  collections and no pending AI-suggested assets. The token needs `read:published_entries` or
+  `read:all_entries` in addition to the endpoint's own permission, or the request is a 403.
+- A response costs a fixed number of database queries whatever its size: attachments, their tags
+  and the media embeds are loaded for the whole page at once.
+- An older server ignores `expand`. Tell the two apart by the items: a list item has `assetSlugs`,
+  an expanded entry has `assets[]`. `marvin-astro` (`hydrate: true`) asks for `expand=full` and
+  reads entries one at a time only when the items come back unexpanded.
 
 ## Media embeds
 

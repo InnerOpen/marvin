@@ -353,12 +353,25 @@ class PublishedEntriesResponse(_MarvinModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class PublishedCollectionRead(_MarvinModel):
+class PublishedEntriesExpandedResponse(_MarvinModel):
     """
-    Schema for published collections in the publishing API.
+    Paginated response for listing published entries with ``?expand=full``.
 
-    Includes collection metadata and its published entries.
+    Each item has the shape of the single-entry read (``PublishedEntryRead``), so a site can
+    render a page of entries without re-reading each one.
     """
+
+    data: list[PublishedEntryRead]
+    """List of published entries, each as full as the single-entry read."""
+
+    meta: PaginationMeta
+    """Pagination metadata (total, page, limit)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class _PublishedCollectionFields(_MarvinModel):
+    """The collection fields shared by the plain and the expanded collection read."""
 
     slug: str
     """URL-friendly identifier for the collection."""
@@ -381,10 +394,30 @@ class PublishedCollectionRead(_MarvinModel):
     entry_count: int
     """Number of published entries in this collection."""
 
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PublishedCollectionRead(_PublishedCollectionFields):
+    """
+    Schema for published collections in the publishing API.
+
+    Includes collection metadata and its published entries.
+    """
+
     entries: list[PublishedEntryListItem]
     """Published entries in this collection."""
 
-    model_config = ConfigDict(from_attributes=True)
+
+class PublishedCollectionExpandedRead(_PublishedCollectionFields):
+    """
+    A published collection read with ``?expand=full``.
+
+    Same collection fields as ``PublishedCollectionRead``; each entry has the shape of the
+    single-entry read (``PublishedEntryRead``).
+    """
+
+    entries: list[PublishedEntryRead]
+    """Published entries in this collection, each as full as the single-entry read."""
 
 
 class PublishedCollectionSummary(_MarvinModel):

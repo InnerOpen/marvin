@@ -443,6 +443,11 @@ class AppSettings(BaseSettings):
     PUBLISHING_MAX_PAGE_SIZE: int = 100
     """Maximum number of entries per page in publishing API. Default: 100"""
 
+    PUBLISHING_MAX_EXPANDED_ENTRIES: int = 500
+    """Most entries an unpaginated publishing endpoint (a collection, a resource's entries) returns in the
+    full single-read shape for ``?expand=full``. A larger set comes back as plain list items, as from a
+    server without ``expand``, and clients fall back to per-entry reads. Default: 500"""
+
     PUBLISHING_UNKNOWN_ENTRY_TYPE: str = "unknown"
     """Fallback value when entry type is missing. Default: unknown"""
 
