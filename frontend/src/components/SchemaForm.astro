@@ -4,6 +4,7 @@ import AssetListField from "./schema-fields/AssetListField.astro";
 import BooleanField from "./schema-fields/BooleanField.astro";
 import DateField from "./schema-fields/DateField.astro";
 import DateTimeField from "./schema-fields/DateTimeField.astro";
+import EmbedField from "./schema-fields/EmbedField.astro";
 import MarkdownField from "./schema-fields/MarkdownField.astro";
 import NumberField from "./schema-fields/NumberField.astro";
 import ResourceField from "./schema-fields/ResourceField.astro";
@@ -91,6 +92,9 @@ function getFieldError(key: string) {
 
       case 'asset-list':
         return <AssetListField field={field as any} value={value} error={error} />;
+
+      case 'embed':
+        return <EmbedField field={field as any} value={value} error={error} />;
 
       case 'resource':
         return <ResourceField field={field as any} value={value} error={error} />;

@@ -557,6 +557,14 @@ const preSelectedSchema =
                   ${helpText ? `<p class="form-help">${helpText}</p>` : ''}
                 </div>
               `;
+            case 'embed':
+              return `
+                <div class="form-group">
+                  <label for="${fieldName}">${field.label}${field.required ? ' *' : ''}</label>
+                  <input type="url" id="${fieldName}" name="${fieldName}" placeholder="${placeholder || 'https://www.youtube.com/watch?v=…'}" ${required} />
+                  <p class="form-help">A video, music or podcast link${helpText ? ` • ${helpText}` : ''}</p>
+                </div>
+              `;
             case 'markdown':
               return `
                 <div class="form-group">

@@ -13,6 +13,8 @@ export interface Props {
     placeholder?: string;
     helpText?: string;
     readOnly?: boolean;
+    /** Bare provider URLs on their own line become players (default). `false` keeps them plain links. */
+    autoEmbed?: boolean;
   };
   value?: string;
   error?: string;
@@ -20,9 +22,11 @@ export interface Props {
 
 const { field, value, error } = Astro.props;
 const inputId = `field-${field.key}`;
+const autoEmbed = field.autoEmbed !== false;
+const canEmbed = autoEmbed && !field.readOnly;
 ---
 
-<div class="field-group markdown-field">
+<div class="field-group markdown-field" data-auto-embed={autoEmbed ? "true" : "false"}>
   <label for={inputId}>
     {field.label}
     {field.required && <span class="required">*</span>}
@@ -32,6 +36,11 @@ const inputId = `field-${field.key}`;
     <div class="markdown-tabs">
       <button type="button" class="tab-button active" data-tab="write">Write</button>
       <button type="button" class="tab-button" data-tab="preview">Preview</button>
+      {canEmbed && (
+        <button type="button" class="tab-button embed-button" data-embed-open title="Embed a video, song, playlist or podcast">
+          Embed
+        </button>
+      )}
     </div>
 
     <div class="markdown-content">
@@ -54,6 +63,26 @@ const inputId = `field-${field.key}`;
 
   {field.helpText && <p class="field-help">{field.helpText}</p>}
   {error && <p class="field-error">{error}</p>}
+
+  {canEmbed && (
+    <dialog class="modal embed-dialog" data-embed-dialog aria-label="Embed media">
+      <div class="modal-content">
+        <h3>Embed media</h3>
+        <p class="embed-dialog-help">
+          Paste a link to a video, song, playlist or podcast — or the provider's embed code. It's added as a
+          link on its own line, which your site shows as a player.
+        </p>
+        <textarea class="input embed-dialog-input" rows="3" data-embed-input placeholder="https://www.youtube.com/watch?v=…"></textarea>
+        <p class="embed-dialog-status" data-embed-status aria-live="polite"></p>
+        <div class="embed-dialog-preview" data-embed-preview></div>
+        <div class="modal-actions">
+          <button type="button" class="button secondary" data-embed-cancel>Cancel</button>
+          <button type="button" class="button secondary" data-embed-resolve>Check link</button>
+          <button type="button" class="button" data-embed-insert disabled>Insert</button>
+        </div>
+      </div>
+    </dialog>
+  )}
 </div>
 
 <style>
@@ -150,6 +179,62 @@ const inputId = `field-${field.key}`;
   .tab-button.active {
     color: var(--ink);
     border-bottom-color: var(--color-primary);
+  }
+
+  .embed-button {
+    margin-left: auto;
+  }
+
+  .embed-dialog {
+    width: min(560px, 90vw);
+    padding: 0;
+    border: none;
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: var(--ink);
+    box-shadow: 0 8px 32px rgb(0 0 0 / 0.15);
+  }
+
+  .embed-dialog::backdrop {
+    background: rgb(0 0 0 / 0.5);
+  }
+
+  .embed-dialog .modal-content {
+    display: grid;
+    gap: 0.75rem;
+    padding: 24px;
+  }
+
+  .embed-dialog h3,
+  .embed-dialog-help,
+  .embed-dialog-status {
+    margin: 0;
+  }
+
+  .embed-dialog-help,
+  .embed-dialog-status {
+    font-size: 0.8125rem;
+    color: var(--muted);
+  }
+
+  .embed-dialog-status:empty {
+    display: none;
+  }
+
+  .embed-dialog-status.is-error {
+    color: var(--color-error);
+  }
+
+  .embed-dialog-input {
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 0.8125rem;
+    resize: vertical;
+  }
+
+  .embed-dialog .modal-actions {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: flex-end;
   }
 
   .markdown-content {
@@ -284,6 +369,10 @@ const inputId = `field-${field.key}`;
     font-weight: 600;
   }
 
+  .markdown-preview :global(a.marvin-embed-link) {
+    text-decoration: none;
+  }
+
   .markdown-preview :global(img) {
     max-width: 100%;
     height: auto;
@@ -292,59 +381,100 @@ const inputId = `field-${field.key}`;
 </style>
 
 <script>
-  // Simple markdown parser (basic subset)
-  function parseMarkdown(markdown: string): string {
-    if (!markdown || !markdown.trim()) {
-      return '<div class="preview-empty">Nothing to preview</div>';
-    }
+  import { insertEmbedParagraph } from '@/lib/mediaEmbeds';
+  import {
+    buildEmbedElement,
+    describeEmbed,
+    loadProviders,
+    renderPreviewInto,
+    resolveCached,
+    resolveErrorMessage,
+  } from '@/lib/mediaEmbedsBrowser';
 
-    let html = markdown;
+  // The Embed dialog: paste a link or embed code → check it → insert the canonical URL as its own paragraph.
+  function setupEmbedDialog(field: Element, textarea: HTMLTextAreaElement) {
+    const openBtn = field.querySelector<HTMLButtonElement>('[data-embed-open]');
+    const dialog = field.querySelector<HTMLDialogElement>('[data-embed-dialog]');
+    if (!openBtn || !dialog) return;
+    const input = dialog.querySelector<HTMLTextAreaElement>('[data-embed-input]')!;
+    const status = dialog.querySelector<HTMLElement>('[data-embed-status]')!;
+    const preview = dialog.querySelector<HTMLElement>('[data-embed-preview]')!;
+    const resolveBtn = dialog.querySelector<HTMLButtonElement>('[data-embed-resolve]')!;
+    const insertBtn = dialog.querySelector<HTMLButtonElement>('[data-embed-insert]')!;
 
-    // Escape HTML
-    html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let selection = { start: 0, end: 0 };
+    let resolvedUrl: string | null = null;
 
-    // Headers
-    html = html.replace(/^### (.*$)/gim, '<h3>$1</h3>');
-    html = html.replace(/^## (.*$)/gim, '<h2>$1</h2>');
-    html = html.replace(/^# (.*$)/gim, '<h1>$1</h1>');
+    const setStatus = (text: string, isError = false) => {
+      status.textContent = text;
+      status.classList.toggle('is-error', isError);
+    };
+    const reset = () => {
+      resolvedUrl = null;
+      insertBtn.disabled = true;
+      preview.replaceChildren();
+      setStatus('');
+    };
 
-    // Bold
-    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-    html = html.replace(/__(.+?)__/g, '<strong>$1</strong>');
+    openBtn.addEventListener('click', () => {
+      selection = { start: textarea.selectionStart ?? textarea.value.length, end: textarea.selectionEnd ?? textarea.value.length };
+      input.value = '';
+      reset();
+      dialog.showModal();
+      input.focus();
+      void loadProviders();
+    });
+    dialog.querySelector('[data-embed-cancel]')?.addEventListener('click', () => dialog.close());
+    input.addEventListener('input', reset);
 
-    // Italic
-    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-    html = html.replace(/_(.+?)_/g, '<em>$1</em>');
+    resolveBtn.addEventListener('click', async () => {
+      const value = input.value.trim();
+      reset();
+      if (!value) {
+        setStatus('Paste a link or embed code first.', true);
+        return;
+      }
+      resolveBtn.disabled = true;
+      setStatus('Checking…');
+      try {
+        const [result, { frameSources }] = await Promise.all([resolveCached(value, 'direct'), loadProviders()]);
+        if (!result.url || !result.embed) {
+          setStatus(result.error || "That link isn't from a supported provider.", true);
+          return;
+        }
+        resolvedUrl = result.url;
+        insertBtn.disabled = false;
+        setStatus(describeEmbed(result.embed));
+        preview.replaceChildren(buildEmbedElement(result.embed, frameSources));
+      } catch (e) {
+        setStatus(resolveErrorMessage(e), true);
+      } finally {
+        resolveBtn.disabled = false;
+      }
+    });
 
-    // Code blocks
-    html = html.replace(/```([^`]+)```/g, '<pre><code>$1</code></pre>');
-
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-
-    // Links
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
-
-    // Line breaks
-    html = html.replace(/\n\n/g, '</p><p>');
-    html = html.replace(/\n/g, '<br>');
-
-    // Wrap in paragraphs if not already wrapped
-    if (!html.startsWith('<')) {
-      html = '<p>' + html + '</p>';
-    }
-
-    return html;
+    insertBtn.addEventListener('click', () => {
+      if (!resolvedUrl) return;
+      const { value, caret } = insertEmbedParagraph(textarea.value, selection.start, selection.end, resolvedUrl);
+      textarea.value = value;
+      textarea.setSelectionRange(caret, caret);
+      // Existing listeners (data JSON sync, dirty tracking, the preview) react to input events.
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      dialog.close();
+      textarea.focus();
+    });
   }
 
   document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('.markdown-field').forEach((field) => {
+    document.querySelectorAll<HTMLElement>('.markdown-field').forEach((field) => {
       const writeBtn = field.querySelector('[data-tab="write"]');
       const previewBtn = field.querySelector('[data-tab="preview"]');
       const textarea = field.querySelector('[data-markdown-input]') as HTMLTextAreaElement;
       const preview = field.querySelector('[data-markdown-preview]') as HTMLElement;
 
       if (!writeBtn || !previewBtn || !textarea || !preview) return;
+      const autoEmbed = field.dataset.autoEmbed !== 'false';
+      const renderPreview = () => renderPreviewInto(preview, textarea.value, autoEmbed);
 
       // Tab switching
       writeBtn.addEventListener('click', () => {
@@ -359,9 +489,7 @@ const inputId = `field-${field.key}`;
         writeBtn.classList.remove('active');
         textarea.style.display = 'none';
         preview.style.display = 'block';
-
-        // Update preview content
-        preview.innerHTML = parseMarkdown(textarea.value);
+        renderPreview();
       });
 
       // Update preview on input (debounced)
@@ -369,11 +497,11 @@ const inputId = `field-${field.key}`;
       textarea.addEventListener('input', () => {
         clearTimeout(debounceTimer);
         debounceTimer = window.setTimeout(() => {
-          if (previewBtn.classList.contains('active')) {
-            preview.innerHTML = parseMarkdown(textarea.value);
-          }
+          if (previewBtn.classList.contains('active')) renderPreview();
         }, 300);
       });
+
+      setupEmbedDialog(field, textarea);
     });
   });
 </script>

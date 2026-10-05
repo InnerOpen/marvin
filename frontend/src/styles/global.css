@@ -1104,3 +1104,44 @@ code {
 .opt-picker .opt-status.is-error {
   color: var(--color-error);
 }
+
+/* ── Media embeds (editor previews; sites style their own .marvin-embed) ──── */
+.marvin-embed {
+  position: relative;
+  width: 100%;
+  max-width: 720px;
+  margin: 0.75rem 0;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--panel-2);
+}
+.marvin-embed[data-kind="video"],
+.marvin-embed[data-kind="playlist"] {
+  aspect-ratio: 16 / 9;
+}
+.marvin-embed[data-kind="audio"],
+.marvin-embed[data-kind="podcast"] {
+  height: 152px;
+}
+.marvin-embed iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+.marvin-embed-link {
+  display: inline-block;
+  margin: 0.75rem 0;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--ink);
+  text-decoration: none;
+}
+.marvin-embed-link:hover {
+  border-color: var(--accent);
+}
+.marvin-embed-pending {
+  opacity: 0.6;
+}

@@ -9,6 +9,9 @@
  * The schema is stored in a hidden input field as JSON and can be submitted with the form.
  */
 
+import { getAuthToken } from "@/lib/api/client";
+import { getEmbedProviders } from "@/lib/api/mediaEmbeds";
+
 export interface Props {
   schema?: {
     fields: Array<{
@@ -35,7 +38,17 @@ const fieldTypes = [
   { value: "date", label: "Date", description: "Date picker" },
   { value: "datetime", label: "DateTime", description: "Date and time picker" },
   { value: "json", label: "JSON", description: "Free-form JSON data" },
+  { value: "embed", label: "Media embed", description: "A video, audio or podcast link shown as a player" },
 ];
+
+// Provider keys for the embed field's "Providers" hint. Best-effort: the editor works without them.
+let embedProviders: Array<{ key: string; name: string }> = [];
+try {
+  const { providers } = await getEmbedProviders(getAuthToken(Astro.cookies));
+  embedProviders = providers.map((p) => ({ key: p.key, name: p.name }));
+} catch (e) {
+  console.warn("[SchemaEditor] Could not load media embed providers:", e);
+}
 ---
 
 <div class="schema-editor">
@@ -280,7 +293,7 @@ const fieldTypes = [
   }
 </style>
 
-<script define:vars={{ initialSchema, fieldTypes }}>
+<script define:vars={{ initialSchema, fieldTypes, embedProviders }}>
   // Schema state
   let schema = JSON.parse(JSON.stringify(initialSchema));
 
@@ -383,6 +396,21 @@ const fieldTypes = [
             <input type="text" class="field-options" value="${(field.options || []).join(', ')}" placeholder="e.g., draft, published" required />
           </div>
         ` : ''}
+        ${field.type === 'markdown' ? `
+          <div class="form-group checkbox-field full-width">
+            <input type="checkbox" class="field-auto-embed" ${field.autoEmbed === false ? '' : 'checked'} />
+            <label>Auto-embed media links <span class="field-label-hint">— a YouTube, Vimeo, Spotify… link on its own line shows as a player</span></label>
+          </div>
+        ` : ''}
+        ${field.type === 'embed' ? `
+          <div class="form-group full-width">
+            <label>Providers (comma-separated)</label>
+            <input type="text" class="field-providers" value="${(field.providers || []).join(', ').replace(/"/g, '&quot;')}" placeholder="Leave empty to accept every supported provider" />
+            <p class="form-help">${embedProviders.length
+              ? 'Available: ' + embedProviders.map(p => `${p.key} (${p.name})`).join(', ')
+              : 'Provider keys, e.g. youtube, vimeo, spotify'}</p>
+          </div>
+        ` : ''}
         ${field.type === 'number' ? `
           <div class="form-group">
             <label>Min Value</label>
@@ -431,9 +459,12 @@ const fieldTypes = [
     });
 
     // Update field on other input changes (placeholder, help text, type, required, etc.)
-    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max').forEach(input => {
+    div.querySelectorAll('.field-placeholder, .field-help-text, .field-ai-hint, .field-type, .field-required, .field-options, .field-min, .field-max, .field-providers, .field-auto-embed').forEach(input => {
       input.addEventListener('input', () => updateField(index, div));
     });
+
+    // Type-specific settings (options, min/max, providers, auto-embed) depend on the type: redraw on change.
+    div.querySelector('.field-type').addEventListener('change', () => render());
 
     return div;
   }
@@ -456,6 +487,29 @@ const fieldTypes = [
       if (optionsInput) {
         field.options = optionsInput.value.split(',').map(s => s.trim()).filter(Boolean);
       }
+    }
+
+    // Embed fields may limit providers (registry keys; empty = all). Only embed fields carry the key.
+    if (field.type === 'embed') {
+      const providersInput = fieldEl.querySelector('.field-providers');
+      if (providersInput) {
+        const keys = providersInput.value.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+        if (keys.length) field.providers = keys;
+        else delete field.providers;
+      }
+    } else {
+      delete field.providers;
+    }
+
+    // Markdown auto-embed is on unless explicitly off — store only `autoEmbed: false`.
+    if (field.type === 'markdown') {
+      const autoEmbedInput = fieldEl.querySelector('.field-auto-embed');
+      if (autoEmbedInput) {
+        if (autoEmbedInput.checked) delete field.autoEmbed;
+        else field.autoEmbed = false;
+      }
+    } else {
+      delete field.autoEmbed;
     }
 
     if (field.type === 'number') {

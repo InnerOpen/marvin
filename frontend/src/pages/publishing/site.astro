@@ -2,7 +2,9 @@
 import type { Workspace } from "@inneropen/marvin-sdk/platform";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { getEmbedProviders } from "@/lib/api/mediaEmbeds";
 import type { GroupPreferencesRead } from "@/lib/api/types";
+import { DEFAULT_CONSENT_TEXT } from "@/lib/mediaEmbeds";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -41,10 +43,21 @@ const siteMeta = (preferences?.siteMetadataJson || {}) as Record<string, any>;
 const seo = (siteMeta.seo || {}) as Record<string, any>;
 const seoKeywords = Array.isArray(seo.keywords) ? seo.keywords.join(", ") : (seo.keywords ?? "");
 
-// The raw metadata editor owns everything EXCEPT seo (structured above) — compute its display value
+// Media embeds live under site_metadata_json.embeds = {mode, consentText}; click-to-load is the default.
+const embeds = (siteMeta.embeds || {}) as Record<string, any>;
+const embedsMode = embeds.mode === "direct" ? "direct" : "click_to_load";
+let embedProviderNames: string[] = [];
+try {
+  embedProviderNames = (await getEmbedProviders(authToken)).providers.map((p) => p.name);
+} catch (e) {
+  console.warn("[site] Could not load media embed providers:", e);
+}
+
+// The raw metadata editor owns everything EXCEPT seo and embeds (structured above) — compute its display value
 // here in the frontmatter, since TS generics/casts can't live inside Astro template expressions.
 const metaWithoutSeo: Record<string, any> = { ...siteMeta };
 delete metaWithoutSeo.seo;
+delete metaWithoutSeo.embeds;
 const siteSocial = (preferences?.siteSocialJson || null) as Record<string, any> | null;
 const metaForDisplay: Record<string, any> =
   siteSocial && Object.keys(siteSocial).length > 0 ? { ...metaWithoutSeo, social: siteSocial } : metaWithoutSeo;
@@ -387,9 +400,42 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
         </div>
       </section>
 
+      <section class="form-section" id="embeds">
+        <h3>Embeds &amp; Privacy</h3>
+        <p class="section-description">How your site shows media players for video, music and podcast links in your content.</p>
+        <div class="form-grid">
+          <label class="span-2">
+            <span>Loading players</span>
+            <select name="embedsMode">
+              <option value="click_to_load" selected={embedsMode === "click_to_load"}>Click to load — recommended</option>
+              <option value="direct" selected={embedsMode === "direct"}>Load players directly</option>
+            </select>
+            <small>
+              <strong>Click to load</strong> shows a placeholder with a play button; nothing is fetched from the provider (and no
+              third-party cookies are set) until the visitor clicks. <strong>Load players directly</strong> embeds the player
+              straight away — convenient, but the provider sees every page view.
+            </small>
+          </label>
+          <label class="span-2">
+            <span>Consent text</span>
+            <textarea
+              name="embedsConsentText"
+              rows="2"
+              placeholder={DEFAULT_CONSENT_TEXT}
+            >{embeds.consentText || ""}</textarea>
+            <small>Shown on click-to-load placeholders. <code>{"{provider}"}</code> is replaced with the provider's name. Leave blank for the default.</small>
+          </label>
+          {embedProviderNames.length > 0 && (
+            <p class="span-2 embed-providers">
+              <span>Supported providers:</span> {embedProviderNames.join(", ")}
+            </p>
+          )}
+        </div>
+      </section>
+
       <section class="form-section">
         <h3>Advanced Metadata</h3>
-        <p class="section-description">Custom metadata for framework-specific settings, social links, analytics, etc. SEO is managed in the section above.</p>
+        <p class="section-description">Custom metadata for framework-specific settings, social links, analytics, etc. SEO and embeds are managed in the sections above.</p>
         <div class="form-grid">
           <label class="span-2">
             <span>Custom Metadata (JSON)</span>
@@ -497,9 +543,17 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
         ...Object.keys(seoFieldMap),
         ...Object.keys(verFieldMap),
         'seoKeywords',
+        'embedsMode',
+        'embedsConsentText',
       ]);
 
-      // Parse the raw metadata editor (everything except seo, which the section above owns).
+      // Embeds & privacy (stored under metadata.embeds); the mode always has a value.
+      const embeds = {
+        mode: formData.get('embedsMode') === 'direct' ? 'direct' : 'click_to_load',
+        consentText: (formData.get('embedsConsentText') as string | null)?.trim() || null,
+      };
+
+      // Parse the raw metadata editor (everything except seo and embeds, which the sections above own).
       let metadataObj: Record<string, any> = {};
       const rawMeta = formData.get('siteMetadataJson') as string | null;
       if (rawMeta) {
@@ -524,6 +578,7 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
       } else {
         delete metadataObj.seo;
       }
+      metadataObj.embeds = embeds;
       data['siteMetadataJson'] = Object.keys(metadataObj).length > 0 ? metadataObj : null;
 
       // Remaining simple string fields.
@@ -742,6 +797,18 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
   .form-grid small {
     font-size: 12px;
     color: var(--muted);
+  }
+
+  .embed-providers {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .embed-providers span {
+    font-weight: 500;
+    color: var(--ink);
   }
 
   .form-actions {
