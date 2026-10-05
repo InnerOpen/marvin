@@ -54,10 +54,14 @@ jobs:
       - name: Install system dependencies (OpenLDAP headers for python-ldap)
         run: sudo apt-get update && sudo apt-get install -y libldap2-dev libsasl2-dev
 
+      # The /api/groups/integrations routes only mount when marvin-integration-sdk is importable,
+      # and the published SDK's types include them. Without it the regenerated schema drops that
+      # surface and this gate always reports drift. Same tarball the chart installs.
       - name: Install Python dependencies
         working-directory: marvin
         run: |
           pip install -e ".[dev]"
+          pip install https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
 
       - name: Generate OpenAPI spec from Marvin
         working-directory: marvin
