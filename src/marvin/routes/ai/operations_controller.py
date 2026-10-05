@@ -360,7 +360,11 @@ class AIOperationsController(BaseUserController):
         limit: int = 50,
         offset: int = 0,
     ) -> list[AIExecutionRead]:
+        """The workspace's runs for OWNERs/ADMINs; other members see only the runs they triggered."""
+        from marvin.services.ai.executions import visible_runs
+
         q = self.session.query(AIExecutionModel).filter_by(group_id=self.group_id)
+        q = visible_runs(q, sees_all=self._sees_all_executions(), user_id=self.user.id)
         if operation_slug:
             q = q.filter(AIExecutionModel.operation_slug == operation_slug)
         if status:
@@ -372,10 +376,18 @@ class AIOperationsController(BaseUserController):
 
     @router.get("/executions/{execution_id}", response_model=AIExecutionRead, summary="Get Execution")
     def get_execution(self, execution_id: UUID4) -> AIExecutionRead:
+        """One run. Below ADMIN, another member's run (or a system run) is the same 404 as a missing id."""
+        from marvin.services.ai.executions import may_see_run
+
         row = self.session.get(AIExecutionModel, execution_id)
-        if not row or row.group_id != self.group_id:
+        if not row or row.group_id != self.group_id or not may_see_run(row, sees_all=self._sees_all_executions(), user_id=self.user.id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found.")
         return self._labelled([row])[0]
+
+    def _sees_all_executions(self) -> bool:
+        from marvin.services.ai.executions import sees_every_run
+
+        return sees_every_run(self.user, self._user_role())
 
     def _labelled(self, rows: list) -> list[AIExecutionRead]:
         from marvin.services.ai.agents import agent_names, operation_label

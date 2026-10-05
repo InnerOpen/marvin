@@ -9,6 +9,9 @@ the scheduled-task routes (a VIEWER asking the agent must not see what the setti
 
 Handlers reuse the same repos the platform controllers use, so the shapes match what the REST endpoints
 return. Return a JSON string (fed to the model verbatim / parsed by the invoke endpoint).
+
+AI executions follow the execution log's rule: OWNERs/ADMINs see every run, other members only the runs
+they triggered (services/ai/executions.py).
 """
 
 import json
@@ -16,7 +19,7 @@ import json
 from marvin.repos.all_repositories import get_repositories
 
 from ..operations.base import ROLE_ADMIN, ROLE_VIEWER
-from .base import ToolContext, register_tool
+from .base import ToolContext, caller_role, register_tool
 
 
 def _repos(ctx: ToolContext):
@@ -29,7 +32,7 @@ def _dump(value) -> str:
 
 @register_tool(
     name="list_ai_executions",
-    description="List recent AI operation executions in this workspace (operation, status, model, tokens, cost, timing). Optionally filter by status, operation slug, or entity_type. Use to see what AI has run and how much it cost.",  # noqa: E501
+    description="List recent AI operation executions in this workspace (operation, status, model, tokens, cost, timing); workspace admins see every run, other members only their own. Optionally filter by status, operation slug, or entity_type. Use to see what AI has run and how much it cost.",  # noqa: E501
     input_schema={
         "type": "object",
         "properties": {
@@ -44,8 +47,10 @@ def _dump(value) -> str:
 def list_ai_executions(ctx: ToolContext, args: dict) -> str:
     from marvin.db.models.groups.ai_executions import AIExecutionModel
     from marvin.services.ai.agents import agent_names, operation_label
+    from marvin.services.ai.executions import sees_every_run, visible_runs
 
     q = ctx.session.query(AIExecutionModel).filter(AIExecutionModel.group_id == ctx.group_id)
+    q = visible_runs(q, sees_all=sees_every_run(ctx.user, caller_role(ctx)), user_id=getattr(ctx.user, "id", None))
     if args.get("status"):
         q = q.filter(AIExecutionModel.status == args["status"])
     if args.get("operation"):
@@ -86,9 +91,11 @@ def list_ai_executions(ctx: ToolContext, args: dict) -> str:
 def get_ai_execution(ctx: ToolContext, args: dict) -> str:
     from marvin.db.models.groups.ai_executions import AIExecutionModel
     from marvin.services.ai.agents import agent_names, operation_label
+    from marvin.services.ai.executions import may_see_run, sees_every_run
 
     r = ctx.session.get(AIExecutionModel, args.get("id"))
-    if not r or r.group_id != ctx.group_id:
+    sees_all = sees_every_run(ctx.user, caller_role(ctx))
+    if not r or r.group_id != ctx.group_id or not may_see_run(r, sees_all=sees_all, user_id=getattr(ctx.user, "id", None)):
         return _dump({"error": "AI execution not found in this workspace"})
     return _dump(
         {

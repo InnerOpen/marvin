@@ -107,6 +107,12 @@ scheduled-task and automation routes), and `get_ai_settings` (the AI settings pa
 readable to members). `workspace_overview` lists workflows, scheduled tasks, webhooks,
 MCP servers and integrations by name only to admins.
 
+The AI execution log (`GET /api/ai/executions`, `GET /api/ai/executions/{id}`, the AI Executions page
+and the `list_ai_executions` / `get_ai_execution` tools) shows workspace OWNERs and ADMINs (and platform
+super admins) every run; other members see only the runs they triggered, and another member's run is a
+404. Runs with no user (system, workflow and scheduled runs) are admin-only. Deleting a run needs ADMIN.
+Aggregate counts and costs on the dashboard and stats still cover every run.
+
 ### OWNER
 
 Full control over the workspace.

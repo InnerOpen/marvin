@@ -1,6 +1,7 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -11,16 +12,20 @@ const filter = Astro.url.searchParams.get("filter") || "all";
 let executions: any[] = [];
 let error: string | null = null;
 let aiEnabled = true;
+// Workspace OWNERs/ADMINs see every run; other members only their own (the API filters).
+let seesAll = false;
 
 // Read-only history still requires auth; also surface whether AI is currently enabled.
 if (authed) {
   const sdk = createSdkClient(authToken);
   try {
-    const [execs, settings] = await Promise.all([
+    const [execs, settings, admin] = await Promise.all([
       sdk.ai.executions.list({ limit: 200 }),
       sdk.ai.settings.get().catch(() => null),
+      canManageCurrentWorkspace(authToken!).catch(() => false),
     ]);
     executions = execs;
+    seesAll = admin;
     if (settings) aiEnabled = (settings as any).enabled !== false;
   } catch (e) {
     console.error("[ai-executions] Error:", e);
@@ -77,6 +82,12 @@ function formatDuration(ms: number | null): string {
     <h2>AI Executions</h2>
     <p>History of every AI operation run in this workspace — tokens, cost, and output</p>
   </div>
+
+  {authed && !seesAll && !error && (
+    <div class="alert alert-info">
+      Showing your runs. Workspace owners and admins see every run in the workspace.
+    </div>
+  )}
 
   {!authed ? (
     <div class="alert alert-error"><strong>Authentication required.</strong> Sign in to view AI executions.</div>
