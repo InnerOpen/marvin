@@ -40,7 +40,7 @@ A scheduled task is a row with a schedule and a handler:
 | `prune_scheduled_task_executions` (admin) | delete execution rows past retention | `retention_days` (30; `<= 0` disables) |
 | `resync_smart_collections` (admin) | reconcile smart-collection membership from rules | none |
 
-Admin-only handlers run as system tasks (`group_id = NULL`) and are hidden from the workspace task-type list. A workspace handler can also back a system task when it sets `can_run_platform_wide` (the two publishing handlers do). Automations may only call `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections` and `media_enrich` (`AUTOMATION_ALLOWED_HANDLERS`); `run_integration_action` is deliberately excluded because an action may have side effects.
+Admin-only handlers run as system tasks (`group_id = NULL`) and are hidden from the workspace task-type list; creating one through the workspace routes is refused with 403 unless the caller is a platform super admin (rc.197). A workspace handler can also back a system task when it sets `can_run_platform_wide` (the two publishing handlers do). Automations may only call `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections` and `media_enrich` (`AUTOMATION_ALLOWED_HANDLERS`); `run_integration_action` is deliberately excluded because an action may have side effects.
 
 **System tasks** seeded at every startup (idempotent by slug, so existing deployments pick up new ones): daily `prune_event_logs`, `prune_ai_executions`, `prune_scheduled_task_executions` (`retention_days: 30`) and `resync_smart_collections`; every 5 minutes `publish_scheduled_entries` and `unpublish_expired_entries`, so an entry's Scheduled Publish and Expiration Date work without any setup (before rc.170 they did nothing unless a workspace had created its own task). Both return `None` when nothing is due, so they write no execution row on idle runs. A workspace that also has its own publish task is harmless: publishing clears `publish_at`, so whichever runs second finds nothing.
 
@@ -102,7 +102,7 @@ Calls `provider.run_action(action, args, ctx)` for one workspace integration, fe
 
 ## API
 
-Workspace routes take an id or a slug; admin routes (`/api/admin/scheduled-tasks`) take an id. Reference: [`../api/`](../api/index.md).
+Workspace routes take an id or a slug and need workspace ADMIN or OWNER, reads included, except the task-type list (rc.197); admin routes (`/api/admin/scheduled-tasks`) take an id. Reference: [`../api/`](../api/index.md).
 
 | Method and path | Purpose |
 |---|---|
