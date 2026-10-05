@@ -553,6 +553,53 @@ Full backend suite, frontend tests, Biome and ruff green; `astro check` 50 error
 the base. Browser-checked on SQLite + astro dev (headless Chromium): preview parts for frame / everywhere / drop,
 JSON panels collapsed, collapsed metadata still saved, invalid metadata reopens its panel, no empty Ask chip.
 
+# Form submissions: one entry per person (dedupe in Marvin) (plan, 2026-10-05)
+
+**Goal:** a repeat form submission from the same person updates their existing entry instead of creating a
+second one. Scope is Marvin only (Jared 2026-10-05: Buttondown was cleaned out; "no need to worry about dedups
+unless they're in Marvin").
+
+**Root cause:** `routes/publish/forms_controller.py::_submit_to_entry_type` always calls `EntryService.create`;
+an entry type has no notion of a field that identifies the submitter. Effects today (latent — prod has 0 dupes):
+a second `newsletter` entry per repeat signup; if the first was already confirmed, the new one sits in Inbox forever
+(no second "confirmed" webhook); both carry the same `buttondown_subscriber_id`, so collections double-count.
+
+## Design
+1. **Config:** `SubmissionConfig.match_field: str | None` (e.g. `"email"`) — a field of the entry type's schema
+   (validated on save). Off by default; the Buttondown signup blueprint's entry type sets it to its email field.
+   Entry-type editor: "Same person = same …" select in Submission settings.
+2. **Lookup:** before create, normalise the submitted value (trim; lower-case for email-format fields) and find an
+   entry of that type in the workspace whose `data_json[match_field]` normalises to it (newest first; ignore
+   deleted/trashed). SQLite JSON lookup through the shared entry query; index not needed at current volumes.
+3. **On a match:** update that entry instead of creating:
+   - merge the new non-empty field values into `data_json` (the match field itself unchanged);
+   - `metadata_json.submission`: keep the first `received_at`, add `last_received_at`, `submission_count += 1`;
+   - status: unchanged, except `archived` → `inbox` (someone who left and signs up again is a new signup intent);
+   - fires `entry_updated` (not `entry_created`); the visitor sees the same success message/redirect — never
+     reveals that they were already on the list.
+4. **Suspicious submissions never touch an existing entry:** if submission protection flags it, create a new
+   `needs_review` entry as today (spam can't overwrite a real person's record); its review reasons note
+   "matches existing entry <id>".
+5. **Event:** `form_submission_received` gains `duplicate: bool` and `existing_entry_id`, `previous_status`.
+6. **Buttondown blueprint:** signup workflow condition skips duplicates whose previous status was `published`
+   (already confirmed) — a re-opened (`archived` → `inbox`) or still-pending one runs subscribe again, which
+   Buttondown answers idempotently. Bump the integration's version; "Update" on the card picks it up.
+
+## Checklist
+- [ ] Schema + validation (`match_field` must be a schema field) + entry-type editor control
+- [ ] forms_controller: normalise + lookup + update-or-create; suspicious → always create
+- [ ] Event payload fields; event catalog/docs
+- [ ] Tests: repeat → one entry + count 2 + same status; published stays published; archived → inbox;
+      case/whitespace variants match; different email → new entry; suspicious repeat → new needs_review entry;
+      match_field unset → old behaviour; visitor response identical in all cases
+- [ ] Buttondown content: `match_field` on the signup type's suggested config + duplicate condition; tests; 0.6.0
+- [ ] Manual: forms page ("one entry per person") + whats-new
+- [ ] Rollout: core CI-gated restart; Buttondown push; Update the signup workflow in both workspaces; set
+      `match_field: email` on both `newsletter` types (API, Jared's token) and verify with a repeat test signup
+
+**Open questions:** 1) re-open archived (unsubscribed) entries to Inbox on a repeat signup? (rec. yes)
+2) merge new field values into the existing entry, or keep the original values? (rec. merge non-empty)
+
 # n8n integration (plan, 2026-10-04)
 
 **Goal:** n8n becomes a first-class place Marvin hands work to and hears back from. A workflow step triggers an
