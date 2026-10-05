@@ -7,10 +7,11 @@ can't repeat that.
 
 In scope:
 
-- every write (POST/PUT/PATCH/DELETE) under /api/groups/ and /api/platform/;
+- every write (POST/PUT/PATCH/DELETE) under the workspace prefixes (SCOPED_PREFIXES): /api/groups/,
+  /api/platform/, /api/automations, /api/incoming-webhooks and /api/ai/;
 - every route, reads included, on the admin-only settings controllers (SETTINGS_MODULES). Their reads
-  expose workspace configuration (webhook headers, SMTP hosts, invite tokens, backups), and
-  docs/admin-model.md says they refuse lower roles for reads as well as writes.
+  expose workspace configuration (webhook headers, SMTP hosts, invite tokens, backups, AI provider
+  keys, workflows), and docs/admin-model.md says they refuse lower roles for reads as well as writes.
 
 Each in-scope route must enforce a workspace role, or be listed in OPEN_ROUTES with a reason.
 
@@ -27,7 +28,12 @@ level down in a helper it calls. It recognises:
 - user.has_workspace_role(..., WorkspaceRole.X) with X above VIEWER;
 - the Depends(require_workspace_role(...)) family in marvin.core.dependencies, read from the route's
   dependency tree;
-- a few controller-local helpers that predate checks.py (VETTED_LOCAL_GATES).
+- a few controller-local helpers that predate checks.py (VETTED_LOCAL_GATES), such as the AI
+  operations controller's _require_role;
+- hand-written checks: an `if` comparing a role rank with a threshold above VIEWER (ROLE_AUTHOR and up,
+  an agent's or operation's `.min_role`, a WORKSPACE_ROLE_HIERARCHY rank > 1) whose body raises a 403,
+  or a membership loop whose `for ... else:` raises a 403;
+- may_talk, the AI agent permission matrix (enabled, caller's role >= the agent's min_role, source).
 
 A VIEWER-level check ("any member") is not a role gate. The static check proves a gate is called, not
 that it runs first or works, so test_viewer_is_refused_by_each_gate_idiom calls one route per idiom as
@@ -56,9 +62,10 @@ from marvin.app import app
 from marvin.core.dependencies import get_current_user
 from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
 from marvin.routes._base import checks
+from marvin.services.ai.agents import may_talk
 from marvin.services.integrations import INTEGRATIONS_AVAILABLE
 
-SCOPED_PREFIXES = ("/api/groups/", "/api/platform/")
+SCOPED_PREFIXES = ("/api/groups/", "/api/platform/", "/api/automations", "/api/incoming-webhooks", "/api/ai/")
 WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 INTEGRATIONS = "/api/groups/integrations"
 
@@ -75,6 +82,11 @@ SETTINGS_MODULES = frozenset(
         "marvin.routes.platform.scheduled_tasks_controller",
         "marvin.routes.platform.workspace_controller",
         "marvin.routes.platform.api_clients_controller",
+        "marvin.routes.automations.automations_controller",
+        "marvin.routes.hooks.incoming_webhooks_controller",
+        "marvin.routes.ai.providers_controller",
+        "marvin.routes.ai.models_controller",
+        "marvin.routes.ai.mcp_servers_controller",
     }
 )
 
@@ -85,6 +97,11 @@ OPEN_ROUTES = {
     ("GET", "/api/groups/webhooks/types"): "event-type list for pickers; no webhook config in it",
     ("GET", "/api/platform/scheduled-tasks/task-types"): "task-type catalog for pickers; admin_only types are refused on create",
     ("GET", "/api/groups/secrets/slugs"): "slug names only, no values: {{SLUG}} autocomplete (docs/admin-model.md keeps it open)",
+    # AI: member-level by design. Running agents and operations is gated per agent/operation/tool by the
+    # permission matrix (min_role, invocation sources), which the inline checks and may_talk cover.
+    ("POST", "/api/ai/chat"): "plain completion, read-only (changes nothing): any member, behind the source policy and budget",
+    ("PATCH", "/api/ai/threads/{thread_id}"): "rename your own Ask thread: resolve_thread scopes it to the caller (admins see all)",
+    ("DELETE", "/api/ai/threads/{thread_id}"): "delete your own Ask thread: resolve_thread scopes it to the caller (admins see all)",
 }
 
 # In-scope routes with no gate today that look like real gaps. Each runs as xfail(strict=True).
@@ -96,6 +113,7 @@ VETTED_LOCAL_GATES = {
     ("marvin.routes.groups.ai_settings_controller", "AISettingsController._require_admin"): "OWNER/ADMIN",
     ("marvin.routes.groups.email_template_controller", "EmailTemplateController._check_admin_access"): "OWNER/ADMIN",
     ("marvin.routes.groups.preferences_controller", "GroupPreferencesController._user_has_admin_access"): "OWNER/ADMIN",
+    ("marvin.routes.ai.operations_controller", "AIOperationsController._require_role"): "the ROLE_* it is passed (VIEWER doesn't count)",
 }
 
 GATE_FUNCTIONS = frozenset(
@@ -106,9 +124,13 @@ GATE_FUNCTIONS = frozenset(
         checks.require_can_create_entry,
         checks.require_can_edit_entry,
         checks.editable_entry,
+        # The AI agent permission matrix: enabled, caller's role >= the agent's min_role, source allowed.
+        may_talk,
     }
 )
 OPERATION_CHECKS = frozenset({"can_manage_settings", "can_manage_members"})
+# Workspace role ranks above VIEWER (marvin.services.ai.operations.base), for the inline checks.
+ROLE_THRESHOLDS = frozenset({"ROLE_AUTHOR", "ROLE_EDITOR", "ROLE_ADMIN", "ROLE_OWNER"})
 
 FIX_HINT = (
     "Fix: gate it before any lookup with a helper from marvin.routes._base.checks (require_workspace_admin, "
@@ -144,10 +166,51 @@ def _owner_class(fn):
     return owner if isinstance(owner, type) else None
 
 
+def _is_viewer(node: ast.AST) -> bool:
+    return (isinstance(node, ast.Attribute) and node.attr == "VIEWER") or (isinstance(node, ast.Name) and node.id == "ROLE_VIEWER")
+
+
 def _names_viewer(call: ast.Call) -> bool:
-    """True if the call passes WorkspaceRole.VIEWER: a membership check, not a role gate."""
-    args = [*call.args, *(k.value for k in call.keywords)]
-    return any(isinstance(a, ast.Attribute) and a.attr == "VIEWER" for a in args)
+    """True if the call passes WorkspaceRole.VIEWER / ROLE_VIEWER: a membership check, not a role gate."""
+    return any(_is_viewer(a) for a in [*call.args, *(k.value for k in call.keywords)])
+
+
+def _is_role_compare(node: ast.AST) -> bool:
+    """A comparison against a role above VIEWER: `role < ROLE_EDITOR`, `self._user_role() < spec.min_role`,
+    `WORKSPACE_ROLE_HIERARCHY.get(m.workspace_role, 0) >= 4`."""
+    if not isinstance(node, ast.Compare):
+        return False
+    sides = [node.left, *node.comparators]
+    if any(isinstance(n, ast.Name) and n.id in ROLE_THRESHOLDS for n in sides):
+        return True
+    if any(isinstance(n, ast.Attribute) and n.attr == "min_role" for n in sides):
+        return True
+    ranked = any(isinstance(n, ast.Call) and "WORKSPACE_ROLE_HIERARCHY" in ast.unparse(n.func) for n in sides)
+    return ranked and any(isinstance(n, ast.Constant) and isinstance(n.value, int) and n.value > 1 for n in sides)
+
+
+def _raises_403(stmts: list[ast.stmt]) -> bool:
+    for stmt in stmts:
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call):
+                args = [*node.exc.args, *(k.value for k in node.exc.keywords)]
+                if any("403" in ast.unparse(a) for a in args):
+                    return True
+    return False
+
+
+def _inline_role_checks(tree: ast.AST) -> list[str]:
+    """Hand-written gates: an `if <role comparison>:` that raises a 403, or a membership loop whose
+    `for ... else:` raises a 403 when no membership passed the role comparison."""
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and any(_is_role_compare(n) for n in ast.walk(node.test)) and _raises_403(node.body):
+            found.append(f"inline role check: {ast.unparse(node.test)}")
+        elif isinstance(node, ast.For) and _raises_403(node.orelse):
+            tests = [n.test for b in node.body for n in ast.walk(b) if isinstance(n, ast.If)]
+            if any(_is_role_compare(c) for t in tests for c in ast.walk(t)):
+                found.append("inline role check: membership loop")
+    return found
 
 
 def _gates_in(fn) -> tuple[list[str], list]:
@@ -155,7 +218,7 @@ def _gates_in(fn) -> tuple[list[str], list]:
     tree = _tree(fn)
     local = _local_imports(tree)
     owner = _owner_class(fn)
-    gates, helpers = [], []
+    gates, helpers = _inline_role_checks(tree), []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -177,7 +240,8 @@ def _gates_in(fn) -> tuple[list[str], list]:
                 method = inspect.getattr_static(owner, func.attr, None)
                 if isinstance(method, types.FunctionType):
                     if (method.__module__, method.__qualname__) in VETTED_LOCAL_GATES:
-                        gates.append(method.__qualname__)
+                        if not _names_viewer(node):
+                            gates.append(method.__qualname__)
                     else:
                         helpers.append(method)
     return gates, helpers
@@ -288,6 +352,10 @@ def test_walk_covers_the_known_surface():
         ("DELETE", "/api/groups/webhooks/{item_id}"),
         ("GET", "/api/groups/smtp-profiles"),
         ("PATCH", "/api/groups/variables/{var_id}"),
+        ("GET", "/api/automations"),
+        ("DELETE", "/api/incoming-webhooks/{webhook_id}"),
+        ("GET", "/api/ai/providers"),
+        ("POST", "/api/ai/agents/{slug}/run"),
     ]
     if INTEGRATIONS_AVAILABLE:
         expected.append(("POST", "/api/groups/integrations/{integration_id}/actions/{action_key}"))
@@ -317,6 +385,9 @@ IDIOM_SAMPLE = [
         {"recipient_email": "a@example.com"},
     ),
     ("GroupPreferencesController._user_has_admin_access", "PATCH", "/api/groups/{gid}/preferences", {}),
+    ("AIOperationsController._require_role", "DELETE", "/api/ai/agents/no-such-agent", None),
+    ("inline role check: membership loop", "DELETE", f"/api/ai/executions/{NOPE}", None),
+    ("inline role check: role < ROLE_AUTHOR", "POST", "/api/ai/revise-entry", {"entry": "no-such-entry", "instruction": "x"}),
 ]
 
 
