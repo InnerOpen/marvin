@@ -1063,16 +1063,24 @@ failures, alert history, where alerts go, and a per-integration health summary o
 **Migration:** `integrations.last_success_at` (batch mode, nullable).
 
 ## Checklist
-- [ ] Plan (this section)
-- [ ] Migration + model `last_success_at`; `connection_succeeded` stamps it
-- [ ] `claim_next` conditional claim
-- [ ] `health.py` service + schemas + controller routes
-- [ ] Tests: shapes, scoping (other workspace → 404/absent), admin-only (gate list), retry-now / give-up incl.
+- [x] Plan (this section)
+- [x] Migration + model `last_success_at`; `connection_succeeded` stamps it
+- [x] `claim_next` conditional claim
+- [x] `health.py` service + schemas + controller routes
+- [x] Tests: shapes, scoping (other workspace → 404/absent), admin-only (gate list), retry-now / give-up incl.
       leased/running rows, pagination; skip API tests without the SDK
-- [ ] Frontend page + `lib/integrationHealth.ts` (+ node test), API client, links (Integrations header, Settings
+- [x] Frontend page + `lib/integrationHealth.ts` (+ node test), API client, links (Integrations header, Settings
       card), workflows `&run=` deep link
-- [ ] Docs: manual integrations page, what's new
-- [ ] Verify: full suite with and without the SDK, `npm test`, biome on touched files, `astro check` at 51
+- [x] Docs: manual integrations page (+ glossary), what's new
+- [x] Verify: full suite with and without the SDK, `npm test`, biome on touched files, `astro check` at 51
+
+**Build notes (2026-10-05):** migration `d5b1e8a3c7f2` (`integrations.last_success_at` only; item 4 needed none).
+Wording follows the run history: "Retry 2 of 5", "retried, succeeded on retry 1" (the spec's "attempt n of max"
+counts the same thing; `max_attempts` is the number of retries). Retry now also un-parks a parked retry. Give up
+records `last_error` "given up by an admin" (status `superseded`). The 7-day failure figure counts failed workflow
+steps (and ignored ones) only. Verified: backend suite 2460 passed / 5 skipped with SDK 0.6.0 (develop tarball),
+2182 passed / 175 skipped without; `npm test` 326 pass; biome clean on touched files; `astro check` 51 errors
+(baseline); live check against a seeded SQLite backend + `astro dev` (render, escaping, paging, links, both levers).
 
 ## Later
 Per-integration overrides table on this page (item 6); counting non-workflow failures (event subscriptions,
