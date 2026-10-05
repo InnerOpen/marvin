@@ -586,19 +586,28 @@ a second `newsletter` entry per repeat signup; if the first was already confirme
    Buttondown answers idempotently. Bump the integration's version; "Update" on the card picks it up.
 
 ## Checklist
-- [ ] Schema + validation (`match_field` must be a schema field) + entry-type editor control
-- [ ] forms_controller: normalise + lookup + update-or-create; suspicious → always create
-- [ ] Event payload fields; event catalog/docs
-- [ ] Tests: repeat → one entry + count 2 + same status; published stays published; archived → inbox;
+- [x] Schema + validation (`match_field` must be a schema field) + entry-type editor control
+- [x] forms_controller: normalise + lookup + update-or-create; suspicious → always create
+- [x] Event payload fields; event catalog/docs
+- [x] Tests: repeat → one entry + count 2 + same status; published stays published; archived → inbox;
       case/whitespace variants match; different email → new entry; suspicious repeat → new needs_review entry;
       match_field unset → old behaviour; visitor response identical in all cases
-- [ ] Buttondown content: `match_field` on the signup type's suggested config + duplicate condition; tests; 0.6.0
-- [ ] Manual: forms page ("one entry per person") + whats-new
+- [x] Buttondown content: `match_field` on the signup type's suggested config + duplicate condition; tests; 0.6.0
+- [x] Manual: forms page ("one entry per person") + whats-new
 - [ ] Rollout: core CI-gated restart; Buttondown push; Update the signup workflow in both workspaces; set
       `match_field: email` on both `newsletter` types (API, Jared's token) and verify with a repeat test signup
 
 **Open questions:** 1) re-open archived (unsubscribed) entries to Inbox on a repeat signup? (rec. yes)
 2) merge new field values into the existing entry, or keep the original values? (rec. merge non-empty)
+
+**Decisions (Jared, 2026-10-05):** 1) yes — a repeat signup re-opens an archived entry to Inbox; 2) yes — merge
+the new non-empty field values into the existing entry.
+
+**Build notes (2026-10-05):** no blueprint kind can set an entry type's submission settings (`entry_fields` only
+appends fields), so Buttondown 0.6.0 suggests `match_field: email` in the signup-type parameter help, the signup
+workflow's description and its README; the Rollout step still sets it through the API. Marvin has no email field
+type, so "email-format" means the submitted value looks like an email address (submission protection's regex).
+Entries are hard-deleted (there is no trash), so a deleted entry can't match.
 
 # n8n integration (plan, 2026-10-04)
 

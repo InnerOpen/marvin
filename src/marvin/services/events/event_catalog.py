@@ -597,6 +597,9 @@ CATALOG: list[CatalogEntry] = [
         + [
             EventVariable("form_name", "Name of the form", "Contact Form", type="name"),
             EventVariable("submitter_email", "Email of the submitter (if provided)", "user@example.com", type="email"),
+            EventVariable("duplicate", "True when the submitter was already on file and their entry was updated", "false"),
+            EventVariable("existing_entry_id", "The entry the submission matched by the type's match field (if any)", "<entry-uuid>"),
+            EventVariable("previous_status", "The matched entry's status before this submission (if any)", "published"),
         ],
     ),
     CatalogEntry(

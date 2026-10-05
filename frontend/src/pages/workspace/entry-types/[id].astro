@@ -33,6 +33,10 @@ const rendering = (entryType?.renderingJson ?? {}) as Record<string, unknown>;
 const capabilities = (entryType?.capabilitiesJson ?? {}) as Record<string, unknown>;
 const submission = (capabilities.submission ?? {}) as Record<string, unknown>;
 const subStr = (k: string) => (submission[k] == null ? "" : String(submission[k]));
+// "Same person = same …": the fields that can identify a submitter (single values, not long text).
+const schemaFields = ((entryType?.schemaJson as { fields?: { key?: string; label?: string; type?: string }[] } | null)?.fields ?? []);
+const matchFieldOptions = schemaFields.filter((f) => f.key && ["text", "number", "select"].includes(f.type ?? ""));
+const matchField = subStr("matchField");
 const recipe = (entryType?.recipeJson ?? {}) as Record<string, unknown>;
 // The authoring instructions and the drafts' voice (`enrichment.voice`) get their own boxes; the JSON textarea
 // holds the rest of the structured contract (lib/recipeForm).
@@ -229,6 +233,19 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
                       <input type="text" id="sub_titleTemplate" data-sub="titleTemplate" value={subStr("titleTemplate")} placeholder="Newsletter signup: {{ email }}" />
                       <p class="form-help">Jinja over the submitted fields; blank = first text value</p>
                     </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="sub_matchField">Same person = same …</label>
+                    <select id="sub_matchField" data-sub="matchField">
+                      <option value="" selected={!matchField}>Off — every submission is a new entry</option>
+                      {matchFieldOptions.map((f) => (
+                        <option value={f.key} selected={matchField === f.key}>{f.label || f.key}</option>
+                      ))}
+                      {matchField && !matchFieldOptions.some((f) => f.key === matchField) && (
+                        <option value={matchField} selected>{matchField}</option>
+                      )}
+                    </select>
+                    <p class="form-help">A repeat submission with the same value (an email ignores case and spaces) updates that person's entry instead of adding another; the visitor sees the same message either way. Lists saved fields, so save a new field before picking it.</p>
                   </div>
                   <div class="form-row">
                     <label class="checkbox-label">

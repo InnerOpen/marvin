@@ -293,3 +293,43 @@ def run(session, group_id, spec: dict | None, *, limit: int | None = None, offse
     start = max(0, offset)
     rows = matched[start : start + limit] if limit is not None else matched[start:]
     return EntryQueryResult(rows=rows, total=total, groups=groups, scan_capped=scan_capped, unknown_ops=unknown_ops)
+
+
+# ── One entry per person ──────────────────────────────────────────────────────────────────────────
+# A submittable type's `match_field` names the field that identifies the submitter. These two find the
+# entry a repeat submission belongs to (routes/publish/forms_controller.py).
+
+
+def identity_value(value) -> tuple[str, bool] | None:
+    """A submitted value as the identity it names: ``(normalised, ignore_case)``, or None when it can't
+    identify anyone (empty, a checkbox, a list). Whitespace is trimmed; an email address is also
+    lower-cased and compared case-insensitively (``Ann@Example.com `` is ``ann@example.com``)."""
+    from marvin.services.security.submission_protection import looks_like_email
+
+    if value is None or isinstance(value, bool | dict | list):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if looks_like_email(text):
+        return text.lower(), True
+    return text, False
+
+
+def find_by_identity(session, group_id, entry_type_id, field_key: str, value: str, *, ignore_case: bool = False):
+    """The newest entry of ``entry_type_id`` whose ``field_key`` equals ``value`` (from
+    :func:`identity_value`) after trimming the stored value — and lower-casing it when ``ignore_case``.
+    Deleted entries are gone from the table, so they never match. None when there's no such entry."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.platform.entries import Entries
+
+    stored = sa.func.trim(Entries.data_json[field_key].as_string())
+    if ignore_case:
+        stored = sa.func.lower(stored)
+    return (
+        session.query(Entries)
+        .filter(Entries.group_id == group_id, Entries.entry_type_id == entry_type_id, stored == value)
+        .order_by(Entries.created_at.desc())
+        .first()
+    )

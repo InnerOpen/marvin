@@ -36,6 +36,11 @@ class Verdict:
         return bool(self.reasons)
 
 
+def looks_like_email(value) -> bool:
+    """True for a string that reads as one email address (surrounding whitespace ignored)."""
+    return isinstance(value, str) and bool(_EMAIL_RE.match(value.strip()))
+
+
 def find_submitted_email(submission_data: dict) -> str | None:
     """The first value that looks like an email address. Prefers a field literally named ``email``."""
     preferred = submission_data.get("email")

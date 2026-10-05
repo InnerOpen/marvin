@@ -19,6 +19,7 @@ from marvin.schemas.platform.forms import FormSchemaDefinition
 from marvin.schemas.publishing import FormSubmissionResponse, PublishedFormRead
 from marvin.services.content_validator import ContentValidationError, ContentValidator
 from marvin.services.entries.entry_service import EntryService
+from marvin.services.entries.query import find_by_identity, identity_value
 from marvin.services.event_bus_service.event_bus_service import EventBusService
 from marvin.services.event_bus_service.event_types import (
     EventFormSubmissionData,
@@ -99,6 +100,48 @@ def _detect_surge(protection: SubmissionProtectionService, policy, entry_type: E
         logger.error(f"Surge detection failed: {e}", exc_info=True)
 
 
+def _find_submitter(session: Session, group_id, entry_type: EntryTypes, cfg: SubmissionConfig, data: dict):
+    """The existing entry this submission's ``match_field`` value identifies, or None (no match field,
+    no usable value, or nobody on file)."""
+    if not cfg.match_field:
+        return None
+    identity = identity_value(data.get(cfg.match_field))
+    if identity is None:
+        return None
+    value, ignore_case = identity
+    return find_by_identity(session, group_id, entry_type.id, cfg.match_field, value, ignore_case=ignore_case)
+
+
+def _has_value(value) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    return value is not None and value != [] and value != {}
+
+
+def _repeat_submission_update(match, cfg: SubmissionConfig, data: dict, now: str, client_meta: dict) -> dict:
+    """The update a repeat submission makes to the submitter's existing entry.
+
+    New non-empty values are merged over the stored ones (the match field keeps its stored spelling);
+    ``metadata_json.submission`` keeps the first ``received_at`` and gains ``last_received_at`` and
+    ``submission_count``. Status is left alone — except ``archived`` (someone who left and signed up
+    again) goes back to ``inbox``. The title is left as it is.
+    """
+    fresh = {k: v for k, v in data.items() if k != cfg.match_field and _has_value(v)}
+    metadata = dict(match.metadata_json or {})
+    previous = dict(metadata.get("submission") or {})
+    metadata["submission"] = {
+        **previous,
+        **client_meta,
+        "received_at": previous.get("received_at") or now,
+        "last_received_at": now,
+        "submission_count": int(previous.get("submission_count") or 1) + 1,
+    }
+    update: dict = {"data_json": {**(match.data_json or {}), **fresh}, "metadata_json": metadata}
+    if match.status == "archived":
+        update["status"] = "inbox"
+    return update
+
+
 async def _submit_to_entry_type(
     entry_type: EntryTypes,
     cfg: SubmissionConfig,
@@ -108,13 +151,15 @@ async def _submit_to_entry_type(
     bg_tasks: BackgroundTasks,
     session: Session,
 ) -> FormSubmissionResponse:
-    """Handle a public submission for a submittable entry type: create an ``inbox`` entry.
+    """Handle a public submission for a submittable entry type: create an ``inbox`` entry — or, when
+    the type has a ``match_field`` and the submitter is already on file, update their entry.
 
     A submittable entry type IS a form; a submission IS an entry of that type. The submitted values
     run the security gauntlet (rate limit → honeypot → CAPTCHA), validate against the type's own
     field schema, and land as an ``inbox`` entry (kept out of published output, visible in the admin
     Entries list). Notification stays on the scoped ``form_submission_received`` event — never
-    ``entry_created``, which fires for every entry.
+    ``entry_created``, which fires for every entry. The visitor's response is the same either way,
+    so a form never reveals who is already on the list.
     """
     client = ClientInfo.from_request(request)
     ip_address = client.ip_address
@@ -162,25 +207,42 @@ async def _submit_to_entry_type(
     verdict = evaluate(policy, submission_data, ip_address)
     if verdict.suspicious and policy.mode == "reject":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="This submission could not be accepted.")
-    entry_status = "needs_review" if verdict.suspicious else "inbox"
-    submission_meta: dict = {"received_at": datetime.now(UTC).isoformat()}
-    if policy.capture_client_info:
-        submission_meta.update(client.as_metadata())
-    if verdict.suspicious:
-        submission_meta["review_reasons"] = verdict.reasons
+    now = datetime.now(UTC).isoformat()
+    client_meta = client.as_metadata() if policy.capture_client_info else {}
+    review_reasons = list(verdict.reasons)
 
-    # One event bus for both the entry service (entry_created) and the scoped submission event.
+    # One entry per person: with a match_field, a repeat from someone already on file updates their
+    # entry. A flagged submission never touches it (spam must not overwrite a real person's record):
+    # it lands as a new needs_review entry whose reasons name the entry it matched.
+    match = _find_submitter(session, group.id, entry_type, cfg, submission_data)
+    if match is not None and verdict.suspicious:
+        review_reasons.append(f"matches existing entry {match.id}")
+    previous_status = match.status if match is not None else None
+    duplicate = match is not None and not verdict.suspicious
+
+    # One event bus for both the entry service (entry_created / entry_updated) and the scoped
+    # submission event. The entry write — and its events — come first, so a workflow reacting to
+    # form_submission_received reads the entry as it now is.
     bus = EventBusService(bg_tasks=bg_tasks, session=session)
-    entry = EntryService(session, group.id, event_bus=bus, actor_id=None).create(
-        {
-            "entry_type_id": entry_type.id,
-            "title": _derive_submission_title(cfg, entry_type, submission_data),
-            "data_json": submission_data,
-            "status": entry_status,
-            "metadata_json": {"submission": submission_meta},
-            "created_by": None,
-        }
-    )
+    entries = EntryService(session, group.id, event_bus=bus, actor_id=None)
+    if duplicate:
+        entry = entries.update(match.id, _repeat_submission_update(match, cfg, submission_data, now, client_meta))
+        entry_status = entry.status
+    else:
+        entry_status = "needs_review" if verdict.suspicious else "inbox"
+        submission_meta: dict = {"received_at": now, **client_meta}
+        if verdict.suspicious:
+            submission_meta["review_reasons"] = review_reasons
+        entry = entries.create(
+            {
+                "entry_type_id": entry_type.id,
+                "title": _derive_submission_title(cfg, entry_type, submission_data),
+                "data_json": submission_data,
+                "status": entry_status,
+                "metadata_json": {"submission": submission_meta},
+                "created_by": None,
+            }
+        )
 
     if cfg.notify:
         try:
@@ -198,9 +260,12 @@ async def _submit_to_entry_type(
                     workspace_name=group.name,
                     status=entry_status,
                     flagged=verdict.suspicious,
-                    review_reasons=verdict.reasons,
+                    review_reasons=review_reasons,
                     ip_address=client.ip_address if policy.capture_client_info else None,
                     user_agent=client.user_agent if policy.capture_client_info else None,
+                    duplicate=duplicate,
+                    existing_entry_id=match.id if match is not None else None,
+                    previous_status=previous_status,
                 ),
                 message=f"Submission received for '{entry_type.name}'",
                 entity_id=entry.id,

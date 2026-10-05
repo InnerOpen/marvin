@@ -782,6 +782,15 @@ class EventFormSubmissionData(EventDocumentDataBase):
     """Submitter IP (only when client-info capture is enabled)."""
     user_agent: str | None = None
     """Submitter user agent (only when client-info capture is enabled)."""
+    duplicate: bool = False
+    """True when the submission came from someone already on file (the type's ``match_field``) and
+    updated their entry instead of creating one; ``submission_id`` is then that entry."""
+    existing_entry_id: UUID4 | None = None
+    """The entry the submission matched by ``match_field``, if any. Set on a duplicate, and on a flagged
+    submission that matched (which still lands as a new ``needs_review`` entry)."""
+    previous_status: str | None = None
+    """The matched entry's status before this submission (e.g. ``published`` = already confirmed);
+    None when nothing matched."""
 
 
 class EventSubmissionSurgeData(EventDocumentDataBase):

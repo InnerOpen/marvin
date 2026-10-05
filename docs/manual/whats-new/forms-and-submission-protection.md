@@ -13,6 +13,20 @@ An entry type with `capabilities.submittable: true` is a form: a public POST to 
 - The entry title comes from `titleTemplate` (Jinja over the submitted fields), else the first non-empty text value, else `<type name> submission <timestamp>`.
 - When `notify` is on (default), the scoped `form_submission_received` event fires; `entry_created` still fires from the entry service but is not the notification event.
 
+### One entry per person
+
+Set `matchField` (in the editor: **Same person = same …**) to the field that identifies a submitter, usually `email`. A later submission whose value matches an existing entry of the type updates that entry instead of creating a second one:
+
+- **Matching** trims whitespace; a value that looks like an email address also ignores case (` Ann@Example.com ` is `ann@example.com`). The newest matching entry of the same type in the workspace wins. An empty value never matches.
+- **Fields**: new non-empty values replace the stored ones; blank values leave them alone, and the match field keeps its stored spelling. The title is unchanged.
+- **Metadata**: `metadata_json.submission` keeps the first `received_at` and gains `last_received_at` and `submission_count` (2 on the first repeat). Other metadata (an integration's subscriber id, say) is kept.
+- **Status** stays as it is (a confirmed, `published` signup stays published), except `archived` goes back to `inbox`: someone who left and signs up again is a new signup.
+- **Events**: the entry service fires `entry_updated` (plus `entry_restored` when an archived entry reopens), not `entry_created`, before `form_submission_received`. That event carries `duplicate: true`, `existing_entry_id` and `previous_status`, so a workflow can skip someone already confirmed (`event.previous_status` `neq` `published`).
+- **The visitor sees the same response** (success message, redirect, `submissionId`) whether they were new or already on the list.
+- **A flagged submission never touches the existing entry.** It still lands as a new `needs_review` entry, with `matches existing entry <id>` added to its review reasons and `existing_entry_id` / `previous_status` on the event (`duplicate` stays `false`).
+
+Without `matchField` every submission creates an entry, as before. Saving an entry type whose `matchField` isn't one of its fields, or removing that field from the schema while it is the match field, is refused (`400`).
+
 !!! note
     A legacy `Forms` table path still answers the same URLs when no submittable entry type matches the slug. It is transitional (see `tasks/forms-as-entry-types.md`, Phase 3).
 
@@ -27,7 +41,7 @@ An entry type with `capabilities.submittable: true` is a form: a public POST to 
 
 ## How to use
 
-1. Open the entry type, tick **Submittable**, and fill the submission settings (success message, honeypot, CAPTCHA secret ref, rate limit, title template).
+1. Open the entry type, tick **Submittable**, and fill the submission settings (success message, honeypot, CAPTCHA secret ref, rate limit, title template, and **Same person = same …** for one entry per person).
 2. On the site, fetch the form definition and render it from `formSchema`. When `metadata.honeypotField` is non-null, include a hidden input with that name.
 3. POST the field values as a JSON object to the submit URL with an API client token that has `write:public_entries` (**Submit Public Entries** under **Forms** on the client's form; **Submit Forms**, `write:form_submissions`, is also accepted).
 4. React to `form_submission_received` in a workflow (see [Workflows](workflows.md)); the payload carries `flagged`, `review_reasons`, `status`, `ip_address` and `user_agent`, so a step can skip flagged entries or forward the IP.
@@ -50,7 +64,7 @@ curl -X POST "$MARVIN/api/publish/my-site/forms/newsletter/submit" \
 | `GET /api/groups/{group_id}/preferences/submission-protection` | Workspace member | `platformDefaults`, `workspaceOverride`, `effective`. |
 | `PATCH /api/groups/{group_id}/preferences` | Workspace ADMIN/OWNER | Set `submissionProtectionJson`; a `null` field inherits the platform default. |
 
-Event payload `form_submission_received` (`EventFormSubmissionData`): `form_id`, `form_name`, `submission_id`, `submission_data`, `workspace_id`, `workspace_name`, `status`, `flagged`, `review_reasons`, `ip_address`, `user_agent` (the last two only when client capture is on). `submission_surge_detected` carries `form_id`, `form_name`, `submission_count`, `threshold`, `window_minutes`. See [API reference](../api/index.md).
+Event payload `form_submission_received` (`EventFormSubmissionData`): `form_id`, `form_name`, `submission_id`, `submission_data`, `workspace_id`, `workspace_name`, `status`, `flagged`, `review_reasons`, `ip_address`, `user_agent` (the last two only when client capture is on), `duplicate`, `existing_entry_id`, `previous_status` (see [One entry per person](#one-entry-per-person)). `submission_surge_detected` carries `form_id`, `form_name`, `submission_count`, `threshold`, `window_minutes`. See [API reference](../api/index.md).
 
 ## Settings
 
@@ -64,6 +78,7 @@ Event payload `form_submission_received` (`EventFormSubmissionData`): `form_id`,
 | `rateLimitMax`, `rateLimitWindowSeconds` | off, `3600` | Per-IP limit for this type; the window is rounded down to whole minutes (minimum 1). |
 | `notify` | `true` | Emit `form_submission_received`. |
 | `titleTemplate` | none | Jinja title for the created entry, e.g. `Contact from {{ name }}`. |
+| `matchField` | none | The field that identifies a submitter (e.g. `email`); a repeat updates their entry. See [One entry per person](#one-entry-per-person). |
 
 Submission protection (platform defaults; every field overridable per workspace): `mode` (`review`), `blocked_domains`, `allowed_domains` (when non-empty, any other domain is flagged), `block_disposable_domains` (`true`), `block_personal_domains` (`false`), `capture_client_info` (`true`), `exempt_ips`, `surge_threshold` (off), `surge_window_minutes` (`10`). Domains are lower-cased and a leading `@` is stripped.
 

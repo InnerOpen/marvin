@@ -195,6 +195,21 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
                 detail=f"Invalid capabilities definition: {e}",
             ) from e
 
+    @staticmethod
+    def _validate_match_field(schema_json: dict | None, capabilities_json: dict | None) -> None:
+        """A submission ``match_field`` must name a field of the type's own schema — checked against the
+        schema being saved, so dropping the field while it's still the match field is refused too."""
+        submission = (capabilities_json or {}).get("submission") or {}
+        match_field = submission.get("matchField", submission.get("match_field")) if isinstance(submission, dict) else None
+        if not match_field:
+            return
+        keys = {f.get("key") for f in ((schema_json or {}).get("fields") or []) if isinstance(f, dict)}
+        if match_field not in keys:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid capabilities definition: submission match field '{match_field}' is not a field of this entry type",
+            )
+
     def _validate_recipe_json(self, recipe_json: dict | None) -> None:
         if recipe_json is None:
             return
@@ -269,6 +284,7 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             self._validate_capabilities_json(data_dict["capabilities_json"])
         if "recipe_json" in data_dict:
             self._validate_recipe_json(data_dict["recipe_json"])
+        self._validate_match_field(data_dict.get("schema_json"), data_dict.get("capabilities_json"))
         self._normalize_page_url_pattern(data_dict)
 
         warnings = self._check_renderer_warnings(data_dict)
@@ -311,6 +327,12 @@ class EntryTypesRepository(GroupRepositoryGeneric[EntryTypeRead, EntryTypes]):
             self._validate_capabilities_json(data_dict["capabilities_json"])
         if "recipe_json" in data_dict:
             self._validate_recipe_json(data_dict["recipe_json"])
+        if "schema_json" in data_dict or "capabilities_json" in data_dict:
+            # Either side may change alone, so check the pair as it will be stored.
+            self._validate_match_field(
+                data_dict["schema_json"] if "schema_json" in data_dict else (entry_type.content_schema if entry_type else None),
+                data_dict["capabilities_json"] if "capabilities_json" in data_dict else (entry_type.capabilities if entry_type else None),
+            )
         self._normalize_page_url_pattern(data_dict)
 
         warnings = self._check_renderer_warnings(data_dict)

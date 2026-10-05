@@ -35,6 +35,11 @@ class SubmissionConfig(_MarvinModel):
     # Jinja title for the created entry (e.g. "Contact from {{ name }}"); falls back to the first
     # non-empty text field, then the type name + timestamp.
     title_template: str | None = None
+    # One entry per person: the schema field that identifies the submitter (e.g. "email"). A repeat
+    # submission whose value matches an existing entry of this type (trimmed; case-insensitive when
+    # it looks like an email address) updates that entry instead of creating another. Unset = every
+    # submission creates an entry. Must name a field of the type's schema (checked on save).
+    match_field: str | None = None
 
 
 class CapabilitiesDefinition(_MarvinModel):

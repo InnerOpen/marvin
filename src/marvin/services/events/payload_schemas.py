@@ -364,6 +364,9 @@ def get_payload_example(event_type: str) -> dict:
             "reviewReasons": [],
             "ipAddress": "203.0.113.7",
             "userAgent": "Mozilla/5.0",
+            "duplicate": False,
+            "existingEntryId": None,
+            "previousStatus": None,
         },
         "submission_surge_detected": {
             "documentType": "form_submission",
