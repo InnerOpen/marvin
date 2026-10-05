@@ -23,7 +23,7 @@ permissions:
 jobs:
   cli-e2e-tests:
     name: CLI End-to-End Tests
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
 
     services:
       postgres:

@@ -31,7 +31,7 @@ env:
 jobs:
   release:
     name: Semantic Release
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     outputs:
       version: ${{ steps.version.outputs.version }}
       released: ${{ steps.version.outputs.released }}
@@ -97,7 +97,7 @@ jobs:
   # Build and publish Docker image if release was created
   docker-release:
     name: Build & Publish Docker Image (${{ matrix.target }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     needs: release
     if: needs.release.outputs.released == 'true'
     strategy:
@@ -191,7 +191,7 @@ jobs:
   # Package and publish Helm chart if release was created
   helm-release:
     name: Package & Publish Helm Chart
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     needs: release
     if: needs.release.outputs.released == 'true'
     steps:
@@ -232,7 +232,7 @@ jobs:
   # Release summary
   release-summary:
     name: Release Summary
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     needs:
       - release
       - docker-release
