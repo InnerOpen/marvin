@@ -26,7 +26,10 @@ from marvin.services.ui_links import entry_edit_url, entry_review_link
 # entries without their urls once came back as `[Title](#)` links.
 AUTHORING_LINKS_RULE = (
     "Only link with URLs given in the brief or the current content; never write placeholder links such as "
-    "[text](#) or [text](). Without a URL, write the name as plain text."
+    "[text](#) or [text](). Without a URL, write the name as plain text. "
+    "To show a video, song or podcast episode as a player (YouTube, Vimeo, Spotify, SoundCloud, Apple Music/Podcasts, "
+    "TIDAL, Simplecast, Transistor), put its URL alone on its own line with a blank line above and below; keep a media URL "
+    "inside a sentence or as [text](url) when it should stay a plain link. Never invent media URLs."
 )
 
 

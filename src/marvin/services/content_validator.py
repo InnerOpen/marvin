@@ -17,6 +17,7 @@ from marvin.schemas.platform.entry_type_schema import (
     BooleanFieldSchema,
     DateFieldSchema,
     DateTimeFieldSchema,
+    EmbedFieldSchema,
     EntryTypeSchemaDefinition,
     FieldSchema,
     JsonFieldSchema,
@@ -170,6 +171,8 @@ class ContentValidator(BaseService):
             self._validate_datetime_field(field_schema, value)
         elif isinstance(field_schema, JsonFieldSchema):
             self._validate_json_field(field_schema, value)
+        elif isinstance(field_schema, EmbedFieldSchema):
+            self._validate_embed_field(field_schema, value)
         elif isinstance(field_schema, AssetFieldSchema | ResourceFieldSchema):
             self._validate_reference_field(field_schema, value, is_list=False)
         elif isinstance(field_schema, AssetListFieldSchema | ResourceListFieldSchema):
@@ -206,6 +209,23 @@ class ContentValidator(BaseService):
                 field_schema.key,
                 f"Expected string, got {type(value).__name__}",
             )
+
+    def _validate_embed_field(self, field_schema: EmbedFieldSchema, value: Any) -> None:
+        """Embed field: a supported media link (empty = unset), from an allowed provider when the field limits them."""
+        from marvin.services.media_embeds.matcher import match_url
+        from marvin.services.media_embeds.providers import PROVIDERS
+
+        if not isinstance(value, str):
+            raise ContentValidationError(field_schema.key, f"Expected a media link, got {type(value).__name__}")
+        if not value.strip():
+            return
+        match = match_url(value)
+        if match is None:
+            names = ", ".join(p.name for p in PROVIDERS.values())
+            raise ContentValidationError(field_schema.key, f"Not a supported media link. Supported: {names}.")
+        if field_schema.providers and match.provider.key not in field_schema.providers:
+            allowed = ", ".join(PROVIDERS[k].name for k in field_schema.providers if k in PROVIDERS)
+            raise ContentValidationError(field_schema.key, f"{match.provider.name} links aren't allowed here (allowed: {allowed}).")
 
     def _validate_number_field(self, field_schema: NumberFieldSchema, value: Any) -> None:
         """Validate number field."""
