@@ -1333,15 +1333,40 @@ fires the same subscriptions, webhooks and workflows. Only what's shown and togg
 7. **Docs:** manual Event Log + new admin Events section, what's new.
 
 ## Checklist
-- [ ] Plan (this section)
-- [ ] Catalog scope + new entries + derived set
-- [ ] Shared filter; every workspace reader of the log uses it
-- [ ] Audit settings exclude/refuse/lock platform types
-- [ ] Admin API + schemas
-- [ ] Tests: scope classification, workspace log/feed/entity/user/single event, dashboard, dry-run samples, AI
+- [x] Plan (this section)
+- [x] Catalog scope + new entries + derived set
+- [x] Shared filter; every workspace reader of the log uses it
+- [x] Audit settings exclude/refuse/lock platform types
+- [x] Admin API + schemas
+- [x] Tests: scope classification, workspace log/feed/entity/user/single event, dashboard, dry-run samples, AI
       tools exclude platform types; audit settings; admin endpoint (super admin only, owner 403, filters,
       pagination); platform events still dispatched and stored
-- [ ] Admin page + nav + overview card; workspace page copy
-- [ ] Docs: manual + what's new; `mkdocs build --strict`
-- [ ] Verify: backend suite (no SDK), `npm test`, biome, `astro check` vs baseline, SDK gate + MarvinSDK types,
+- [x] Admin page + nav + overview card; workspace page copy
+- [x] Docs: manual + what's new; `mkdocs build --strict`
+- [x] Verify: backend suite (no SDK), `npm test`, biome, `astro check` vs baseline, SDK gate + MarvinSDK types,
       live check
+
+**Review (2026-10-05):** built as planned, no migration. 19 platform types: the Authentication category (incl. the
+newly catalogued `token_refreshed`), `workspace_created/updated/deleted` and the newly catalogued
+`workspace_activated`, `api_token_*`, `api_rate_limit_exceeded`, `login_failed_multiple_times`,
+`suspicious_activity_detected`, `backup_*`. `workspace_updated` qualifies because its only emitter is the admin
+workspace controller (a test pins that). Readers filtered: the log list and its filters, single event (404), entity
+and user history, the feed (toasts), dashboard activity, dry-run samples (list/default/by event id/by entry), AI
+tools `list_events` / `get_entity_history` (MCP reaches them through the tool registry). Not touched, reviewed:
+`site_controller._newest` and the embeddings-reindex lookup read fixed workspace types; maintenance pruning and
+workspace purge delete, not read. One live find, fixed: on a phone the card layout's `display:block` beat the closed
+payload rows' `hidden`. Verified: backend 2648 passed / 178 skipped without the integration SDK, 2951 / 5 with SDK
+develop; `npm test` 366 pass; biome clean on touched files (AdminLayout's import order is pre-existing); `astro
+check` 50 (baseline 50); `mkdocs build --strict` clean (with CI's generated `openapi.json`). Live on SQLite +
+`astro dev` + headless Chromium: the workspace log shows only `variable_created` while the admin page lists
+token_refreshed, two workspace_activated, a password reset and workspace_created with workspace and user columns;
+type and workspace filters, an empty future range with Clear, a junk query string ignored, payload on expand, the
+Overview card and nav highlight; 390px with no horizontal scroll (payload open too); no console errors. SDK gate
+reproduced (fresh 3.12 venv, `marvin[dev]` + integration SDK develop, `npm run generate`): origin/develop gives no
+drift against marvin-sdk develop; this branch adds 3 paths / 4 schemas, committed on MarvinSDK
+`feat/admin-events-types`, which has to reach marvin-sdk develop before the gate passes here.
+
+## Later
+Show who changed a workspace in `workspace_updated` / `workspace_created` (the admin controller passes no user_id);
+redact `reset_url` from stored password-reset payloads.
+
