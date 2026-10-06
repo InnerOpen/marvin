@@ -618,6 +618,61 @@ ask-first via resume); SMTP profiles, submission protection, roles matrix; tones
 
 **Decisions (Jared 2026-10-05):** remove the deprecated `--json <payload>` alias in 4.0; rebuild endpoint role EDITOR.
 
+# CLI 3.2 (plan, 2026-10-05)
+
+**Goal:** finish the CLI catch-up: review queue, blueprints, publishing ergonomics, incoming webhooks + tags, and
+smart collections. Jared 2026-10-05: batches 3–7 of the coverage audit ("Later (3.2+)" above, minus the
+agents/MCP/SMTP/tones tail).
+
+**Today (CLI 3.1.0 `392264b`, SDK 4.2.0 `6241d97`, core rc.199):** SDK types already match rc.199 (regenerated
+with the gate's toolchain: no diff). The SDK already has `tags` (incl. asset/resource attach) and
+`incomingWebhooks` CRUD + token, and `collections.reorder`; it lacks suggestion review, entry counts, the dashboard,
+blueprints, signature schemes, collection preview/members, the publishing `tag/slug/updatedSince` filters and an
+asset file download. Core checks: `GET /api/platform/entries` takes **no filters** (status/type/limit are
+client-side); the publishing entries list **does** take `tag`, `slug`, `updated_since`; blueprints live under
+`/api/groups/blueprints` (read: any member; apply/update: ADMIN); incoming webhooks are ADMIN, reads included.
+
+## Design
+**Batch 3 — review queue:** `entries list --status <s> --entry-type <slug> --limit N --suggestions` (filtered
+client-side; the type slug resolves through `entry-types`), `entries counts`, `entries apply-suggestion|
+reject-suggestion <id>`, the same on `assets` and `resources` (EDITOR), `entries approve-asset|reject-asset <entry>
+<asset>` (suggested assets), and a top-level `platform dashboard` (the "needs attention" counts + recent activity
+from `stats/dashboard`).
+
+**Batch 4 — `platform blueprints`:** `list [--kind] [--category] [--source] [--integration-id]`, `categories`,
+`get <slug> [--source]`, `apply <slug…> [--params|--data]` (one slug → single apply; several → bulk, params keyed by
+slug), `update <slug> [--params]`. Apply/update need ADMIN.
+
+**Batch 5 — publishing ergonomics:** `platform entries update --publish-at/--expire-at/--status` (merged into any
+`--data`; `--publish-at ""` clears), `publish entries --tag/--slug/--updated-since/--expand full`, `publish asset
+<slug> --download [--out-file]` (follows the file route's redirect).
+
+**Batch 6 — `platform incoming-webhooks` + `platform tags`:** webhooks `list/get/create/update/delete`,
+`mint-token` / `revoke-token`, `signature-schemes` (all ADMIN). Tags `list/get/create/update/delete`,
+`attach/detach <tag> --entry|--asset|--resource <id>` (tag by id or slug; create AUTHOR, edits EDITOR, entry
+tagging follows the entry's edit rule).
+
+**Batch 7 — smart collections:** `collections preview --rules <json|@file> [--target-type] [--limit]`,
+`collections members <id>`, `collections order --data '[{id, sortOrder}]'`, `--smart-rules <json|@file>` on
+create/update (sets `isSmart`).
+
+**SDK 4.3.0:** `entries.counts/applySuggestion/rejectSuggestion/approveSuggestedAsset/rejectSuggestedAsset`,
+`assets|resources.applySuggestion/rejectSuggestion`, `workspaces.getDashboard`, a `blueprints` module (list,
+categories, get, apply, applyMany, update), `incomingWebhooks.signatureSchemes` (+ signature fields on the type),
+`collections.preview/members`, publish `entries.list({tag, slug, updatedSince})`, publish `assets.download`
+(an HttpClient binary read that keeps 4.1's retry and empty-body rules).
+
+## Checklist
+- [ ] SDK 4.3.0: methods above + tests; types regenerated (gate toolchain); `feat:` commits
+- [ ] CLI batches 3–7 + tests per group; permissions table + help; coverage manifest (routes → covered) and
+      snapshot refreshed to develop with the integration SDK installed
+- [ ] Docs: reference pages per group (review, dashboard, blueprints, incoming-webhooks, tags, collections,
+      publishing); MIGRATION note if behaviour changes; `mkdocs build --strict`
+- [ ] Release: SDK 4.3.0 → relock CLI → CLI 3.2.0 (trusted publishing)
+
+**Core gaps:** none blocking. Nice to have: server-side `status`/`entry_type`/`limit` filters on
+`GET /api/platform/entries` (the CLI filters the full list today).
+
 # Media embeds — paste a link, get a player (plan, 2026-10-05)
 
 **Goal:** paste a YouTube, Vimeo, Bandcamp, Spotify, SoundCloud, Apple Music/Podcasts, Tidal or podcast
