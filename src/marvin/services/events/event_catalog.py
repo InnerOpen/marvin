@@ -85,7 +85,7 @@ class CatalogEntry:
 
 COMMON_VARS = [
     EventVariable("workspace_name", "Name of the workspace", "My Blog", type="name"),
-    EventVariable("message_title", "Auto-generated event title (e.g. 'Entry Published')", "Entry Published", type="string"),
+    EventVariable("message_title", "Event title: the event's display name (e.g. 'Entry Published')", "Entry Published", type="string"),
     EventVariable("message_body", "Optional description passed when the event was dispatched", "", type="string"),
     EventVariable("event_type", "Machine-readable event name", "entry_published", type="string"),
     EventVariable("timestamp", "ISO 8601 timestamp of when the event fired", "2026-07-16T10:00:00Z", type="datetime"),
@@ -1983,6 +1983,17 @@ def get_event_variables(event_type: str) -> list[EventVariable]:
 
 def get_catalog_entry(event_type: str) -> CatalogEntry | None:
     return CATALOG_BY_TYPE.get(event_type)
+
+
+def event_title(event_type: str) -> str | None:
+    """The title a newly sent event carries (`message_title` in the Event Log, notifications and payloads):
+    the catalog's display name. None, so the caller derives one from the type name, for a type the catalog
+    doesn't list (a plugin's own), an alias and internal plumbing — their names carry UI annotations such as
+    "(old name)" or "(internal)" that don't belong in a title."""
+    entry = CATALOG_BY_TYPE.get(event_type)
+    if entry is None or entry.alias_of or entry.internal:
+        return None
+    return entry.name
 
 
 def is_platform_event(event_type: str) -> bool:
