@@ -298,9 +298,11 @@ Someone else (Grace) now uses the live instance, so changes need somewhere to la
 production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend pinned to one replica).
 
 ## Plan
-- [ ] **Image tags first:** production tracks the moving `:develop` tag, so a dev instance on `:develop` would run the
-      same code as prod. Dev follows `:develop`; production pins a release tag (CI already cuts `1.0.0-rc.N`).
-      Promotion = bump prod's tag.
+- [x] **Image tags first** (2026-10-06): production pins `image.tag=develop-<sha>` — the immutable images CI builds
+      for every develop commit (release commits are `[skip ci]`, so `1.0.0-rc.N` has no image of its own).
+      Promote with `scripts/deploy/promote-iwobble.sh <commit>` (checks both images exist, helm-upgrades with that
+      commit's chart, waits for the rollouts); `helm history marvin -n marvin` is the deploy log, `helm rollback`
+      the undo. `pullPolicy: IfNotPresent`. Dev will follow `:develop` once it exists.
 - [ ] **Postgres on the cluster:** install the CloudNativePG operator (OperatorHub); one small single-instance
       `Cluster` per environment. (No Postgres on ocp4 today — only Beaker's MariaDB.)
 - [ ] **Chart:** wire `dbEngine: postgres` to the app's `POSTGRES_SERVER/PORT/USER/PASSWORD/DB` (Secret from the CNPG

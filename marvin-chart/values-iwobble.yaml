@@ -1,7 +1,7 @@
 # Deployment values for the `marvin` release on the iwobble OpenShift cluster.
 # Split topology, GHCR develop images, NFS-persisted sqlite, integration plugins installed at boot.
 #
-#   helm upgrade --install marvin marvin-chart -n marvin -f marvin-chart/values-iwobble.yaml
+#   scripts/deploy/promote-iwobble.sh <commit>   (pins image.tag=develop-<sha>; see image: below)
 #
 # Hosts below are specific to this cluster (apps.ocp4.iwobble.com); change them for another cluster.
 
@@ -15,10 +15,15 @@ split:
     strategy:
       type: Recreate
 
+# Production runs one exact, CI-built commit: `develop-<7-char sha>` (immutable GHCR tags). Don't edit
+# the tag here — promote with `scripts/deploy/promote-iwobble.sh <sha>`, which helm-upgrades with the chart
+# from that same commit and `--set image.tag=develop-<sha>`. `helm history marvin -n marvin` lists every
+# promotion; roll back with `helm rollback marvin <revision> -n marvin`. A bare `helm upgrade` with this file
+# alone would fall back to the moving `develop` tag below — use the script.
 image:
   repository: ghcr.io/inneropen/marvin   # backend/frontend derive as -backend / -frontend
   tag: develop
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
 config:
   publicApiUrl: https://api.iwobble.com
