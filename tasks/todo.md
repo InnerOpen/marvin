@@ -540,6 +540,8 @@ shipping inside Marvin's release. Providers become plugins so a vendor fix is a 
       google (move to the `google-genai` SDK — `google-generativeai` is deprecated), ollama.
 - [ ] Baseline (decide: leaning no built-in; the chart installs openai by default). Tests use a fake provider.
 - [ ] Helm: tarballs in the same init container as integrations; admin page lists installed providers + versions.
+- Order (Jared 2026-10-06): storage plugins go first and build the shared plumbing (entry-point loader, chart
+      `plugins.packages`, admin Plugins listing, SDK as a core dependency); see "Storage plugins + backup targets" below.
 - [ ] Docs: provider plugin authoring guide next to the integration one.
 
 ## Pricing — no hard-coded model list (part of the same work)
@@ -1877,3 +1879,238 @@ desktop "›" rule. Verified: `npm test` 439 pass (73 new); biome clean on new f
 SQLite + `astro dev` + headless Chromium: super admin 69 pages (all static nodes + 11 detail pages), workspace admin
 48; every trail matches the map, every trail link (18) answers 200, no old breadcrumbs or eyebrows, no console
 errors; 390px shows only the parent with no horizontal scroll, light and dark.
+
+# Storage plugins + backup targets — cloud storage leaves core (plan, 2026-10-06, Jared: "everything uses the same APIs")
+
+**Status:** plan only, nothing built. Decisions below are Jared's (2026-10-06); open questions at the end.
+
+**Goal (Jared 2026-10-06):** keep core lean. Cloud SDKs leave core, and storage becomes a site-wide plugin type the
+same way AI providers will (see "AI provider plugins" above). Core keeps the local disk and a backup engine that can
+write to a second local volume (the NAS). One generic S3-compatible plugin covers R2, AWS, MinIO and B2, for asset
+storage and backups alike. Backups go to a **list of targets**, each on its own schedule and retention (e.g. hourly
+to R2, nightly to the NAS), and R2 backups must not stop at any point during the switch.
+
+**Today:**
+- `services/storage/`: `BaseStorageProvider` (put/get/delete/exists/get_public_url/get_metadata, no `list`),
+  `LocalStorageProvider`, `S3StorageProvider` (boto3) and `get_storage_provider()`, which picks one by the
+  `STORAGE_PROVIDER` string (`local` | `s3`, settings `STORAGE_LOCAL_*`, `STORAGE_S3_*`, `STORAGE_REMOTE_PUBLIC_URL`).
+  Every environment runs `local` (`marvin-data` PVC, 516 assets in production).
+- `boto3` is a **core dependency** (`pyproject.toml`). Its only users are `s3_provider.py`,
+  `scripts/offsite_backup.py` and `tests/test_offsite_backup.py`.
+- The asset row has a `storage_provider` column, but reads mostly ignore it: `AssetRead.compute_public_url` and
+  most callers (about 20 `get_storage_provider()` call sites) use the one global provider. Only the download
+  endpoint (`assets_controller.py:205`) branches on the row, and it returns 409 when the row says `local` and the
+  global provider isn't local. So **a mix of local and s3 rows can't be served today**.
+- `S3StorageProvider.get_public_url` without `STORAGE_REMOTE_PUBLIC_URL` returns `<endpoint>/<bucket>/<key>`. On R2
+  that's the private S3 API, which browsers can't read. Assets on R2 need a public URL (custom domain), presigned
+  URLs or a backend proxy.
+- `scripts/offsite_backup.py` (739 lines) is S3-only. It does a consistent DB snapshot (SQLite backup API +
+  `integrity_check`, or `pg_dump` + `pg_restore --list`), a config archive (`.secret`, `scheduler_state.json`,
+  `templates/`), an incremental `assets/` mirror (size + MD5/ETag, never deleted remotely), sha256 metadata,
+  `list` and `restore`. Retention is `select_retained` with 14 daily + 8 weekly, plus 48 hourly for `postgres/`.
+  Its `Bucket` class is already a small put/get/list/delete seam.
+- Chart: one CronJob `marvin-offsite-backup` (`backup.*`: schedule, timeZone, existingSecret, s3Region, prefix).
+  Production (CNPG `marvin-pg`) runs it hourly to `marvin-backups`, dev (`marvin-dev`, `marvin-dev-pg`) hourly to
+  `marvin-backups-dev`. Retention is hard-coded in the script. The job uses `podAffinity` onto the backend's node
+  (RWO data PVC).
+- Plugins: integrations are discovered from `marvin.integrations` (`services/integrations/loader.py`, which keeps a
+  per-distribution load report with versions). They're installed by the `install-integrations` init container
+  (`values-iwobble.yaml`: `pip install --target=/plugins …` + `PYTHONPATH`), and that runs **only in the backend
+  pods. The backup CronJob gets no plugins.** The admin Plugins page exists (`/admin/plugins`,
+  `services/plugins.py`, `PluginKind = "integration" | "ai_provider"`, with only integrations wired). The plugin SDK
+  (`marvin-integration-sdk`) is **not** a core dependency: it comes in through the init container, from a branch
+  tarball.
+
+## Design
+
+**1. Shared site-wide plugin plumbing (built here first, reused by AI provider plugins)**
+- One entry-point loader in core (generalised from `services/integrations/loader.py`). Per plugin type it takes a
+  group name and a register function, and keeps the resilient per-distribution load report (name, version, ok, error).
+  A broken plugin is logged and skipped. New group: `marvin.storage_providers`.
+- The plugin contract lives in the SDK, so **core takes the SDK as a pinned dependency** (today it's only present
+  through the init container). Core re-exports the contract from `marvin.services.storage`, so existing imports keep
+  working. The init container then stops installing the SDK from a branch tarball: a `PYTHONPATH` copy shadows the
+  image's pinned one, and that's version skew waiting to happen.
+- Admin Plugins page: kind `storage`. It lists each installed storage plugin with its version, what it provides
+  (asset provider, backup target) and whether the platform uses it (the active `STORAGE_PROVIDER`, configured targets).
+- Chart: a first-class `plugins.packages` list renders **one** install init container + `plugins` emptyDir +
+  `PYTHONPATH` into every pod that runs Marvin code: the backend (split and combined), and **each backup CronJob**.
+  The raw `initContainers` value stays as an escape hatch. Production and dev move their package list to
+  `plugins.packages`.
+
+**2. Storage contract (SDK) + registry (core)**
+- SDK `storage` module: `StorageProvider` (today's `BaseStorageProvider` plus `iter_keys(prefix)`, which the backup
+  engine needs to mirror assets from any provider), `StorageMetadata`, `BackupTarget`
+  (`put_file(key, path, metadata)`, `get(key, dest) -> metadata`, `list(prefix) -> {key: TargetObject}`,
+  `delete(keys)`, `head(key)`), and `TargetObject` (key, size, digest + algorithm, metadata). A plugin's entry point
+  returns a `StoragePlugin`: slug, name, the provider and/or target classes, and a settings model (which env vars or
+  values it reads, with secrets masked).
+- SDK conformance kit: a pytest suite any storage plugin runs against its own provider and target (round trip,
+  missing key → `FileNotFoundError`, list by prefix, delete idempotent, metadata/digest survives). Core runs the same
+  kit on its built-in local provider and local target.
+- Core registry: the built-in `local` provider is always registered (the **mandatory default**); plugins add theirs
+  by slug. `get_storage_provider()` resolves `STORAGE_PROVIDER` through the registry. If the slug is unknown (plugin
+  not installed), **startup fails with a clear message**. It never falls back to local quietly, because that would
+  hand out broken asset URLs.
+- **Per-row resolution:** `provider_for(asset)` resolves the row's `storage_provider`. It's used by
+  `compute_public_url`, the download endpoint, delete and AI context reads. New uploads still go to the active
+  provider. This lets local and s3 rows be served side by side, so the asset move doesn't need a freeze.
+
+**3. Backup engine in core (built-in `local` target)**
+- `services/backup/` + `python -m marvin.scripts.backup {run,list,restore,prune} --target NAME`. A port of
+  `offsite_backup.py`'s logic (snapshot, `pg_dump`, config archive, sha256, incremental assets, restore), with
+  `Bucket` replaced by `BackupTarget`. **Same key layout** (`postgres/`, `sqlite/`, `config/`, `assets/`, optional
+  prefix), so the new s3 target can read and prune the existing R2 history. No re-seed, and history isn't lost at
+  cutover.
+- Built-in `local` target: a directory on a mounted volume (NAS export, second disk). Writes go to a temp file +
+  `rename` (atomic within the directory, also on NFS). sha256 and metadata sit in a `<key>.meta.json` sidecar. The
+  asset mirror compares size + sha256 instead of S3 ETags.
+- Assets are read through the storage provider (`iter_keys` + `get`), not `DATA_DIR/assets`, so backups keep
+  working once assets live in R2.
+- **Targets are independent:** one CronJob per target, each with its own dump, run, exit code and alert. A failing
+  NAS never stops the R2 run, and the other way round.
+- **Retention per target, admin-configurable, default 30 days:** keep the hourly knob from today's rule and change
+  the default to `keepHourly: 48, keepDaily: 30, keepWeekly: 0` ("30 days, hourly for the last two"). Today's rule is
+  48 + 14 + 8 weekly, which reaches about 8 weeks back, so the new default trades the oldest weeks for daily points
+  over a month (open question 2). The other existing rules stay: counted among backups that exist (a run of
+  failures never empties a target), prune only after a successful upload, never touch `assets/` or keys the engine
+  didn't name.
+- **Guardrail, in code too:** the local target refuses a root inside `DATA_DIR` or on the same filesystem
+  (`st_dev`) as `DATA_DIR`. Caveat for the docs: the NAS export and `managed-nfs-storage` share one ZFS pool on
+  `192.168.30.10`. That copy protects against a deleted or corrupted PVC and app bugs, but not against losing the
+  NAS. R2 is the off-site copy.
+
+**4. Chart: `backup.targets[]`**
+- Each entry has `name`, `type` (`local` | `s3`, or any plugin target slug), `schedule`, `timeZone`, `retention`
+  (`keepHourly/keepDaily/keepWeekly`), `prefix`, and type-specific settings. `s3` takes `existingSecret` (same keys
+  as `marvin-r2-backup`) and `region`. `local` takes `volume.existingClaim`, or `volume.nfs: {server, path}`, from
+  which the chart renders a static PV + PVC. It renders `<fullname>-backup-<name>` CronJobs (plugins init container
+  included). The values are then:
+  `[{name: r2, type: s3, schedule: "0 * * * *"}, {name: nas, type: local, schedule: "30 3 * * *"}]`.
+- **Guardrail:** the chart `fail`s on a local target whose claim is the data PVC (`marvin-data` /
+  `persistence.existingClaim` / `<fullname>-data`), or with no volume at all.
+- NAS wiring: a **static NFS PV** (`nfs: {server: 192.168.30.10, path: <export>}`, RWX,
+  `persistentVolumeReclaimPolicy: Retain`, `storageClassName: ""`, `claimRef` to the namespace's PVC), one per
+  environment. It has to be PV + PVC: OpenShift's `restricted-v2` SCC doesn't allow inline `nfs:` volumes. A second
+  nfs-subdir provisioner / StorageClass for `/tank/backups` would also work, but it's more moving parts for two
+  volumes. NFS ignores `fsGroup`, so the export directory has to be writable by the pod's random UID (group 0
+  writable + setgid, or `all_squash` to an anon uid) — open question 1.
+- The old `backup.*` single-target values and template stay until the cutover is verified (slice 6), as the rollback.
+
+**5. `marvin-storage-s3` plugin (new repo `InnerOpen/marvin-storage-s3`)**
+- Takes `S3StorageProvider` from core and the S3 `Bucket` code from `offsite_backup.py`, and provides the asset
+  provider `s3` and the backup target `s3`. **`boto3` lives only here.** Settings keep today's names
+  (`STORAGE_S3_*`, `STORAGE_REMOTE_PUBLIC_URL`; target keys as in `marvin-r2-backup`), so no Secret changes.
+- Public delivery for assets: `public_url` (custom domain, recommended), else presigned GET URLs. The bare endpoint
+  URL is never offered, because it doesn't work on R2.
+- README / manual page: what it can store (assets) and back up (DB dump, config archive incl. `.secret`, asset
+  mirror), and the "bucket holds `.secret`" warning. Per provider: which credentials to create, where, endpoint and
+  region:
+  - **Cloudflare R2:** R2 → Manage API tokens → an **Object Read & Write** token scoped to the one bucket. Endpoint
+    `https://<account-id>.r2.cloudflarestorage.com`, region `auto`.
+  - **AWS S3:** an IAM user (or role) with a policy limited to `arn:aws:s3:::<bucket>` and `<bucket>/*`
+    (Get/Put/Delete/List). No endpoint, region = the bucket's.
+  - **MinIO:** an access key (Access Keys, or `mc admin user svcacct add`) with a bucket-scoped policy. Endpoint =
+    the MinIO URL, path-style.
+  - **Backblaze B2:** an application key restricted to the bucket (B2's S3-compatible API). Endpoint
+    `https://s3.<region>.backblazeb2.com`, region from the endpoint.
+- Tests: the SDK conformance kit against MinIO (CI service) + the ported `test_offsite_backup` cases. Installed via
+  `plugins.packages` in dev, then production.
+
+**6. Assets on R2 (after the plugin exists)**
+- New bucket `marvin-assets` (separate from the backups, with its own bucket-scoped token, Secret `marvin-r2-assets`).
+  Public delivery through a Cloudflare custom domain on the bucket (cached edge, e.g. `assets.iwobble.com`) as
+  `STORAGE_REMOTE_PUBLIC_URL`.
+- Migration, no freeze (thanks to per-row resolution): switch `STORAGE_PROVIDER=s3` (new uploads go to R2), then
+  `python -m marvin.scripts.migrate_assets --to s3 [--dry-run]` copies each local file under the same key. It
+  verifies size + the row's `checksum` and only then updates the row's `storage_provider`. It's idempotent and
+  resumable, and it reports counts. Local files stay on `marvin-data` for a set period, then get deleted. Fallback if
+  per-row resolution is dropped: a short upload freeze (516 files, minutes).
+- Audit before switching: entry bodies, site settings or published sites that contain literal `/assets/…` or
+  `…/assets/…` URLs won't follow the provider. Find them, then rewrite them or keep a redirect from `/assets/<key>`
+  to the R2 URL. Rebuild the published sites after the migration.
+- Backups after the move: the asset mirror reads from R2. To the R2 target that's a same-vendor copy, to the NAS
+  target it's the off-vendor copy.
+- Cost (measured 2026-10-06): 0.23 GB used; steady state ~1.3–1.5 GB with assets, well inside R2's 10 GB free tier
+  (list calls on the hourly mirror are ~1 per 1,000 keys per run).
+
+**Later / parked**
+- The per-workspace storage overlay ("Phase 3" in the Marvin working notes: an `asset.store`/`asset.fetch` seam,
+  per-workspace buckets) **stays parked**. When it comes back, a workspace "bring your own bucket" connection lives in
+  `marvin-storage-s3`, not core.
+- Admin Backups page: per-target last run / status / size (read-only; v1 config is Helm values).
+- `replicaCount > 1` needs more than assets off the PVC: `.secret` and `scheduler_state.json` are still on
+  `marvin-data`.
+
+## Checklist
+- [ ] **Slice 1 — plugin plumbing:** generic entry-point loader (integrations moved onto it, behaviour unchanged);
+      SDK as a pinned core dependency; admin Plugins page kind `storage`; chart `plugins.packages` rendering the
+      init container into the backend and backup CronJobs; prod/dev values moved over (render diff: same pods +
+      the CronJob gains the init container)
+- [ ] **Slice 2 — storage contract:** SDK `storage` module + conformance kit; core registry with the built-in
+      `local`; `get_storage_provider()` through the registry, unknown slug fails startup; `provider_for(asset)` at
+      every read site; `S3StorageProvider` temporarily registered from core as `s3` (removed in slice 7); tests:
+      kit on local, mixed local/s3 rows served (fake s3 provider)
+- [ ] **Slice 3 — backup engine + local target:** `services/backup` + `scripts.backup` (run/list/restore/prune);
+      local target (atomic writes, sidecar sha256, `st_dev` guardrail); assets via the provider; per-target
+      retention (48/30/0 default); port the offsite_backup tests (snapshot under a live writer, incremental re-run
+      uploads 0, restore matches, retention, pg_dump path). `offsite_backup.py` untouched and still running
+- [ ] **Slice 4 — chart targets:** `backup.targets[]`, one CronJob per target, static NFS PV/PVC for `local`,
+      data-PVC guardrail (`helm template` fails as expected), old `backup.*` still renders unchanged
+- [ ] **Slice 5 — `marvin-storage-s3`:** repo, provider + target, conformance kit on MinIO, ported S3 tests,
+      per-provider credential docs; installed in dev
+- [ ] **Slice 6 — backup cutover, no R2 gap:** NAS export ready (Jared); **dev first:** targets `r2` (bucket
+      `marvin-backups-dev`, same layout, hourly) + `nas` (nightly), old CronJob off in the same upgrade; a one-off
+      run per target, `list` on both, the restore test from each (dump → scratch Postgres 17 → per-table counts
+      equal). **Production:** one `helm upgrade` swaps `marvin-offsite-backup` for `backup-r2` (same bucket, Secret,
+      hourly; the old CronJob's last run and the new one's first are ≤ 1 h apart) + `backup-nas` (nightly). Run
+      `backup-r2` once right after the upgrade, watch the next three hourly runs and the first nightly, then the
+      restore test from both targets. Rollback: re-enable `backup.*`
+- [ ] **Slice 7 — remove the old code (only after slice 6 has been green for 7 days):** delete
+      `offsite_backup.py` + its test, the old `backup-cronjob.yaml` / `backup.*` values; `s3_provider.py` and the
+      `s3` registration leave core; `boto3` out of `pyproject.toml` + `uv.lock`; `STORAGE_S3_*` documented as the
+      plugin's settings; image size before/after
+- [ ] **Slice 8 — assets on R2:** bucket + token + Secret (Jared); install the plugin's asset side; URL audit (above);
+      custom domain `assets.iwobble.com` (Jared, Cloudflare); dev rehearsal on a production copy (migrate, every
+      asset URL 200, sites rebuilt); production: switch, migrate 516, verify counts + checksums, rebuild sites;
+      delete local copies after the set period
+- [ ] **Cost:** trim dev retention (e.g. `keepHourly: 24, keepDaily: 7`); **Cloudflare R2 usage alert at ~5 GB
+      (Jared sets it)**
+- [ ] **Docs:** manual "Storage" (built-in local, plugins, settings), "Backups" (replaces `offsite-backup.md`:
+      engine, targets, retention, guardrail + the same-pool caveat, restore from either target), the
+      `marvin-storage-s3` page with the credentials table, storage plugin authoring guide next to the integration one,
+      `postgres.md` backup section updated, what's new
+- Order: slices 1–2 also unblock AI provider plugins (same loader, chart list and admin page). Each slice ships on its
+  own through dev.
+
+## Decisions (Jared, 2026-10-06)
+- Keep core lean: cloud SDKs out of core. Storage is its own plugin type (`marvin.storage_providers`), with the
+  contract in the plugin SDK (core re-exports), installed site-wide by a platform admin (Helm init container) and
+  configured by admins.
+- Core keeps the storage interface, the local disk provider (mandatory built-in default) and the backup engine with a
+  built-in `local` target.
+- One generic S3-compatible plugin (`marvin-storage-s3`, working name) for R2/AWS/MinIO/B2: asset provider **and**
+  `s3` backup target. Its docs say what it stores and backs up, and which credentials to create per provider.
+- Backups take a list of independent targets, each with its own schedule and retention. Retention defaults to
+  30 days, configurable by an admin per target.
+- A local target must be on a different volume from the live data. The chart refuses `marvin-data`.
+- Assets move to R2 only after the plugin exists. Phase 3 per-workspace storage stays parked.
+- Storage plugin type first (smallest contract), so AI provider plugins reuse the plumbing.
+- No gap in R2 backups: engine + local target → plugin with s3 target → switch the CronJob and verify both targets →
+  only then delete the old built-in R2 code.
+
+## Open questions for Jared
+1. **NAS export:** path(s) on `192.168.30.10`, e.g. `/tank/backups/marvin` and `/tank/backups/marvin-dev`? Does dev
+   get a NAS target at all? How should the pod's random UID write: group-0-writable dir, or `all_squash` to an anon
+   uid?
+2. **Retention default:** 48 hourly + 30 daily + 0 weekly ("30 days"), or keep 8 weekly on R2 for ~2 months of
+   reach? Dev trimmed to 24 hourly + 7 daily?
+3. **SDK name:** core now depends on the SDK. Keep `marvin-integration-sdk`, or rename it to `marvin-plugin-sdk` now
+   that it carries storage and AI contracts too? (Shared with AI provider plugins.)
+4. **Asset migration:** per-row resolution + no freeze (proposed), or skip that work and take a short upload freeze?
+5. **Asset delivery:** a public custom domain (`assets.iwobble.com`; asset keys are already public at `/assets`
+   today), or presigned URLs? Are any assets meant to be private?
+6. **Deleted assets in backups:** today the mirror never deletes. Prune objects whose asset was deleted more than
+   30 days ago, or keep forever (cheap at this size)?
+7. **Target config:** Helm values only for v1 (proposed: they involve volumes and Secrets), with a read-only status
+   card on the admin Backups page later?
