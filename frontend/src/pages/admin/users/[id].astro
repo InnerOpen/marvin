@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
@@ -52,13 +51,7 @@ const authMethods = [
 ];
 ---
 
-<AdminLayout title={user?.username || 'Edit User'}>
-  <Breadcrumb items={[
-    { label: "Admin", href: "/admin" },
-    { label: "Users", href: "/admin/users" },
-    { label: user?.username || "Edit User" }
-  ]} />
-
+<AdminLayout crumb="admin.users.user" title={user?.username || 'Edit User'}>
   <div class="page-header">
     <div>
       <h2>{user?.fullName || user?.username || 'Edit User'}</h2>
@@ -394,18 +387,6 @@ const authMethods = [
     margin-bottom: 32px;
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
-  }
-
-  .back-link {
-    display: inline-block;
-    margin-bottom: 12px;
-    color: var(--accent);
-    text-decoration: none;
-    font-size: 14px;
-  }
-
-  .back-link:hover {
-    text-decoration: underline;
   }
 
   .page-header h2 {

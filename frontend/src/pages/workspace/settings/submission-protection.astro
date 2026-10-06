@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import SubmissionProtectionFields from "@/components/SubmissionProtectionFields.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
@@ -37,13 +36,7 @@ try {
 const canManage = currentUserRole === "OWNER" || currentUserRole === "ADMIN";
 ---
 
-<AppLayout title="Submission Protection" eyebrow="Workspace">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings" },
-    { label: "Publishing", href: "/workspace/settings?tab=publishing" },
-    { label: "Submission Protection" }
-  ]} />
-
+<AppLayout crumb="settings.submission-protection">
   <div class="toolbar">
     <div>
       <h2>Submission Protection</h2>

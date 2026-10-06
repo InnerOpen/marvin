@@ -59,13 +59,12 @@ if (client && Astro.request.method === "POST") {
 }
 ---
 
-<AppLayout title="Edit API Client" eyebrow="Publishing">
+<AppLayout crumb="publishing.clients.client">
   <div class="toolbar">
     <div>
       <h2>Edit API Client</h2>
       {client && <p>Change the name, description or permissions of <code>{client.slug}</code></p>}
     </div>
-    <a class="button secondary" href="/publishing/clients">Back to Clients</a>
   </div>
 
   {!canManage ? (

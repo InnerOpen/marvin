@@ -85,7 +85,7 @@ function statusMeta(status: string): { text: string; cls: string } {
 }
 ---
 
-<AppLayout adminOnly={adminOnly} title="Integrations" eyebrow="Settings">
+<AppLayout crumb="settings.integrations" adminOnly={adminOnly}>
   <div class="page-header">
     <div>
       <h2>Integrations</h2>
@@ -93,7 +93,6 @@ function statusMeta(status: string): { text: string; cls: string } {
     </div>
     <div class="header-links">
       <a href="/workspace/settings/integration-health" class="button secondary small">Alerts, health &amp; plugins</a>
-      <a href="/workspace/settings?tab=integrations" class="button secondary small">Back to Settings</a>
     </div>
   </div>
 

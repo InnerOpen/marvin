@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getBrowserFetchBaseUrl } from "@/lib/api/config";
@@ -85,13 +84,7 @@ for (const evtType of connectedEventTypes) {
 }
 ---
 
-<AppLayout adminOnly={adminOnly} title={template?.name ?? 'Edit Template'} eyebrow="Workspace Settings">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings" },
-    { label: "Email Settings", href: "/workspace/settings/email" },
-    { label: template?.name ?? "Edit Template" }
-  ]} />
-
+<AppLayout crumb="settings.email.template" adminOnly={adminOnly} title={template?.name ?? 'Edit Template'}>
   {error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
   ) : template ? (

@@ -104,17 +104,12 @@ const examplePayload =
   eventInfo?.payloadExample ?? (eventInfo ? buildExamplePayload(type!, eventInfo.variables || []) : {});
 ---
 
-<AppLayout adminOnly={adminOnly} title={eventInfo ? eventInfo.label : 'Event'} eyebrow="Events">
+<AppLayout crumb="automation.events.type" adminOnly={adminOnly} title={eventInfo ? eventInfo.label : 'Event'}>
   {error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
   ) : eventInfo ? (
     <>
       <div class="page-header">
-        <div class="breadcrumb">
-          <a href="/automation/events">Events</a>
-          <span>›</span>
-          <span>{eventInfo.label}</span>
-        </div>
         <div class="event-meta">
           <h2>{eventInfo.label}</h2>
           <span class="event-category">{eventInfo.category}</span>
@@ -520,16 +515,16 @@ const examplePayload =
       const res = await fetch(`${apiUrl}/api/groups/webhooks/${activeWebhookId}`, { credentials: 'include' });
       if (!res.ok) throw new Error(`GET failed: ${res.status}`);
       const webhook = await res.json();
-      console.log('[webhook-connect] GET response:', webhook);
+      console.debug('[webhook-connect] GET response:', webhook);
       const current = webhook.subscribedEvents ?? webhook.subscribed_events ?? [];
-      console.log('[webhook-connect] current subscribed_events:', current);
+      console.debug('[webhook-connect] current subscribed_events:', current);
       const updated = activeIsConnected
         ? current.filter(e => e !== type)
         : [...new Set([...current, type])];
-      console.log('[webhook-connect] updated subscribed_events:', updated);
+      console.debug('[webhook-connect] updated subscribed_events:', updated);
       // Use camelCase key to match Pydantic alias — snake_case gets overridden by the spread
       const body = { ...webhook, subscribedEvents: updated, subscribed_events: updated };
-      console.log('[webhook-connect] PUT body:', body);
+      console.debug('[webhook-connect] PUT body:', body);
       const putRes = await fetch(`${apiUrl}/api/groups/webhooks/${activeWebhookId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -537,7 +532,7 @@ const examplePayload =
         body: JSON.stringify(body),
       });
       const putData = await putRes.json().catch(() => ({}));
-      console.log('[webhook-connect] PUT response:', putRes.status, putData);
+      console.debug('[webhook-connect] PUT response:', putRes.status, putData);
       if (!putRes.ok) {
         console.error('[webhook-connect] PUT failed:', putRes.status, putData);
         throw new Error(putData.detail || `PUT failed: ${putRes.status}`);
@@ -1000,22 +995,6 @@ const examplePayload =
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a {
-    color: var(--muted);
-    text-decoration: none;
-  }
-
-  .breadcrumb a:hover { color: var(--ink); }
 
   .event-meta {
     display: flex;

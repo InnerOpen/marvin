@@ -81,7 +81,7 @@ const fmtDate = (iso: string) => new Date(iso).toLocaleString(undefined, { dateS
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 ---
 
-<AdminLayout title="Overview">
+<AdminLayout crumb="admin">
   <div class="toolbar">
     <div>
       <h2>Platform overview</h2>

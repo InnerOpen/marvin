@@ -27,13 +27,12 @@ function summary(sv: any): { text: string; cls: string } {
 }
 ---
 
-<AppLayout title="MCP Servers" eyebrow="Settings">
+<AppLayout crumb="settings.ai-mcp-servers">
   <div class="page-header">
     <div>
       <h2>MCP Servers</h2>
       <p>Connect external MCP servers and choose which of their tools the agent can use.</p>
     </div>
-    <a href="/workspace/settings?tab=ai" class="button secondary small">Back to AI</a>
   </div>
 
   {error && <div class="alert"><strong>Couldn't load your servers.</strong> {error}</div>}

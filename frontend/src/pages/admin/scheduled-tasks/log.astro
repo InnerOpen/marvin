@@ -42,13 +42,8 @@ function statusClass(status: string): string {
 }
 ---
 
-<AdminLayout title="Global Execution Log">
+<AdminLayout crumb="admin.scheduled-tasks.log">
   <div class="page-header">
-    <div class="breadcrumb">
-      <a href="/admin/scheduled-tasks">Scheduled Tasks</a>
-      <span>›</span>
-      <span>Activity Log</span>
-    </div>
     <h2>Global Execution Log</h2>
     <p>Execution history across all tasks and workspaces</p>
   </div>
@@ -147,18 +142,6 @@ function statusClass(status: string): string {
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
 
   .page-header h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
   .page-header p { margin: 0; color: var(--muted); font-size: 14px; }

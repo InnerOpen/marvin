@@ -72,13 +72,8 @@ function formatDuration(ms: number | null): string {
 }
 ---
 
-<AppLayout title="AI Executions" eyebrow="Settings">
+<AppLayout crumb="settings.ai-executions">
   <div class="page-header">
-    <div class="breadcrumb">
-      <a href="/workspace/settings?tab=ai">AI</a>
-      <span>›</span>
-      <span>AI Executions</span>
-    </div>
     <h2>AI Executions</h2>
     <p>History of every AI operation run in this workspace — tokens, cost, and output</p>
   </div>
@@ -229,18 +224,6 @@ function formatDuration(ms: number | null): string {
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
 
   .page-header h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
   .page-header p { margin: 0; color: var(--muted); font-size: 14px; }

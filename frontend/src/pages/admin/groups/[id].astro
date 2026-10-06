@@ -1,6 +1,5 @@
 ---
 import type { PlatformWorkspaceMember, Workspace } from "@inneropen/marvin-sdk/platform";
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
@@ -32,17 +31,10 @@ if (!id) {
 }
 ---
 
-<AdminLayout title={group ? `Manage ${group.name}` : "Manage Workspace"}>
-  <Breadcrumb items={[
-    { label: "Admin", href: "/admin" },
-    { label: "Workspaces", href: "/admin/workspaces" },
-    { label: group?.name || "Manage" }
-  ]} />
-
+<AdminLayout crumb="admin.workspaces.workspace" title={group ? `Manage ${group.name}` : "Manage Workspace"}>
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading workspace:</strong> {error}</p>
-      <a href="/admin/workspaces" class="button secondary">Back to Workspaces</a>
     </div>
   ) : group ? (
     <>
@@ -50,9 +42,6 @@ if (!id) {
         <div>
           <h2>{group.name}</h2>
           <p>Manage workspace settings and members</p>
-        </div>
-        <div class="toolbar-actions">
-          <a class="button secondary" href="/admin/workspaces">Back to Workspaces</a>
         </div>
       </div>
 

@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listTags, type TagRead } from "@/lib/api/tags";
@@ -27,13 +26,7 @@ if (!authToken) {
 const sortedTags = tags.sort((a, b) => a.name.localeCompare(b.name));
 ---
 
-<AppLayout title="Tags">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings?tab=entry-types" },
-    { label: "Content Model", href: "/workspace/settings?tab=entry-types" },
-    { label: "Tags" }
-  ]} />
-
+<AppLayout crumb="settings.tags">
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading tags:</strong> {error}</p>

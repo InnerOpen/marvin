@@ -39,7 +39,7 @@ try {
 const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agent ${u.agent})` : u.workspace)).join(", ");
 ---
 
-<AdminLayout title="Character Library">
+<AdminLayout crumb="admin.character-library">
   <div class="toolbar">
     <div>
       <h2>Character Library</h2>

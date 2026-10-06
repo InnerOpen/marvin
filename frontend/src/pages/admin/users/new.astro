@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
@@ -27,16 +26,10 @@ const platformRoles = [
 ];
 ---
 
-<AdminLayout title="Create User">
-  <Breadcrumb items={[
-    { label: "Users", href: "/admin/users" },
-    { label: "Create User" }
-  ]} />
-
+<AdminLayout crumb="admin.users.new">
   {error ? (
     <div class="error-banner">
       <p><strong>Error:</strong> {error}</p>
-      <a href="/admin/users" class="button secondary">Back to Users</a>
     </div>
   ) : (
     <>

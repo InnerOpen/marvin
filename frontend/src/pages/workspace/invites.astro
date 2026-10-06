@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listInviteTokens } from "@/lib/api/invites";
@@ -28,12 +27,7 @@ try {
 const baseUrl = Astro.url.origin;
 ---
 
-<AppLayout title="Workspace Invites" eyebrow="Workspace">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings?tab=members" },
-    { label: "Invitations" }
-  ]} />
-
+<AppLayout crumb="settings.invites">
   <div class="toolbar">
     <div>
       <h2>Workspace Invites</h2>

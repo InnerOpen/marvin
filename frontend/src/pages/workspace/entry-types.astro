@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import FilterBar from "@/components/FilterBar.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
@@ -49,12 +48,7 @@ function getRendering(type: EntryTypeRead) {
 }
 ---
 
-<AppLayout title="Entry Types">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings?tab=entry-types" },
-    { label: "Entry Types" }
-  ]} />
-
+<AppLayout crumb="settings.entry-types">
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading entry types:</strong> {error}</p>

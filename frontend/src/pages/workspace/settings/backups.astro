@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import type { WorkspaceRole } from "@/lib/api/types";
@@ -63,12 +62,7 @@ function fmtDate(iso: string): string {
 }
 ---
 
-<AppLayout adminOnly={adminOnly} title="Backups" eyebrow="Settings">
-  <Breadcrumb items={[
-    { label: "Settings", href: "/workspace/settings" },
-    { label: "Backups" },
-  ]} />
-
+<AppLayout crumb="settings.backups" adminOnly={adminOnly}>
   <div class="page-header">
     <div>
       <h2>Backups</h2>

@@ -1,0 +1,82 @@
+---
+// The breadcrumb trail above a page's H1: its ancestors from lib/navTree.ts, each a link (the H1 is the current page,
+// so it isn't repeated here). On a phone only the parent shows, as "‹ Parent".
+import type { Crumb } from "@/lib/navTree";
+
+interface Props {
+  trail: Crumb[];
+}
+
+const { trail } = Astro.props;
+---
+
+{trail.length > 0 && (
+  <nav class="nav-trail" aria-label="Breadcrumb">
+    <ol>
+      {trail.map((crumb) => (
+        <li><a href={crumb.href}>{crumb.label}</a></li>
+      ))}
+    </ol>
+  </nav>
+)}
+
+<style>
+  .nav-trail ol {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 6px;
+    margin: 0 0 4px;
+    padding: 0;
+    list-style: none;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--muted);
+  }
+
+  .nav-trail li {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .nav-trail li + li::before {
+    content: "›";
+    content: "›" / "";
+    opacity: 0.6;
+  }
+
+  .nav-trail a {
+    color: var(--muted);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--muted) 35%, transparent);
+    text-underline-offset: 3px;
+    overflow-wrap: anywhere;
+  }
+
+  .nav-trail a:hover {
+    color: var(--ink);
+    text-decoration-color: currentColor;
+  }
+
+  /* Phones: just the way back one page. */
+  @media (max-width: 639.98px) {
+    .nav-trail ol {
+      font-size: 12px;
+      margin-bottom: 2px;
+    }
+
+    .nav-trail li:not(:last-child) {
+      display: none;
+    }
+
+    /* Both selectors, so this beats the "›" rule above once Astro scopes them (only the last item shows anyway). */
+    .nav-trail li + li::before,
+    .nav-trail li:last-child::before {
+      content: "‹";
+      content: "‹" / "";
+      opacity: 1;
+    }
+  }
+</style>

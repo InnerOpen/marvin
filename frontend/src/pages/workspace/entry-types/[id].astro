@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import SchemaEditor from "@/components/SchemaEditor.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
@@ -44,21 +43,15 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
 ---
 
 <AppLayout
+  crumb="settings.entry-types.entry-type"
   title={entryType ? `Edit ${entryType.name}` : "Edit Entry Type"}
   entityType="entry_type"
   entityId={id}
   entityLabel={entryType?.name}
 >
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings?tab=entry-types" },
-    { label: "Entry Types", href: "/workspace/entry-types" },
-    { label: entryType?.name || "Edit" }
-  ]} />
-
   {error ? (
     <div class="error-banner">
       <p><strong>Error loading entry type:</strong> {error}</p>
-      <a href="/workspace/entry-types" class="button secondary">Back to Entry Types</a>
     </div>
   ) : entryType ? (
     <>
@@ -69,7 +62,6 @@ const { instructions: recipeInstructions, voice: recipeVoice, json: recipeStr } 
             {isSystem ? "System entry types have limited editing" : "Update entry type details"}
           </p>
         </div>
-        <a class="button secondary" href="/workspace/entry-types">Back</a>
       </div>
 
       {!canManage && <div class="alert alert-info" role="status">{ADMINS_ONLY}</div>}

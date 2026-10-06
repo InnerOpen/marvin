@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import type { WorkspaceRole } from "@/lib/api/types";
@@ -50,12 +49,7 @@ const urlParams = Astro.url.searchParams;
 const success = urlParams.get("success") === "1";
 ---
 
-<AppLayout title="Workspace Details" eyebrow="Workspace">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings" },
-    { label: "General" }
-  ]} />
-
+<AppLayout crumb="settings.general">
   <div class="toolbar">
     <div>
       <h2>Workspace Details</h2>

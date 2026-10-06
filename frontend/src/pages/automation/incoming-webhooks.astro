@@ -30,7 +30,7 @@ const schemesJson = JSON.stringify(schemes).replace(/</g, "\\u003c");
 const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
 ---
 
-<AppLayout title="Incoming Webhooks" eyebrow="Automation">
+<AppLayout crumb="automation.incoming-webhooks">
  <div class="iw-page" data-hook-base={hookBase}>
   <script type="application/json" id="iw-list-data" is:inline set:html={listJson}></script>
   <script type="application/json" id="iw-schemes-data" is:inline set:html={schemesJson}></script>

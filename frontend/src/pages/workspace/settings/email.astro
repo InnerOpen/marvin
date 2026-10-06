@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getBrowserApiBaseUrl, getBrowserFetchBaseUrl } from "@/lib/api/config";
@@ -94,13 +93,7 @@ function isSuperseded(template: any): boolean {
 }
 ---
 
-<AppLayout title="Email Templates" eyebrow="Workspace">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings" },
-    { label: "Email", href: "/workspace/settings?tab=email" },
-    { label: "Email Templates" }
-  ]} />
-
+<AppLayout crumb="settings.email">
   <div class="toolbar">
     <div>
       <h2>Email Templates</h2>
@@ -832,7 +825,7 @@ function isSuperseded(template: any): boolean {
         const val = inp.value.trim();
         if (slug && val) vars[slug] = val;
       });
-      console.log('[test-send] variables being sent:', vars);
+      console.debug('[test-send] variables being sent:', vars);
 
       try {
         const response = await fetch(`${apiUrl}/api/platform/email/templates/${templateId}/test`, {

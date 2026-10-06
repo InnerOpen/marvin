@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import EmojiPicker from "@/components/EmojiPicker.astro";
 import SchemaEditor from "@/components/SchemaEditor.astro";
 import SlugInput from "@/components/SlugInput.astro";
@@ -12,13 +11,7 @@ const authToken = getAuthToken(Astro.cookies);
 const adminOnly = !!authToken && !(await canManageCurrentWorkspace(authToken).catch(() => true));
 ---
 
-<AppLayout adminOnly={adminOnly} title="Create Entry Type">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings?tab=entry-types" },
-    { label: "Entry Types", href: "/workspace/entry-types" },
-    { label: "New" }
-  ]} />
-
+<AppLayout crumb="settings.entry-types.new" adminOnly={adminOnly}>
   <div class="toolbar">
     <div>
       <h2 style="margin:0;font-size:20px;">New Entry Type</h2>

@@ -5,6 +5,7 @@ import { listEntries } from "@/lib/api/entries";
 import { getAssets, getSiteClients } from "@/lib/api/platform";
 import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
+import { navHref, navTitle } from "@/lib/navTree";
 import { nullIfForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -78,7 +79,7 @@ const tabs = [
 ];
 ---
 
-<AppLayout title="Workspace Settings" eyebrow="Workspace">
+<AppLayout crumb="settings">
   <div class="settings-container">
     <div class="settings-header">
       <div>
@@ -106,20 +107,20 @@ const tabs = [
           <p class="section-description">Basic workspace configuration</p>
 
           <div class="quick-links">
-            <a href="/workspace/settings/general" class="link-card">
-              <strong>Workspace Details</strong>
+            <a href={navHref("settings.general")} class="link-card">
+              <strong>{navTitle("settings.general")}</strong>
               <p>Name, description, and branding</p>
             </a>
-            <a href="/workspace/settings/environment" class="link-card">
-              <strong>Environment</strong>
+            <a href={navHref("settings.environment")} class="link-card">
+              <strong>{navTitle("settings.environment")}</strong>
               <p>Variables and Secrets — reference with &#123;&#123;SLUG&#125;&#125; anywhere</p>
             </a>
             <div class="link-card disabled">
               <strong>Preferences</strong>
               <p>Timezone, locale, and regional settings (Coming soon)</p>
             </div>
-            <a href="/workspace/settings/backups" class="link-card">
-              <strong>Backups</strong>
+            <a href={navHref("settings.backups")} class="link-card">
+              <strong>{navTitle("settings.backups")}</strong>
               <p>Export workspace bundles and restore from a backup</p>
             </a>
           </div>
@@ -132,12 +133,12 @@ const tabs = [
           <p class="section-description">Manage team members, roles, and invitations</p>
 
           <div class="quick-links">
-            <a href="/workspace/members" class="link-card">
-              <strong>Team Members</strong>
+            <a href={navHref("settings.members")} class="link-card">
+              <strong>{navTitle("settings.members")}</strong>
               <p>View and manage workspace members</p>
             </a>
-            <a href="/workspace/invites" class="link-card">
-              <strong>Invitations</strong>
+            <a href={navHref("settings.invites")} class="link-card">
+              <strong>{navTitle("settings.invites")}</strong>
               <p>Create and manage invite links</p>
             </a>
           </div>
@@ -150,12 +151,12 @@ const tabs = [
           <p class="section-description">Define content structure, custom fields, and the shared tag vocabulary</p>
 
           <div class="quick-links">
-            <a href="/workspace/entry-types" class="link-card">
-              <strong>Manage Entry Types</strong>
+            <a href={navHref("settings.entry-types")} class="link-card">
+              <strong>{navTitle("settings.entry-types")}</strong>
               <p>Create and configure content types</p>
             </a>
-            <a href="/workspace/tags" class="link-card">
-              <strong>Manage Tags</strong>
+            <a href={navHref("settings.tags")} class="link-card">
+              <strong>{navTitle("settings.tags")}</strong>
               <p>Rename, recolor, and remove tags</p>
             </a>
             <div class="link-card disabled">
@@ -172,16 +173,16 @@ const tabs = [
           <p class="section-description">Manage email templates and test sending</p>
 
           <div class="quick-links">
-            <a href="/workspace/settings/email" class="link-card">
-              <strong>Email Templates</strong>
+            <a href={navHref("settings.email")} class="link-card">
+              <strong>{navTitle("settings.email")}</strong>
               <p>Customize invitation and notification emails</p>
             </a>
-            <a href="/workspace/settings/email/test" class="link-card">
-              <strong>Test Emails</strong>
+            <a href={navHref("settings.email.test")} class="link-card">
+              <strong>{navTitle("settings.email.test")}</strong>
               <p>Send a test email to verify SMTP delivery</p>
             </a>
-            <a href="/workspace/settings/email/smtp" class="link-card">
-              <strong>SMTP Configuration</strong>
+            <a href={navHref("settings.email.smtp")} class="link-card">
+              <strong>{navTitle("settings.email.smtp")}</strong>
               <p>Workspace-specific email server settings</p>
             </a>
           </div>
@@ -194,20 +195,20 @@ const tabs = [
           <p class="section-description">Configure publishing targets and integrations</p>
 
           <div class="quick-links">
-            <a href="/publishing/site" class="link-card">
-              <strong>Website Configuration</strong>
+            <a href={navHref("publishing.site")} class="link-card">
+              <strong>{navTitle("publishing.site")}</strong>
               <p>Site settings and metadata</p>
             </a>
-            <a href="/publishing/site#seo" class="link-card">
+            <a href={`${navHref("publishing.site")}#seo`} class="link-card">
               <strong>SEO & Site Metadata</strong>
               <p>Search and social sharing settings</p>
             </a>
-            <a href="/publishing/clients" class="link-card">
-              <strong>Site Clients</strong>
+            <a href={navHref("publishing.clients")} class="link-card">
+              <strong>{navTitle("publishing.clients")}</strong>
               <p>Manage API clients and applications</p>
             </a>
-            <a href="/workspace/settings/submission-protection" class="link-card">
-              <strong>Submission Protection</strong>
+            <a href={navHref("settings.submission-protection")} class="link-card">
+              <strong>{navTitle("settings.submission-protection")}</strong>
               <p>Spam controls for public form submissions</p>
             </a>
           </div>
@@ -220,32 +221,32 @@ const tabs = [
           <p class="section-description">Events, webhooks, and automated workflows</p>
 
           <div class="quick-links">
-            <a href="/automation/workflows" class="link-card">
-              <strong>Workflows</strong>
+            <a href={navHref("automation.workflows")} class="link-card">
+              <strong>{navTitle("automation.workflows")}</strong>
               <p>When X happens, run steps automatically (AI optional)</p>
             </a>
-            <a href="/automation/events" class="link-card">
-              <strong>Events</strong>
+            <a href={navHref("automation.events")} class="link-card">
+              <strong>{navTitle("automation.events")}</strong>
               <p>Monitor workspace event system</p>
             </a>
-            <a href="/automation/webhooks" class="link-card">
-              <strong>Webhooks</strong>
+            <a href={navHref("automation.webhooks")} class="link-card">
+              <strong>{navTitle("automation.webhooks")}</strong>
               <p>Outgoing HTTP callbacks on events and schedules</p>
             </a>
-            <a href="/automation/incoming-webhooks" class="link-card">
-              <strong>Incoming Webhooks</strong>
+            <a href={navHref("automation.incoming-webhooks")} class="link-card">
+              <strong>{navTitle("automation.incoming-webhooks")}</strong>
               <p>Tokened URLs external systems POST to, to trigger workflows</p>
             </a>
-            <a href="/workspace/settings/integrations" class="link-card">
+            <a href={navHref("settings.integrations")} class="link-card">
               <strong>Notifications</strong>
               <p>Slack, Discord, Telegram and 100+ services via the Apprise integration</p>
             </a>
-            <a href="/workspace/scheduled-tasks" class="link-card">
-              <strong>Scheduler</strong>
+            <a href={navHref("automation.scheduled-tasks")} class="link-card">
+              <strong>{navTitle("automation.scheduled-tasks")}</strong>
               <p>Automate recurring workspace operations</p>
             </a>
-            <a href="/workspace/events" class="link-card">
-              <strong>Event Log</strong>
+            <a href={navHref("automation.event-log")} class="link-card">
+              <strong>{navTitle("automation.event-log")}</strong>
               <p>The full workspace audit trail — every event, with payloads</p>
             </a>
           </div>
@@ -258,24 +259,24 @@ const tabs = [
           <p class="section-description">AI capabilities, credentials, and activity for this workspace</p>
 
           <div class="quick-links">
-            <a href="/workspace/settings/ai-workflow" class="link-card">
-              <strong>AI Settings</strong>
+            <a href={navHref("settings.ai")} class="link-card">
+              <strong>{navTitle("settings.ai")}</strong>
               <p>Enable AI, credentials, approval mode, and per-subsystem access</p>
             </a>
-            <a href="/workspace/settings/ai-ask" class="link-card">
-              <strong>Ask</strong>
+            <a href={navHref("settings.ai-ask")} class="link-card">
+              <strong>{navTitle("settings.ai-ask")}</strong>
               <p>Talk to your agents — grounded answers with citations, or any agent you've defined</p>
             </a>
-            <a href="/workspace/settings/ai-agents" class="link-card">
-              <strong>Agents</strong>
+            <a href={navHref("settings.ai-agents")} class="link-card">
+              <strong>{navTitle("settings.ai-agents")}</strong>
               <p>Define agents: instructions, model, and exactly which tools each may use</p>
             </a>
-            <a href="/workspace/settings/ai-executions" class="link-card">
-              <strong>AI Executions</strong>
+            <a href={navHref("settings.ai-executions")} class="link-card">
+              <strong>{navTitle("settings.ai-executions")}</strong>
               <p>History of AI operations: tokens, cost, and output</p>
             </a>
-            <a href="/workspace/settings/ai-mcp-servers" class="link-card">
-              <strong>MCP Servers</strong>
+            <a href={navHref("settings.ai-mcp-servers")} class="link-card">
+              <strong>{navTitle("settings.ai-mcp-servers")}</strong>
               <p>Connect external MCP servers and allowlist the tools the agent may use</p>
             </a>
           </div>
@@ -289,12 +290,12 @@ const tabs = [
 
           {integrationsAvailable ? (
             <div class="quick-links">
-              <a href="/workspace/settings/integrations" class="link-card">
-                <strong>Manage Integrations</strong>
+              <a href={navHref("settings.integrations")} class="link-card">
+                <strong>{navTitle("settings.integrations")}</strong>
                 <p>Add and configure external service connections</p>
               </a>
-              <a href="/workspace/settings/integration-health" class="link-card">
-                <strong>Alerts &amp; health</strong>
+              <a href={navHref("settings.integrations.health")} class="link-card">
+                <strong>{navTitle("settings.integrations.health")}</strong>
                 <p>Connections that need attention, retries, handled failures, and where alerts go</p>
               </a>
             </div>

@@ -62,18 +62,16 @@ const examplePayload =
   (eventInfo as any)?.payloadExample ?? (eventInfo ? buildExamplePayload(type!, eventInfo.variables ?? []) : {});
 ---
 
-<AppLayout adminOnly={adminOnly} title="Connect Webhook" eyebrow="Events">
+<AppLayout
+  crumb="automation.events.type.webhook"
+  crumbParams={{ type: type ?? "" }}
+  crumbLabels={eventInfo ? { "automation.events.type": eventInfo.label } : undefined}
+  adminOnly={adminOnly}
+>
   {error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
   ) : (eventInfo && webhook) ? (
     <>
-      <div class="breadcrumb">
-        <a href="/automation/events">Events</a>
-        <span>›</span>
-        <a href={`/automation/events/${type}`}>{eventInfo.label}</a>
-        <span>›</span>
-        <span>Webhook</span>
-      </div>
 
       <!-- Card matching modal layout -->
       <div class="wh-card">
@@ -105,7 +103,7 @@ const examplePayload =
             {isConnected
               ? <button type="button" id="disconnect-btn" class="button secondary danger">Disconnect</button>
               : <button type="button" id="connect-btn" class="button">Connect</button>}
-            <a href={`/automation/events/${type}`} class="button secondary">Back</a>
+            <a href={`/automation/events/${type}`} class="button secondary">Cancel</a>
           </div>
         </div>
       </div>
@@ -151,10 +149,6 @@ const examplePayload =
 
 <style>
   .alert { padding: 16px; border-radius: var(--radius); background: var(--color-error-bg); color: var(--color-error); border: 1px solid var(--color-error); margin-bottom: 20px; }
-
-  .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 20px; }
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
 
   /* Card — mirrors modal content panel */
   .wh-card {

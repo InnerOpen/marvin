@@ -8,14 +8,27 @@ import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import UpdateBanner from "@/components/UpdateBanner.astro";
 import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher.astro";
+import NavTrail from "@/components/NavTrail.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getEntryCounts } from "@/lib/api/entries";
 import { sourceAllowed } from "@/lib/marvin/gate";
+import { navTitle, navTrail } from "@/lib/navTree";
 import { createSdkClient } from "@/lib/sdk";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
 interface Props {
-  title: string;
+  /**
+   * This page's node in lib/navTree.ts (settings, automation and publishing pages). The layout shows its ancestors as
+   * the breadcrumb trail above the H1, in place of the eyebrow, and its title as the H1 unless `title` is passed.
+   */
+  crumb?: string;
+  /** Route params for a dynamic ancestor's link, e.g. { type } on the event type → webhook page. */
+  crumbParams?: Record<string, string>;
+  /** Labels for dynamic ancestors by node id, e.g. { "automation.events.type": "Entry published" }. */
+  crumbLabels?: Record<string, string>;
+  /** The H1. Optional with `crumb` (defaults to the node's title); detail pages pass their own. */
+  title?: string;
+  /** The line above the H1 on pages that have no `crumb` (content pages). */
   eyebrow?: string;
   /**
    * Optional page grounding for the Marvin bubble — what entity this page is rendering.
@@ -42,7 +55,9 @@ interface Props {
   restrictedNote?: string | null;
 }
 
-const { title, eyebrow = "Marvin Platform", entityType, entityId, entityLabel, adminOnly = false, restrictedNote = null } = Astro.props;
+const { crumb, crumbParams, crumbLabels, eyebrow = "Marvin Platform", entityType, entityId, entityLabel, adminOnly = false, restrictedNote = null } = Astro.props;
+const title = Astro.props.title ?? (crumb ? navTitle(crumb) : "");
+const trail = crumb ? navTrail(crumb, { params: crumbParams, labels: crumbLabels }) : null;
 const blockedNote = adminOnly ? ADMINS_ONLY : restrictedNote;
 const path = Astro.url.pathname;
 
@@ -59,13 +74,13 @@ try {
   isSuperAdmin = currentUser?.platformRole === "SUPER_ADMIN";
 
   if (import.meta.env.DEV) {
-    console.log("[AppLayout] User role check:", {
+    console.debug("[AppLayout] User role check:", {
       admin: isAdmin,
       superAdmin: isSuperAdmin,
       platformRole: currentUser?.platformRole,
       workspaceMemberships: currentUser?.workspaceMemberships,
     });
-    console.log("[AppLayout] Full user object:", currentUser);
+    console.debug("[AppLayout] Full user object:", currentUser);
   }
 } catch (e) {
   // Not logged in or error
@@ -199,7 +214,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
           <div class="topbar-left">
             <NavDrawerToggle controls="app-sidebar" />
             <div class="topbar-title">
-              <p>{eyebrow}</p>
+              {trail ? <NavTrail trail={trail} /> : <p>{eyebrow}</p>}
               <h1>{title}</h1>
             </div>
           </div>

@@ -21,13 +21,8 @@ try {
 }
 ---
 
-<AppLayout adminOnly={adminOnly} title="New Scheduled Task" eyebrow="Automation">
+<AppLayout crumb="automation.scheduled-tasks.new" adminOnly={adminOnly}>
   <div class="page-header">
-    <div class="breadcrumb">
-      <a href="/workspace/scheduled-tasks">Scheduled Tasks</a>
-      <span>›</span>
-      <span>New Task</span>
-    </div>
     <h2>Create Scheduled Task</h2>
     <p>Configure an automated recurring operation</p>
   </div>
@@ -182,24 +177,6 @@ try {
     margin-bottom: 32px;
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
-  }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a {
-    color: var(--muted);
-    text-decoration: none;
-  }
-
-  .breadcrumb a:hover {
-    color: var(--ink);
   }
 
   .page-header h2 {

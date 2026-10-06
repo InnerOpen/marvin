@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getBrowserFetchBaseUrl } from "@/lib/api/config";
@@ -19,13 +18,7 @@ try {
 const apiUrl = getBrowserFetchBaseUrl();
 ---
 
-<AppLayout adminOnly={adminOnly} title="SMTP Configuration" eyebrow="Workspace">
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings" },
-    { label: "Email", href: "/workspace/settings?tab=email" },
-    { label: "SMTP Configuration" }
-  ]} />
-
+<AppLayout crumb="settings.email.smtp" adminOnly={adminOnly}>
   <div class="toolbar">
     <div>
       <h2>SMTP Configuration</h2>

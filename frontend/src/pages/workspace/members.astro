@@ -1,5 +1,4 @@
 ---
-import Breadcrumb from "@/components/Breadcrumb.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import type { WorkspaceRole } from "@/lib/api/types";
@@ -69,12 +68,8 @@ const canManage = currentUserRole === "OWNER" || currentUserRole === "ADMIN";
 const ownerCount = members.filter((m) => m.workspaceRole === "OWNER").length;
 ---
 
-<AppLayout title="Workspace Members" eyebrow="Workspace">
+<AppLayout crumb="settings.members">
   <div data-workspace-id={workspace?.id} data-can-manage={canManage ? 'true' : 'false'} style="display:none;"></div>
-  <Breadcrumb items={[
-    { label: "Workspace Settings", href: "/workspace/settings?tab=members" },
-    { label: "Team Members" }
-  ]} />
 
   <div class="toolbar">
     <div>

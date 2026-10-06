@@ -119,7 +119,7 @@ const FLAGS = [
 const handledPages = pageCount(handled.total, handled.perPage);
 ---
 
-<AppLayout adminOnly={adminOnly} title="Alerts & health" eyebrow="Settings · Integrations">
+<AppLayout crumb="settings.integrations.health" adminOnly={adminOnly}>
   <div class="health-page">
     <div class="page-header">
       <div>
@@ -128,10 +128,6 @@ const handledPages = pageCount(handled.total, handled.perPage);
           How your integrations are doing: connections that need attention, failed steps waiting to be retried, failures
           an integration's error policy took care of, where alerts go, and the installed plugins.
         </p>
-      </div>
-      <div class="header-links">
-        <a href="/workspace/settings/integrations" class="button secondary small">Integrations</a>
-        <a href="/workspace/settings?tab=integrations" class="button secondary small">Back to Settings</a>
       </div>
     </div>
 
@@ -677,7 +673,6 @@ const handledPages = pageCount(handled.total, handled.perPage);
   }
   .page-header h2 { margin: 0; font-size: 24px; font-weight: 600; }
   .page-header p { margin: 8px 0 0; color: var(--muted); font-size: 14px; max-width: 64ch; }
-  .header-links { display: flex; gap: 8px; flex-wrap: wrap; }
 
   .alert {
     padding: 14px 16px;

@@ -61,7 +61,7 @@ const custom = agents.filter((a) => !a.isSystem);
 const builtins = agents.filter((a) => a.isSystem);
 ---
 
-<AppLayout title="Agents" eyebrow="Settings">
+<AppLayout crumb="settings.ai-agents">
   <div class="page-header">
     <div>
       <h2>Agents</h2>
@@ -69,7 +69,6 @@ const builtins = agents.filter((a) => a.isSystem);
     </div>
     <div class="header-actions">
       <a href="/workspace/settings/ai-ask" class="button secondary small">Open Ask</a>
-      <a href="/workspace/settings?tab=ai" class="button secondary small">Back to AI</a>
     </div>
   </div>
 

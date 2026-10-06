@@ -73,7 +73,7 @@ const existingCustomPayload = (webhook as any)?.customPayload ?? (webhook as any
 const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPayload, null, 2) : "";
 ---
 
-<AppLayout adminOnly={adminOnly} title="Edit Webhook" eyebrow="Automation">
+<AppLayout crumb="automation.webhooks.webhook" adminOnly={adminOnly}>
   <div class="page-header">
     <div>
       <h2>Edit Webhook</h2>

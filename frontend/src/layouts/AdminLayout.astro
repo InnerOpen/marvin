@@ -5,13 +5,18 @@ import NavDrawerToggle from "@/components/NavDrawerToggle.astro";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import UpdateBanner from "@/components/UpdateBanner.astro";
 import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
+import NavTrail from "@/components/NavTrail.astro";
+import { navHref, navNode, navTitle, navTrail } from "@/lib/navTree";
 
 interface Props {
-  title: string;
-  eyebrow?: string;
+  /** This page's node in lib/navTree.ts; the layout builds the breadcrumb trail from it. */
+  crumb: string;
+  /** The H1 when it isn't the node's title (detail pages: the user's name, the task's name). */
+  title?: string;
 }
 
-const { title, eyebrow = "Admin" } = Astro.props;
+const { crumb, title = navTitle(crumb) } = Astro.props;
+const trail = navTrail(crumb);
 const path = Astro.url.pathname;
 
 interface AdminNavItem {
@@ -29,46 +34,45 @@ interface AdminNavGroup {
   items: AdminNavItem[];
 }
 
-const OVERVIEW_PATH = "/admin";
+const OVERVIEW_PATH = navHref("admin");
+
+/** A sidebar row for a node in lib/navTree.ts: its link and label come from the map. */
+function item(id: string, icon: string, extra: Partial<AdminNavItem> = {}): AdminNavItem {
+  const node = navNode(id);
+  return { href: node.href, label: node.label, icon, ...extra };
+}
 
 // Grouped by what an operator is doing, so new areas (more plugin kinds) have an obvious home.
 const adminNavGroups: AdminNavGroup[] = [
   {
     label: null,
-    items: [{ href: OVERVIEW_PATH, label: "Overview", icon: "⌂" }],
+    items: [item("admin", "⌂", { label: navTitle("admin") })],
   },
   {
     label: "People & access",
     items: [
-      { href: "/admin/users", label: "Users", icon: "👥" },
+      item("admin.users", "👥"),
       // A workspace's detail page still lives under its legacy /admin/groups/{id} path.
-      { href: "/admin/workspaces", label: "Workspaces", icon: "◫", alsoMatches: ["/admin/groups"] },
-      { href: "/admin/roles", label: "Roles", icon: "🔑" },
+      item("admin.workspaces", "◫", { alsoMatches: ["/admin/groups"] }),
+      item("admin.roles", "🔑"),
     ],
   },
   {
     label: "Settings",
-    items: [
-      { href: "/admin/site-settings", label: "Site Settings", icon: "⚙" },
-      { href: "/admin/email-settings", label: "Email", icon: "📧" },
-      { href: "/admin/submission-protection", label: "Submission Protection", icon: "🛡" },
-    ],
+    items: [item("admin.site-settings", "⚙"), item("admin.email", "📧"), item("admin.submission-protection", "🛡")],
   },
   {
     label: "Extensions",
-    items: [
-      { href: "/admin/plugins", label: "Plugins", icon: "🧩" },
-      { href: "/admin/character-library", label: "Character Library", icon: "🎭" },
-    ],
+    items: [item("admin.plugins", "🧩"), item("admin.character-library", "🎭")],
   },
   {
     label: "Operations",
     items: [
-      { href: "/admin/system", label: "System", icon: "📊" },
-      { href: "/admin/events", label: "Events", icon: "🗂" },
-      { href: "/admin/scheduled-tasks", label: "Scheduled Tasks", icon: "⏱" },
-      { href: "/admin/backups", label: "Backups", icon: "💾" },
-      { href: "/admin/maintenance", label: "Maintenance", icon: "🔧" },
+      item("admin.system", "📊"),
+      item("admin.events", "🗂"),
+      item("admin.scheduled-tasks", "⏱"),
+      item("admin.backups", "💾"),
+      item("admin.maintenance", "🔧"),
     ],
   },
   {
@@ -129,7 +133,7 @@ function isActive(item: AdminNavItem, currentPath: string): boolean {
           <div class="topbar-left">
             <NavDrawerToggle controls="app-sidebar" />
             <div class="topbar-title">
-              <p>{eyebrow}</p>
+              <NavTrail trail={trail} />
               <h1>{title}</h1>
             </div>
           </div>

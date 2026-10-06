@@ -46,13 +46,8 @@ const scheduleType = task ? ((task as any).scheduleType ?? (task as any).schedul
 const scheduleConfig = task ? ((task as any).scheduleConfig ?? (task as any).schedule_config) : null;
 ---
 
-<AdminLayout title={task ? `Edit: ${task.name}` : 'Scheduled Task'}>
+<AdminLayout crumb="admin.scheduled-tasks.task" title={task ? `Edit: ${task.name}` : 'Scheduled Task'}>
   <div class="page-header">
-    <div class="breadcrumb">
-      <a href="/admin/scheduled-tasks">Scheduled Tasks</a>
-      <span>›</span>
-      <span>{task?.name || 'Edit Task'}</span>
-    </div>
     <h2>{task?.name || 'Edit Scheduled Task'}</h2>
     <p>
       {((task as any)?.groupId ?? (task as any)?.group_id)
@@ -345,18 +340,6 @@ const scheduleConfig = task ? ((task as any).scheduleConfig ?? (task as any).sch
     padding-bottom: 20px;
     border-bottom: 1px solid var(--line);
   }
-
-  .breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 12px;
-  }
-
-  .breadcrumb a { color: var(--muted); text-decoration: none; }
-  .breadcrumb a:hover { color: var(--ink); }
 
   .page-header h2 { margin: 0 0 8px; font-size: 24px; font-weight: 600; }
   .page-header p { margin: 0; color: var(--muted); font-size: 14px; }
