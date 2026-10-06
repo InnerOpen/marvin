@@ -1882,7 +1882,8 @@ errors; 390px shows only the parent with no horizontal scroll, light and dark.
 
 # Storage plugins + backup targets — cloud storage leaves core (plan, 2026-10-06, Jared: "everything uses the same APIs")
 
-**Status:** all 8 slices approved by Jared (2026-10-06); slices 1–3 being built on `feat/storage-plugins-1-3`.
+**Status:** all 8 slices approved by Jared (2026-10-06); slices 1–3 built on `feat/storage-plugins-1-3` (core) and
+`feat/storage-contract` (SDK 0.7.0), not pushed yet — see "Review (slices 1–3)" below.
 Decisions below are Jared's (2026-10-06), open questions answered the same day.
 
 **Goal (Jared 2026-10-06):** keep core lean. Cloud SDKs leave core, and storage becomes a site-wide plugin type the
@@ -2044,15 +2045,18 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
   `marvin-data`.
 
 ## Checklist
-- [ ] **Slice 1 — plugin plumbing:** generic entry-point loader (integrations moved onto it, behaviour unchanged);
+- [x] **Slice 1 — plugin plumbing:** generic entry-point loader (integrations moved onto it, behaviour unchanged);
       SDK as a pinned core dependency; admin Plugins page kind `storage`; chart `plugins.packages` rendering the
       init container into the backend and backup CronJobs; prod/dev values moved over (render diff: same pods +
       the CronJob gains the init container)
-- [ ] **Slice 2 — storage contract:** SDK `storage` module + conformance kit; core registry with the built-in
+      — done except the last part: **prod/dev values are not moved yet** (it changes their render; its own rollout,
+      after the SDK is merged). The admin `storage` kind landed with slice 2 (it needs the registry).
+- [x] **Slice 2 — storage contract:** SDK `storage` module + conformance kit; core registry with the built-in
       `local`; `get_storage_provider()` through the registry, unknown slug fails startup; `provider_for(asset)` at
       every read site; `S3StorageProvider` temporarily registered from core as `s3` (removed in slice 7); tests:
       kit on local, mixed local/s3 rows served (fake s3 provider)
-- [ ] **Slice 3 — backup engine + local target:** `services/backup` + `scripts.backup` (run/list/restore/prune);
+- [x] **Slice 3 — backup engine + local target:** `services/backup_engine` (`services/backup` already holds the
+      per-workspace backup keys) + `scripts.backup` (run/list/restore/prune);
       local target (atomic writes, sidecar sha256, `st_dev` guardrail); assets via the provider; per-target
       retention (48/30/0 default); port the offsite_backup tests (snapshot under a live writer, incremental re-run
       uploads 0, restore matches, retention, pg_dump path). `offsite_backup.py` untouched and still running
@@ -2091,6 +2095,30 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
       `postgres.md` backup section updated, what's new
 - Order: slices 1–2 also unblock AI provider plugins (same loader, chart list and admin page). Each slice ships on its
   own through dev.
+
+## Review (slices 1–3, 2026-10-06)
+- **SDK** `feat/storage-contract` (0.7.0): `marvin_integration_sdk.storage` (contract), `.storage.testing`
+  (conformance kit), `.storage.memory` (reference implementations / fakes). 81 tests, ruff clean.
+- **Core** `feat/storage-plugins-1-3`: pins the SDK by commit as a PEP 508 git reference (`uv.lock` written with
+  current uv). **Push order:** SDK branch first (merged to its `develop`, since production's init container still
+  installs the SDK develop tarball and that copy shadows the image's until prod moves to `plugins.packages`), then
+  core. If the SDK commit is rebased or squashed, bump the pin in `pyproject.toml` and re-lock.
+- Backend suite 3348 passed / 12 skipped (also with the SDK worktree installed editable); ruff clean on touched
+  files; Biome clean; `astro check` 50 errors, same as the base. `helm template` byte-identical for every values
+  file; with `plugins.packages` set the backend and the backup CronJob get the init container, volume and
+  `PYTHONPATH`, and the rendered command (python:3.12-slim, random UID) installs plugins without leaving the SDK.
+- End to end, `python -m marvin.scripts.backup` with the local target on a second filesystem (`/dev/shm`): Postgres
+  17 (container, PG17 client) run → re-run copies 0 assets → list → restore → `pg_restore` into a scratch DB: 250
+  users / 1200 entries and a content hash equal; SQLite (Marvin schema, 62 tables) restore identical; assets
+  byte-identical; nothing created under `BASE_DIR` (settings never built).
+- OpenAPI changes (admin plugins: `kind` gains `storage`, providers gain `provides` / `inUse`), so the marvin-sdk
+  gate reports drift until marvin-sdk is regenerated (`npm run generate`).
+- Engine details that differ from `offsite_backup`: retention default 48/30/0 (same knob names); the hourly rule
+  applies to database backups of either engine (`postgres/` and `sqlite/`), not only `postgres/`; the generic key
+  prefix is `BACKUP_PREFIX` (falls back to `BACKUP_S3_PREFIX`); restore takes `--into DIR`.
+- Not covered yet: character-library files (`LibraryFileStore`) still use the active provider, not per row;
+  slice 8 has to give them a provider of their own before switching `STORAGE_PROVIDER`. The mirror reads only the
+  active provider (fine for the no-freeze move, since earlier copies stay in the target).
 
 ## Decisions (Jared, 2026-10-06)
 - Keep core lean: cloud SDKs out of core. Storage is its own plugin type (`marvin.storage_providers`), with the
