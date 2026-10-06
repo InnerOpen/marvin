@@ -2,6 +2,7 @@
 order and schema matching as unit tests; the whole copy (FK drop/re-validate, truncate, rollback on
 orphans) against a real Postgres when one is available — the Postgres CI job, or S2P_TEST_PG_URL."""
 
+import contextlib
 import json
 import os
 import sqlite3
@@ -342,8 +343,9 @@ def _target_metadata() -> sa.MetaData:
     return md
 
 
-@pytest.fixture
-def pg_engine():
+@contextlib.contextmanager
+def _scratch_schema(metadata: sa.MetaData):
+    """An engine whose current schema is a throwaway SCHEMA holding `metadata` at revision REV."""
     url = _postgres_url()
     if not url:
         pytest.skip("needs Postgres: the Postgres CI job, or S2P_TEST_PG_URL")
@@ -352,10 +354,9 @@ def pg_engine():
         conn.exec_driver_sql(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")
         conn.exec_driver_sql(f"CREATE SCHEMA {SCHEMA}")
     engine = sa.create_engine(url, connect_args={"options": f"-csearch_path={SCHEMA}"})
-    md = _target_metadata()
-    md.create_all(engine)
+    metadata.create_all(engine)
     with engine.begin() as conn:
-        conn.execute(md.tables["alembic_version"].insert(), {"version_num": REV})
+        conn.execute(metadata.tables["alembic_version"].insert(), {"version_num": REV})
     try:
         yield engine
     finally:
@@ -363,6 +364,12 @@ def pg_engine():
         with admin.begin() as conn:
             conn.exec_driver_sql(f"DROP SCHEMA IF EXISTS {SCHEMA} CASCADE")
         admin.dispose()
+
+
+@pytest.fixture
+def pg_engine():
+    with _scratch_schema(_target_metadata()) as engine:
+        yield engine
 
 
 def _counts(engine) -> dict[str, int]:
@@ -428,3 +435,115 @@ def test_copy_refuses_a_revision_mismatch(tmp_path, pg_engine):
     src = _sqlite(tmp_path, SOURCE_DDL + "UPDATE alembic_version SET version_num = 'older';")
     with pytest.raises(s2p.CopyError, match="alembic revision"):
         s2p.copy_database(src, pg_engine)
+
+
+# --------------------------------------------------------------------------------------------------
+# --pause-outbound / --unpause
+# --------------------------------------------------------------------------------------------------
+
+W1, W2, W3, G1, G2, G3, T1 = (uuid.uuid4() for _ in range(7))
+
+OUTBOUND_SOURCE = f"""
+CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL PRIMARY KEY);
+INSERT INTO alembic_version VALUES ('{REV}');
+CREATE TABLE webhook_urls (id CHAR(32) PRIMARY KEY, enabled BOOLEAN, url TEXT);
+CREATE TABLE group_preferences (id CHAR(32) PRIMARY KEY, site_auto_rebuild BOOLEAN);
+CREATE TABLE scheduled_tasks (id CHAR(32) PRIMARY KEY, enabled BOOLEAN NOT NULL);
+INSERT INTO webhook_urls VALUES ('{W1.hex}', 1, 'https://hook/1'), ('{W2.hex}', 1, 'https://hook/2'), ('{W3.hex}', 0, 'https://hook/3');
+INSERT INTO group_preferences VALUES ('{G1.hex}', 1), ('{G2.hex}', NULL), ('{G3.hex}', 0);
+INSERT INTO scheduled_tasks VALUES ('{T1.hex}', 1);
+"""
+
+
+def _outbound_metadata() -> sa.MetaData:
+    md = sa.MetaData()
+    sa.Table("alembic_version", md, sa.Column("version_num", sa.String(32), primary_key=True))
+    sa.Table(
+        "webhook_urls",
+        md,
+        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("enabled", sa.Boolean),
+        sa.Column("url", sa.Text),
+    )
+    sa.Table("group_preferences", md, sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True), sa.Column("site_auto_rebuild", sa.Boolean))
+    sa.Table(
+        "scheduled_tasks", md, sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True), sa.Column("enabled", sa.Boolean, nullable=False)
+    )
+    return md
+
+
+@pytest.fixture
+def pg_outbound():
+    with _scratch_schema(_outbound_metadata()) as engine:
+        yield engine
+
+
+def _flags(engine) -> dict:
+    with engine.connect() as conn:
+        rows = [
+            *conn.exec_driver_sql("SELECT id, enabled FROM webhook_urls"),
+            *conn.exec_driver_sql("SELECT id, site_auto_rebuild FROM group_preferences"),
+        ]
+        rows += list(conn.exec_driver_sql("SELECT id, enabled FROM scheduled_tasks"))
+        return {r[0]: r[1] for r in rows}
+
+
+def _records(engine) -> set:
+    with engine.connect() as conn:
+        return {(r.table_name, r.row_id, r.previous) for r in conn.exec_driver_sql(f"SELECT * FROM {s2p.PAUSE_TABLE}")}
+
+
+def test_copy_with_pause_switches_outbound_off_and_records_it(tmp_path, pg_outbound):
+    src = _sqlite(tmp_path, OUTBOUND_SOURCE)
+    report = s2p.copy_database(src, pg_outbound, pause=True)
+    src.close()
+
+    assert report.paused == {"webhook_urls.enabled": 2, "scheduled_tasks.enabled": 1, "group_preferences.site_auto_rebuild": 2}
+    assert all(v is False for v in _flags(pg_outbound).values())
+    assert _records(pg_outbound) == {
+        ("webhook_urls", str(W1), True),
+        ("webhook_urls", str(W2), True),
+        ("scheduled_tasks", str(T1), True),
+        ("group_preferences", str(G1), True),
+        ("group_preferences", str(G2), None),  # NULL (= default on) comes back as NULL
+    }
+    # the record table is never part of the copy, so verification and re-copies ignore it
+    assert all(t.ok for t in report.tables) and s2p.PAUSE_TABLE not in [t.name for t in report.tables]
+
+    # pausing again changes nothing and records nothing new
+    with pg_outbound.begin() as conn:
+        assert set(s2p.pause_outbound(conn).values()) == {0}
+    assert len(_records(pg_outbound)) == 5
+
+
+def test_unpause_restores_exactly_the_paused_rows(tmp_path, pg_outbound):
+    src = _sqlite(tmp_path, OUTBOUND_SOURCE)
+    s2p.copy_database(src, pg_outbound, pause=True)
+    src.close()
+
+    with pg_outbound.begin() as conn:
+        assert s2p.unpause_outbound(conn, ["webhook_urls"]) == {"webhook_urls.enabled": 2}
+    flags = _flags(pg_outbound)
+    assert flags[W1] is True and flags[W2] is True
+    assert flags[W3] is False  # was off before the pause: stays off
+    assert flags[T1] is False and flags[G1] is False  # not selected
+    assert {r[0] for r in _records(pg_outbound)} == {"scheduled_tasks", "group_preferences"}
+
+    with pg_outbound.begin() as conn:
+        restored = s2p.unpause_outbound(conn)
+    assert restored["scheduled_tasks.enabled"] == 1 and restored["group_preferences.site_auto_rebuild"] == 2
+    flags = _flags(pg_outbound)
+    assert flags[T1] is True and flags[G1] is True and flags[G2] is None and flags[G3] is False
+    assert _records(pg_outbound) == set()
+
+    with pg_outbound.begin() as conn, pytest.raises(s2p.CopyError, match="not a paused table"):
+        s2p.unpause_outbound(conn, ["users"])
+
+
+def test_recopy_with_truncate_starts_the_pause_record_over(tmp_path, pg_outbound):
+    s2p.copy_database(src := _sqlite(tmp_path, OUTBOUND_SOURCE), pg_outbound, pause=True)
+    report = s2p.copy_database(src, pg_outbound, truncate=True)  # no pause this time
+    src.close()
+    assert report.paused is None
+    assert _records(pg_outbound) == set()
+    assert _flags(pg_outbound)[W1] is True  # fresh copy of the source, as it was

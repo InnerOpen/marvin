@@ -1,7 +1,8 @@
 """Copy a Marvin SQLite database into PostgreSQL, every table, and prove the copy is complete.
 
     python -m marvin.scripts.sqlite_to_postgres --source /app/data/marvin.db --dry-run
-    python -m marvin.scripts.sqlite_to_postgres --source /app/data/marvin.db [--truncate]
+    python -m marvin.scripts.sqlite_to_postgres --source /app/data/marvin.db [--truncate] [--pause-outbound]
+    python -m marvin.scripts.sqlite_to_postgres --unpause [TABLE ...]
 
 The target comes from the app's own settings (DB_ENGINE=postgres + POSTGRES_* or POSTGRES_URL_OVERRIDE),
 the same connection the backend would use. Steps:
@@ -21,6 +22,12 @@ the same connection the backend would use. Steps:
    left behind by SQLite's unenforced FKs fails here, named), reset serial/identity sequences, then
    verify — per-table row counts equal and a content checksum over every column of every row equal on
    both sides. Any failure rolls the whole transaction back, leaving the target as it was.
+
+--pause-outbound (for a non-production copy, e.g. dev loaded from production) then switches off, in the
+target only and in the same transaction, everything that reaches the outside world on its own — see
+OUTBOUND_SWITCHES — and records each row it switched in `marvin_outbound_pause`, so `--unpause [TABLE ...]`
+later restores exactly those rows (all, or the named tables). Without --source it pauses an existing
+target. AI providers are left on: they are only called when someone asks for an AI action.
 
 --dry-run touches nothing: it reports source and target row counts and runs the step-4 check.
 `alembic_version` (and plugins' `*_alembic_version`) are never copied; SQLite's own `sqlite_*` tables
@@ -68,9 +75,26 @@ class CoercionError(ValueError):
     """A source value does not convert cleanly to its target column type."""
 
 
+PAUSE_TABLE = "marvin_outbound_pause"
+
+# (table, boolean column): set to false to stop a row reaching the outside world. Every one of these acts
+# on its own — on events, on a schedule, or by delivering what others queue:
+OUTBOUND_SWITCHES: tuple[tuple[str, str], ...] = (
+    ("webhook_urls", "enabled"),  # outgoing webhooks (e.g. a Pages deploy hook)
+    ("integrations", "enabled"),  # Square, Instagram, Buttondown, Slack, n8n, Cloudflare Pages ...
+    ("integration_event_subscriptions", "enabled"),
+    ("workspace_automations", "enabled"),  # workflows
+    ("email_event_subscriptions", "enabled"),
+    ("workspace_smtp_profiles", "is_active"),
+    ("workspace_mcp_servers", "enabled"),  # external MCP servers the agents call
+    ("scheduled_tasks", "enabled"),
+    ("group_preferences", "site_auto_rebuild"),  # publish -> queued site rebuild
+)
+
+
 def is_copied_table(name: str) -> bool:
-    """Every table except Alembic's bookkeeping and SQLite's internals."""
-    return not (name == "alembic_version" or name.endswith("_alembic_version") or name.startswith("sqlite_"))
+    """Every table except Alembic's bookkeeping, SQLite's internals and the pause record."""
+    return not (name == "alembic_version" or name.endswith("_alembic_version") or name.startswith("sqlite_") or name == PAUSE_TABLE)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -392,6 +416,7 @@ class Report:
     notes: Counter = field(default_factory=Counter)
     sequences_reset: int = 0
     foreign_keys: int = 0
+    paused: dict[str, int] | None = None
 
     def problem(self, message: str) -> None:
         self.problem_count += 1
@@ -409,6 +434,8 @@ class Report:
         out.append(f"{'TOTAL (' + str(len(self.tables)) + ' tables)':40} {total_source:>8} {total_target:>8}")
         for (column, note), count in sorted(self.notes.items()):
             out.append(f"note: {column}: {count} value(s): {note}")
+        if self.paused is not None:
+            out.extend(pause_lines(self.paused))
         return out
 
 
@@ -554,7 +581,7 @@ def target_checksum(conn: Connection, plan: TablePlan, batch_size: int) -> tuple
     """Checksum the target rows the same way as the source: JSON read as text, the rest through coerce()."""
     selected = [sa.cast(plan.table.c[s.name], sa.Text) if s.kind == "json" else plan.table.c[s.name] for s in plan.specs]
     checksum = RowChecksum()
-    result = conn.execution_options(yield_per=batch_size).execute(sa.select(*selected))
+    result = conn.execute(sa.select(*selected), execution_options={"yield_per": batch_size})  # this statement only
     for row in result:
         checksum.add(
             canonical_json(v) if s.kind == "json" else canonical(coerce(v, ColumnSpec(s.name, s.kind)), s.kind)
@@ -595,9 +622,85 @@ def survey(src: sqlite3.Connection, engine: Engine, batch_size: int = BATCH_SIZE
     return report
 
 
-def copy_database(src: sqlite3.Connection, engine: Engine, *, truncate: bool = False, batch_size: int = BATCH_SIZE) -> Report:
+# --------------------------------------------------------------------------------------------------
+# Pausing outbound activity in a non-production copy
+# --------------------------------------------------------------------------------------------------
+
+
+def _ensure_pause_table(conn: Connection) -> None:
+    conn.exec_driver_sql(
+        f"CREATE TABLE IF NOT EXISTS {PAUSE_TABLE} (table_name text NOT NULL, column_name text NOT NULL, row_id text NOT NULL, "
+        "previous boolean, paused_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (table_name, column_name, row_id))"
+    )
+
+
+def _has_column(conn: Connection, table: str, column: str) -> bool:
+    inspector = sa.inspect(conn)
+    return inspector.has_table(table) and column in {c["name"] for c in inspector.get_columns(table)}
+
+
+def pause_outbound(conn: Connection) -> dict[str, int]:
+    """Switch every OUTBOUND_SWITCHES row that is on (true or NULL) to false and record it with its
+    previous value. Idempotent: a row already off is neither touched nor recorded. Returns
+    {"table.column": rows switched off}; a table this schema lacks is skipped."""
+    _ensure_pause_table(conn)
+    paused: dict[str, int] = {}
+    for table, column in OUTBOUND_SWITCHES:
+        if not _has_column(conn, table, column):
+            continue
+        t, c = _quote(conn, table), _quote(conn, column)
+        rows = conn.exec_driver_sql(
+            f"WITH old AS (SELECT id, {c} AS previous FROM {t} WHERE {c} IS DISTINCT FROM false FOR UPDATE), "
+            f"switched AS (UPDATE {t} SET {c} = false FROM old WHERE {t}.id = old.id RETURNING {t}.id, old.previous) "
+            f"INSERT INTO {PAUSE_TABLE} (table_name, column_name, row_id, previous) "
+            f"SELECT %(table)s, %(column)s, id::text, previous FROM switched ON CONFLICT DO NOTHING RETURNING row_id",
+            {"table": table, "column": column},
+        ).all()
+        paused[f"{table}.{column}"] = len(rows)
+    return paused
+
+
+def unpause_outbound(conn: Connection, tables: Iterable[str] | None = None) -> dict[str, int]:
+    """Give every recorded row (of `tables`, or all) its previous value back and drop its record.
+    Rows deleted since the pause are simply forgotten."""
+    if not sa.inspect(conn).has_table(PAUSE_TABLE):
+        return {}
+    wanted = set(tables or ())
+    if unknown := wanted - {t for t, _ in OUTBOUND_SWITCHES}:
+        raise CopyError(f"not a paused table: {sorted(unknown)}; choose from {[t for t, _ in OUTBOUND_SWITCHES]}")
+    restored: dict[str, int] = {}
+    for table, column in OUTBOUND_SWITCHES:
+        if (wanted and table not in wanted) or not _has_column(conn, table, column):
+            continue
+        t, c = _quote(conn, table), _quote(conn, column)
+        params = {"table": table, "column": column}
+        rows = conn.exec_driver_sql(
+            f"UPDATE {t} SET {c} = p.previous FROM {PAUSE_TABLE} p "
+            f"WHERE p.table_name = %(table)s AND p.column_name = %(column)s AND {t}.id::text = p.row_id RETURNING {t}.id",
+            params,
+        ).all()
+        conn.exec_driver_sql(f"DELETE FROM {PAUSE_TABLE} WHERE table_name = %(table)s AND column_name = %(column)s", params)
+        restored[f"{table}.{column}"] = len(rows)
+    return restored
+
+
+def pause_lines(paused: dict[str, int], verb: str = "paused") -> list[str]:
+    lines = [f"{verb}: {name:48} {count:>5}" for name, count in paused.items()]
+    lines.append(f"{verb}: {'TOTAL':48} {sum(paused.values()):>5}  (recorded in {PAUSE_TABLE}; AI providers left on)")
+    return lines
+
+
+def copy_database(
+    src: sqlite3.Connection,
+    engine: Engine,
+    *,
+    truncate: bool = False,
+    batch_size: int = BATCH_SIZE,
+    pause: bool = False,
+) -> Report:
     """Copy every table from `src` into the (already migrated) target behind `engine`, in one
-    transaction, and verify it. Raises CopyError — with the target rolled back — on any failure."""
+    transaction, and verify it. Raises CopyError — with the target rolled back — on any failure.
+    `pause` then switches outbound activity off in the target (pause_outbound), in the same transaction."""
     report = Report(revision=source_revision(src))
     with engine.connect() as conn:
         target_rev = target_revision(conn)
@@ -649,6 +752,11 @@ def copy_database(src: sqlite3.Connection, engine: Engine, *, truncate: bool = F
             result.target_rows, result.target_checksum = target_checksum(conn, plan, batch_size)
         if bad := [t.name for t in report.tables if not t.ok]:
             raise CopyError(f"verification failed for {bad}; rolled back")
+        # Pause records describe the rows this copy just replaced: start them over.
+        if sa.inspect(conn).has_table(PAUSE_TABLE):
+            conn.exec_driver_sql(f"DELETE FROM {PAUSE_TABLE}")
+        if pause:
+            report.paused = pause_outbound(conn)
     return report
 
 
@@ -670,11 +778,38 @@ def migrate_target() -> None:
 
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="python -m marvin.scripts.sqlite_to_postgres", description=__doc__.split("\n\n")[0])
-    p.add_argument("--source", type=Path, required=True, help="the SQLite file (a copy, or with the backend stopped)")
+    p.add_argument("--source", type=Path, help="the SQLite file (a copy, or with the backend stopped)")
     p.add_argument("--truncate", action="store_true", help="replace whatever the target tables hold")
+    p.add_argument(
+        "--pause-outbound",
+        action="store_true",
+        help="after the copy (or, without --source, on the existing target) switch off webhooks, integrations, workflows, "
+        "email, MCP servers, scheduled tasks and auto site rebuilds in the target, recording what was switched",
+    )
+    p.add_argument("--unpause", nargs="*", metavar="TABLE", help="restore the rows --pause-outbound switched off (all, or these tables)")
     p.add_argument("--dry-run", action="store_true", help="report counts and check every value; write nothing")
     p.add_argument("--batch-size", type=int, default=BATCH_SIZE)
     return p
+
+
+def _pause_command(engine: Engine, args: argparse.Namespace, target: str) -> int:
+    """--unpause, or --pause-outbound without a copy."""
+    if args.unpause is None and not args.pause_outbound:
+        log.error("--source is required (unless --pause-outbound or --unpause on its own)")
+        return 2
+    try:
+        with engine.begin() as conn:
+            if args.unpause is not None:
+                lines = pause_lines(unpause_outbound(conn, args.unpause), "restored")
+            else:
+                lines = pause_lines(pause_outbound(conn))
+    except CopyError as exc:
+        log.error("%s", exc)
+        return 1
+    log.info("target %s", target)
+    for line in lines:
+        sys.stdout.write(line + "\n")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -687,6 +822,8 @@ def main(argv: list[str] | None = None) -> int:
         log.error("DB_ENGINE must be postgres (with POSTGRES_* set): the target is the app's own database")
         return 2
     engine = sa.create_engine(settings.DB_URL, pool_pre_ping=True)
+    if args.unpause is not None or not args.source:
+        return _pause_command(engine, args, settings.DB_URL_PUBLIC)
     log.info("source %s -> target %s", args.source, settings.DB_URL_PUBLIC)
     try:
         src = open_source(args.source)
@@ -695,7 +832,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             migrate_target()
             logging.getLogger().setLevel(logging.INFO)  # alembic's fileConfig resets logging
-            report = copy_database(src, engine, truncate=args.truncate, batch_size=args.batch_size)
+            report = copy_database(src, engine, truncate=args.truncate, batch_size=args.batch_size, pause=args.pause_outbound)
     except CopyError as exc:
         log.error("%s", exc)
         return 1
