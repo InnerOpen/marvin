@@ -1,4 +1,6 @@
 ---
+import ConnectionGroup from "@/components/events/ConnectionGroup.astro";
+import ConnectionRow from "@/components/events/ConnectionRow.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import {
   type AdminEventPage,
@@ -13,7 +15,15 @@ import {
 } from "@/lib/admin/events";
 import { listAdminEvents, listPlatformEventTypes } from "@/lib/api/admin/events";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { getAdminEventConnections } from "@/lib/api/eventConnections";
 import { requireAdmin } from "@/lib/auth";
+import {
+  type AdminEventConnections,
+  groupReactions,
+  groupSenders,
+  isSystemEmail,
+  systemEmailNote,
+} from "@/lib/eventConnections";
 
 await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
@@ -30,11 +40,16 @@ let error: string | null = null;
 let types: PlatformEventType[] = [];
 let workspaces: WorkspaceOption[] = [];
 
-const [eventsResult, typesResult, workspacesResult] = await Promise.allSettled([
+const [eventsResult, typesResult, workspacesResult, storyResult] = await Promise.allSettled([
   listAdminEvents(apiQuery(filters), authToken),
   listPlatformEventTypes(authToken),
   fetchApi<{ items: WorkspaceOption[] }>("/api/admin/groups?perPage=-1", {}, authToken),
+  // Filtering by one type also shows its story: what sends it and what reacts to it, platform-wide.
+  filters.eventType ? getAdminEventConnections(filters.eventType, authToken) : Promise.resolve(null),
 ]);
+let story: AdminEventConnections | null = null;
+if (storyResult.status === "fulfilled") story = storyResult.value;
+else console.error("[admin/events] Failed to load the event's connections:", storyResult.reason);
 
 if (eventsResult.status === "fulfilled") {
   page = eventsResult.value;
@@ -56,6 +71,14 @@ const typeKnown = !filters.eventType || types.some((t) => t.eventType === filter
 const workspaceKnown = !filters.workspaceId || workspaces.some((w) => w.id === filters.workspaceId);
 const events = page?.items ?? [];
 const filtered = hasFilters(filters);
+const platformTypes = new Set(types.map((t) => t.eventType));
+// A chain link stays on this page for a platform type; a workspace type opens its workspace event page.
+const chainHref = (eventType: string) =>
+  platformTypes.has(eventType)
+    ? `/admin/events?type=${encodeURIComponent(eventType)}`
+    : `/automation/events/${eventType}`;
+const senderGroups = story ? groupSenders(story.senders) : [];
+const reactionGroups = story ? groupReactions(story.reactions) : [];
 ---
 
 <AdminLayout crumb="admin.events">
@@ -66,7 +89,7 @@ const filtered = hasFilters(filters);
         Platform events across every workspace: sign-ups and account changes, workspaces created, changed, deleted
         and switched to, personal API tokens, and the platform's security and backup events. Each row names the
         workspace it was recorded with. Everything else happens inside a workspace and stays in that workspace's
-        Event Log.
+        Event Log. Filter by one event to see what sends it and what reacts to it.
       </p>
     </div>
   </div>
@@ -111,6 +134,73 @@ const filtered = hasFilters(filters);
       </div>
     </form>
 
+    {story && (
+      <section class="story" aria-labelledby="story-title">
+        <div class="story-head">
+          <h3 id="story-title">{story.name}</h3>
+          <code class="ev-badge">{story.eventType}</code>
+        </div>
+        {story.description && <p class="story-desc">{story.description}</p>}
+        {(story.causedBy.length > 0 || story.leadsTo.length > 0) && (
+          <div class="chain">
+            {story.causedBy.length > 0 && (
+              <div class="chain-line">
+                <span class="chain-label">Caused by</span>
+                {story.causedBy.map((t) => <a class="chain-chip" href={chainHref(t.eventType)}>{t.name}</a>)}
+              </div>
+            )}
+            {story.leadsTo.length > 0 && (
+              <div class="chain-line">
+                <span class="chain-label">Leads to</span>
+                {story.leadsTo.map((t) => <a class="chain-chip" href={chainHref(t.eventType)}>{t.name}</a>)}
+              </div>
+            )}
+          </div>
+        )}
+        <div class="story-cols">
+          <div class="story-panel">
+            <h4 class="story-panel-title">Sent by</h4>
+            {senderGroups.length ? (
+              senderGroups.map((g) => (
+                <ConnectionGroup label={g.label}>
+                  {g.rows.map((s) => (
+                    <ConnectionRow name={s.name} showState={s.kind !== "marvin"} enabled={s.enabled} detail={s.detail} />
+                  ))}
+                </ConnectionGroup>
+              ))
+            ) : (
+              <p class="story-empty">Nothing sends this event yet.</p>
+            )}
+          </div>
+          <div class="story-panel">
+            <h4 class="story-panel-title">What happens</h4>
+            {reactionGroups.map((g) => (
+              <ConnectionGroup label={g.kind === "builtin" ? "Built-in" : `Platform · ${g.label}`} muted={g.kind === "builtin"}>
+                {g.rows.map((r) =>
+                  r.kind === "builtin" ? (
+                    <ConnectionRow name={r.name} showState={false} muted />
+                  ) : (
+                    <ConnectionRow name={r.name} enabled={r.enabled} detail={isSystemEmail(r) ? null : r.detail} note={isSystemEmail(r) ? systemEmailNote(r) : null} />
+                  ),
+                )}
+              </ConnectionGroup>
+            ))}
+            {story.workspaces.map((ws) => (
+              <ConnectionGroup label={ws.workspaceName ?? "Deleted workspace"}>
+                {ws.reactions.map((r) => (
+                  <ConnectionRow name={r.name} enabled={r.enabled} detail={r.detail} installedBy={r.installedBy} />
+                ))}
+              </ConnectionGroup>
+            ))}
+            {reactionGroups.length === 0 && story.workspaces.length === 0 && (
+              <p class="story-empty">Nothing reacts to this event yet.</p>
+            )}
+          </div>
+        </div>
+        <p class="story-recent">Recent: the log below lists this event's newest rows.</p>
+      </section>
+    )}
+
     {error ? (
       <div class="alert alert-error"><strong>Error:</strong> {error}</div>
     ) : events.length === 0 ? (
@@ -153,7 +243,9 @@ const filtered = hasFilters(filters);
                     <td data-label="Event">
                       <span class="event-cell">
                         <span class="event-title">{ev.eventName}</span>
-                        <code class="ev-badge">{ev.eventType}</code>
+                        <a class="ev-type-link" href={`/admin/events?type=${encodeURIComponent(ev.eventType)}`} title="What sends this event and what reacts to it">
+                          <code class="ev-badge">{ev.eventType}</code>
+                        </a>
                       </span>
                     </td>
                     <td data-label="Workspace">
@@ -348,6 +440,41 @@ const filtered = hasFilters(filters);
     color: var(--ink);
     white-space: nowrap;
   }
+  .ev-type-link { text-decoration: none; }
+  .ev-type-link:hover .ev-badge { border-color: var(--accent); color: var(--accent); }
+
+  /* One type's story: what sends it, what reacts to it (filter by a type to see it) */
+  .story {
+    margin-bottom: 24px;
+    padding: 16px 18px;
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--bg);
+    min-width: 0;
+  }
+  .story-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .story-head h3 { margin: 0; font-size: 17px; font-weight: 600; }
+  .story-desc { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+  .chain { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+  .chain-line { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .chain-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+  .chain-chip {
+    font-size: 12px;
+    padding: 2px 10px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--panel);
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .chain-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .story-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 14px; }
+  .story-panel { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; min-width: 0; }
+  .story-panel-title { margin: 0; padding: 10px 16px; font-size: 14px; font-weight: 600; background: var(--panel); }
+  .story-empty { margin: 0; padding: 12px 16px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+  .story-recent { margin: 12px 0 0; font-size: 12px; color: var(--muted); }
+
   .entity-link { color: var(--accent); text-decoration: none; }
   .entity-link:hover { text-decoration: underline; }
   .user-cell { display: flex; flex-direction: column; gap: 1px; }

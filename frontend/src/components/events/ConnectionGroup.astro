@@ -1,0 +1,28 @@
+---
+/** A labelled group of ConnectionRows inside an event's "Sent by" / "What happens" panel. */
+interface Props {
+  label: string;
+  /** Built-in reactions: shown, but quieter than what the workspace connected. */
+  muted?: boolean;
+}
+const { label, muted = false } = Astro.props;
+---
+
+<div class:list={["conn-group", { muted }]}>
+  <h4 class="conn-group-label">{label}</h4>
+  <slot />
+</div>
+
+<style>
+  .conn-group + .conn-group { border-top: 1px solid var(--line); }
+  .conn-group-label {
+    margin: 0;
+    padding: 10px 16px 6px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+  }
+  .conn-group.muted { background: color-mix(in srgb, var(--panel) 60%, transparent); }
+</style>

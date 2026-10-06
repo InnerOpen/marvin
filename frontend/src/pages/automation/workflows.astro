@@ -1,6 +1,7 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { listIntegrations } from "@/lib/api/integrations";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { createSdkClient } from "@/lib/sdk";
 
@@ -10,12 +11,20 @@ const sdk = createSdkClient(authToken);
 let workspace: any = null;
 let automations: any[] = [];
 let options: any = { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
+let integrationNames: Record<string, string> = {};
 let error: string | null = null;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
   if (workspace) {
-    [automations, options] = await Promise.all([sdk.automations.list(), sdk.automations.options()]);
+    let integrations: any[] = [];
+    [automations, options, integrations] = await Promise.all([
+      sdk.automations.list(),
+      sdk.automations.options(),
+      // Names for the "Installed by" badge; without them the badge just says "an integration".
+      listIntegrations(authToken).catch(() => []),
+    ]);
+    integrationNames = Object.fromEntries((integrations ?? []).map((i: any) => [i.id, i.name]));
   }
 } catch (e) {
   console.error("[workflows] Error loading:", e);
@@ -25,6 +34,7 @@ try {
 // Serialize server data for the client script (read via JSON.parse, so the module script can import).
 const optionsJson = JSON.stringify(options).replace(/</g, "\\u003c");
 const listJson = JSON.stringify(automations).replace(/</g, "\\u003c");
+const integrationNamesJson = JSON.stringify(integrationNames).replace(/</g, "\\u003c");
 const aiActionsAvailable = (options.operations ?? []).length > 0;
 ---
 
@@ -179,6 +189,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
 
   <script type="application/json" id="wf-options-data" is:inline set:html={optionsJson}></script>
   <script type="application/json" id="wf-list-data" is:inline set:html={listJson}></script>
+  <script type="application/json" id="wf-integration-names" is:inline set:html={integrationNamesJson}></script>
  </div>
 </AppLayout>
 
@@ -199,10 +210,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { installLogoFallback, markHtml } from "@/lib/integrationLogo";
   import { getArg, hintedInputs, optionsHint, setArg } from "@/lib/integrationOptions";
   import { optionPicker } from "@/lib/integrationOptionPicker";
+  import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
 
   const read = (id: string) => JSON.parse(document.getElementById(id)!.textContent || "null");
   const OPTIONS = read("wf-options-data") || { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
   let workflows: any[] = read("wf-list-data") || [];
+  const INTEGRATION_NAMES: Record<string, string> = read("wf-integration-names") || {};
 
   const $ = (id: string) => document.getElementById(id)!;
   const esc = (s: unknown) =>
@@ -1155,6 +1168,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     host.querySelectorAll(".wf-card").forEach((card) => {
       const id = (card as HTMLElement).dataset.id!;
       const wf = workflows.find((w) => w.id === id);
+      // Made by an integration's blueprint: say which (text only — the name is the server's).
+      if (wf?.sourceIntegrationId) {
+        const badge = document.createElement("span");
+        badge.className = "badge installed";
+        badge.textContent = `Installed by ${INTEGRATION_NAMES[wf.sourceIntegrationId] ?? "an integration"}`;
+        if (wf.sourceBlueprint) badge.title = `Blueprint: ${wf.sourceBlueprint}`;
+        card.querySelector(".wf-title")?.append(badge);
+      }
       card.querySelector(".js-run")!.addEventListener("click", async (e) => {
         const btn = e.currentTarget as HTMLButtonElement;
         btn.disabled = true; const orig = btn.textContent; btn.textContent = "Running…";
@@ -1227,6 +1248,20 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   document.body.appendChild(di);
 
   renderList();
+
+  // ?trigger=<event type> (an event page's "+ New workflow on this event"): a new workflow on that event —
+  // only for an event the builder can trigger on.
+  const prefillTrigger = triggerFromQuery(location.search, triggerableEvents(OPTIONS));
+  if (prefillTrigger) {
+    openBuilder();
+    ($("wf-trigger-type") as HTMLSelectElement).value = "event";
+    ($("wf-trigger") as HTMLSelectElement).value = prefillTrigger;
+    syncTriggerType();
+    // Drop the parameter so saving (which reloads) lands on the list, not on another new workflow.
+    const url = new URL(location.href);
+    url.searchParams.delete("trigger");
+    history.replaceState(history.state, "", url);
+  }
 
   // ?workflow=<id> (the event log links a run's workflow here): bring that card into view with its runs open.
   // &run=<execution id> (Alerts & health links a handled failure's run) also opens that run, if it's among the recent ones.
@@ -1368,7 +1403,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.wf-card.off) { opacity: 0.6; }
   .workflows-page :global(.wf-card.linked) { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent); }
   .workflows-page :global(.wf-main) { flex: 1; min-width: 0; }
-  .workflows-page :global(.wf-title) { display: flex; align-items: center; gap: 9px; margin-bottom: 12px; }
+  .workflows-page :global(.wf-title) { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-bottom: 12px; }
   .workflows-page :global(.wf-title strong) { font-size: 15px; }
   .workflows-page :global(.wf-actions) { display: flex; flex-direction: row; align-items: center; gap: 6px; flex: none; }
   .workflows-page :global(.wf-btn) { font-size: 12px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--muted); cursor: pointer; font-weight: 500; transition: color 0.12s, border-color 0.12s, background 0.12s; }
@@ -1380,6 +1415,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.badge) { font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--line); }
   .workflows-page :global(.badge.on) { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); border-color: transparent; }
   .workflows-page :global(.badge.muted) { color: var(--muted); }
+  .workflows-page :global(.badge.installed) { text-transform: none; letter-spacing: 0; color: var(--muted); }
 
   /* When / If / Then lanes */
   .workflows-page :global(.flow) { display: flex; flex-direction: column; gap: 7px; }
@@ -1401,7 +1437,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   @media (max-width: 640px) {
     .workflows-page :global(.cond-row) { grid-template-columns: 1fr 1fr; }
     .workflows-page :global(.wf-card) { flex-direction: column; }
-    .workflows-page :global(.wf-actions) { flex-direction: row; align-items: flex-start; }
+    .workflows-page :global(.wf-actions) { flex-direction: row; flex-wrap: wrap; align-items: flex-start; }
     .workflows-page :global(.lane) { flex-direction: column; gap: 3px; }
     .workflows-page :global(.lane-label) { text-align: left; }
   }

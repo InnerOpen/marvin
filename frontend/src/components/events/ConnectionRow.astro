@@ -1,0 +1,112 @@
+---
+/**
+ * One row in an event's "Sent by" or "What happens" list: its name, on/off state, who installed it, what it
+ * does, and a link to where it's managed. A default slot replaces the link with the page's own controls
+ * (the event page's Edit / Disconnect for the connections it manages itself).
+ */
+import type { InstalledBy } from "@/lib/eventConnections";
+
+interface Props {
+  name: string;
+  enabled?: boolean;
+  /** Show the On/Off badge (not for Marvin's own lines or built-in reactions, which always run). */
+  showState?: boolean;
+  detail?: string | null;
+  /** A second line explaining the row (the system email). */
+  note?: string | null;
+  installedBy?: InstalledBy | null;
+  /** "→ <label>": the workflow an incoming webhook starts. */
+  via?: { label: string; href?: string | null } | null;
+  href?: string | null;
+  linkLabel?: string;
+  muted?: boolean;
+}
+
+const {
+  name,
+  enabled = true,
+  showState = true,
+  detail,
+  note,
+  installedBy,
+  via,
+  href,
+  linkLabel = "Open",
+  muted = false,
+} = Astro.props;
+const hasActions = Astro.slots.has("default");
+---
+
+<div class:list={["conn-row", { off: showState && !enabled, muted }]}>
+  <div class="conn-main">
+    <div class="conn-name">
+      <span class="conn-title">{name}</span>
+      {showState && <span class:list={["conn-badge", enabled ? "on" : "off"]}>{enabled ? "On" : "Off"}</span>}
+      {installedBy && (
+        <span class="conn-badge installed" title={installedBy.blueprint ? `${installedBy.provider} · ${installedBy.blueprint}` : installedBy.provider}>
+          Installed by {installedBy.name}
+        </span>
+      )}
+    </div>
+    {(detail || via) && (
+      <span class="conn-detail">
+        {detail}
+        {via && (
+          <>
+            {detail ? " " : ""}→ {via.href ? <a href={via.href}>{via.label}</a> : via.label}
+          </>
+        )}
+      </span>
+    )}
+    {note && <span class="conn-note">{note}</span>}
+  </div>
+  {hasActions ? (
+    <div class="conn-actions"><slot /></div>
+  ) : href ? (
+    <div class="conn-actions"><a class="button small secondary" href={href}>{linkLabel}</a></div>
+  ) : null}
+</div>
+
+<style>
+  .conn-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    border-top: 1px solid var(--line);
+    min-width: 0;
+  }
+  .conn-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .conn-name { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; }
+  .conn-title { font-size: 14px; font-weight: 500; color: var(--ink); overflow-wrap: anywhere; }
+  .conn-row.muted .conn-title { color: var(--muted); font-weight: 400; }
+  .conn-row.off .conn-title { color: var(--muted); }
+  .conn-detail,
+  .conn-note { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+  .conn-detail a { color: var(--accent); }
+  .conn-badge {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .conn-badge.on {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border-color: transparent;
+    color: var(--accent);
+  }
+  .conn-badge.installed { text-transform: none; letter-spacing: 0; font-weight: 600; }
+  .conn-actions { display: flex; flex-wrap: wrap; gap: 6px; flex-shrink: 0; }
+  .conn-actions :global(.button.small) { padding: 5px 12px; font-size: 12px; min-height: 28px; }
+
+  @media (max-width: 640px) {
+    .conn-row { flex-direction: column; align-items: stretch; }
+    .conn-actions { justify-content: flex-start; }
+  }
+</style>

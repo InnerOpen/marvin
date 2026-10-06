@@ -478,6 +478,28 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
     for (const group of acGroups) group.hidden = !group.querySelector('[data-ac-row]:not([hidden])');
     if (acEmpty) acEmpty.hidden = shown > 0;
   });
+
+  // Links in: #audit-coverage opens that section (an event page's "isn't recorded" note); ?event=<id> (an
+  // event page's Recent list) opens that event's row, when it's among the ones loaded here.
+  if (location.hash === '#audit-coverage') {
+    const coverage = document.getElementById('audit-coverage') as HTMLDetailsElement | null;
+    if (coverage) {
+      coverage.open = true;
+      coverage.scrollIntoView({ block: 'start' });
+    }
+  }
+  const linkedEvent = new URLSearchParams(location.search).get('event');
+  if (linkedEvent) {
+    const btn = Array.from(document.querySelectorAll<HTMLElement>('.expand-btn')).find((b) => b.dataset.eventId === linkedEvent);
+    const row = btn?.closest('tr');
+    if (btn && row) {
+      row.classList.add('linked');
+      btn.click();
+      row.scrollIntoView({ block: 'center' });
+    } else if (countNote) {
+      countNote.textContent = `${countNote.textContent} — the linked event is older than these.`;
+    }
+  }
 </script>
 
 <style>
@@ -566,6 +588,7 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
   }
 
   .log-row:hover td { background: var(--panel); }
+  .log-row.linked td { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
   .expand-cell { width: 32px; padding: 10px 6px 10px 12px; }
 
