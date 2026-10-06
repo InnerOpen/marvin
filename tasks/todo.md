@@ -1270,12 +1270,29 @@ without a catalog entry, is audited. `events.astro` mirrors that list by hand, r
 6. **Docs:** manual Event Log section + what's new.
 
 ## Checklist
-- [ ] Plan (this section)
-- [ ] Catalog `audit_locked` + migration + model column
-- [ ] Service (cache, fail-safe) + listener uses it
-- [ ] Controller + schemas; change dispatches `workspace_settings_changed`
-- [ ] Tests: listener honours override/default, locked can't be disabled (API + listener), role gates, the change is
+- [x] Plan (this section)
+- [x] Catalog `audit_locked` + migration + model column
+- [x] Service (cache, fail-safe) + listener uses it
+- [x] Controller + schemas; change dispatches `workspace_settings_changed`
+- [x] Tests: listener honours override/default, locked can't be disabled (API + listener), role gates, the change is
       logged, cache invalidation, uncatalogued/unknown types, migration up/down on SQLite
-- [ ] Frontend panel + `lib/auditSettings.ts` (+ node test) + API wrapper
-- [ ] Docs: manual Event Log + what's new; `mkdocs build --strict`
-- [ ] Verify: backend suite (no SDK), `npm test`, biome, `astro check` vs baseline 51, SDK gate regeneration
+- [x] Frontend panel + `lib/auditSettings.ts` (+ node test) + API wrapper
+- [x] Docs: manual Event Log + what's new; `mkdocs build --strict`
+- [x] Verify: backend suite (no SDK), `npm test`, biome, `astro check` vs baseline 51, SDK gate regeneration
+
+**Review (2026-10-05):** built as designed, plus `approval_*` among the locked types (a person authorising or
+refusing an AI tool call). 117 catalog types, 34 locked. Uncatalogued types (`user_authenticated`, `role_assigned`,
+`permission_changed`…) stay audited. A live check turned up one side effect, now fixed: `workspace_settings_changed`
+always queued a site rebuild, so each switch did too. `SiteRebuildReactionListener.UNSEEN_SETTINGS` skips a change that
+only touches `audit_overrides`. Things that read the log lose a switched-off type too (toasts, dashboard activity, dry-run
+samples, site rebuild status); the manual says so. Verified: backend suite 2618 passed / 178 skipped without the SDK and
+2921 / 5 with SDK 0.6.0 (develop); new tests also pass on Postgres 16; migration `e6c2a9f4b1d3` up/down/up on SQLite and
+Postgres; `npm test` 356 pass; biome clean on touched files; `astro check` 51 (baseline 51); `mkdocs build --strict`
+clean. Live on SQLite + `astro dev` + headless Chromium: switch off/on, Reset, round trip back to the default, locked
+rows, filter + empty state, reload persistence, viewer read-only list (API 403), 390px stacked rows with no horizontal
+scroll, no console errors. SDK gate reproduced (fresh 3.12 venv, `marvin[dev]` + integration SDK develop, `npm run
+generate`): origin/develop gives no drift; this branch adds 2 paths / 3 schemas. Those types are committed on
+MarvinSDK `feat/audit-settings-types`, which has to reach marvin-sdk develop before the gate passes here.
+
+## Later
+Bulk "reset all"; showing per-type event volume next to each switch, to pick what to silence.
