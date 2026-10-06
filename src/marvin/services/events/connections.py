@@ -346,6 +346,20 @@ def builtin(event_type: str) -> list[EventReaction]:
     return [EventReaction(kind="builtin", name=label, enabled=True) for label, _ in builtin_reactions(event_type)]
 
 
+def system_email(session: Session, group_id, event_type: str) -> tuple[bool, list]:
+    """For an event with a system email (invitation, password reset, welcome): whether Marvin's own email sends in
+    the workspace, and the workspace templates of its type that replace it — `_runs`, so the email template page
+    and the event page always agree."""
+    from marvin.services.email.system_email_events import get_template_type_for_event
+
+    template_type = get_template_type_for_event(event_type)
+    rows = _reaction_rows(session, group_id, event_type)
+    runs = _runs([_facts(r) for r in rows], group_id)
+    sends = any(ok for r, ok in zip(rows, runs, strict=True) if r.kind == "system_email")
+    replacing = [r.template_id for r, ok in zip(rows, runs, strict=True) if ok and r.kind == "email" and r.template_type == template_type]
+    return sends, list(dict.fromkeys(replacing))
+
+
 def reactions(session: Session, group_id, event_type: str) -> list[EventReaction]:
     """Everything that reacts to `event_type` in the workspace: its workflows, integration actions, emails and
     webhooks (switched-off ones as enabled=False), then the built-in reactions."""

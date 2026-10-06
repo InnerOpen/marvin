@@ -14,6 +14,8 @@ from marvin.schemas.group.email_template import (
     EmailTemplateRead,
     EmailTemplateSummary,
     EmailTemplateUpdate,
+    SystemEmailRead,
+    SystemEmailVariable,
 )
 from marvin.services.event_bus_service.event_types import EventEmailTemplateData, EventOperation, EventTypes
 
@@ -158,6 +160,49 @@ class EmailTemplateController(BaseUserController):
             )
 
         return result
+
+    @router.get("/system-emails", response_model=list[SystemEmailRead], summary="List Marvin's Replaceable System Emails")
+    def list_system_emails(self, group_id: UUID4) -> list[SystemEmailRead]:
+        """Marvin's own emails a workspace template can replace (welcome, password reset, invitation): the event each
+        is sent on, its variables (from the event catalog), whether it sends now and which workspace templates replace
+        it. The email template page offers "Replaces Marvin's … email" from this, so it never has to list platform
+        events. Workspace OWNER/ADMIN."""
+        self._check_admin_access(group_id)
+
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+        from marvin.services.email.system_email_events import SYSTEM_TEMPLATE_EVENT_MAP
+        from marvin.services.events import connections
+        from marvin.services.events.event_catalog import get_catalog_entry
+
+        session = self.repos.session
+        system_ids = dict(
+            session.query(EmailTemplateModel.template_type, EmailTemplateModel.id).filter(
+                EmailTemplateModel.group_id.is_(None), EmailTemplateModel.template_type.in_(list(SYSTEM_TEMPLATE_EVENT_MAP))
+            )
+        )
+        out = []
+        for template_type, mapping in SYSTEM_TEMPLATE_EVENT_MAP.items():
+            event_type = mapping["event_type"]
+            entry = get_catalog_entry(event_type)
+            sends, replaced_by = connections.system_email(session, group_id, event_type)
+            out.append(
+                SystemEmailRead(
+                    template_type=template_type,
+                    label=mapping["label"],
+                    event_type=event_type,
+                    event_name=entry.name if entry else event_type,
+                    recipient_type=mapping["recipient_type"],
+                    recipient_field=mapping.get("recipient_field"),
+                    system_template_id=system_ids.get(template_type),
+                    system_sends=sends,
+                    replaced_by=replaced_by,
+                    variables=[
+                        SystemEmailVariable(slug=v.slug, description=v.description, example=v.example, type=v.type)
+                        for v in (entry.variables if entry else [])
+                    ],
+                )
+            )
+        return out
 
     @router.get("/{template_id}", response_model=EmailTemplateRead, summary="Get Email Template")
     def get_template(self, group_id: UUID4, template_id: UUID4) -> EmailTemplateRead:

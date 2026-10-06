@@ -7,16 +7,19 @@ from typing import Any
 # The listener uses this to fire system templates without a stored subscription row.
 SYSTEM_TEMPLATE_EVENT_MAP: dict[str, dict] = {
     "invitation": {
+        "label": "invitation email",
         "event_type": "invitation_sent",
         "recipient_type": "event_field",
         "recipient_field": "email_address",
     },
     "password_reset": {
+        "label": "password reset email",
         "event_type": "user_password_reset_requested",
         "recipient_type": "event_field",
         "recipient_field": "email_address",
     },
     "welcome": {
+        "label": "welcome email",
         "event_type": "user_signup",
         "recipient_type": "event_field",
         "recipient_field": "email_address",

@@ -63,3 +63,37 @@ class EmailTemplateSummary(_MarvinModel):
     group_id: UUID4 | None = None  # None = system template, set = workspace customization
 
     model_config = {"from_attributes": True}
+
+
+class SystemEmailVariable(_MarvinModel):
+    """A {{ variable }} the replaced email's event provides (from the event catalog)."""
+
+    slug: str
+    description: str
+    example: str
+    type: str
+
+
+class SystemEmailRead(_MarvinModel):
+    """One of Marvin's own emails (welcome, password reset, invitation) that a workspace template of the same type
+    can replace: `GET /api/platform/workspaces/{group_id}/email-templates/system-emails`."""
+
+    template_type: str
+    """The template type that replaces it (welcome, password_reset, invitation)."""
+    label: str
+    """How it reads: "welcome email"."""
+    event_type: str
+    """The event it is sent on (user_signup, user_password_reset_requested, invitation_sent)."""
+    event_name: str
+    """The catalog's name for that event."""
+    recipient_type: str
+    recipient_field: str | None = None
+    """Who a replacing template is sent to: the connection uses these, like Marvin's own email does."""
+    system_template_id: UUID4 | None = None
+    """Marvin's own template (none when it doesn't exist on this install)."""
+    system_sends: bool
+    """Whether Marvin's own email is sent now: it is unless an enabled workspace template of this type replaces it."""
+    replaced_by: list[UUID4] = []
+    """The workspace templates that replace it now (the same rule the Events page shows)."""
+    variables: list[SystemEmailVariable] = []
+    """The variables its event provides, from the event catalog."""
