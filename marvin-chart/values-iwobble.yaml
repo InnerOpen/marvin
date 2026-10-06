@@ -81,6 +81,21 @@ backup:
   schedule: "0 * * * *"
   activeDeadlineSeconds: 2700
   startingDeadlineSeconds: 900
+  # Backup engine targets (CronJob marvin-backup-<name>), alongside the R2 job above until the cutover.
+  # nas-nightly: the NAS on pve (export /tank/backups/marvin: all_squash to uid 3100, which owns it 0770,
+  # so any pod UID writes), subfolder prod/ (created by the kubelet on the first run; dev would get dev/).
+  # Same ZFS pool as the live data: it covers a lost PVC or an app bug, not losing the NAS (R2 does).
+  targets:
+    - name: nas-nightly
+      type: local
+      schedule: "30 2 * * *"
+      timeZone: America/New_York
+      retention: {hourly: 0, daily: 30, weekly: 8}
+      volume:
+        nfs:
+          server: 192.168.30.10
+          path: /tank/backups/marvin
+        subPath: prod
 
 # Public UI route + public API route (the browser calls the API directly for login/interactive use).
 # config.publicApiUrl is pinned to the tunnel host below: the auto-derived value would be the
