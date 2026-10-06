@@ -1,14 +1,14 @@
 """Workspace integrations — credentialed connections to external services.
 
-Integrations are an **optional, plugin-only** feature. The provider *contract* (base classes,
-registry, dataclasses, http interface) lives in the standalone ``marvin_integration_sdk`` package,
-which Marvin core does **not** depend on. Install a provider (e.g. ``marvin-integration-slack``) and
-the SDK arrives transitively, lighting the section up; with no provider installed the SDK is absent
-and the whole integrations surface stays dormant.
+Integrations are a **plugin-only** feature: core ships no providers. The provider *contract* (base
+classes, registry, dataclasses, http interface) lives in the standalone ``marvin_integration_sdk``
+package, which core pins as a dependency (it also carries the storage contract). Install a provider
+(e.g. ``marvin-integration-slack``) and it registers on startup.
 
-This package always imports cleanly. When the SDK is present it re-exports the contract, supplies the
-core ``http`` helper, discovers providers, and exposes ``INTEGRATIONS_AVAILABLE = True``. When absent
-it exposes only ``INTEGRATIONS_AVAILABLE = False`` — the SDK-dependent names are simply not defined.
+This package always imports cleanly. When the SDK is importable it re-exports the contract, supplies
+the core ``http`` helper, discovers providers, and exposes ``INTEGRATIONS_AVAILABLE = True``. The
+``False`` branch (only ``INTEGRATIONS_AVAILABLE`` defined) remains for an environment installed
+without the pinned dependencies.
 """
 
 import importlib.util

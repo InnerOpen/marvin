@@ -3,62 +3,31 @@
 Marvin core ships with no built-in providers. Plugins are discovered via the ``marvin.integrations``
 entry-point group — install a package that declares one and it registers on startup; uninstall it
 and it's gone. Loading is resilient: a plugin that raises on import is logged and skipped, never
-crashing startup.
+crashing startup. The loading itself is the shared plugin loader (services/plugin_loader.py).
 """
 
-import importlib.metadata as importlib_metadata
-from dataclasses import dataclass, field
+import importlib.metadata as importlib_metadata  # noqa: F401 — tests patch entry_points through this name
 
 from marvin_integration_sdk import INTEGRATION_REGISTRY, register_provider
 
-from marvin.core.root_logger import get_logger
-
-logger = get_logger(__name__)
+from marvin.services.plugin_loader import PluginLoadReport, load_entry_points
 
 ENTRY_POINT_GROUP = "marvin.integrations"
 
-
-@dataclass
-class ProviderLoadReport:
-    """The outcome of loading one source of providers (built-ins, or a plugin distribution)."""
-
-    name: str  # entry-point name
-    source: str  # "entry_point"
-    ok: bool
-    slugs: list[str] = field(default_factory=list)  # provider slugs this source registered
-    distribution: str | None = None
-    version: str | None = None
-    error: str | None = None
-
+ProviderLoadReport = PluginLoadReport
+"""The integration name for the shared plugin load report (services/plugin_loader.py)."""
 
 _reports: list[ProviderLoadReport] | None = None
 
 
-def _load_entry_points() -> list[ProviderLoadReport]:
-    reports: list[ProviderLoadReport] = []
-    try:
-        eps = importlib_metadata.entry_points(group=ENTRY_POINT_GROUP)
-    except Exception as e:  # noqa: BLE001 — metadata access should never take down the app
-        logger.warning(f"could not read integration entry points: {e}")
-        return reports
+def _register(ep) -> list[str]:
+    before = set(INTEGRATION_REGISTRY)  # before import: a module may register on import (@register_provider)
+    register_provider(ep.load())
+    return sorted(set(INTEGRATION_REGISTRY) - before)
 
-    for ep in eps:
-        before = set(INTEGRATION_REGISTRY)
-        dist = getattr(ep, "dist", None)
-        dist_name = getattr(dist, "name", None)
-        dist_version = getattr(dist, "version", None)
-        try:
-            provider_cls = ep.load()
-            register_provider(provider_cls)
-            slugs = sorted(set(INTEGRATION_REGISTRY) - before)
-            reports.append(ProviderLoadReport(name=ep.name, source="entry_point", ok=True, slugs=slugs, distribution=dist_name, version=dist_version))
-            logger.info(f"loaded integration plugin '{ep.name}' ({dist_name} {dist_version}) → {slugs}")
-        except Exception as e:  # noqa: BLE001 — one broken plugin must not block the others
-            logger.warning(f"integration plugin '{ep.name}' failed to load: {e}")
-            reports.append(
-                ProviderLoadReport(name=ep.name, source="entry_point", ok=False, distribution=dist_name, version=dist_version, error=str(e))
-            )
-    return reports
+
+def _load_entry_points() -> list[ProviderLoadReport]:
+    return load_entry_points(ENTRY_POINT_GROUP, _register, label="integration")
 
 
 def load_providers(force: bool = False) -> list[ProviderLoadReport]:

@@ -1882,7 +1882,8 @@ errors; 390px shows only the parent with no horizontal scroll, light and dark.
 
 # Storage plugins + backup targets — cloud storage leaves core (plan, 2026-10-06, Jared: "everything uses the same APIs")
 
-**Status:** plan only, nothing built. Decisions below are Jared's (2026-10-06); open questions at the end.
+**Status:** all 8 slices approved by Jared (2026-10-06); slices 1–3 being built on `feat/storage-plugins-1-3`.
+Decisions below are Jared's (2026-10-06), open questions answered the same day.
 
 **Goal (Jared 2026-10-06):** keep core lean. Cloud SDKs leave core, and storage becomes a site-wide plugin type the
 same way AI providers will (see "AI provider plugins" above). Core keeps the local disk and a backup engine that can
@@ -2074,6 +2075,14 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
       custom domain `assets.iwobble.com` (Jared, Cloudflare); dev rehearsal on a production copy (migrate, every
       asset URL 200, sites rebuilt); production: switch, migrate 516, verify counts + checksums, rebuild sites;
       delete local copies after the set period
+- [ ] **SDK rename** (its own slice, Jared 2026-10-06): `marvin-integration-sdk` → `marvin-plugin-sdk`. Ship the
+      new package `marvin_plugin_sdk` and keep `marvin_integration_sdk` as a re-exporting shim (both import names
+      work); publish the new distribution name; move core's pin, the plugin repos' dependencies and the init
+      containers over one at a time; drop the shim once nothing imports the old name
+- [ ] **Asset tombstones** (after slice 6): drop `assets/` objects from a target once their asset has been gone for
+      30 days (Jared 2026-10-06). The engine records when a key first went missing from the source in a manifest
+      next to the mirror and deletes it 30 days later. Needs the mirror to read every provider in use, so a
+      half-finished asset move never looks like deletions
 - [ ] **Cost:** trim dev retention (e.g. `keepHourly: 24, keepDaily: 7`); **Cloudflare R2 usage alert at ~5 GB
       (Jared sets it)**
 - [ ] **Docs:** manual "Storage" (built-in local, plugins, settings), "Backups" (replaces `offsite-backup.md`:
@@ -2098,19 +2107,29 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
 - Storage plugin type first (smallest contract), so AI provider plugins reuse the plumbing.
 - No gap in R2 backups: engine + local target → plugin with s3 target → switch the CronJob and verify both targets →
   only then delete the old built-in R2 code.
+- **All 8 slices approved** (Jared 2026-10-06: "1 ok … 8 ok but configurable").
+- **Slice 8: asset storage is configurable by an admin.** The admin chooses `local` or `s3` for *new* uploads and can
+  switch back at any time; existing assets keep serving from wherever they live (per-row `provider_for(asset)`), so
+  a switch never breaks a URL and never requires moving files.
+- Answers to the open questions (Jared 2026-10-06):
+  1. **NAS export** (created by Jared 2026-10-06): server `192.168.30.10` (the Proxmox node `pve`), path
+     `/tank/backups/marvin` (ZFS dataset `tank/backups`, quota 50G, lz4), exported to `192.168.50.0/25` with
+     `rw,sync,no_subtree_check,all_squash,anonuid=3100,anongid=3100`; the directory is `3100:3100 0770`, so any pod
+     UID writes as 3100. Verified from `marvin-dev` with a static PV (`nfs.server/path`, ReadWriteMany, Retain,
+     `storageClassName: ""`, `mountOptions: [hard, nfsvers=4.2]`, `claimRef` to the PVC) + PVC (`volumeName`) under
+     `restricted-v2`. Same `tank` pool as the live data: it protects against PVC/app problems, not pool loss (R2
+     stays the off-site copy). **Dev gets no NAS target**; if it ever does, use subfolders `marvin/prod` and
+     `marvin/dev`.
+  2. **Retention:** R2 keeps **48 hourly + 30 daily + 8 weekly**, set per target and admin-configurable; the generic
+     default stays "30 days" (48 hourly + 30 daily + 0 weekly).
+  3. **SDK name:** rename to `marvin-plugin-sdk`, with a compatibility shim so both import names work during a
+     transition. Not cheap inside slice 1 (the distribution name is the dependency of every plugin repo and the
+     init containers), so it is its own slice ("SDK rename" below).
+  4. **Asset move without a freeze** (per-row resolution).
+  5. **Public custom-domain asset URLs** (`assets.iwobble.com`); presigned URLs only if private assets appear.
+  6. **Deleted assets are dropped from backups after 30 days** (today's mirror keeps them forever). Not part of
+     slice 3, which keeps the never-delete rule: see "Asset tombstones" below.
+  7. **Target config via Helm values in v1.**
 
 ## Open questions for Jared
-1. **NAS export:** path(s) on `192.168.30.10`, e.g. `/tank/backups/marvin` and `/tank/backups/marvin-dev`? Does dev
-   get a NAS target at all? How should the pod's random UID write: group-0-writable dir, or `all_squash` to an anon
-   uid?
-2. **Retention default:** 48 hourly + 30 daily + 0 weekly ("30 days"), or keep 8 weekly on R2 for ~2 months of
-   reach? Dev trimmed to 24 hourly + 7 daily?
-3. **SDK name:** core now depends on the SDK. Keep `marvin-integration-sdk`, or rename it to `marvin-plugin-sdk` now
-   that it carries storage and AI contracts too? (Shared with AI provider plugins.)
-4. **Asset migration:** per-row resolution + no freeze (proposed), or skip that work and take a short upload freeze?
-5. **Asset delivery:** a public custom domain (`assets.iwobble.com`; asset keys are already public at `/assets`
-   today), or presigned URLs? Are any assets meant to be private?
-6. **Deleted assets in backups:** today the mirror never deletes. Prune objects whose asset was deleted more than
-   30 days ago, or keep forever (cheap at this size)?
-7. **Target config:** Helm values only for v1 (proposed: they involve volumes and Secrets), with a read-only status
-   card on the admin Backups page later?
+None open: all seven were answered on 2026-10-06 (see Decisions).

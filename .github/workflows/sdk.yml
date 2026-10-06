@@ -57,13 +57,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libldap2-dev libsasl2-dev
 
       # The /api/groups/integrations routes only mount when marvin-integration-sdk is importable,
-      # and the published SDK's types include them. Without it the regenerated schema drops that
-      # surface and this gate always reports drift. Same tarball the chart installs.
+      # and the published SDK's types include them. It is a pinned core dependency (pyproject.toml),
+      # so the editable install brings the same version the image ships.
       - name: Install Python dependencies
         working-directory: marvin
         run: |
           pip install -e ".[dev]"
-          pip install https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
 
       - name: Generate OpenAPI spec from Marvin
         working-directory: marvin

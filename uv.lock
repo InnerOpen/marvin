@@ -981,6 +981,7 @@ dependencies = [
     { name = "isodate" },
     { name = "jinja2" },
     { name = "mangum" },
+    { name = "marvin-integration-sdk" },
     { name = "mcp", extra = ["cli"] },
     { name = "numpy" },
     { name = "openai" },
@@ -1076,6 +1077,7 @@ requires-dist = [
     { name = "isodate", specifier = ">=0.7.2" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "mangum", specifier = ">=0.19.0" },
+    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=adec7e0f835f3e895c943410fd4b8636600c15a8" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.28.1" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "openai", specifier = ">=2.46.0" },
@@ -1124,6 +1126,11 @@ dev = [
 ldap = [{ name = "python-ldap", specifier = ">=3.4.5" }]
 postgres = [{ name = "psycopg2-binary", specifier = ">=2.9" }]
 vault = [{ name = "hvac", specifier = ">=2.0" }]
+
+[[package]]
+name = "marvin-integration-sdk"
+version = "0.6.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=adec7e0f835f3e895c943410fd4b8636600c15a8#adec7e0f835f3e895c943410fd4b8636600c15a8" }
 
 [[package]]
 name = "mccabe"
