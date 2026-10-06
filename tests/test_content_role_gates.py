@@ -305,6 +305,22 @@ def test_ai_write_back_skips_entities_the_caller_cannot_edit(workspace, entries,
     assert may_change(E, "resource", SimpleNamespace()) is True
 
 
+def test_editor_tags_assets_and_resources(workspace):
+    """Attaching a tag to an asset or resource read `.group_id` off a schema that has none, so it was a 500."""
+    editor = _sign_in(workspace, E)
+    tag = editor.post(f"{P}/tags", json={"name": "gate-items"}).json()["id"]
+    files = {"file": ("tagged.txt", b"hello", "text/plain")}
+    asset = editor.post(f"{P}/assets/upload", files=files, data={"slug": f"tagged-{uuid.uuid4().hex[:6]}", "name": "Tagged"})
+    assert asset.status_code < 300, asset.text
+    resource = editor.post(f"{P}/resources", json={"slug": f"tagged-{uuid.uuid4().hex[:6]}", "name": "R", "resource_type": "link"})
+    assert resource.status_code < 300, resource.text
+
+    for kind, item in (("assets", asset.json()["id"]), ("resources", resource.json()["id"])):
+        assert editor.post(f"{P}/tags/{tag}/{kind}/{item}").status_code == 201
+        assert editor.post(f"{P}/tags/{tag}/{kind}/{item}").status_code == 201  # idempotent
+        assert editor.delete(f"{P}/tags/{tag}/{kind}/{item}").status_code == 200
+
+
 def test_tag_detach_is_scoped_to_the_callers_workspace(workspace, db_session):
     """The detach routes deleted the junction row by ids alone, so a member of one workspace could strip
     tags from another workspace's entries, assets and resources."""
@@ -352,6 +368,10 @@ def test_tag_detach_is_scoped_to_the_callers_workspace(workspace, db_session):
         assert editor.delete(f"{P}/tags/{tag.id}/assets/{asset.id}").status_code == 404
         assert db_session.query(EntryTags).filter_by(entry_id=entry.id).count() == 1
         assert db_session.query(AssetTags).filter_by(asset_id=asset.id).count() == 1
+        # Attaching their tag, or tagging their asset with ours, is a 404 too.
+        ours = editor.post(f"{P}/tags", json={"name": "ours"}).json()["id"]
+        assert editor.post(f"{P}/tags/{tag.id}/assets/{asset.id}").status_code == 404
+        assert editor.post(f"{P}/tags/{ours}/assets/{asset.id}").status_code == 404
     finally:
         db_session.rollback()
         purge_group_dependents(db_session, other)

@@ -124,14 +124,11 @@ class TagsController(BaseUserController):
     def attach_tag_to_asset(self, tag_id: UUID4, asset_id: UUID4) -> dict:
         """Apply a tag to an asset. Idempotent."""
         require_workspace_editor(self.user, self.group_id)
-        tag = self.repos.tags.get_one(tag_id)
-        if not tag:
+        # Both lookups are scoped to this workspace, so a tag or asset from another one is a 404.
+        if not self.repos.tags.get_one(tag_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found.")
-        asset = self.repos.assets.get_one(asset_id)
-        if not asset:
+        if not self.repos.assets.get_one(asset_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
-        if asset.group_id != tag.group_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Asset and tag must belong to the same workspace.")
 
         existing = self.session.query(AssetTags).filter(AssetTags.asset_id == asset_id, AssetTags.tag_id == tag_id).first()
         if existing is None:
@@ -156,14 +153,11 @@ class TagsController(BaseUserController):
     def attach_tag_to_resource(self, tag_id: UUID4, resource_id: UUID4) -> dict:
         """Apply a tag to a resource. Idempotent."""
         require_workspace_editor(self.user, self.group_id)
-        tag = self.repos.tags.get_one(tag_id)
-        if not tag:
+        # Both lookups are scoped to this workspace, so a tag or resource from another one is a 404.
+        if not self.repos.tags.get_one(tag_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tag not found.")
-        resource = self.repos.resources.get_one(resource_id)
-        if not resource:
+        if not self.repos.resources.get_one(resource_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resource not found.")
-        if resource.group_id != tag.group_id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Resource and tag must belong to the same workspace.")
 
         existing = self.session.query(ResourceTags).filter(ResourceTags.resource_id == resource_id, ResourceTags.tag_id == tag_id).first()
         if existing is None:
