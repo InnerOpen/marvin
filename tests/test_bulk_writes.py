@@ -76,6 +76,8 @@ def test_approval_preview_caps_the_target_list():
 def test_refusal_tells_the_model_to_work_in_smaller_steps():
     out = json.loads(bulk_writes.refusal(_write(targets=19, items=25, action="detach")))
     assert "smaller steps" in out["error"] and "Detach 25 tags from 19 assets" in out["error"]
+    # …and where the user can approve it instead (an external caller has no conversation of its own)
+    assert "Ask page" in out["error"] and "agent conversation" in out["error"]
     assert out["links"] == 475 and out["limit"] == BULK_WRITE_ASK_THRESHOLD
 
 
@@ -176,12 +178,17 @@ def test_ask_first_check_that_raises_lets_the_handler_report():
     assert len(calls) == 1
 
 
-def test_unattended_refuses_ask_first_calls_but_leaves_bulk_sizing_alone():
+def test_unattended_refuses_ask_first_and_big_bulk_calls_without_writing():
     calls: list = []
     assert json.loads(bulk_writes.unattended(_ask_spec(True, calls), None)({})) == {"error": "cannot pause"} and calls == []
-    # MarvinMCP's invoke never applied the bulk gate; unattended doesn't add it
-    bulk = _spec(_write(19, 25), calls)
-    assert json.loads(bulk_writes.unattended(bulk, None)({})) == {"ok": True} and len(calls) == 1
+    # Nobody to ask from MarvinMCP's direct invoke: a call too big to run unasked is refused too
+    out = json.loads(bulk_writes.unattended(_spec(_write(19, 25), calls), None)({}))
+    assert "Attach 25 tags to 19 assets (475 links)" in out["error"] and out["links"] == 475 and calls == []
+
+
+def test_unattended_runs_small_bulk_calls():
+    calls: list = []
+    assert json.loads(bulk_writes.unattended(_spec(_write(2, 3), calls), None)({})) == {"ok": True} and len(calls) == 1
 
 
 # ── Every bulk-write action tool opts in ─────────────────────────────────────

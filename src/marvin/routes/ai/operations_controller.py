@@ -169,8 +169,9 @@ class AIOperationsController(BaseUserController):
         )
         # A handler raising is not fatal (mirrors the agent loop, which surfaces tool errors to
         # the model): roll back any poisoned transaction and return a structured error.
-        # Nobody can be asked from here, so a call an ask-first tool flags (archiving a published entry)
-        # answers with its refusal instead of running.
+        # Nobody can be asked from here, so a call the agent loop would park for approval — a big bulk
+        # write, or one an ask-first tool flags (archiving a published entry) — answers with its refusal
+        # instead of running.
         try:
             raw = bulk_writes.unattended(spec, ctx)(body.args or {})
         except Exception as e:

@@ -95,15 +95,36 @@ def run_agent(ctx: ToolContext, args: dict) -> str:
     return _run_standalone(ctx, args)
 
 
+def standalone_tools(spec, ctx: ToolContext, role: int) -> list:
+    """The registry tools a stateless run binds: the agent's Allow tools at the caller's role.
+
+    "ask" counts as blocked — a run from MCP has no user to approve mid-loop — and for the same reason each
+    tool runs unattended: a call the agent loop would park (a big bulk write, an ask-first call) is refused.
+    """
+    from marvin.services.ai.agent import AgentTool
+    from marvin.services.ai.agents import POLICY_ALLOW, resolve_policy
+    from marvin.services.ai.tools import bulk_writes, list_tools
+    from marvin.services.ai.tools.categories import category_of
+
+    tools: list = []
+    for s in list_tools():
+        if "agent" not in s.sources or role < s.min_role or s.name in ("run_agent", "list_agents"):
+            continue  # no recursion from a stateless run; suggest_agent stays so the child can refer
+        cat = category_of(s.name, read_only=s.read_only)
+        if resolve_policy(spec, s.name, cat, role)[0] != POLICY_ALLOW:
+            continue
+        tools.append(AgentTool(name=s.name, description=s.description, input_schema=s.input_schema, run=bulk_writes.unattended(s, ctx), category=cat))
+    return tools
+
+
 def _run_standalone(ctx: ToolContext, args: dict) -> str:
     """The stateless MCP/API runner: registry tools only, client-supplied history, no thread."""
     from marvin.core.config import get_app_settings
     from marvin.db.models.groups.ai_executions import AIExecutionModel
-    from marvin.services.ai.agent import AgentTool, run_agent_loop
+    from marvin.services.ai.agent import run_agent_loop
     from marvin.services.ai.agents import may_talk, resolve_agent
     from marvin.services.ai.base import CompletionOptions, Message
     from marvin.services.ai.pricing import estimate_cost
-    from marvin.services.ai.tools import list_tools
 
     spec = resolve_agent(ctx.session, ctx.group_id, str(args.get("agent") or ""))
     if spec is None:
@@ -135,21 +156,7 @@ def _run_standalone(ctx: ToolContext, args: dict) -> str:
     )
     messages = [Message(role="system", content=system), *history, Message(role="user", content=message)]
 
-    tools: list = []
-    if spec.kind == "persona":
-        from marvin.services.ai.agents import POLICY_ALLOW, resolve_policy
-        from marvin.services.ai.tools.categories import category_of
-
-        for s in list_tools():
-            if "agent" not in s.sources or role < s.min_role or s.name in ("run_agent", "list_agents"):
-                continue  # no recursion from a stateless run; suggest_agent stays so the child can refer
-            cat = category_of(s.name, read_only=s.read_only)
-            # "ask" counts as blocked here: a run from MCP has no user to approve mid-loop.
-            if resolve_policy(spec, s.name, cat, role)[0] != POLICY_ALLOW:
-                continue
-            tools.append(
-                AgentTool(name=s.name, description=s.description, input_schema=s.input_schema, run=(lambda a, s=s: s.handler(ctx, a)), category=cat)
-            )
+    tools = standalone_tools(spec, ctx, role) if spec.kind == "persona" else []
 
     _app = get_app_settings()
     opts = CompletionOptions(temperature=_app.AI_DEFAULT_TEMPERATURE, max_tokens=None)

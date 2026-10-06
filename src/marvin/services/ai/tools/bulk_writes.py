@@ -7,8 +7,9 @@ says, a call whose size crosses the thresholds below is not run unasked:
 
 - on a run that can park (a thread to pause on), it becomes an "Ask first" pending call whose
   approval card lists the targets × items (`approval_preview`);
-- where nothing can park (MCP `run_agent`, a delegated child, a surface without a thread), the tool
-  answers with a refusal telling the model to work in smaller steps or ask the user (`refusal`).
+- where nothing can park (MarvinMCP's direct invoke, MCP `run_agent`, a delegated child, a surface without
+  a thread), the tool answers with a refusal saying what it would have changed and to narrow the call or
+  run it where the user can approve it (`refusal`) — and writes nothing.
 
 A tool opts in by passing `bulk_write=` to `register_tool`: a function that sizes one call without
 writing anything. `bind` turns a spec into the agent's (run, approval_check) pair.
@@ -16,8 +17,8 @@ writing anything. `bind` turns a spec into the agent's (run, approval_check) pai
 The same gate serves tools whose ask is about *what* a call touches rather than how much: such a tool
 passes `ask_first=`, a function that looks at one call and returns an `AskFirst` (the card's preview and
 the refusal for runs that can't park) when the user must say yes — `archive_entries` on a published
-entry, which takes it off the site. MarvinMCP's direct invoke has nobody to ask, so `unattended` refuses
-those calls there.
+entry, which takes it off the site. Both gates apply wherever the gate applies: a caller nobody can be asked
+on behalf of (`unattended`) gets the refusal for either.
 """
 
 from __future__ import annotations
@@ -95,9 +96,10 @@ def refusal(write: BulkWrite) -> str:
     return json.dumps(
         {
             "error": (
-                f"Not done: {summary(write)} is too large to apply without the user's approval, and this run "
-                "cannot pause to ask. Work in smaller steps — choose the tags that fit EACH target from what that "
-                "target is, a few at a time — or ask the user to confirm in a conversation where they can approve it."
+                f"Not done: {summary(write)} is too large to apply without the user's approval, and this call "
+                "cannot pause to ask. Work in smaller steps — narrow the targets, and choose the tags that fit EACH "
+                "target from what that target is, a few at a time — or run it from the Ask page or an agent "
+                "conversation, where the user can approve it."
             ),
             "targets": len(write.target_ids),
             "items": len(write.items),
@@ -192,12 +194,7 @@ def bind(spec, ctx, *, can_park: bool) -> tuple[Callable[[dict], str], Callable[
 
 
 def unattended(spec, ctx) -> Callable[[dict], str]:
-    """The handler for a caller nobody can be asked on behalf of (MarvinMCP's direct invoke): a call an
-    `ask_first` tool flags answers with its refusal. Bulk sizing is not applied here (unchanged)."""
-    gate = _ask_first_gate(spec, ctx)
-
-    def run(args: dict) -> str:
-        hit = gate(args) if gate is not None else None
-        return hit[1] if hit is not None else spec.handler(ctx, args)
-
-    return run
+    """The handler for a caller nobody can be asked on behalf of (MarvinMCP's direct invoke, the stateless
+    MCP `run_agent`): a call either gate flags — too big, or an `ask_first` tool's — answers with its refusal
+    and writes nothing. Everything else runs as it would anywhere."""
+    return bind(spec, ctx, can_park=False)[0]

@@ -274,6 +274,80 @@ def test_big_bulk_detach_asks_too(db_session, ws):
     assert check({**_ALL_ASSETS, "tags": _SIX_TAGS})["summary"] == "Detach 6 tags from 4 assets (24 links)"
 
 
+# ── nobody to ask: MarvinMCP's direct invoke and the stateless run_agent ──────
+
+
+def _invoke(db_session, gid, args):
+    """POST /api/ai/tools/attach_tag/invoke as MarvinMCP does, signed in as an EDITOR of the workspace."""
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from marvin.app import app
+    from marvin.core.dependencies import get_current_user
+    from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
+    from marvin.db.models.users.users import Users
+
+    uid = db_session.query(Users.id).filter(Users.group_id == gid).scalar()
+    role = WorkspaceRole.EDITOR
+    app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
+        id=uid,
+        group_id=gid,
+        active_group_id=gid,
+        admin=False,
+        is_superuser=False,
+        full_name="U",
+        email="u@t.test",
+        platform_role=PlatformRole.NONE,
+        workspace_memberships=[SimpleNamespace(group_id=gid, workspace_role=role)],
+        get_workspace_role=lambda group_id: role if str(group_id) == str(gid) else None,
+    )
+    try:
+        res = TestClient(app).post("/api/ai/tools/attach_tag/invoke", json={"args": args, "source": "mcp"})
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def test_mcp_invoke_refuses_a_big_filtered_attach_and_writes_nothing(db_session, ws):
+    gid, ids = ws
+    out = _invoke(db_session, gid, {**_ALL_ASSETS, "tags": _SIX_TAGS})
+    assert "Attach 6 tags to 4 assets (24 links)" in out["error"]
+    assert "Ask page" in out["error"] and out["links"] == 24 and out["targets"] == 4
+    assert _links(db_session, ids) == 0
+
+
+def test_mcp_invoke_runs_a_small_attach(db_session, ws):
+    gid, ids = ws
+    out = _invoke(db_session, gid, {"entity_type": "asset", "entities": ["img-1", "img-2"], "tags": ["red", "blue", "denim"]})
+    assert "error" not in out
+    assert _links(db_session, ids) == 6
+
+
+def _standalone_attach(db_session, gid):
+    from marvin.services.ai.agents import SYSTEM_AGENTS
+    from marvin.services.ai.operations.base import ROLE_EDITOR
+    from marvin.services.ai.tools.builtins_agents import standalone_tools
+
+    tools = standalone_tools(SYSTEM_AGENTS["marvin"], _ctx(db_session, gid), ROLE_EDITOR)
+    return next(t for t in tools if t.name == "attach_tag")
+
+
+def test_stateless_run_agent_refuses_a_big_attach_and_writes_nothing(db_session, ws):
+    # MCP run_agent(agent="marvin") has no thread: Marvin's Allow on attach_tag must not lift the bulk gate
+    gid, ids = ws
+    out = json.loads(_standalone_attach(db_session, gid).run({**_ALL_ASSETS, "tags": _SIX_TAGS}))
+    assert "Attach 6 tags to 4 assets (24 links)" in out["error"]
+    assert _links(db_session, ids) == 0
+
+
+def test_stateless_run_agent_runs_a_small_attach(db_session, ws):
+    gid, ids = ws
+    _standalone_attach(db_session, gid).run({"entity_type": "asset", "entities": ["img-1", "img-2"], "tags": ["red", "blue", "denim"]})
+    assert _links(db_session, ids) == 6
+
+
 def test_attach_tag_description_steers_per_target_tagging():
     desc = get_tool("attach_tag").description
     assert "PER TARGET" in desc and "generate_tags" in desc and "wholesale" in desc
