@@ -140,3 +140,15 @@ extraEnv:
   # large photo. 16 MiB so anything Square takes can be fetched.
   - name: INTEGRATION_HTTP_MAX_BYTES
     value: "16777216"
+
+# Postgres (CloudNativePG cluster `marvin-pg`, Secret `marvin-pg-app`). Phase 1 of the cutover
+# (docs/manual/postgres.md, "Production cutover"): the cluster runs while the app is still on SQLite
+# (config.dbEngine above); the switch to `dbEngine: postgres` is a separate promotion after the final
+# copy. NFS is the only storage class on this cluster — see the runbook's "Storage".
+postgres:
+  cluster:
+    enabled: true
+    name: marvin-pg
+    storage:
+      size: 10Gi
+      storageClass: managed-nfs-storage
