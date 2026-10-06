@@ -316,6 +316,17 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
 - [ ] **Backups:** CNPG scheduled backups (base backup + WAL) to storage off the cluster's NFS, a tested restore,
       and keep Marvin's own backup export as a second, engine-independent copy. Check what backs up the
       production SQLite file *today* before touching it.
+- [x] **Off-site backup (built 2026-10-06, branch `feat/offsite-backup`, not yet deployed):** answer to "what backs up
+      production today" was *nothing* (`/app/data/backups` empty; the Backups feature exports workspace content only).
+      Nightly CronJob `marvin-offsite-backup` (chart `backup.*`, on in `values-iwobble.yaml`, 03:15 America/New_York) runs
+      `python -m marvin.scripts.offsite_backup` → R2 bucket `marvin-backups`: SQLite online-backup snapshot +
+      `integrity_check` (`sqlite/`), `.secret` + `scheduler_state.json` + `templates/` (`config/`), incremental `assets/`
+      mirror; 14 daily + 8 weekly retention; `restore` subcommand. Runbook: `docs/manual/offsite-backup.md`. Tested: unit
+      tests + e2e against MinIO (backup under a live writer, re-run uploads 0 assets, restore matches).
+      Still to do: create Secret `marvin-r2-backup` from `pass` (`marvin/r2/access-key-id`, `marvin/r2/secret-access-key`,
+      `marvin/r2/endpoint`; bucket `marvin-backups`), deploy an image that has the script, `helm upgrade`, run a one-off
+      job, then a test restore into a scratch dir. Postgres: the DB step reports "not implemented" (TODO in
+      `backup_database`) — CNPG barman covers it; config + assets still go up.
 - [ ] **First feature through dev:** Trash (above).
 - [ ] **Production cutover (planned downtime):** stop the backend → copy SQLite → prod Postgres → switch `dbEngine` →
       verify → pin release tag.
