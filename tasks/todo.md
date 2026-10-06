@@ -663,15 +663,21 @@ categories, get, apply, applyMany, update), `incomingWebhooks.signatureSchemes` 
 (an HttpClient binary read that keeps 4.1's retry and empty-body rules).
 
 ## Checklist
-- [ ] SDK 4.3.0: methods above + tests; types regenerated (gate toolchain); `feat:` commits
-- [ ] CLI batches 3–7 + tests per group; permissions table + help; coverage manifest (routes → covered) and
-      snapshot refreshed to develop with the integration SDK installed
-- [ ] Docs: reference pages per group (review, dashboard, blueprints, incoming-webhooks, tags, collections,
-      publishing); MIGRATION note if behaviour changes; `mkdocs build --strict`
-- [ ] Release: SDK 4.3.0 → relock CLI → CLI 3.2.0 (trusted publishing)
+- [x] SDK 4.3.0: methods above + tests; types regenerated (gate toolchain; no diff); `feat:` commits (also fixed
+      platform `assets.getFile`, which returned undefined for every file since 4.1 → `assets.download`)
+- [x] CLI batches 3–7 + tests per group; permissions table + help; coverage manifest (38 routes → covered) and
+      snapshot refreshed to develop rc.199 with the integration SDK installed (8 new endpoints deferred)
+- [x] Docs: reference pages per group (review, blueprints, incoming-webhooks, tags, smart collections,
+      publishing); MIGRATION 3.2.0; `mkdocs build --strict`
+- [ ] Release: SDK 4.3.0 → relock CLI (`npm install @inneropen/marvin-sdk@^4.3.0`) → CLI 3.2.0 (trusted
+      publishing). Nothing pushed yet.
 
-**Core gaps:** none blocking. Nice to have: server-side `status`/`entry_type`/`limit` filters on
-`GET /api/platform/entries` (the CLI filters the full list today).
+**Core gaps:** no endpoint missing. Found while smoke-testing against develop: `POST
+/api/platform/tags/{tag_id}/assets/{asset_id}` and `…/resources/{resource_id}` always 500 —
+`attach_tag_to_asset`/`attach_tag_to_resource` compare `asset.group_id`, but `repos.assets.get_one` returns
+`AssetRead`/`ResourceRead`, which have no `group_id` (entry tagging and both detaches work). Nice to have:
+server-side `status`/`entry_type`/`limit` filters on `GET /api/platform/entries` (the CLI filters the full list
+today).
 
 # Media embeds — paste a link, get a player (plan, 2026-10-05)
 
