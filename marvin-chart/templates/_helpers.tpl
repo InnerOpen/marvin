@@ -272,3 +272,60 @@ The API pod's update strategy: the split backend's own when set, else the shared
   {{- /* Recreate stops the old pod before the new one starts: none of its runs can still be going. */}}
   value: {{ if eq (toString $strategy.type) "Recreate" }}"0"{{ else }}{{ add $grace $sweepMargin | quote }}{{ end }}
 {{- end -}}
+
+{{/*
+Site-wide plugins (plugins.packages): one pip install into a shared emptyDir that goes on PYTHONPATH,
+in every pod that runs Marvin code (the backend, split or combined, and each backup CronJob). Each
+helper renders nothing while the list is empty, so a release without plugins renders as before.
+The image pins marvin-integration-sdk; pip still needs a copy to satisfy the plugins' requirement,
+but it is removed after the install, so the PYTHONPATH copy never shadows the image's.
+*/}}
+{{- define "marvin.plugins.initContainer" -}}
+{{- if .Values.plugins.packages }}
+- name: install-plugins
+  image: {{ .Values.plugins.image | quote }}
+  {{- with .Values.securityContext }}
+  securityContext:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  command: ["sh", "-c"]
+  args:
+    - >-
+      set -eu;
+      pip install --no-cache-dir --disable-pip-version-check --target=/plugins
+      {{- range .Values.plugins.packages }}
+      {{ . | squote }}
+      {{- end }};
+      rm -rf /plugins/marvin_integration_sdk /plugins/marvin_integration_sdk-*.dist-info;
+      echo "--- installed into /plugins ---";
+      ls -1 /plugins
+  {{- with .Values.plugins.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  volumeMounts:
+    - name: plugins
+      mountPath: /plugins
+{{- end }}
+{{- end -}}
+
+{{- define "marvin.plugins.volume" -}}
+{{- if .Values.plugins.packages }}
+- name: plugins
+  emptyDir: {}
+{{- end }}
+{{- end -}}
+
+{{- define "marvin.plugins.volumeMount" -}}
+{{- if .Values.plugins.packages }}
+- name: plugins
+  mountPath: /plugins
+{{- end }}
+{{- end -}}
+
+{{- define "marvin.plugins.env" -}}
+{{- if .Values.plugins.packages }}
+- name: PYTHONPATH
+  value: /plugins
+{{- end }}
+{{- end -}}

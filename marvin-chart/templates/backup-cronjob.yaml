@@ -70,6 +70,11 @@ spec:
           tolerations:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+          {{- with include "marvin.plugins.initContainer" . }}
+          # Storage plugins (plugins.packages): a backup target or asset provider may come from one.
+          initContainers:
+            {{- . | nindent 12 }}
+          {{- end }}
           containers:
             - name: offsite-backup
               securityContext:
@@ -106,6 +111,9 @@ spec:
                 {{- with include "marvin.postgresEnv" . | trim }}
                 {{- . | nindent 16 }}
                 {{- end }}
+                {{- with include "marvin.plugins.env" . }}
+                {{- . | nindent 16 }}
+                {{- end }}
                 {{- $secret := required "backup.existingSecret is required when backup.enabled" .Values.backup.existingSecret }}
                 {{- range list "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" "BACKUP_S3_ENDPOINT" "BACKUP_S3_BUCKET" }}
                 - name: {{ . }}
@@ -124,6 +132,9 @@ spec:
                   mountPath: {{ .Values.config.dataDir }}
                 - name: tmp
                   mountPath: /tmp
+                {{- with include "marvin.plugins.volumeMount" . }}
+                {{- . | nindent 16 }}
+                {{- end }}
           volumes:
             - name: data
               persistentVolumeClaim:
@@ -131,4 +142,7 @@ spec:
             # Snapshot + gzip staging (about 1.2x the database size).
             - name: tmp
               emptyDir: {}
+            {{- with include "marvin.plugins.volume" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
 {{- end }}

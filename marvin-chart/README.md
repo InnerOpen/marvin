@@ -248,11 +248,29 @@ image:
   tag: "1.0.0-rc.10"
 ```
 
-### Without rebuilding: an init container plus PYTHONPATH
+### Without rebuilding: `plugins.packages`
 
-If you need to add a provider against a stock image, install it into a shared volume and put that
-volume on `PYTHONPATH`. Entry points are discovered from any `sys.path` entry, so this is enough for
-the loader to find the plugin.
+List the plugins as pip requirements and the chart installs them at pod start into a shared
+`emptyDir` on `PYTHONPATH`, in every pod that runs Marvin code: the backend (split or combined) and
+each backup CronJob, so a storage plugin's backup target is there too. Entry points are discovered
+from any `sys.path` entry, so this is enough for the loader to find the plugins.
+
+```yaml
+plugins:
+  packages:
+    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
+```
+
+The SDK is listed so pip can resolve the plugins' requirement; the init container deletes that copy
+after the install, because the image pins `marvin-integration-sdk` and a `PYTHONPATH` copy would
+shadow it. `plugins.image` (default `python:3.12-slim`) and `plugins.resources` tune the init
+container.
+
+### By hand: an init container plus PYTHONPATH
+
+The raw `initContainers` / `extraVolumes` / `extraVolumeMounts` / `extraEnv` values remain as the
+escape hatch (they reach the backend only, not the backup CronJob):
 
 ```yaml
 initContainers:

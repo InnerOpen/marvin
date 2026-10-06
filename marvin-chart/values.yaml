@@ -372,8 +372,25 @@ extraEnv: []
 #         mountPath: /plugins
 #
 # Note that PYTHONPATH precedes site-packages, so a dependency vendored here shadows the image's
-# copy. Pin deliberately, or build a derived image instead — see README.md.
+# copy. Pin deliberately, or build a derived image instead — see README.md. For plugins, prefer
+# `plugins.packages` below; this list stays as the escape hatch.
 initContainers: []
+
+# Site-wide plugins (integrations, storage providers / backup targets; AI providers next). Each entry
+# is a pip requirement (a tarball URL needs no git in the init image). They are installed at pod start
+# into a shared emptyDir on PYTHONPATH, in every pod that runs Marvin code: the backend (split or
+# combined) and each backup CronJob. List the plugins' marvin-integration-sdk requirement too so pip
+# can resolve it; that copy is removed after the install, so the SDK the image pins is the one loaded.
+# Empty = nothing rendered. Re-downloaded on every pod start, so those pods need egress to the index.
+#
+# plugins:
+#   packages:
+#     - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
+#     - https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
+plugins:
+  packages: []
+  image: python:3.12-slim
+  resources: {}
 
 # Extra volumes
 extraVolumes: []
