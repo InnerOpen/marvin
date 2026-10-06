@@ -113,6 +113,31 @@ persistence:
   accessMode: ReadWriteOnce
 ```
 
+#### Off-site Backup
+
+A nightly CronJob (`<release>-offsite-backup`, off by default) copies the data volume to an
+S3-compatible bucket (Cloudflare R2, MinIO, AWS): a consistent SQLite snapshot checked with
+`integrity_check`, a config archive (`.secret`, `scheduler_state.json`, `templates/`), and an
+incremental mirror of `assets/`. It runs `python -m marvin.scripts.offsite_backup` from the backend
+image on the backend pod's node (the PVC is ReadWriteOnce), and keeps the newest backup of each of the
+last 14 days plus the newest of each of the last 8 weeks.
+
+```yaml
+backup:
+  enabled: true
+  existingSecret: marvin-r2-backup   # keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
+                                     #       BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET
+  schedule: "15 3 * * *"
+  timeZone: ""                       # e.g. America/New_York; empty = controller's zone
+  s3Region: auto                     # right for R2
+```
+
+The bucket holds the installation `.secret`, which decrypts every secret Marvin stores: keep it
+private and its token scoped to it. One-off run:
+`oc create job --from=cronjob/marvin-offsite-backup marvin-offsite-backup-manual-$(date +%s)`.
+Restore runbook, retention details and the script's options:
+[docs/manual/offsite-backup.md](../docs/manual/offsite-backup.md).
+
 #### OpenShift Route
 
 ```yaml

@@ -63,6 +63,13 @@ persistence:
   storageClass: managed-nfs-storage
   size: 5Gi
 
+# Nightly off-site backup to Cloudflare R2 (bucket marvin-backups). The Secret is created by hand from
+# `pass` (marvin/r2/*), never committed — see docs/manual/offsite-backup.md. 03:15 New York time.
+backup:
+  enabled: true
+  existingSecret: marvin-r2-backup
+  timeZone: America/New_York
+
 # Public UI route + public API route (the browser calls the API directly for login/interactive use).
 # config.publicApiUrl is pinned to the tunnel host below: the auto-derived value would be the
 # LAN-only `.apps` route, which the admin then prints as the address for external systems
