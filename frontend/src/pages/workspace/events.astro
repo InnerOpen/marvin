@@ -1,7 +1,17 @@
 ---
 import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuditSettings, getExcludedEventTypes } from "@/lib/api/auditSettings";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
+import {
+  type AuditEventSetting,
+  type AuditExcludedEvent,
+  excludedSummary,
+  groupByCategory,
+  isOverridden,
+  searchText,
+} from "@/lib/auditSettings";
 import { entityLink, entityTypeLabel } from "@/lib/eventEntity";
+import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const authed = !!authToken;
@@ -17,6 +27,30 @@ if (authed) {
     console.error("[events] Failed to load:", error);
   }
 }
+
+// Audit coverage: admins get every type's setting (and can change it); everyone else the types left out.
+let auditSettings: AuditEventSetting[] | null = null;
+let auditExcluded: AuditExcludedEvent[] = [];
+let auditError: string | null = null;
+
+if (authed && !error) {
+  try {
+    auditSettings = await getAuditSettings(authToken);
+    auditExcluded = auditSettings.filter((s) => !s.audited);
+  } catch (e) {
+    if (isForbidden(e)) {
+      try {
+        auditExcluded = await getExcludedEventTypes(authToken);
+      } catch (e2) {
+        auditError = e2 instanceof Error ? e2.message : String(e2);
+      }
+    } else {
+      auditError = e instanceof Error ? e.message : String(e);
+    }
+  }
+  if (auditError) console.error("[events] Failed to load audit settings:", auditError);
+}
+const auditGroups = auditSettings ? groupByCategory(auditSettings) : [];
 
 function fld(row: any, camel: string, snake: string) {
   return row[camel] ?? row[snake];
@@ -50,17 +84,6 @@ function statusOf(eventType: any, title: any): string {
 const STATUS_ORDER = ["failed", "success", "removed", "info"];
 const STATUS_LABEL: Record<string, string> = { failed: "Failed", success: "Success", removed: "Removed", info: "Info" };
 
-// Event types with auditing turned OFF in the backend catalog (CatalogEntry.audited = false).
-// These are never written to this log. KEEP IN SYNC with the `audited=False` entries in
-// src/marvin/services/events/event_catalog.py — there is currently no API that exposes the
-// per-type `audited` flag, so this is a read-only mirror. Surfacing it dynamically (or letting an
-// admin toggle it) would require a backend endpoint. (Precedent for such a mirror: webhooks/[id].astro.)
-const NON_AUDITED_EVENT_TYPES: { type: string; label: string }[] = [
-  { type: "scheduled_task_triggered", label: "Scheduled Task Triggered" },
-  { type: "scheduled_task_started", label: "Scheduled Task Started" },
-  { type: "webhook_task", label: "Webhook Task (internal)" },
-];
-
 // Distinct entity types present, for the filter chips.
 const entityTypes = Array.from(new Set(events.map((e) => fld(e, "entityType", "entity_type")).filter(Boolean))).sort();
 
@@ -85,144 +108,211 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
     <div class="alert alert-error"><strong>Authentication required.</strong> Sign in to view the event log.</div>
   ) : error ? (
     <div class="alert alert-error"><strong>Error:</strong> {error}</div>
-  ) : events.length === 0 ? (
-    <div class="empty-state">
-      <div class="empty-icon">🗂️</div>
-      <p class="empty-title">No events yet</p>
-      <p class="empty-desc">Workspace activity will appear here as it happens</p>
-    </div>
   ) : (
     <>
-      <div class="controls">
-        <input id="event-search" class="search" type="search" placeholder="Filter by message or type…" />
-        <div class="chips" id="status-chips">
-          <button class="chip active" data-status="">All</button>
-          {presentStatuses.map((st) => (
-            <button class="chip" data-status={st}><span class={`status-dot s-${st}`}></span>{STATUS_LABEL[st]}</button>
-          ))}
-        </div>
-        <div class="chips" id="entity-chips">
-          <button class="chip active" data-entity="">All</button>
-          {entityTypes.map((t) => <button class="chip" data-entity={t}>{entityTypeLabel(t)}</button>)}
-        </div>
-      </div>
-
-      <details class="audit-coverage">
+      <details class="audit-coverage" id="audit-coverage">
         <summary>
           <span class="ac-caret">▶</span>
           <span class="ac-title">Audit coverage</span>
-          <span class="ac-sub">{NON_AUDITED_EVENT_TYPES.length} event type{NON_AUDITED_EVENT_TYPES.length === 1 ? '' : 's'} excluded from this log</span>
+          {!auditError && <span class="ac-sub" id="ac-summary">{excludedSummary(auditExcluded.length)}</span>}
         </summary>
         <div class="ac-body">
-          <p class="ac-lead">Auditing is set per event type. The following types have auditing turned <strong>off</strong> in the catalog, so they never appear in this log:</p>
-          <div class="ac-chips">
-            {NON_AUDITED_EVENT_TYPES.map((e) => (
-              <span class="ac-chip">
-                <span class="status-dot s-audit-off"></span>
-                <code>{e.type}</code>
-                <span class="ac-chip-label">{e.label}</span>
-              </span>
-            ))}
-          </div>
-          <p class="ac-note">All other event types are audited. This view is read-only — changing a type's audit setting requires a backend endpoint that isn't available yet.</p>
+          {auditError ? (
+            <p class="ac-note ac-error">Couldn't load the audit settings: {auditError}</p>
+          ) : auditSettings ? (
+            <>
+              <p class="ac-lead">
+                Choose which event types this log records. A type switched off is not written to the log at all, so
+                its events can't be found here later. Security events (members and invitations, sign-in, API clients
+                and tokens, secrets, workspace settings and approvals) are always recorded, and so is every change
+                made here.
+              </p>
+              <div class="ac-tools">
+                <input id="ac-filter" class="search ac-filter" type="search" placeholder="Filter event types…" aria-label="Filter event types" />
+                <span id="ac-status" class="ac-status" role="status" aria-live="polite"></span>
+              </div>
+              {auditGroups.map((group) => (
+                <section class="ac-group" data-ac-group>
+                  <h3 class="ac-group-title">{group.category}</h3>
+                  <ul class="ac-rows">
+                    {group.rows.map((row) => (
+                      <li
+                        class="ac-row"
+                        data-ac-row
+                        data-event-type={row.eventType}
+                        data-default={String(row.defaultAudited)}
+                        data-search={searchText(row)}
+                      >
+                        <span class="ac-name">
+                          <span class="ac-label">{row.name}</span>
+                          <code>{row.eventType}</code>
+                        </span>
+                        <span class="ac-state">
+                          {row.locked ? (
+                            <span class="ac-lock" title="A security event: always recorded">Always recorded</span>
+                          ) : (
+                            <>
+                              <span class="ac-default">Default {row.defaultAudited ? "on" : "off"}</span>
+                              <button type="button" class="ac-reset" data-ac-reset hidden={!isOverridden(row)}>Reset to default</button>
+                              <label class="switch" title={row.audited ? "Recorded" : "Not recorded"}>
+                                <input type="checkbox" role="switch" data-ac-switch checked={row.audited} aria-label={`Record ${row.name}`} />
+                                <span class="track"></span>
+                              </label>
+                            </>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+              <p class="ac-note" id="ac-empty" hidden>No event types match the filter.</p>
+            </>
+          ) : (
+            <>
+              {auditExcluded.length > 0 ? (
+                <>
+                  <p class="ac-lead">These event types are not recorded, so they never appear in this log:</p>
+                  <div class="ac-chips">
+                    {auditExcluded.map((e) => (
+                      <span class="ac-chip">
+                        <span class="status-dot s-audit-off"></span>
+                        <code>{e.eventType}</code>
+                        <span class="ac-chip-label">{e.name}</span>
+                      </span>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p class="ac-lead">Every event type is recorded.</p>
+              )}
+              <p class="ac-note">A workspace admin chooses what this log records. Security events are always recorded.</p>
+            </>
+          )}
         </div>
       </details>
+      {events.length === 0 ? (
+        <div class="empty-state">
+          <div class="empty-icon">🗂️</div>
+          <p class="empty-title">No events yet</p>
+          <p class="empty-desc">Workspace activity will appear here as it happens</p>
+        </div>
+      ) : (
+        <>
+          <div class="controls">
+            <input id="event-search" class="search" type="search" placeholder="Filter by message or type…" />
+            <div class="chips" id="status-chips">
+              <button class="chip active" data-status="">All</button>
+              {presentStatuses.map((st) => (
+                <button class="chip" data-status={st}><span class={`status-dot s-${st}`}></span>{STATUS_LABEL[st]}</button>
+              ))}
+            </div>
+            <div class="chips" id="entity-chips">
+              <button class="chip active" data-entity="">All</button>
+              {entityTypes.map((t) => <button class="chip" data-entity={t}>{entityTypeLabel(t)}</button>)}
+            </div>
+          </div>
 
-      <div class="table-wrap">
-        <table class="log-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th>When</th>
-              <th>Status</th>
-              <th>Event</th>
-              <th>Details</th>
-              <th>Entity</th>
-            </tr>
-          </thead>
-          <tbody>
-            {events.map((ev: any, i: number) => {
-              const eventId = fld(ev, 'eventId', 'event_id');
-              const eventType = fld(ev, 'eventType', 'event_type');
-              const occurredAt = fld(ev, 'occurredAt', 'occurred_at');
-              const entityType = fld(ev, 'entityType', 'entity_type');
-              const entityId = fld(ev, 'entityId', 'entity_id');
-              const subject = entityLink(entityType, entityId);
-              // A workflow run also names what triggered it (the entry, the incoming webhook, …).
-              const related = entityLink(
-                fld(ev, 'relatedEntityType', 'related_entity_type'),
-                fld(ev, 'relatedEntityId', 'related_entity_id'),
-                fld(ev, 'relatedEntityLabel', 'related_entity_label'),
-              );
-              const title = fld(ev, 'messageTitle', 'message_title');
-              const body = fld(ev, 'messageBody', 'message_body');
-              const isLegacyType = /^\d+$/.test(String(eventType ?? ''));
-              const status = statusOf(eventType, title);
-              const search = `${title ?? ''} ${body ?? ''} ${isLegacyType ? '' : prettyType(eventType)} ${subject?.label ?? ''} ${related?.label ?? ''}`.toLowerCase();
-              return (
-                <>
-                  <tr class="log-row" data-search={search} data-entity={entityType ?? ''} data-status={status}>
-                    <td class="expand-cell">
-                      <button class="expand-btn" data-target={`detail-${i}`} data-event-id={eventId}>▶</button>
-                    </td>
-                    <td class="nowrap muted">{formatDate(occurredAt)}</td>
-                    <td class="nowrap">
-                      <span class={`status-pill s-${status}`}>
-                        <span class={`status-dot s-${status}`}></span>
-                        {STATUS_LABEL[status]}
-                      </span>
-                    </td>
-                    <td>
-                      <span class="event-cell">
-                        <span class="event-head">
-                          <span class="event-title">{title}</span>
-                        </span>
-                        {!isLegacyType && <code class="ev-badge">{prettyType(eventType)}</code>}
-                      </span>
-                    </td>
-                    <td class="detail-col">{body || '—'}</td>
-                    <td class="nowrap">
-                      {subject ? (
-                        <span class="entity-cell">
-                          {subject.href ? (
-                            <a class="entity-type entity-link" href={subject.href}>{subject.label}</a>
-                          ) : (
-                            <span class="entity-type">{subject.label}</span>
-                          )}
-                          {subject.shortId && <span class="entity-id">{subject.shortId}</span>}
-                          {related && (
-                            <span class="entity-related">
-                              from{' '}
-                              {related.href ? <a class="entity-link" href={related.href}>{related.label}</a> : related.label}
+
+          <div class="table-wrap">
+            <table class="log-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>When</th>
+                  <th>Status</th>
+                  <th>Event</th>
+                  <th>Details</th>
+                  <th>Entity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {events.map((ev: any, i: number) => {
+                  const eventId = fld(ev, 'eventId', 'event_id');
+                  const eventType = fld(ev, 'eventType', 'event_type');
+                  const occurredAt = fld(ev, 'occurredAt', 'occurred_at');
+                  const entityType = fld(ev, 'entityType', 'entity_type');
+                  const entityId = fld(ev, 'entityId', 'entity_id');
+                  const subject = entityLink(entityType, entityId);
+                  // A workflow run also names what triggered it (the entry, the incoming webhook, …).
+                  const related = entityLink(
+                    fld(ev, 'relatedEntityType', 'related_entity_type'),
+                    fld(ev, 'relatedEntityId', 'related_entity_id'),
+                    fld(ev, 'relatedEntityLabel', 'related_entity_label'),
+                  );
+                  const title = fld(ev, 'messageTitle', 'message_title');
+                  const body = fld(ev, 'messageBody', 'message_body');
+                  const isLegacyType = /^\d+$/.test(String(eventType ?? ''));
+                  const status = statusOf(eventType, title);
+                  const search = `${title ?? ''} ${body ?? ''} ${isLegacyType ? '' : prettyType(eventType)} ${subject?.label ?? ''} ${related?.label ?? ''}`.toLowerCase();
+                  return (
+                    <>
+                      <tr class="log-row" data-search={search} data-entity={entityType ?? ''} data-status={status}>
+                        <td class="expand-cell">
+                          <button class="expand-btn" data-target={`detail-${i}`} data-event-id={eventId}>▶</button>
+                        </td>
+                        <td class="nowrap muted">{formatDate(occurredAt)}</td>
+                        <td class="nowrap">
+                          <span class={`status-pill s-${status}`}>
+                            <span class={`status-dot s-${status}`}></span>
+                            {STATUS_LABEL[status]}
+                          </span>
+                        </td>
+                        <td>
+                          <span class="event-cell">
+                            <span class="event-head">
+                              <span class="event-title">{title}</span>
                             </span>
-                          )}
-                        </span>
-                      ) : <span class="muted">—</span>}
-                    </td>
-                  </tr>
-                  <tr class="detail-row" id={`detail-${i}`} style="display:none">
-                    <td colspan="6">
-                      <div class="detail-body">
-                        <div class="detail-section">
-                          <div class="detail-label">Payload</div>
-                          <pre class="payload-json" data-payload-for={eventId}>Loading…</pre>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                </>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <p class="count-note" id="count-note">{events.length} most recent event{events.length === 1 ? '' : 's'}</p>
+                            {!isLegacyType && <code class="ev-badge">{prettyType(eventType)}</code>}
+                          </span>
+                        </td>
+                        <td class="detail-col">{body || '—'}</td>
+                        <td class="nowrap">
+                          {subject ? (
+                            <span class="entity-cell">
+                              {subject.href ? (
+                                <a class="entity-type entity-link" href={subject.href}>{subject.label}</a>
+                              ) : (
+                                <span class="entity-type">{subject.label}</span>
+                              )}
+                              {subject.shortId && <span class="entity-id">{subject.shortId}</span>}
+                              {related && (
+                                <span class="entity-related">
+                                  from{' '}
+                                  {related.href ? <a class="entity-link" href={related.href}>{related.label}</a> : related.label}
+                                </span>
+                              )}
+                            </span>
+                          ) : <span class="muted">—</span>}
+                        </td>
+                      </tr>
+                      <tr class="detail-row" id={`detail-${i}`} style="display:none">
+                        <td colspan="6">
+                          <div class="detail-body">
+                            <div class="detail-section">
+                              <div class="detail-label">Payload</div>
+                              <pre class="payload-json" data-payload-for={eventId}>Loading…</pre>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    </>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p class="count-note" id="count-note">{events.length} most recent event{events.length === 1 ? '' : 's'}</p>
+        </>
+      )}
     </>
   )}
 </AppLayout>
 
 <script>
+  import { updateAuditSettings } from '@/lib/api/auditSettings';
   import { fetchApi } from '@/lib/api/client';
+  import { type AuditEventSetting, excludedSummary, isOverridden, matchesFilter, overrideFor } from '@/lib/auditSettings';
 
   const loaded = new Set<string>();
 
@@ -315,6 +405,80 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
   search?.addEventListener('input', applyFilters);
   wireChips(statusChips, (v) => { activeStatus = v; });
   wireChips(entityChips, (v) => { activeEntity = v; });
+
+  // ---- Audit coverage (admins): a switch per event type, saved one change at a time. The server's answer
+  // (every type's setting) is the truth the rows are set back to; nothing it sends is rendered as HTML.
+  const acRows = Array.from(document.querySelectorAll<HTMLElement>('[data-ac-row]'));
+  const acGroups = Array.from(document.querySelectorAll<HTMLElement>('[data-ac-group]'));
+  const acFilter = document.getElementById('ac-filter') as HTMLInputElement | null;
+  const acStatus = document.getElementById('ac-status');
+  const acSummary = document.getElementById('ac-summary');
+  const acEmpty = document.getElementById('ac-empty');
+
+  function acSay(message: string, ok = true) {
+    if (!acStatus) return;
+    acStatus.textContent = message;
+    acStatus.classList.toggle('is-error', !ok);
+  }
+
+  function acErrorMessage(e: unknown): string {
+    const detail = (e as { body?: { detail?: unknown } } | null)?.body?.detail;
+    if (typeof detail === 'string') return detail;
+    return e instanceof Error ? e.message : 'Something went wrong.';
+  }
+
+  function acApply(settings: AuditEventSetting[]) {
+    const byType = new Map(settings.map((s) => [s.eventType, s]));
+    for (const row of acRows) {
+      const setting = byType.get(row.dataset.eventType ?? '');
+      const box = row.querySelector<HTMLInputElement>('[data-ac-switch]');
+      const reset = row.querySelector<HTMLButtonElement>('[data-ac-reset]');
+      if (!setting || !box) continue;
+      box.checked = setting.audited;
+      box.closest('label')?.setAttribute('title', setting.audited ? 'Recorded' : 'Not recorded');
+      if (reset) reset.hidden = !isOverridden(setting);
+    }
+    if (acSummary) acSummary.textContent = excludedSummary(settings.filter((s) => !s.audited).length);
+  }
+
+  async function acSave(row: HTMLElement, value: boolean | null, label: string) {
+    const eventType = row.dataset.eventType!;
+    const controls = Array.from(row.querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button'));
+    controls.forEach((c) => { c.disabled = true; });
+    try {
+      acApply(await updateAuditSettings({ [eventType]: value }));
+      acSay(label);
+    } catch (e) {
+      const box = row.querySelector<HTMLInputElement>('[data-ac-switch]');
+      if (box && value !== null) box.checked = !value; // put the switch back
+      acSay(acErrorMessage(e), false);
+    } finally {
+      controls.forEach((c) => { c.disabled = false; });
+    }
+  }
+
+  for (const row of acRows) {
+    const name = row.querySelector('.ac-label')?.textContent ?? row.dataset.eventType ?? '';
+    const box = row.querySelector<HTMLInputElement>('[data-ac-switch]');
+    box?.addEventListener('change', () => {
+      const audited = box.checked;
+      acSave(row, overrideFor({ defaultAudited: row.dataset.default === 'true' }, audited), `${name}: ${audited ? 'recorded' : 'not recorded'}.`);
+    });
+    row.querySelector<HTMLButtonElement>('[data-ac-reset]')?.addEventListener('click', () => {
+      acSave(row, null, `${name}: back to the default.`);
+    });
+  }
+
+  acFilter?.addEventListener('input', () => {
+    const query = acFilter.value;
+    let shown = 0;
+    for (const row of acRows) {
+      row.hidden = !matchesFilter(row.dataset.search ?? '', query);
+      if (!row.hidden) shown++;
+    }
+    for (const group of acGroups) group.hidden = !group.querySelector('[data-ac-row]:not([hidden])');
+    if (acEmpty) acEmpty.hidden = shown > 0;
+  });
 </script>
 
 <style>
@@ -560,6 +724,72 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
     color: var(--muted);
   }
   .ac-chip-label { color: var(--ink); }
+  .ac-error { color: var(--color-error); }
+
+  /* Audit coverage, admin view: a switch per event type, grouped by category */
+  .ac-tools { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .ac-filter { flex: 0 1 320px; min-width: 200px; }
+  .ac-status { font-size: 12px; color: var(--muted); }
+  .ac-status.is-error { color: var(--color-error); }
+  .ac-group { margin-top: 14px; }
+  .ac-group[hidden] { display: none; }
+  .ac-group-title {
+    margin: 0 0 6px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--muted);
+  }
+  .ac-rows { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+  .ac-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .ac-row:last-child { border-bottom: 0; }
+  .ac-row[hidden] { display: none; }
+  .ac-name { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
+  .ac-label { color: var(--ink); }
+  .ac-name code { font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+  .ac-state { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .ac-default { font-size: 11px; color: var(--muted); }
+  .ac-lock {
+    padding: 2px 8px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--panel);
+  }
+  .ac-reset {
+    padding: 0;
+    border: 0;
+    background: none;
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .ac-reset:hover { text-decoration: underline; }
+  .switch { position: relative; display: inline-block; width: 38px; height: 22px; flex-shrink: 0; }
+  .switch input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+  .switch .track { position: absolute; inset: 0; background: var(--line); border-radius: 999px; transition: 0.2s; pointer-events: none; }
+  .switch .track::before { content: ""; position: absolute; height: 16px; width: 16px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: 0.2s; }
+  .switch input:checked + .track { background: var(--accent); }
+  .switch input:checked + .track::before { transform: translateX(16px); }
+  .switch input:focus-visible + .track { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .switch input:disabled + .track { opacity: 0.5; }
+
+  @media (max-width: 640px) {
+    .ac-body { padding: 0 12px 12px; }
+    .ac-row { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .ac-state { flex-wrap: wrap; }
+    .ac-filter { flex: 1 1 100%; }
+  }
 
   .entity-cell { display: flex; flex-direction: column; gap: 1px; }
   .entity-type { font-size: 13px; color: var(--ink); }
