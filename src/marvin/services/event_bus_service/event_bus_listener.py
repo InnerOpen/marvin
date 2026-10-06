@@ -941,6 +941,8 @@ class SiteRebuildReactionListener(EventListenerBase):
     TITLE_FIELDS = ("entry_title", "collection_name", "resource_name", "name")
     # EventBusMessage stores an empty body as the "generic" placeholder — not a description.
     EMPTY_BODY = "generic"
+    # Workspace settings no site renders: a settings change touching only these queues no rebuild.
+    UNSEEN_SETTINGS = frozenset({"audit_overrides"})
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher
@@ -997,6 +999,9 @@ class SiteRebuildReactionListener(EventListenerBase):
             return self._collection_visible(session, event)
         if event.event_type == EventTypes.entry_deleted:
             return self._deleted_entry_visible(session, event)
+        if event.event_type == EventTypes.workspace_settings_changed:
+            changed = getattr(event.document_data, "changed_fields", None)
+            return not changed or not set(changed) <= self.UNSEEN_SETTINGS
         if event.event_type in self.ALWAYS_EVENTS:
             return True
         return self._entry_visible(session, event)

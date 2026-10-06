@@ -113,6 +113,14 @@ def test_site_settings_and_shared_media_always_count(db_session, site):
     assert _queued(db_session, site.gid) == 3
 
 
+def test_an_audit_settings_change_does_not_queue_a_rebuild(db_session, site):
+    """Which event types the Event Log records is no part of any site."""
+    _fire(site.gid, _event(EventTypes.workspace_settings_changed, changed_fields=["audit_overrides"]))
+    assert _queued(db_session, site.gid) == 0
+    _fire(site.gid, _event(EventTypes.workspace_settings_changed, changed_fields=["audit_overrides", "site_title"]))
+    assert _queued(db_session, site.gid) == 1
+
+
 def test_unrelated_events_are_ignored(db_session, site):
     _fire(site.gid, _event(EventTypes.entry_created, site.live))  # published only when it says so
     _fire(site.gid, _event(EventTypes.webhook_triggered))  # the rebuild itself must never loop
