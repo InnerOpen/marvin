@@ -262,6 +262,8 @@ class IntegrationsController(BaseUserController):
             action=row.action,
             args=row.args,
             enabled=row.enabled,
+            source_integration_id=row.source_integration_id,
+            source_blueprint=row.source_blueprint,
         )
 
     @router.get("/subscriptions", response_model=list[IntegrationEventSubscriptionRead])

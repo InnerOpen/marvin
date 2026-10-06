@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
 from .._model_utils.guid import GUID
+from .._model_utils.installed_by import InstalledByMixin
 
 if TYPE_CHECKING:
     from .assets import Assets
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     from .resources import Resources
 
 
-class Collections(SqlAlchemyBase, BaseMixins):
+class Collections(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     """
     SQLAlchemy model representing a collection.
 

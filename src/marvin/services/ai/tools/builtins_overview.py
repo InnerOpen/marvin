@@ -151,7 +151,7 @@ def workspace_structure(s, g, *, settings: bool = True) -> dict:
     servers = s.query(WorkspaceMcpServerModel).filter_by(group_id=g).order_by(WorkspaceMcpServerModel.name).all()
     integrations = s.query(IntegrationModel).filter_by(group_id=g).order_by(IntegrationModel.name).all()
     return {
-        "workflows": _named(workflows, extra=lambda a: {"trigger": ((a.definition or {}).get("trigger") or {}).get("type")}),
+        "workflows": _named(workflows, extra=lambda a: {"trigger": a.trigger_type}),
         "scheduledTasks": _named(tasks, extra=lambda t: {"schedule": t.schedule_type}),
         "incomingWebhooks": _named(incoming),
         "outgoingWebhooks": _named(outgoing, slug_attr=None),

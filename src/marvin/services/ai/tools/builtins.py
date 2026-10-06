@@ -741,8 +741,7 @@ def get_asset(ctx: ToolContext, args: dict) -> str:
 
 
 def _workflow_ref(auto) -> dict:
-    trigger = ((auto.definition or {}).get("trigger") or {}).get("type")
-    return {"name": auto.name, "slug": auto.slug, "enabled": bool(auto.enabled), "trigger": trigger}
+    return {"name": auto.name, "slug": auto.slug, "enabled": bool(auto.enabled), "trigger": auto.trigger_type}
 
 
 def _find_workflow(session, group_id, ref: str):

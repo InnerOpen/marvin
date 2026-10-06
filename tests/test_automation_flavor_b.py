@@ -19,6 +19,7 @@ from marvin.services.automation import engine, matcher
 from marvin.services.automation.runner import AutomationActionError
 from marvin.services.event_bus_service.event_bus_listener import AutomationReactionListener
 from marvin.services.event_bus_service.event_types import EventTypes
+from tests.workflow_fakes import fake_workflow
 
 
 # ── Matcher: interpolation ────────────────────────────────────────────────────
@@ -220,7 +221,7 @@ class _FakeSession:
 
 
 def _automation(slug="auto", trigger="entry_published", conditions=None, actions=None):
-    return SimpleNamespace(
+    return fake_workflow(
         slug=slug,
         enabled=True,
         group_id=uuid4(),
@@ -513,7 +514,7 @@ class TestActionRoleGates:
         executed = []
         monkeypatch.setattr(TaskHandlerRegistry, "get_handler", staticmethod(lambda _t: SimpleNamespace(execute=lambda *a: executed.append(1))))
 
-        auto = SimpleNamespace(
+        auto = fake_workflow(
             slug="a",
             created_by=uuid4(),
             definition={
@@ -842,7 +843,7 @@ class TestDryRun:
 
         executed = []
         monkeypatch.setattr(TaskHandlerRegistry, "get_handler", staticmethod(lambda _t: SimpleNamespace(execute=lambda *a: executed.append(1))))
-        auto = SimpleNamespace(
+        auto = fake_workflow(
             slug="a",
             created_by=None,
             definition={
@@ -921,7 +922,7 @@ class TestIncomingWebhookTrigger:
 
     def test_engine_runs_webhook_automation_with_payload_condition(self):
         # An incoming_webhook automation gated on a nested payload field, run through the engine.
-        auto = SimpleNamespace(
+        auto = fake_workflow(
             slug="on-paid",
             enabled=True,
             group_id="G",
@@ -938,7 +939,7 @@ class TestIncomingWebhookTrigger:
         assert len(runner.calls) == 1
 
     def test_engine_skips_when_payload_condition_fails(self):
-        auto = SimpleNamespace(
+        auto = fake_workflow(
             slug="on-paid",
             enabled=True,
             group_id="G",
@@ -955,7 +956,7 @@ class TestIncomingWebhookTrigger:
         assert runner.calls == []
 
     def test_fan_out_two_automations_same_webhook(self):
-        mk = lambda slug: SimpleNamespace(  # noqa: E731
+        mk = lambda slug: fake_workflow(  # noqa: E731
             slug=slug,
             enabled=True,
             group_id="G",
@@ -1597,7 +1598,7 @@ class TestTargetSelector:
         ]
 
     def _auto(self, conditions=None):
-        return SimpleNamespace(
+        return fake_workflow(
             slug="tag-all",
             enabled=True,
             group_id="G",
@@ -1667,7 +1668,7 @@ class TestExecutionRecording:
             SimpleNamespace(id=uuid4(), entry_type=SimpleNamespace(slug="recipe"), status="draft", title="B", slug="b"),
         ]
         monkeypatch.setattr(selector, "resolve_target_entities", lambda *a, **k: (ents, 5))  # 5 matched, 2 returned (cap)
-        auto = SimpleNamespace(
+        auto = fake_workflow(
             slug="tag-all",
             enabled=True,
             group_id="G",
@@ -1693,7 +1694,7 @@ class TestExecutionRecording:
         from marvin.services.automation import engine
         from marvin.services.automation.runner import AutomationActionError
 
-        auto = SimpleNamespace(
+        auto = fake_workflow(
             slug="boom",
             enabled=True,
             group_id="G",
@@ -1715,7 +1716,7 @@ class TestExecutionRecording:
     def test_no_target_manual_run_records_once(self):
         from marvin.services.automation import engine
 
-        auto = SimpleNamespace(
+        auto = fake_workflow(
             slug="simple",
             enabled=True,
             group_id="G",
@@ -1763,7 +1764,7 @@ class _IdRecorder(_SpyRecorder):
 
 
 def _workflow(definition: dict):
-    return SimpleNamespace(id=uuid4(), slug="tag-all", name="Tag all", enabled=True, group_id=uuid4(), definition=definition)
+    return fake_workflow(id=uuid4(), slug="tag-all", name="Tag all", enabled=True, group_id=uuid4(), definition=definition)
 
 
 def _names(dispatched) -> list[str]:
@@ -1867,7 +1868,7 @@ class TestCorrelationId:
         assert spy.started and spy.started[0]["correlation_id"] == "chain-42"
 
     def test_manual_run_mints_a_correlation_id(self):
-        auto = SimpleNamespace(
+        auto = fake_workflow(
             slug="m",
             created_by=None,
             enabled=True,

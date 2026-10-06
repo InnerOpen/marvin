@@ -20,5 +20,6 @@ from .reports import *
 from .secrets import *
 from .smtp_profiles import *
 from .variables import *
+from .webhook_event_subscriptions import *
 from .webhook_execution_logs import *
 from .webhooks import *

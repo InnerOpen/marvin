@@ -26,6 +26,7 @@ from .._model_utils.httpurl import HttpUrlType
 
 if TYPE_CHECKING:
     from .groups import Groups
+    from .webhook_event_subscriptions import WebhookEventSubscriptionModel
 
 
 class Method(enum.Enum):
@@ -75,10 +76,14 @@ class GroupWebhooksModel(SqlAlchemyBase, BaseMixins):
         nullable=True,
         doc="Scheduled datetime (UTC) for the webhook to run. None for event_driven webhooks.",
     )
-    subscribed_events: Mapped[list[str] | None] = mapped_column(
-        sa.JSON,
-        nullable=True,
-        doc="Event types this webhook subscribes to for event_driven mode.",
+    # Event types this webhook subscribes to (acted on in event_driven mode) — one row each in
+    # webhook_event_subscriptions. Read and written as the `subscribed_events` list below.
+    event_subscriptions: Mapped[list["WebhookEventSubscriptionModel"]] = orm.relationship(
+        "WebhookEventSubscriptionModel",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+        lazy="selectin",
+        order_by="WebhookEventSubscriptionModel.event_type",
     )
     headers_json: Mapped[dict | None] = mapped_column(
         sa.JSON,
@@ -103,7 +108,21 @@ class GroupWebhooksModel(SqlAlchemyBase, BaseMixins):
             session (Session): The SQLAlchemy session, required by `auto_init`.
             **kwargs: Attributes for the model, such as `name`, `url`, `method`, etc.
         """
-        # All initialization is handled by auto_init based on kwargs.
-        # Example:
-        # webhook = GroupWebhooksModel(session=db_session, name="My Webhook", url="http://example.com/hook", group_id=group.id)
-        pass  # Ellipsis (...) is a valid placeholder in Python, but pass is more conventional for empty blocks.
+        # auto_init sets the mapped columns; `subscribed_events` is a property over a relationship.
+        if "subscribed_events" in kwargs:
+            self.subscribed_events = kwargs["subscribed_events"]
+
+    @property
+    def subscribed_events(self) -> list[str]:
+        """The subscribed event types, sorted (a set — order and duplicates never meant anything)."""
+        return [sub.event_type for sub in self.event_subscriptions]
+
+    @subscribed_events.setter
+    def subscribed_events(self, value: list[str] | None) -> None:
+        """Replace the subscriptions with `value`. Rows for events that stay are kept (not deleted and
+        re-inserted, which would trip the unique (webhook_id, event_type) constraint in one flush)."""
+        from .webhook_event_subscriptions import WebhookEventSubscriptionModel
+
+        wanted = list(dict.fromkeys(e for e in (value or []) if e))
+        kept = {sub.event_type: sub for sub in self.event_subscriptions if sub.event_type in wanted}
+        self.event_subscriptions = [kept.get(e) or WebhookEventSubscriptionModel(event_type=e) for e in sorted(wanted)]

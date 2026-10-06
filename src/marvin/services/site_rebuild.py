@@ -78,14 +78,21 @@ def deploy_targets(session: Session, group_id: UUID) -> list[DeployTarget]:
     """
     from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
     from marvin.db.models.groups.integrations import IntegrationModel
+    from marvin.db.models.groups.webhook_event_subscriptions import WebhookEventSubscriptionModel
     from marvin.db.models.groups.webhooks import GroupWebhooksModel
+    from marvin.services.event_bus_service.event_types import WebhookMode
 
-    hooks = session.execute(select(GroupWebhooksModel).where(GroupWebhooksModel.group_id == group_id, GroupWebhooksModel.enabled.is_(True))).scalars()
-    targets = {
-        hook.id: DeployTarget("webhook", hook.id, hook.name)
-        for hook in hooks
-        if REBUILD_EVENT in (hook.subscribed_events or []) and getattr(hook.webhook_type, "value", None) == "event_driven"
-    }
+    hooks = session.execute(
+        select(GroupWebhooksModel.id, GroupWebhooksModel.name)
+        .join(WebhookEventSubscriptionModel, WebhookEventSubscriptionModel.webhook_id == GroupWebhooksModel.id)
+        .where(
+            GroupWebhooksModel.group_id == group_id,
+            GroupWebhooksModel.enabled.is_(True),
+            GroupWebhooksModel.webhook_type == WebhookMode.event_driven,
+            WebhookEventSubscriptionModel.event_type == REBUILD_EVENT,
+        )
+    ).all()
+    targets = {hook_id: DeployTarget("webhook", hook_id, name) for hook_id, name in hooks}
     subscribed = session.execute(
         select(IntegrationModel, IntegrationEventSubscriptionModel.action)
         .join(IntegrationModel, IntegrationModel.id == IntegrationEventSubscriptionModel.integration_id)

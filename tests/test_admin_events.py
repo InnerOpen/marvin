@@ -20,6 +20,7 @@ from marvin.app import app
 from marvin.core.dependencies import get_current_user
 from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
 from marvin.services.events.event_catalog import _PLATFORM_SCOPE, CATALOG, PLATFORM_EVENT_TYPES, get_catalog_entry, is_platform_event
+from tests.workflow_fakes import fake_workflow
 
 EVENTS = "/api/platform/events"
 ADMIN_EVENTS = "/api/admin/events"
@@ -256,7 +257,7 @@ def test_workflow_dry_run_samples_leave_platform_events_out(db_session, world):
     from marvin.services.automation import samples
 
     def automation(event):
-        return SimpleNamespace(definition={"trigger": {"type": "event", "event": event}})
+        return fake_workflow(definition={"trigger": {"type": "event", "event": event}})
 
     assert samples.list_samples(db_session, world.ga, automation("workspace_created")) == []
     assert samples.default_sample(db_session, world.ga, automation("workspace_created")) is None

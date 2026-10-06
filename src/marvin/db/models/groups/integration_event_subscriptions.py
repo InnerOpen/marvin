@@ -14,13 +14,14 @@ from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
 from .._model_utils.guid import GUID
+from .._model_utils.installed_by import InstalledByMixin
 
 if TYPE_CHECKING:
     from .groups import Groups
     from .integrations import IntegrationModel
 
 
-class IntegrationEventSubscriptionModel(SqlAlchemyBase, BaseMixins):
+class IntegrationEventSubscriptionModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     """Binds an integration action to an event type."""
 
     __tablename__ = "integration_event_subscriptions"
@@ -30,7 +31,7 @@ class IntegrationEventSubscriptionModel(SqlAlchemyBase, BaseMixins):
     group: Mapped[Optional["Groups"]] = relationship("Groups", back_populates="integration_event_subscriptions", single_parent=True)
 
     integration_id: Mapped[GUID] = mapped_column(GUID, ForeignKey("integrations.id", ondelete="CASCADE"), nullable=False, index=True)
-    integration: Mapped[Optional["IntegrationModel"]] = relationship("IntegrationModel")
+    integration: Mapped[Optional["IntegrationModel"]] = relationship("IntegrationModel", foreign_keys=[integration_id])
 
     event_type: Mapped[str] = mapped_column(String, nullable=False, index=True)
     """The event name this connection fires on (e.g. 'entry-published')."""

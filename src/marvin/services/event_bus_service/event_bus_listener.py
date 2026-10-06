@@ -43,6 +43,7 @@ from .event_types import (  # Core event system types
     EventOperation,
     EventTypes,
     EventWebhookData,
+    WebhookMode,
     event_entity,
 )
 from .publisher import PublisherLike, WebhookPublisher  # Publisher implementations
@@ -257,25 +258,23 @@ class WebhookEventListener(EventListenerBase):
             return scheduled
 
         # Event-driven: find webhooks subscribed to this event type
+        from marvin.db.models.groups.webhook_event_subscriptions import WebhookEventSubscriptionModel
+
         with self.ensure_session() as session:
-            db_webhooks = (
+            filtered = (
                 session.execute(
-                    select(GroupWebhooksModel).where(
+                    select(GroupWebhooksModel)
+                    .join(WebhookEventSubscriptionModel, WebhookEventSubscriptionModel.webhook_id == GroupWebhooksModel.id)
+                    .where(
                         GroupWebhooksModel.enabled == True,  # noqa: E712
                         GroupWebhooksModel.group_id == self.group_id,
+                        GroupWebhooksModel.webhook_type == WebhookMode.event_driven,
+                        WebhookEventSubscriptionModel.event_type == event.event_type.name,
                     )
                 )
                 .scalars()
                 .all()
             )
-
-            filtered = [
-                wh
-                for wh in db_webhooks
-                if wh.subscribed_events
-                and event.event_type.name in wh.subscribed_events
-                and getattr(wh.webhook_type, "value", None) == "event_driven"
-            ]
 
             if filtered:
                 self.logger.info(

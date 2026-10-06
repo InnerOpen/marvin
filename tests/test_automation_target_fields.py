@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 from pytest import fixture
 
+from tests.workflow_fakes import fake_workflow
+
 
 class _Session:
     """get() returns the entry with that id, like session.get(Entries, id)."""
@@ -51,7 +53,7 @@ def test_target_rows_are_matched_on_their_fields(monkeypatch):
         seen.append((context["entry"]["slug"], context["entry"]["data"].get("price")))
         return {}
 
-    auto = SimpleNamespace(
+    auto = fake_workflow(
         slug="sell-online",
         enabled=True,
         group_id="G",

@@ -27,6 +27,7 @@ from marvin.services.event_bus_service.event_types import (
     EventWorkspaceData,
     event_entity,
 )
+from tests.workflow_fakes import fake_workflow
 
 
 @pytest.fixture
@@ -64,7 +65,7 @@ class _Session:
         rows = self._automations
         return SimpleNamespace(
             filter_by=lambda **kw: SimpleNamespace(all=lambda: rows),
-            filter=lambda *_: SimpleNamespace(scalar=lambda: None),
+            filter=lambda *_: SimpleNamespace(scalar=lambda: None, all=lambda: rows),
         )
 
     def get(self, model, _id):
@@ -72,7 +73,7 @@ class _Session:
 
 
 def _workflow(actions, trigger=None):
-    return SimpleNamespace(
+    return fake_workflow(
         id=uuid.uuid4(),
         slug="send-issue-to-buttondown",
         name="Send issue to Buttondown",

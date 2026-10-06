@@ -114,6 +114,10 @@ class CollectionRead(CollectionSummary):
     """Optional rules for smart collections."""
     metadata_json: dict | None = None
     """Custom metadata for this collection."""
+    source_integration_id: UUID4 | None = None
+    """Read-only "installed by": the integration whose blueprint created this (null: made by a person)."""
+    source_blueprint: str | None = None
+    """Read-only: the slug of the blueprint that created this, if one did."""
 
     model_config = ConfigDict(from_attributes=True)
 

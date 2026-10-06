@@ -37,6 +37,10 @@ class AutomationRead(_MarvinModel):
     enabled: bool
     definition: dict = {}
     created_by: UUID4 | None = None
+    source_integration_id: UUID4 | None = None
+    """Read-only "installed by": the integration whose blueprint created this (null: made by a person)."""
+    source_blueprint: str | None = None
+    """Read-only: the slug of the blueprint that created this, if one did."""
 
     model_config = ConfigDict(from_attributes=True)
 

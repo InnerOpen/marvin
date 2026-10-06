@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from pytest import fixture
 
 from marvin.services.entry_urls import best_entry_url, entry_url, normalize_page_url_pattern, normalize_site_url, site_base_url
+from tests.workflow_fakes import fake_workflow
 
 SITE = "https://gallery.example.com"
 ENTRY_ID = uuid.UUID("11111111-2222-3333-4444-555555555555")
@@ -394,7 +395,7 @@ def test_a_manual_workflow_run_sees_the_site_url():
         seen.append(context["site"]["url"])
         return {}
 
-    auto = SimpleNamespace(
+    auto = fake_workflow(
         slug="site-url",
         enabled=True,
         group_id="G",

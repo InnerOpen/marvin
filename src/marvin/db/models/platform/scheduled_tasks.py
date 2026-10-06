@@ -15,9 +15,10 @@ from marvin.db.models import BaseMixins, SqlAlchemyBase
 
 from .._model_utils.auto_init import auto_init
 from .._model_utils.guid import GUID
+from .._model_utils.installed_by import InstalledByMixin
 
 
-class ScheduledTaskModel(SqlAlchemyBase, BaseMixins):
+class ScheduledTaskModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     """
     Scheduled task model for platform automation.
 

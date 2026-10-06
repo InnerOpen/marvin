@@ -34,9 +34,6 @@ ENTRY_SAMPLE_EVENTS: dict[str, str | None] = {
     "entry_restored": None,
 }
 
-# The event each event-driven trigger type fires on (manual / schedule / mcp have none).
-_TRIGGER_EVENTS = {"incoming_webhook": "incoming_webhook", "chained": "automation_ran", "on_error": "automation_failed"}
-
 
 class SampleNotFound(LookupError):
     """The requested entry or event isn't in this workspace."""
@@ -71,11 +68,7 @@ class Sample:
 
 def trigger_event(automation) -> str | None:
     """The event type that fires this automation's trigger, or None when nothing event-driven does."""
-    trig = (automation.definition or {}).get("trigger") or {}
-    ttype = trig.get("type", "event")
-    if ttype == "event":
-        return trig.get("event") or None
-    return _TRIGGER_EVENTS.get(ttype)
+    return automation.trigger_event or None
 
 
 def list_samples(session, group_id, automation, *, user_id=None, limit: int = 10) -> list[Sample]:
@@ -129,7 +122,7 @@ def _evaluated(session, group_id, automation, sample: Sample) -> Sample:
 
 
 def _fires(automation, sample: Sample) -> bool:
-    return _trigger_matches((automation.definition or {}).get("trigger") or {}, sample.event_ctx)
+    return _trigger_matches(automation.trigger or {}, sample.event_ctx)
 
 
 def _log_query(session, group_id, event_type):

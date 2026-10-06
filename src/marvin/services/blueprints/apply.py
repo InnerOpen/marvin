@@ -13,6 +13,7 @@ import re
 from marvin.core.root_logger import get_logger
 from marvin.schemas.platform.blueprints import (
     ACTS_WHEN_ENABLED_KINDS,
+    CORE_SOURCE,
     PER_INTEGRATION_KINDS,
     Blueprint,
     BlueprintApplyResult,
@@ -47,6 +48,27 @@ def resolve_integration_id(session, group_id, blueprint: Blueprint, integration_
     if not rows:
         raise BlueprintParameterError(f"no '{blueprint.source}' integration in this workspace to connect")
     raise BlueprintParameterError(f"this workspace has {len(rows)} '{blueprint.source}' integrations — say which one")
+
+
+def installed_by(session, group_id, blueprint: Blueprint, integration_id=None) -> dict:
+    """The "installed by" columns for every row this blueprint creates — the one place they're set.
+
+    ``source_blueprint`` is the blueprint's slug. ``source_integration_id`` is the provider's
+    connection in this workspace: the one the card passed (when it is this provider's), else the only
+    one of that provider. None for a core blueprint, or when it can't be told — a wrong "installed by"
+    is worse than none, since uninstalling may one day act on it.
+    """
+    source = None
+    if blueprint.source != CORE_SOURCE:
+        from marvin.db.models.groups.integrations import IntegrationModel
+
+        chosen = session.get(IntegrationModel, integration_id) if integration_id else None
+        if chosen is not None and str(chosen.group_id) == str(group_id) and chosen.provider == blueprint.source:
+            source = chosen.id
+        else:
+            rows = session.query(IntegrationModel.id).filter_by(group_id=group_id, provider=blueprint.source).limit(2).all()
+            source = rows[0][0] if len(rows) == 1 else None
+    return {"source_integration_id": source, "source_blueprint": blueprint.slug}
 
 
 def resolve_parameters(session, group_id, blueprint: Blueprint, params: dict | None) -> dict:
@@ -184,7 +206,8 @@ def apply_blueprint(session, group_id, blueprint: Blueprint, params: dict | None
         return result
 
     try:
-        result.detail = _create(session, group_id, blueprint, resolved, slug, name, target, actor_id) or ""
+        provenance = installed_by(session, group_id, blueprint, target or integration_id)
+        result.detail = _create(session, group_id, blueprint, resolved, slug, name, target, actor_id, provenance) or ""
     except BlueprintParameterError as e:
         result.detail = str(e)
         return result
@@ -257,8 +280,12 @@ def _existing(session, group_id, blueprint: Blueprint, slug: str, integration_id
     return session.query(model).filter_by(group_id=group_id, slug=slug).first()
 
 
-def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, name: str, integration_id=None, actor_id=None) -> str | None:
-    """Create the object. Returns an optional note for the result (what fields were added)."""
+def _create(
+    session, group_id, blueprint: Blueprint, params: dict, slug: str, name: str, integration_id=None, actor_id=None, provenance: dict | None = None
+) -> str | None:
+    """Create the object, stamped with `provenance` (see `installed_by`). Returns an optional note for
+    the result (what fields were added)."""
+    provenance = provenance or {}
     payload = substitute(blueprint.payload, params)
 
     if blueprint.kind == "entry_fields":
@@ -282,6 +309,7 @@ def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, na
                 action=payload.get("action"),
                 args=payload.get("args") or {},
                 enabled=False,
+                **provenance,
             )
         )
         session.flush()
@@ -293,10 +321,15 @@ def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, na
     if blueprint.kind == "scheduled_task":
         # Through the repository: it computes next_run_at, which a raw insert would leave null and
         # the scheduler would then never pick the task up.
+        from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
         from marvin.repos.repository_factory import AllRepositories
         from marvin.schemas.platform.scheduled_tasks import ScheduledTaskCreate
 
-        AllRepositories(session, group_id=group_id).scheduled_tasks.create(ScheduledTaskCreate(**payload))
+        created = AllRepositories(session, group_id=group_id).scheduled_tasks.create(ScheduledTaskCreate(**payload))
+        task = session.get(ScheduledTaskModel, created.id)
+        for column, value in provenance.items():  # not part of the API's create schema
+            setattr(task, column, value)
+        session.flush()
         return
 
     if blueprint.kind == "incoming_webhook":
@@ -306,7 +339,13 @@ def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, na
         allowed = ("name", "description", "signature_scheme", "signature_header", "signing_secret_ref", "signature_url", "signature_config")
         session.add(
             WorkspaceIncomingWebhookModel(
-                session=session, group_id=group_id, enabled=False, token=None, slug=slug, **{k: payload[k] for k in allowed if k in payload}
+                session=session,
+                group_id=group_id,
+                enabled=False,
+                token=None,
+                slug=slug,
+                **{k: payload[k] for k in allowed if k in payload},
+                **provenance,
             )
         )
         session.flush()
@@ -329,6 +368,7 @@ def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, na
                 enabled=False,
                 definition=definition,
                 created_by=actor_id,
+                **provenance,
             )
         )
         session.flush()
@@ -338,7 +378,7 @@ def _create(session, group_id, blueprint: Blueprint, params: dict, slug: str, na
         from marvin.db.models.platform.collections import Collections
         from marvin.services.collections.smart_collections import sync_collection
 
-        collection = Collections(session=session, group_id=group_id, **payload)
+        collection = Collections(session=session, group_id=group_id, **{**payload, **provenance})
         session.add(collection)
         session.flush()
         # Materialize membership now: a smart collection that sits empty until the next entry

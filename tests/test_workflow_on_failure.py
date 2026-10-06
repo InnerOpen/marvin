@@ -18,6 +18,7 @@ from marvin.services.automation.authz import ROLE_ADMIN
 from marvin.services.automation.matcher import interpolate
 from marvin.services.automation.recorder import CollectingRecorder
 from marvin.services.automation.validation import structural_issues, validate_definition
+from tests.workflow_fakes import fake_workflow
 
 SUBSCRIBE = {"kind": "integration", "id": "subscribe", "integration": "buttondown", "action": "subscribe"}
 REMEMBER = {"kind": "entry", "op": "set_metadata", "metadata": {"subscriber": "${steps.subscribe.output.id}"}}
@@ -71,7 +72,7 @@ def _workflow(actions, on_failure=None):
     definition = {"trigger": {"type": "manual"}, "conditions": [], "actions": actions}
     if on_failure is not None:
         definition["on_failure"] = on_failure
-    return SimpleNamespace(id=uuid.uuid4(), slug="subscribe-on-signup", name="Subscribe", enabled=True, group_id="G", definition=definition)
+    return fake_workflow(id=uuid.uuid4(), slug="subscribe-on-signup", name="Subscribe", enabled=True, group_id="G", definition=definition)
 
 
 def _runner(*, fail: dict[str, AutomationActionError]):

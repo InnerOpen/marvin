@@ -21,12 +21,13 @@ from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
 from .._model_utils.datetime import DateTime
 from .._model_utils.guid import GUID
+from .._model_utils.installed_by import InstalledByMixin
 
 if TYPE_CHECKING:
     from .groups import Groups
 
 
-class WorkspaceIncomingWebhookModel(SqlAlchemyBase, BaseMixins):
+class WorkspaceIncomingWebhookModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     """A tokened ingress endpoint. A POST to its URL emits an `incoming_webhook` event.
 
     Deny-by-default: an incoming webhook only accepts requests when `enabled` is true AND a `token`

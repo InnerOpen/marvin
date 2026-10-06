@@ -416,7 +416,7 @@ class AutomationsController(BaseUserController):
         trigger.type="schedule" → upsert a task (`schedule_type`/`schedule_config` from the trigger,
         e.g. interval_seconds); any other trigger type → remove the backing task if one exists.
         """
-        trig = (automation.definition or {}).get("trigger") or {}
+        trig = automation.trigger or {}
         existing = self._find_schedule_task(automation.id)
 
         if trig.get("type") != "schedule":

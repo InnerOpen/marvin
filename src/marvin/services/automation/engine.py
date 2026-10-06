@@ -170,7 +170,20 @@ def run_automations_for_event(
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
 
     recorder = recorder or NullRecorder()
-    automations = session.query(WorkspaceAutomationModel).filter_by(group_id=group_id, enabled=True).all()
+    # Only the workflows listening to this event (`trigger_event`); `_trigger_matches` below still
+    # decides the rest (an incoming-webhook slug, a chained/on-error target).
+    event_type = event_ctx.get("event_type")
+    automations = (
+        session.query(WorkspaceAutomationModel)
+        .filter(
+            WorkspaceAutomationModel.group_id == group_id,
+            WorkspaceAutomationModel.enabled.is_(True),
+            WorkspaceAutomationModel.trigger_event == event_type,
+        )
+        .all()
+        if event_type
+        else []
+    )
     if not automations:
         return 0
 
@@ -186,8 +199,7 @@ def run_automations_for_event(
         for automation in automations:
             if _run_key(automation) in running:
                 continue  # the event comes from this automation's own run (or a reaction to it)
-            defn = automation.definition or {}
-            trig = defn.get("trigger") or {}
+            trig = automation.trigger or {}
             if not _trigger_matches(trig, event_ctx):
                 continue
             with _running_scope(automation):
@@ -247,7 +259,7 @@ def _run_targets(
     defn = automation.definition or {}
     conditions = defn.get("conditions")
     target = defn.get("target")
-    trigger_type = (defn.get("trigger") or {}).get("type", "event")
+    trigger_type = automation.trigger_type or "event"
 
     if target:
         from .selector import entity_ref, resolve_target_entities
@@ -740,7 +752,7 @@ def dry_run_for_event(
     Executes nothing, records nothing, fires no events.
     """
     defn = automation.definition or {}
-    trig = defn.get("trigger") or {}
+    trig = automation.trigger or {}
     conditions = defn.get("conditions")
     has_target = bool(defn.get("target"))
     context = match_context(session, group_id, event_ctx)
@@ -832,7 +844,7 @@ def run_retry(
         errors.finish_retry(session, row, "superseded", "the entry no longer matches the workflow's conditions")
         return "superseded"
 
-    trigger_type = (defn.get("trigger") or {}).get("type", "event")
+    trigger_type = automation.trigger_type or "event"
     user_id = event.get("user_id")
     step_log: list[dict] = []
     context["_step_log"] = step_log
