@@ -6,6 +6,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.201 (2026-10-06)
+
+### Bug Fixes
+
+- **events**: An audit settings change doesn't queue a site rebuild
+  ([`caae4a1`](https://github.com/InnerOpen/marvin/commit/caae4a1084a38a45e349951befe09ec762587119))
+
+### Documentation
+
+- Event Log audit coverage (manual + what's new)
+  ([`0e2c0da`](https://github.com/InnerOpen/marvin/commit/0e2c0da1c094f1b311d315dfcc8e427f68fe418c))
+
+### Features
+
+- **events**: Per-workspace audit toggles for the Event Log
+  ([`91ede63`](https://github.com/InnerOpen/marvin/commit/91ede63567b6b00768bf20cbbd676b3fad86da66))
+
+- **frontend**: Event Log audit coverage reads and edits the API
+  ([`7e10b7d`](https://github.com/InnerOpen/marvin/commit/7e10b7d73a2037c0507432129404667ef45dc703))
+
+
 ## v1.0.0-rc.200 (2026-10-06)
 
 ### Bug Fixes
