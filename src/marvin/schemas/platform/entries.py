@@ -256,10 +256,13 @@ class EntryRead(_MarvinModel):
         if "tags" in cls.model_fields:
             data["tags"] = list(getattr(obj, "tag_names", None) or [])
 
-        if hasattr(obj, "collections") and obj.collections:
-            if obj.collections and hasattr(obj.collections[0], "id"):
-                data["collections"] = [c.id for c in obj.collections]
-
+        # Collections come from the junction rows only (they carry the placement fields). The plain
+        # `collections` relationship can be loaded later than `entry_collections` and disagree with it —
+        # e.g. after the smart-collection listener commits a membership in its own session — so it
+        # must never feed this field. (An object without junction rows — an EntryRead being re-validated —
+        # keeps the summaries it already has.)
+        if hasattr(obj, "entry_collections"):
+            data["collections"] = []
         if hasattr(obj, "entry_collections") and obj.entry_collections:
             from marvin.schemas.platform.collections import EntryCollectionRead
 
