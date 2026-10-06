@@ -6,6 +6,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.206 (2026-10-06)
+
+### Documentation
+
+- Platform events aren't offered on the workspace side
+  ([`5c72319`](https://github.com/InnerOpen/marvin/commit/5c72319c8ded3ec10eae663506d00d463b262620))
+
+- The Events page's Sent by / What happens / Recent (manual + what's new)
+  ([`ccc4973`](https://github.com/InnerOpen/marvin/commit/ccc497374ce894bf59f12d17288f67cead144828))
+
+- **tasks**: Events hub slice 4 review
+  ([`0edbb8f`](https://github.com/InnerOpen/marvin/commit/0edbb8fa03655b8c18780793d9087e458ec67b9a))
+
+- **tasks**: Events hub slice 4 review — platform events hidden
+  ([`2a4846c`](https://github.com/InnerOpen/marvin/commit/2a4846cf26d72e7b4f0a32f729eba9bec7d0089c))
+
+### Features
+
+- **events**: Event page shows what sends it, what happens and when
+  ([`76bf30c`](https://github.com/InnerOpen/marvin/commit/76bf30ce28f712cf05f41614f3de0d86032f4a88))
+
+- **events**: The workspace side leaves platform events out
+  ([`26672d8`](https://github.com/InnerOpen/marvin/commit/26672d8b134939568c58bdaeb10557ebb86901cd))
+
+
 ## v1.0.0-rc.205 (2026-10-06)
 
 ### Documentation
