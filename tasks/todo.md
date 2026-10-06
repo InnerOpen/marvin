@@ -1373,6 +1373,9 @@ redact `reset_url` from stored password-reset payloads.
 
 # Events hub — see what sends an event and what reacts to it (plan, 2026-10-06)
 
+**Status:** plan reviewed by Jared 2026-10-06 ("everything else looks fine"), with "installed by" widened to every
+blueprint-created row. Slice 5 (cleanup) still waits on his picks.
+
 **Goal (Jared 2026-10-06):** events are a central feature, so each event should show its whole story in one place —
 what sends it, everything that reacts to it (however it was connected), and when it last happened. Today the Events
 catalog only knows about three kinds of connection, so integrations look disconnected even when they're not. And the
@@ -1420,9 +1423,13 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
   `definition.trigger` (assembled by the schema), so the builder, SDK and blueprints don't change. Backfill parses
   every existing trigger, including the old `{event: …}` shape without a `type`.
 - The engine then selects only the workflows whose `trigger_event` matches — less work per event.
-- Workflow provenance: `source_integration_id` (FK to integrations, SET NULL) + `source_blueprint` (the blueprint key),
-  set by `blueprints/apply.py` when an integration installs a workflow. Backfill: match existing workflows to the
-  workspace's installed integration by blueprint slug, then by name prefix; leave NULL when unsure.
+- "Installed by" on **everything a blueprint creates** (Jared 2026-10-06): `source_integration_id` (FK to
+  integrations, SET NULL) + `source_blueprint` (the blueprint key) on workflows, scheduled tasks, incoming webhooks,
+  integration event subscriptions and collections — set in one place, `blueprints/apply.py`. NULL means a person made
+  it. `entry_fields` blueprints add fields, not rows, so they're out. Blueprints themselves (templates shipped in the
+  integration packages) don't change, and neither does the integration SDK. Backfill: match existing rows to the
+  workspace's installed integration by blueprint slug, then by name prefix; leave NULL when unsure. Later this lets
+  uninstalling an integration list (or clean up) exactly what it added.
 - Not doing: one big polymorphic `subscriptions` table. Each connection has different settings (recipients, args,
   payloads) and real FKs; separate same-shaped tables + one query keep both.
 
@@ -1475,7 +1482,8 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
   publish?". Docs: manual Events section + what's new.
 
 ## Checklist
-- [ ] **Slice 1 — storage:** webhook subscriptions table + workflow trigger columns + provenance columns; backfill +
+- [ ] **Slice 1 — storage:** webhook subscriptions table + workflow trigger columns + "installed by" columns on all
+      five blueprint-created tables (set by `blueprints/apply.py`); backfill +
       downgrade; listeners and engine read the new storage; API shapes unchanged (contract tests on webhook and
       workflow read/write); migration tested up/down/up on SQLite and Postgres 16; prod backfill dry-run against a copy
       of `marvin.db` (counts before = after)
