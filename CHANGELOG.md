@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.203 (2026-10-06)
+
+### Bug Fixes
+
+- **db**: Workflow-type webhooks failed to save on Postgres
+  ([`29b5c04`](https://github.com/InnerOpen/marvin/commit/29b5c040ae8d2f15760680616c14697b6be788bb))
+
+### Documentation
+
+- Breadcrumb trail on admin and settings pages (manual + what's new)
+  ([`3cc9bb8`](https://github.com/InnerOpen/marvin/commit/3cc9bb8159ee0c3ad0aa3029d06bac1898ed8b4f))
+
+
 ## v1.0.0-rc.202 (2026-10-06)
 
 ### Bug Fixes
