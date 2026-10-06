@@ -31,7 +31,6 @@ try {
   error = e instanceof Error ? e.message : String(e);
 }
 
-// Platform events (sign-ups, workspaces) aren't counted here: their story is on the admin Events page.
 const counts = new Map(summary.map((c) => [c.eventType, c]));
 const now = new Date();
 const anyNotSent = eventTypes.some((e: any) => counts.get(e.value)?.senders === 0);

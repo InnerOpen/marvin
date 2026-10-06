@@ -6,7 +6,7 @@ import { ApiRequestError, fetchApi, getAuthToken } from "@/lib/api/client";
 import { getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { listEmailTemplates } from "@/lib/api/emailTemplates";
 import { getEventConnections } from "@/lib/api/eventConnections";
-import { listIntegrations, listProviders, listSubscriptions } from "@/lib/api/integrations";
+import { listIntegrations, listProviders } from "@/lib/api/integrations";
 import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/workspaces";
 import {
   type EventConnections,
@@ -18,7 +18,6 @@ import {
   isSystemEmail,
   managedHere,
   newWorkflowHref,
-  reactionsFromSubscriptions,
   systemEmailNote,
   triggerableEvents,
 } from "@/lib/eventConnections";
@@ -49,6 +48,8 @@ try {
   const allTypes = (await sdk.events.getOptions()) as any[];
   eventInfo = allTypes.find((e: any) => e.value === type) || null;
 
+  // Unknown, and the platform's own events (sign-ups, workspaces, …): the workspace catalog leaves them out,
+  // so their links land on the catalog. Super admins see them on Admin → Events.
   if (!eventInfo) {
     return Astro.redirect("/automation/events");
   }
@@ -63,9 +64,8 @@ try {
   let emailSubsRes: any;
   [connectionsResult, builderOptions, emailRes, webhookRes, emailSubsRes, integrations, integrationProviders] =
     await Promise.all([
-      // A platform event type (sign-ups, workspaces) 404s here: its own view is on the admin Events page.
       getEventConnections(type!, authToken).catch((e) => {
-        if (!(e instanceof ApiRequestError && e.status === 404)) console.error("[events/type] Connections failed:", e);
+        console.error("[events/type] Connections failed:", e);
         return null;
       }),
       sdk.automations.options().catch(() => null),
@@ -92,27 +92,7 @@ try {
     }
   }
 
-  if (connections) {
-    reactions = connections.reactions;
-  } else {
-    // A platform event: the workspace's own emails, webhooks and integration actions on it, and the system
-    // email it sends.
-    const [integrationSubscriptions, systemRows] = await Promise.all([
-      listSubscriptions(type!, authToken).catch(() => []),
-      wsId
-        ? fetchApi<any[]>(`/api/platform/workspaces/${wsId}/email-templates/event-connections`, {}, authToken).catch(
-            () => [],
-          )
-        : Promise.resolve([]),
-    ]);
-    reactions = reactionsFromSubscriptions(type!, {
-      webhooks,
-      emailSubscriptions,
-      emailTemplates,
-      integrationSubscriptions: Array.isArray(integrationSubscriptions) ? integrationSubscriptions : [],
-      systemEmail: (Array.isArray(systemRows) ? systemRows : []).find((c: any) => c.event_type === type) ?? null,
-    });
-  }
+  reactions = connections?.reactions ?? [];
 } catch (e) {
   console.error("[events/type] Error:", e);
   error = e instanceof Error ? e.message : String(e);
@@ -230,8 +210,7 @@ const openTemplates = emailTemplates.filter((t: any) => {
             )
           ) : (
             <p class="ev-empty">
-              A platform event: Marvin sends it for the whole platform, not one workspace. Super admins see what sends
-              it and what reacts to it everywhere under Admin → Events.
+              Couldn't load what sends this event. Reload the page to try again.
             </p>
           )}
         </section>
@@ -381,7 +360,11 @@ const openTemplates = emailTemplates.filter((t: any) => {
               </ConnectionGroup>
             ))
           ) : (
-            <p class="ev-empty">Nothing reacts to this event yet. Use Subscribe to add a workflow, webhook, email or integration action.</p>
+            <p class="ev-empty">
+              {connections
+                ? "Nothing reacts to this event yet. Use Subscribe to add a workflow, webhook, email or integration action."
+                : "Couldn't load what reacts to this event. Reload the page to try again."}
+            </p>
           )}
         </section>
 

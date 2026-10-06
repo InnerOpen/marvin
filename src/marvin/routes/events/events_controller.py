@@ -24,6 +24,8 @@ class EventTypesController(BaseUserController):
         what variables each event provides for use in templates and notifications.
         Only returns events in the catalog (user-subscribable subset of all EventTypes).
         """
+        # Only the workspace's own: platform events (sign-ups, workspaces, platform tokens, security, backups;
+        # scope == "platform") belong to the admin Events page, so no workspace list or picker offers them.
         from marvin.services.events.event_catalog import CATALOG, CATEGORIES
 
         by_category: dict[str, list] = {c: [] for c in CATEGORIES}
@@ -32,8 +34,8 @@ class EventTypesController(BaseUserController):
         from marvin.services.events.payload_schemas import get_payload_example
 
         for entry in CATALOG:
-            if not entry.enabled:
-                continue  # internal/disabled events aren't offered for subscription
+            if not entry.enabled or entry.scope == "platform":
+                continue  # internal/disabled events and the platform's own aren't offered to a workspace
             cat = entry.category if entry.category in by_category else "Other"
             by_category[cat].append(
                 {

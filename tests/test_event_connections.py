@@ -8,7 +8,8 @@
   (`OP_SENDS`, `ScheduledTaskHandler.sends`) are checked by running them.
 * Recent events and whether the workspace records the type; the chain both ways.
 * The summary equals the detail for every catalog type, in a fixed number of queries.
-* The API: workspace OWNER/ADMIN only, one workspace's rows never in another's, platform types only on the admin one.
+* The API: workspace OWNER/ADMIN only, one workspace's rows never in another's, platform types only on the admin one
+  (and never offered by the workspace pickers); Marvin's system emails send with no subscription.
 """
 
 import uuid
@@ -442,15 +443,15 @@ def test_email_reactions_match_the_listener(db_session, world):
 
 
 @contextmanager
-def _system_invitation_template(db):
-    """The one system invitation template (made here when the database has none)."""
+def _system_template(db, template_type="invitation"):
+    """The one system template of a type (made here when the database has none)."""
     from marvin.db.models.groups.email_templates import EmailTemplateModel
 
-    existing = db.query(EmailTemplateModel).filter(EmailTemplateModel.group_id.is_(None), EmailTemplateModel.template_type == "invitation").all()
+    existing = db.query(EmailTemplateModel).filter(EmailTemplateModel.group_id.is_(None), EmailTemplateModel.template_type == template_type).all()
     if len(existing) > 1:
-        pytest.skip("more than one system invitation template")
+        pytest.skip(f"more than one system {template_type} template")
     made = not existing
-    tmpl = existing[0] if existing else template(db, None, "Invitation (system)", template_type="invitation")
+    tmpl = existing[0] if existing else template(db, None, f"{template_type} (system)", template_type=template_type)
     was = tmpl.enabled
     try:
         yield tmpl
@@ -464,7 +465,7 @@ def _system_invitation_template(db):
 
 
 def test_system_email_is_listed_and_replaced_like_the_listener_does(db_session, world):
-    with _system_invitation_template(db_session) as system:
+    with _system_template(db_session) as system:
         system.enabled = True
         db_session.commit()
         other = template(db_session, world.a, "Welcome aboard")
@@ -488,6 +489,19 @@ def test_system_email_is_listed_and_replaced_like_the_listener_does(db_session, 
         sent = _emails_sent(world.a, "invitation_sent")
         assert _listed_running(db_session, world.a, "invitation_sent", "email") == sent and len(sent) == 1
         assert system.id in _listed_stopped(db_session, world.a, "invitation_sent", "email")
+
+
+@pytest.mark.parametrize(
+    ("template_type", "event_type"),
+    [("welcome", "user_signup"), ("password_reset", "user_password_reset_requested"), ("invitation", "invitation_sent")],
+)
+def test_system_emails_send_with_no_subscription(db_session, world, template_type, event_type):
+    """Marvin's own welcome, password-reset and invitation emails aren't subscriptions: they send with nothing
+    connected, platform event or not, although the workspace side no longer offers platform types."""
+    with _system_template(db_session, template_type) as system:
+        system.enabled = True
+        db_session.commit()
+        assert _emails_sent(world.a, event_type) == {system.id}
 
 
 def test_webhook_reactions_match_the_listener(db_session, world):
@@ -907,6 +921,23 @@ def test_unknown_and_platform_types_are_not_found_on_the_workspace_api(world):
     assert client.get(f"{WS}/user_signup/connections").status_code == 404
     listed = {r["eventType"] for r in client.get(f"{WS}/connections").json()}
     assert "user_signup" not in listed and "backup_completed" not in listed and "entry_published" in listed
+
+
+def test_workspace_pickers_offer_no_platform_types(world):
+    """The workspace event catalog (/event/types: the Events list, the webhook, email and integration pickers) and
+    the workflow trigger options leave the platform's events out; every enabled workspace type is offered."""
+    client = _client(world)
+    res = client.get("/api/event/types")
+    assert res.status_code == 200, res.text
+    offered = [e["value"] for e in res.json()]
+    platform = {e.event_type for e in CATALOG if e.scope == "platform"}
+    assert platform and not platform & set(offered)
+    assert set(offered) == {e.event_type for e in CATALOG if e.enabled and e.scope == "workspace"}
+
+    options = client.get("/api/automations/options").json()
+    triggers = {t for group in options["triggerGroups"].values() for t in group} | set(options["triggers"])
+    assert triggers and not platform & triggers
+    assert not platform & set(options["emittable"])
 
 
 def test_platform_types_are_on_the_admin_api(db_session, world):

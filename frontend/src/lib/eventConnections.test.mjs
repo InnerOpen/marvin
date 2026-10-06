@@ -16,7 +16,6 @@ import {
   managedHere,
   newWorkflowHref,
   parseApiDate,
-  reactionsFromSubscriptions,
   systemEmailNote,
   triggerableEvents,
   triggerFromQuery,
@@ -187,74 +186,5 @@ describe("builder ?trigger=", () => {
     assert.equal(triggerFromQuery("?trigger=user_signup", events), null);
     assert.equal(triggerFromQuery("?workflow=x", events), null);
     assert.equal(triggerFromQuery("", events), null);
-  });
-});
-
-describe("reactionsFromSubscriptions (platform event types)", () => {
-  test("the workspace's integration actions, emails, system email and event-driven webhooks on the type", () => {
-    const rows = reactionsFromSubscriptions("user_signup", {
-      integrationSubscriptions: [
-        { id: "s1", eventType: "user_signup", integrationName: "Slack", action: "post_message", enabled: true },
-        { id: "s2", eventType: "workspace_created", integrationName: "Slack", action: "post_message" },
-      ],
-      emailSubscriptions: [
-        { id: "e1", event_type: "user_signup", template_id: "t1", recipient_type: "admins", enabled: false },
-        { id: "e2", event_type: "entry_published", template_id: "t1", recipient_type: "admins" },
-      ],
-      emailTemplates: [{ id: "t1", name: "New member" }],
-      systemEmail: {
-        event_type: "user_signup",
-        has_workspace_override: false,
-        system_template: { id: "sys", name: "Welcome" },
-      },
-      webhooks: [
-        { id: "w1", name: "Hook", webhookType: "event_driven", subscribedEvents: ["user_signup"], enabled: true },
-        { id: "w2", name: "Scheduled", webhookType: "scheduled", subscribedEvents: ["user_signup"] },
-        { id: "w3", name: "Other", webhookType: "event_driven", subscribedEvents: ["entry_published"] },
-      ],
-    });
-    assert.deepEqual(rows, [
-      {
-        kind: "integration_action",
-        id: "s1",
-        name: "Slack",
-        enabled: true,
-        detail: "post_message",
-        managedAt: "/workspace/settings/integrations",
-      },
-      {
-        kind: "email",
-        id: "e1",
-        name: "New member",
-        enabled: false,
-        detail: "To the workspace admins",
-        managedAt: "/workspace/settings/email/t1",
-      },
-      {
-        kind: "email",
-        id: "sys",
-        name: "Welcome",
-        enabled: true,
-        detail: "System template",
-        managedAt: "/workspace/settings/email?customize=sys",
-      },
-      { kind: "webhook", id: "w1", name: "Hook", enabled: true, managedAt: "/automation/webhooks/w1" },
-    ]);
-    assert.equal(rows.filter(isSystemEmail).length, 1);
-    assert.deepEqual(
-      rows.filter(managedHere).map((x) => x.id),
-      ["s1", "e1", "w1"],
-    );
-  });
-
-  test("a workspace template replacing the system email switches the system row off", () => {
-    const rows = reactionsFromSubscriptions("user_signup", {
-      systemEmail: { has_workspace_override: true, system_template: { id: "sys", name: "Welcome" } },
-    });
-    assert.equal(rows[0].enabled, false);
-  });
-
-  test("nothing connected, nothing listed", () => {
-    assert.deepEqual(reactionsFromSubscriptions("user_signup", {}), []);
   });
 });
