@@ -1505,3 +1505,49 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
 4. Workflows installed by an integration: may they be switched off from the event page, or only on the workflow /
    integration page? (Proposed: link only, so the event page never fights the integration that owns them.)
 5. Slice order OK (storage first), or UI first on top of today's storage and normalise after?
+
+
+# Settings breadcrumbs — one trail on every admin and settings page (plan, 2026-10-06, design approved by Jared)
+
+**Goal (Jared 2026-10-06):** every admin and workspace settings page shows where it sits the same way: one trail of
+its ancestors above the title, built from one map, instead of four home-made styles.
+
+**Today:** 66 in-scope pages (`pages/admin`, the non-content pages of `pages/workspace`, `pages/automation`,
+`pages/publishing`) use four styles: `components/Breadcrumb.astro` (16 pages), hand-made `<div class="breadcrumb">`
+(10: scheduled-task pages, Ask, AI Executions, Event Log, webhook log, event type pages), "Back to …" buttons
+(integrations, alerts & health, AI pages, users/new, groups/[id], entry-types/[id], API clients) or nothing (most
+admin pages, secrets, environment). The eyebrow above the H1 reads "Settings", "Workspace", "Workspace Settings",
+"Settings · Integrations", "Automation", "Events", "Publishing", "Workspaces" or (admin) always "Admin". Trails point
+at the settings hub's tabs in some places and at pages in others. Content pages (entries, assets, collections,
+resources) don't use `Breadcrumb.astro`, so the component can go.
+
+## Design
+- **One trail, rendered by the layout** in place of the eyebrow: the page's ancestors, each a link; the H1 is the
+  current page. Under 640px it shows only the parent ("‹ Email"). `<nav aria-label="Breadcrumb">` + `<ol>`.
+- **One map:** `frontend/src/lib/navTree.ts` — every node `{id, label, href, parent, title?}`; `label` is the
+  short name (crumb, sidebar), `title` the H1 when it differs. Detail pages are nodes with a route-pattern href
+  (`/admin/users/[id]`); the page passes its dynamic `title` (and `crumbParams`/`crumbLabels` when an ancestor is
+  dynamic — only the event type → webhook page). Pages declare `crumb="settings.email.smtp"`.
+- **Roots:** Admin (`/admin`), Settings (`/workspace/settings`), Automation, Publishing. Automation and Publishing
+  aren't in AppLayout's sidebar and have no landing page of their own; the settings hub's tab is the page that lists
+  them, so the root links there (`/workspace/settings?tab=automation` / `?tab=publishing`). Sidebar group names
+  that aren't pages ("People & access", "Operations") are not crumbs. Root pages (Admin overview, the settings hub,
+  the workspace dashboard, Create Workspace) have no trail.
+- **Readers of the map:** AdminLayout's sidebar takes its hrefs and labels from it (same groups, icons, look); the
+  settings hub's cards take their hrefs and titles from it (descriptions stay in the hub).
+- **Removed:** per-page `<Breadcrumb>`, hand-made breadcrumb divs and their CSS, "Back to …" links, eyebrow props.
+  Kept: form Cancel buttons, in-page tabs. `components/Breadcrumb.astro` retired.
+- **Guard:** `lib/navTree.test.mjs` — every in-scope page declares a `crumb` that exists and whose href is that
+  page's route; no page renders its own breadcrumb, back link or eyebrow; every parent exists, no cycles, hrefs
+  unique, every href resolves to a page file.
+
+## Checklist
+- [ ] Plan (this section)
+- [ ] `navTree.ts` + trail builder; layouts render the trail (desktop + phone, light + dark)
+- [ ] Admin pages: crumbs, old breadcrumbs/back links out; sidebar reads the map
+- [ ] Settings / automation / publishing pages: crumbs, old breadcrumbs/back links/eyebrows out; hub cards read the map
+- [ ] Retire `Breadcrumb.astro`
+- [ ] Node test
+- [ ] Docs: manual (navigation) + what's new
+- [ ] Verify: `npm test`, biome on touched files, `astro check` vs baseline, live check as super admin and workspace
+      admin (every in-scope page, links, no 404s, no console errors), screenshots at desktop and 390px
