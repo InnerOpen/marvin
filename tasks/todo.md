@@ -1370,3 +1370,130 @@ drift against marvin-sdk develop; this branch adds 3 paths / 4 schemas, committe
 Show who changed a workspace in `workspace_updated` / `workspace_created` (the admin controller passes no user_id);
 redact `reset_url` from stored password-reset payloads.
 
+
+# Events hub — see what sends an event and what reacts to it (plan, 2026-10-06)
+
+**Goal (Jared 2026-10-06):** events are a central feature, so each event should show its whole story in one place —
+what sends it, everything that reacts to it (however it was connected), and when it last happened. Today the Events
+catalog only knows about three kinds of connection, so integrations look disconnected even when they're not. And the
+"who listens to what" data shouldn't be duplicated across tables: one fact, one place, joined when read.
+
+**Today:**
+- One `dispatch()` runs a fixed list of listeners (`event_bus_service.py:154`). Each listener decides for itself, from
+  its own storage, whether it cares — nothing central records "X listens to Y".
+- Where each connection lives:
+
+  | Connection | Stored as | Joinable? |
+  |---|---|---|
+  | Integration actions | `integration_event_subscriptions` (event_type column, FKs) | yes |
+  | Emails | `email_event_subscriptions` (event_type column, FKs) | yes |
+  | Outgoing webhooks | `webhook_urls.subscribed_events` JSON list | no |
+  | Workflows | `workspace_automations.definition` JSON → `trigger.event` | no |
+  | Built-in reactions (site rebuild, indexing, embeds, smart collections) | code: each listener's own event set | n/a |
+
+- The Events catalog (`automation/events.astro`, `events/[type].astro`) only reads the first three rows plus webhooks,
+  so workflows — and with them every integration, which installs **workflows** through blueprints
+  (`services/blueprints/apply.py`) — never show as connected. Live example: `entry_published` shows nothing, but runs
+  Buttondown "email an issue when published" (both workspaces), "Summarize published bench notes" (M&B) and queues a
+  site rebuild; `entry_updated` runs three Square workflows on Grace's workspace.
+- Workflows don't record which integration installed them (only the name prefix tells).
+- The workflow engine loads **every** enabled workflow per event and matches in Python
+  (`engine.run_automations_for_event`), because the trigger is inside JSON.
+- "Which events" is listed in several places that can drift: the catalog (`enabled`, `audited`, `_NO_EMITTER`,
+  `_PLATFORM_SCOPE`), the workflow trigger allowlist (`automation/triggers.py` `TRIGGER_EVENT_GROUPS`), the
+  `emit_event` allowlist (`actions/emit_event.py` `SITE_EVENTS`), and the built-in listeners' own sets.
+- Production data is clean (no orphaned subscriptions; both subscription tables cascade on delete) — this is a design
+  fix, not a data repair.
+
+## Design
+
+**Principle:** each fact stored once, in a real column or table; anything that combines them is a query, not a copy.
+API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
+
+**1. Normalise the two JSON stores (migrations, no UI change)**
+- Webhooks: new `webhook_event_subscriptions` (webhook_id FK cascade, event_type; unique pair) — the same shape as the
+  email and integration tables. Backfill from `subscribed_events`, then drop the JSON column. The webhook API still
+  reads/writes `subscribedEvents` (the repository maps it), and the webhook listener queries the table.
+- Workflows: the trigger moves out of `definition` into columns — `trigger_type` (event, incoming_webhook, manual,
+  mcp, chained, on_error, …), `trigger_event` (indexed, nullable), `trigger_ref` (incoming webhook slug / chained
+  workflow id). `definition` keeps conditions and actions only. The API still accepts and returns
+  `definition.trigger` (assembled by the schema), so the builder, SDK and blueprints don't change. Backfill parses
+  every existing trigger, including the old `{event: …}` shape without a `type`.
+- The engine then selects only the workflows whose `trigger_event` matches — less work per event.
+- Workflow provenance: `source_integration_id` (FK to integrations, SET NULL) + `source_blueprint` (the blueprint key),
+  set by `blueprints/apply.py` when an integration installs a workflow. Backfill: match existing workflows to the
+  workspace's installed integration by blueprint slug, then by name prefix; leave NULL when unsure.
+- Not doing: one big polymorphic `subscriptions` table. Each connection has different settings (recipients, args,
+  payloads) and real FKs; separate same-shaped tables + one query keep both.
+
+**2. One catalog (code, no migration)**
+- The catalog becomes the single list of event facts. New `CatalogEntry` fields replace the side lists:
+  - `triggerable` (replaces `TRIGGER_EVENT_GROUPS`; the builder's dropdown groups by category),
+  - `emittable` (replaces the `emit_event` allowlist),
+  - `sent_by`: short human lines for Marvin's own senders, e.g. "Publishing an entry (editor, API, CLI, AI tool)".
+- Built-in reactions declare themselves: each hard-coded listener exposes `reacts_to` (the set it already matches on)
+  and a label ("Queues a site rebuild"). Its matching uses that same set, so the label can't drift from behaviour.
+- `leads_to` on entries that cause other events (entry_published → site_rebuild_queued → webhook_triggered →
+  site_deployment_*), for the chain view.
+- Tests: every dispatched `EventTypes` member has a catalog entry; every entry with a sender has `sent_by` (or is in
+  `_NO_EMITTER`); every `leads_to` target exists; triggerable/emittable match what the engine and action accept.
+
+**3. One lookup: `services/events/connections.py`**
+- `reactions(group_id, event_type)` — one UNION query over integration subs, email subs, webhook subs and workflow
+  triggers (each row: kind, id, name, enabled, managed-at link, installed-by integration), plus the built-in
+  reactions from code.
+- `senders(group_id, event_type)` — Marvin's own `sent_by`, workflows whose actions emit it or request a rebuild
+  (scanned from the workspace's workflows: a few dozen rows, no stored copy), incoming webhooks that start those
+  workflows, scheduled tasks.
+- `recent(group_id, event_type, limit)` — from the Event Log (workspace scope; types not audited have no history, and
+  the page says so).
+- `summary(group_id)` — per event type: counts of senders and reactions, for the catalog list in one call.
+- API (any member reads; same workspace scoping as the catalog): `GET /api/platform/events/connections` (summary) and
+  `GET /api/platform/events/{type}/connections` (senders, reactions, recent, leads_to). Platform-scope events are
+  excluded here and get the same view on the admin Events page.
+
+**4. UI**
+- Event page (`/automation/events/{type}`) in three parts: **Sent by** · **What happens** · **Recent**, plus the chain
+  ("leads to …"). Connections made elsewhere show as subscribed, read-only, with a link to where they're managed
+  (workflow, integration) and an on/off state. The Subscribe menu keeps webhooks, emails and integration actions, and
+  adds "**+ New workflow on this event**" (opens the builder with the trigger filled in).
+- Catalog list: the dot counts real connections in both directions; the chip tooltip names them.
+- Workflows page: "Installed by Square" badge from `source_integration_id`.
+- Admin Events page: the same "Sent by / What happens" panel for platform events.
+
+**5. Events cleanup (needs Jared's call — not built until decided)**
+- `webhook_triggered`: label "Site Rebuild Sent", category Publishing (internal name stays — webhooks subscribe to it).
+- Never-sent types: webhook_created/updated/deleted, webhook_delivery_succeeded/failed, api_token_* — wire them up or
+  hide them. api_token_* matter most (security, currently locked as "always audited" but never fired).
+- `site_build_*` vs `site_deployment_*`: keep one family; the other becomes an alias so existing workflows keep
+  working.
+- Security types with no feature behind them: hide until built.
+
+**6. Everything else that reads these**
+- SDK: regenerate types (new connections endpoints; webhook/workflow shapes unchanged). CLI: `marvin events show
+  <type>` (senders, reactions, recent). MCP/AI: a `describe_event` tool so Marvin can answer "what happens when I
+  publish?". Docs: manual Events section + what's new.
+
+## Checklist
+- [ ] **Slice 1 — storage:** webhook subscriptions table + workflow trigger columns + provenance columns; backfill +
+      downgrade; listeners and engine read the new storage; API shapes unchanged (contract tests on webhook and
+      workflow read/write); migration tested up/down/up on SQLite and Postgres 16; prod backfill dry-run against a copy
+      of `marvin.db` (counts before = after)
+- [ ] **Slice 2 — one catalog:** `triggerable`, `emittable`, `sent_by`, `leads_to`; built-in listeners declare
+      `reacts_to`; side lists removed; drift tests
+- [ ] **Slice 3 — connections service + API:** reactions/senders/recent/summary; role + workspace scoping tests;
+      platform events excluded; SDK Quality Gate
+- [ ] **Slice 4 — UI:** event page (three parts + chain), catalog dots, "+ New workflow on this event", Installed-by
+      badge, admin panel; live check incl. 390px
+- [ ] **Slice 5 — cleanup:** only the items Jared picks
+- [ ] **Slice 6 — SDK/CLI/MCP/docs**
+- Each slice ships on its own (CI-gated rollout); slice 1 first, since everything else reads its storage.
+
+## Open questions for Jared
+1. Built-in reactions (site rebuild, indexing, smart collections, embeds): show them as a muted "Built-in" line?
+   (Proposed: yes.)
+2. Section 5 cleanup: which items, and `site_build_*` or `site_deployment_*` as the family to keep?
+3. "+ New workflow on this event" in the Subscribe menu — yes?
+4. Workflows installed by an integration: may they be switched off from the event page, or only on the workflow /
+   integration page? (Proposed: link only, so the event page never fights the integration that owns them.)
+5. Slice order OK (storage first), or UI first on top of today's storage and normalise after?
