@@ -67,6 +67,7 @@ nav:
   - Auth & tokens: auth-and-tokens.md
   - Operations: operations.md
   - Off-site backup: offsite-backup.md
+  - Postgres: postgres.md
   - Glossary: glossary.md
   - API Reference: api/index.md
   - SDK: https://inneropen.github.io/marvin/sdk/
