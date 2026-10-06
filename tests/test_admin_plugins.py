@@ -102,8 +102,28 @@ def test_list_plugins_reports_providers_and_workspace_usage(as_user, workspaces,
             "ok": True,
             "error": None,
             "providers": [
-                {"slug": rss, "name": "RSS Feed", "icon": "", "hasLogo": False, "actions": 2, "blueprints": 1, "workspaces": 2},
-                {"slug": hook, "name": "Webhook Out", "icon": "", "hasLogo": False, "actions": 1, "blueprints": 0, "workspaces": 0},
+                {
+                    "slug": rss,
+                    "name": "RSS Feed",
+                    "icon": "",
+                    "hasLogo": False,
+                    "actions": 2,
+                    "blueprints": 1,
+                    "workspaces": 2,
+                    "provides": [],
+                    "inUse": [],
+                },
+                {
+                    "slug": hook,
+                    "name": "Webhook Out",
+                    "icon": "",
+                    "hasLogo": False,
+                    "actions": 1,
+                    "blueprints": 0,
+                    "workspaces": 0,
+                    "provides": [],
+                    "inUse": [],
+                },
             ],
         }
     ]
@@ -133,3 +153,29 @@ def test_integration_sources_without_the_sdk_is_empty(monkeypatch):
     monkeypatch.setattr(integrations, "INTEGRATIONS_AVAILABLE", False)
 
     assert _integration_sources() == []
+
+
+def test_list_plugins_reports_storage_plugins_and_what_they_are_used_for(as_user, monkeypatch):
+    import marvin.services.plugins as plugins
+
+    provider_cls, target_cls = object(), object()
+    sources = [
+        (
+            _report("s3", slugs=["s3"], distribution="marvin-storage-s3", version="0.1.0"),
+            [SimpleNamespace(slug="s3", name="S3-compatible", provider=provider_cls, target=target_cls)],
+        ),
+        (
+            _report("nas", slugs=["nas"], distribution="marvin-storage-nas"),
+            [SimpleNamespace(slug="nas", name="NAS", provider=None, target=target_cls)],
+        ),
+    ]
+    monkeypatch.setattr(plugins, "_integration_sources", lambda: [])
+    monkeypatch.setattr(plugins, "_storage_sources", lambda: sources)
+    monkeypatch.setattr(plugins, "_active_storage_provider", lambda: "s3")
+
+    body = {p["package"]: p for p in as_user(PlatformRole.SUPER_ADMIN).get(PLUGINS_URL).json()}
+
+    s3 = body["marvin-storage-s3"]
+    assert s3["kind"] == "storage" and s3["version"] == "0.1.0"
+    assert [(p["slug"], p["provides"], p["inUse"]) for p in s3["providers"]] == [("s3", ["assets", "backups"], ["assets"])]
+    assert [(p["slug"], p["provides"], p["inUse"]) for p in body["marvin-storage-nas"]["providers"]] == [("nas", ["backups"], [])]

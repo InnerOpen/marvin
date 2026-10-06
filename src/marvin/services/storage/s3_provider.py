@@ -1,6 +1,11 @@
-"""S3-compatible storage provider (AWS S3, Cloudflare R2, MinIO, etc)."""
+"""S3-compatible storage provider (AWS S3, Cloudflare R2, MinIO, etc).
+
+Registered from core as the ``s3`` storage plugin only until the ``marvin-storage-s3`` plugin takes it
+over (slice 7 of the storage plan removes it, and boto3, from core).
+"""
 
 import hashlib
+from collections.abc import Iterator, Mapping
 from io import BytesIO
 from typing import Any, BinaryIO
 
@@ -12,6 +17,8 @@ try:
 except ImportError:
     BOTO3_AVAILABLE = False
 
+from marvin_integration_sdk.storage import Setting
+
 from .base_provider import BaseStorageProvider, StorageMetadata
 
 
@@ -21,6 +28,27 @@ class S3StorageProvider(BaseStorageProvider):
 
     Supports AWS S3, Cloudflare R2, MinIO, Backblaze B2, Wasabi, DigitalOcean Spaces, etc.
     """
+
+    slug = "s3"
+    settings = (
+        Setting("STORAGE_S3_BUCKET", "Bucket", required=True),
+        Setting("STORAGE_S3_REGION", "Region", default="auto"),
+        Setting("STORAGE_S3_ENDPOINT", "Endpoint URL"),
+        Setting("STORAGE_S3_ACCESS_KEY", "Access key ID"),
+        Setting("STORAGE_S3_SECRET_KEY", "Secret access key", secret=True),
+        Setting("STORAGE_REMOTE_PUBLIC_URL", "Public base URL"),
+    )
+
+    @classmethod
+    def from_config(cls, config: Mapping[str, Any]) -> "S3StorageProvider":
+        return cls(
+            bucket=config["STORAGE_S3_BUCKET"],
+            region=config.get("STORAGE_S3_REGION") or "auto",
+            endpoint=config.get("STORAGE_S3_ENDPOINT"),
+            access_key=config.get("STORAGE_S3_ACCESS_KEY"),
+            secret_key=config.get("STORAGE_S3_SECRET_KEY"),
+            public_base_url=config.get("STORAGE_REMOTE_PUBLIC_URL"),
+        )
 
     def __init__(
         self,
@@ -98,6 +126,7 @@ class S3StorageProvider(BaseStorageProvider):
             content_type=content_type,
             checksum=checksum,
             metadata=metadata,
+            checksum_algorithm="sha256",
         )
 
     def get(self, storage_key: str) -> BinaryIO:
@@ -155,3 +184,21 @@ class S3StorageProvider(BaseStorageProvider):
             if e.response["Error"]["Code"] == "404":
                 raise FileNotFoundError(f"File not found: {storage_key}") from e
             raise
+
+    def iter_keys(self, prefix: str = "") -> Iterator[str]:
+        """Every key under ``prefix`` (S3 lists in key order)."""
+        for page in self.s3_client.get_paginator("list_objects_v2").paginate(Bucket=self.bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                yield obj["Key"]
+
+    def checksum(self, storage_key: str, algorithm: str = "sha256") -> str | None:
+        """MD5 from a single-part ETag; anything else would need a download, so None."""
+        if algorithm != "md5":
+            return None
+        try:
+            etag = self.s3_client.head_object(Bucket=self.bucket, Key=storage_key).get("ETag", "").strip('"')
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("404", "NoSuchKey"):
+                raise FileNotFoundError(f"File not found: {storage_key}") from e
+            raise
+        return etag if etag and "-" not in etag else None

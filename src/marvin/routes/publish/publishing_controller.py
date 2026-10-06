@@ -54,7 +54,7 @@ from marvin.schemas.publishing import (
 from marvin.services.entry_urls import best_entry_url, site_base_url
 from marvin.services.media_embeds.publish import embeds_for_entries, site_embeds
 from marvin.services.publish_visibility import non_publishable_type_ids
-from marvin.services.storage.provider_factory import get_storage_provider
+from marvin.services.storage.provider_factory import provider_for
 
 settings = get_app_settings()
 
@@ -146,7 +146,7 @@ def _build_published_asset(ea: EntryAssets, workspace_slug: str) -> PublishedAss
         height=ea.asset.height,
         alt_text=ea.asset.alt_text,
         description=ea.asset.description,
-        public_url=get_storage_provider().get_public_url(ea.asset.storage_key),
+        public_url=provider_for(ea.asset).get_public_url(ea.asset.storage_key),
         metadata=ea.asset.metadata_json,
         tags=list(ea.asset.tag_names),
     )
@@ -951,7 +951,6 @@ async def list_published_assets(
     assets = query.order_by(Assets.name).offset(offset).limit(limit).all()
 
     # Convert to response schema
-    provider = get_storage_provider()
     data = []
     for asset in assets:
         # Get published entry slugs that use this asset
@@ -970,7 +969,7 @@ async def list_published_assets(
                 height=asset.height,
                 alt_text=asset.alt_text,
                 description=asset.description,
-                public_url=provider.get_public_url(asset.storage_key),
+                public_url=provider_for(asset).get_public_url(asset.storage_key),
                 metadata=asset.metadata_json,
                 entries=entry_slugs,
                 tags=list(asset.tag_names),
@@ -1048,7 +1047,7 @@ async def get_published_asset(
         height=asset.height,
         alt_text=asset.alt_text,
         description=asset.description,
-        public_url=get_storage_provider().get_public_url(asset.storage_key),
+        public_url=provider_for(asset).get_public_url(asset.storage_key),
         metadata=asset.metadata_json,
         entries=entry_slugs,
         tags=list(asset.tag_names),
@@ -1098,7 +1097,7 @@ async def serve_asset_file(
     if not asset:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
 
-    return RedirectResponse(url=get_storage_provider().get_public_url(asset.storage_key))
+    return RedirectResponse(url=provider_for(asset).get_public_url(asset.storage_key))
 
 
 @router.get(

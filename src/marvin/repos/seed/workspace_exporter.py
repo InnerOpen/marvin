@@ -111,7 +111,7 @@ class WorkspaceExporter:
         import secrets
         from datetime import UTC, datetime
 
-        from marvin.services.storage.provider_factory import get_storage_provider
+        from marvin.services.storage.provider_factory import provider_for
 
         export_data = self.export_workspace(include_system_types=include_system_types)
 
@@ -126,8 +126,6 @@ class WorkspaceExporter:
         token = secrets.token_hex(8)
         basename = f"{workspace_slug}-backup-{datetime.now(UTC).date().isoformat()}-{token}"
         zip_path = temp_dir / f"{basename}.zip"
-        storage_provider = get_storage_provider()
-
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             json_content = json.dumps(export_data, indent=2, ensure_ascii=False)
             zf.writestr(f"{basename}.json", json_content)
@@ -135,7 +133,8 @@ class WorkspaceExporter:
             for asset in export_data["assets"]:
                 storage_key = asset["storageKey"]
                 try:
-                    file_data = storage_provider.get(storage_key)
+                    # Each asset from the provider it lives in (its row's storageProvider).
+                    file_data = provider_for(asset.get("storageProvider")).get(storage_key)
                     zf.writestr(f"files/{storage_key}", file_data.read())
                 except FileNotFoundError:
                     self.logger.warning(f"Asset binary missing from storage, skipping binary: {storage_key}")

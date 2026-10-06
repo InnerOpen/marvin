@@ -162,7 +162,7 @@ class MediaEnrichmentService:
         returned box. Returns ``None`` (skip) when no handler is available or nothing is produced.
         """
         op, _, arg = token.partition(":")
-        data = assets_svc.read_bytes(src.storage_key)
+        data = assets_svc.read_bytes(src)
 
         if op == "crop" and arg == "subject":
             return self._crop_subject(src, data)
@@ -290,7 +290,7 @@ class MediaEnrichmentService:
         if src is None:
             return None
 
-        data = assets_svc.read_bytes(src.storage_key)
+        data = assets_svc.read_bytes(src)
         result = (
             handler.invoke(
                 {

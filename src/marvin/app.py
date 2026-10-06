@@ -76,6 +76,17 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
 
     process_started_at = get_utc_now()
 
+    # Asset storage must resolve before anything is served: an unknown STORAGE_PROVIDER (a storage
+    # plugin that isn't installed) or incomplete provider settings stop startup here, rather than
+    # falling back to local and handing out broken asset URLs.
+    from marvin.services.storage import StorageConfigError, validate_storage_config
+
+    try:
+        validate_storage_config()
+    except StorageConfigError as e:
+        logger.critical(f"Storage is misconfigured, refusing to start: {e}")
+        raise
+
     logger.info("Starting: Database initialization...")
     import marvin.db.init_db as init_db  # Local import to avoid premature DB calls if app is imported elsewhere
 

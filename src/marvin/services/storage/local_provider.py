@@ -1,6 +1,8 @@
 """Local filesystem storage provider."""
 
 import hashlib
+import os
+from collections.abc import Iterator
 from pathlib import Path
 from typing import BinaryIO
 
@@ -13,6 +15,8 @@ class LocalStorageProvider(BaseStorageProvider):
 
     Files are stored under a root directory with the storage_key as the relative path.
     """
+
+    slug = "local"
 
     def __init__(self, root: Path, public_base_url: str = "/uploads"):
         """
@@ -64,6 +68,7 @@ class LocalStorageProvider(BaseStorageProvider):
             content_type=content_type,
             checksum=checksum,
             metadata=metadata,
+            checksum_algorithm="sha256",
         )
 
     def get(self, storage_key: str) -> BinaryIO:
@@ -113,4 +118,33 @@ class LocalStorageProvider(BaseStorageProvider):
             size=stat.st_size,
             content_type="application/octet-stream",  # We don't store content type in local files
             checksum=hasher.hexdigest(),
+            checksum_algorithm="sha256",
         )
+
+    def checksum(self, storage_key: str, algorithm: str = "sha256") -> str | None:
+        """The file's digest in ``algorithm`` (read from disk)."""
+        file_path = self._get_file_path(storage_key)
+        if not file_path.is_file():
+            raise FileNotFoundError(f"File not found: {storage_key}")
+        hasher = hashlib.new(algorithm)
+        with open(file_path, "rb") as f:
+            while chunk := f.read(1024 * 1024):
+                hasher.update(chunk)
+        return hasher.hexdigest()
+
+    def iter_keys(self, prefix: str = "") -> Iterator[str]:
+        """Every regular file under the root whose key starts with ``prefix``, sorted; symlinks are skipped."""
+        # Walk only the deepest directory the prefix names fully (``ws/assets/20`` → ``ws/assets``).
+        start = self.root / prefix.rpartition("/")[0] if "/" in prefix else self.root
+        if not start.is_dir():
+            return
+        keys = []
+        for root, dirs, files in os.walk(start):
+            dirs[:] = [d for d in dirs if not Path(root, d).is_symlink()]
+            for name in files:
+                path = Path(root, name)
+                if path.is_file() and not path.is_symlink():
+                    key = path.relative_to(self.root).as_posix()
+                    if key.startswith(prefix):
+                        keys.append(key)
+        yield from sorted(keys)

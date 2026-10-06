@@ -3,8 +3,9 @@
 A plugin is a Python package the platform operator installs into the image (or a Helm init
 container). Marvin discovers it through entry points at startup and offers what it registers to every
 workspace, which then connects it under its own Integrations settings. Integration providers
-(services/integrations) are the only pluggable kind today; other kinds, such as AI providers, join
-here so the admin keeps a single list of what is installed.
+(services/integrations) and storage plugins (services/storage/registry.py: asset providers and backup
+targets, used platform-wide) are pluggable today; AI providers join here next, so the admin keeps a
+single list of what is installed.
 """
 
 from typing import Any
@@ -16,6 +17,7 @@ from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.schemas.admin.plugins import PluginProviderRead, PluginRead
 
 KIND_INTEGRATION = "integration"
+KIND_STORAGE = "storage"
 
 
 def _integration_sources() -> list[tuple[Any, list[Any]]]:
@@ -32,6 +34,34 @@ def _integration_sources() -> list[tuple[Any, list[Any]]]:
     from marvin.services.integrations import INTEGRATION_REGISTRY, load_reports
 
     return [(report, [INTEGRATION_REGISTRY[slug] for slug in report.slugs if slug in INTEGRATION_REGISTRY]) for report in load_reports()]
+
+
+def _storage_sources() -> list[tuple[Any, list[Any]]]:
+    """Each storage plugin's load report, with the StoragePlugin it registered (built-ins aren't
+    installed packages, so they don't appear)."""
+    from marvin.services.storage import registry
+
+    found = registry.plugins()
+    return [
+        (report, [found[slug] for slug in report.slugs if slug in found and registry.source_of(slug) == report.name])
+        for report in registry.load_plugins()
+    ]
+
+
+def _active_storage_provider() -> str:
+    from marvin.core import config
+
+    return getattr(config.get_app_settings(), "STORAGE_PROVIDER", None) or "local"
+
+
+def _storage_provider_read(plugin: Any, active: str) -> PluginProviderRead:
+    return PluginProviderRead(
+        slug=plugin.slug,
+        name=plugin.name or plugin.slug,
+        provides=[side for side, cls in (("assets", plugin.provider), ("backups", plugin.target)) if cls is not None],
+        # Backup targets are configured per CronJob (Helm values), which the backend can't see yet.
+        in_use=["assets"] if plugin.slug == active and plugin.provider is not None else [],
+    )
 
 
 def connected_workspaces(session: Session) -> dict[str, int]:
@@ -73,5 +103,18 @@ def installed_plugins(session: Session) -> list[PluginRead]:
             providers=[_provider_read(p, usage) for p in providers],
         )
         for report, providers in _integration_sources()
+    ]
+    active = _active_storage_provider()
+    plugins += [
+        PluginRead(
+            name=report.name,
+            package=report.distribution,
+            version=report.version,
+            kind=KIND_STORAGE,
+            ok=report.ok,
+            error=report.error,
+            providers=[_storage_provider_read(p, active) for p in found],
+        )
+        for report, found in _storage_sources()
     ]
     return sorted(plugins, key=lambda p: (p.package or p.name).lower())

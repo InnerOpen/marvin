@@ -162,7 +162,7 @@ class ContextBuilder:
         """Base64-encode raw bytes for image assets already in context (for vision ops)."""
         import base64
 
-        from marvin.services.storage.provider_factory import get_storage_provider
+        from marvin.services.storage.provider_factory import provider_for
 
         loaded = 0
         for asset in self._ctx.assets:
@@ -172,7 +172,7 @@ class ContextBuilder:
             if not mime.startswith("image/") or not asset.get("storage_key"):
                 continue
             try:
-                fh = get_storage_provider().get(asset["storage_key"])
+                fh = provider_for(asset.get("storage_provider")).get(asset["storage_key"])
                 asset["image_data"] = base64.b64encode(fh.read()).decode("ascii")
                 loaded += 1
             except Exception:

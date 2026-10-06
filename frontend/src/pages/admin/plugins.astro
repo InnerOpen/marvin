@@ -10,8 +10,15 @@ const authToken = getAuthToken(Astro.cookies);
 
 const KIND_LABELS: Record<PluginKind, string> = {
   integration: "Integration",
+  storage: "Storage",
   ai_provider: "AI provider",
 };
+
+const STORAGE_SIDES: Record<string, string> = {
+  assets: "Asset storage",
+  backups: "Backup target",
+};
+const sides = (list?: string[]) => (list ?? []).map((s) => STORAGE_SIDES[s] ?? s).join(", ") || "—";
 
 let plugins: PluginRead[] = [];
 let error: string | null = null;
@@ -40,14 +47,16 @@ try {
       Plugins are installed by the platform operator — baked into the container image or added by the Helm
       chart's init container — not from this page, because installing a plugin runs its code. Once installed, a
       plugin is available to every workspace, and each workspace connects it under its own
-      <strong>Settings → Integrations</strong>.
+      <strong>Settings → Integrations</strong>. Storage plugins work platform-wide instead: the operator picks the
+      asset storage provider (<code>STORAGE_PROVIDER</code>) and the backup targets; built-in local disk storage
+      needs no plugin.
     </p>
 
     {!error && plugins.length === 0 ? (
       <div class="empty-state">
         <div class="empty-icon">🧩</div>
         <p class="empty-title">No plugins installed</p>
-        <p class="empty-description">Integration packages (such as <code>marvin-integration-slack</code>) appear here once installed.</p>
+        <p class="empty-description">Integration and storage packages (such as <code>marvin-integration-slack</code>) appear here once installed.</p>
       </div>
     ) : (
       <div class="plugin-list">
@@ -66,7 +75,33 @@ try {
 
             {plugin.error && <p class="plugin-error">{plugin.error}</p>}
 
-            {plugin.providers.length > 0 && (
+            {plugin.kind === "storage" && plugin.providers.length > 0 && (
+              <div class="table-scroll">
+                <table class="providers">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Provides</th>
+                      <th>In use for</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plugin.providers.map((provider) => (
+                      <tr>
+                        <td class="name-col">
+                          {provider.name}
+                          <code>{provider.slug}</code>
+                        </td>
+                        <td>{sides(provider.provides)}</td>
+                        <td>{sides(provider.inUse)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {plugin.kind !== "storage" && plugin.providers.length > 0 && (
               <div class="table-scroll">
                 <table class="providers">
                   <thead>

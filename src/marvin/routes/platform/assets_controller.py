@@ -11,7 +11,8 @@ from marvin.routes._base.checks import require_workspace_editor, require_workspa
 from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
 from marvin.services.assets.asset_storage_service import AssetStorageService
 from marvin.services.event_bus_service.event_types import EventAssetData, EventTypes
-from marvin.services.storage.provider_factory import get_storage_provider
+from marvin.services.storage import StorageConfigError
+from marvin.services.storage.provider_factory import get_storage_provider, provider_for
 
 router = APIRouter(prefix="/assets")
 
@@ -201,13 +202,17 @@ class AssetsController(BaseUserController):
         if not asset:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
 
-        # For local storage, serve file directly
-        if asset.storage_provider == "local":
-            from marvin.services.storage.local_provider import LocalStorageProvider
+        from marvin.services.storage.local_provider import LocalStorageProvider
 
-            storage_provider = get_storage_provider()
-            if not isinstance(storage_provider, LocalStorageProvider):
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Storage backend is not local.")
+        # The provider the row lives in, whatever STORAGE_PROVIDER says now: rows on different
+        # providers are served side by side.
+        try:
+            storage_provider = provider_for(asset)
+        except StorageConfigError as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Asset storage unavailable: {e}") from e
+
+        # For local storage, serve file directly
+        if isinstance(storage_provider, LocalStorageProvider):
             file_path = Path(storage_provider.root) / asset.storage_key
 
             if not file_path.exists():
@@ -215,5 +220,5 @@ class AssetsController(BaseUserController):
 
             return FileResponse(path=str(file_path), media_type=asset.mime_type or "application/octet-stream", filename=asset.original_filename)
 
-        # For remote providers, redirect to computed URL from current config
-        return RedirectResponse(url=get_storage_provider().get_public_url(asset.storage_key))
+        # For remote providers, redirect to the provider's URL for the file
+        return RedirectResponse(url=storage_provider.get_public_url(asset.storage_key))

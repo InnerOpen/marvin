@@ -179,9 +179,9 @@ class AssetRead(AssetSummary):
         if not self.storage_key:
             return self
         try:
-            from marvin.services.storage.provider_factory import get_storage_provider
+            from marvin.services.storage.provider_factory import provider_for
 
-            self.public_url = get_storage_provider().get_public_url(self.storage_key)
+            self.public_url = provider_for(self).get_public_url(self.storage_key)
         except Exception:
             pass  # retain DB value as degraded fallback if provider config is broken
         return self

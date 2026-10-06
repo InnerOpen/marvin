@@ -9,13 +9,14 @@ version, ok/error) for the admin Plugins page.
 """
 
 import importlib.metadata as importlib_metadata
+import logging
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any
 
-from marvin.core.root_logger import get_logger
-
-logger = get_logger(__name__)
+# Plain stdlib logging (Marvin configures the root logger at startup): importing this module must not
+# build app settings or data directories, because the backup CronJob imports it too.
+logger = logging.getLogger(__name__)
 
 
 @dataclass

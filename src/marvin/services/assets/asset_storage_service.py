@@ -222,9 +222,23 @@ class AssetStorageService(BaseService):
             finally:
                 temp_path.unlink(missing_ok=True)
 
-    def read_bytes(self, storage_key: str) -> bytes:
-        """Read an asset's raw bytes from storage (source for a derivation)."""
-        return self.storage.get(storage_key).read()
+    def storage_for(self, asset) -> BaseStorageProvider:
+        """The provider an existing asset row lives in: this service's own provider when the row is on
+        it, else the row's (assets on different providers are served side by side)."""
+        slug = getattr(asset, "storage_provider", None)
+        if not slug or slug == self._get_provider_name():
+            return self.storage
+        from marvin.services.storage.provider_factory import provider_for
+
+        return provider_for(slug)
+
+    def read_bytes(self, asset) -> bytes:
+        """Read an asset's raw bytes (source for a derivation) from the provider it lives in. A bare
+        storage key reads from this service's provider."""
+        if isinstance(asset, str):
+            return self.storage.get(asset).read()
+        with self.storage_for(asset).get(asset.storage_key) as fh:
+            return fh.read()
 
     def delete_asset(self, asset_id: UUID4) -> bool:
         """
@@ -244,9 +258,9 @@ class AssetStorageService(BaseService):
         if not asset:
             return False
 
-        # Delete from storage
+        # Delete from storage (the provider the row lives in)
         try:
-            self.storage.delete(asset.storage_key)
+            self.storage_for(asset).delete(asset.storage_key)
         except Exception as e:
             # Log but don't fail if storage deletion fails
             # The database record should still be removed
@@ -324,7 +338,11 @@ class AssetStorageService(BaseService):
         return filename
 
     def _get_provider_name(self) -> str:
-        """Get the storage provider name from the provider instance."""
+        """The slug new rows record as their ``storage_provider``: the provider's own slug, else a
+        guess from its class name (stand-ins in tests)."""
+        slug = getattr(self.storage, "slug", "")
+        if slug and isinstance(slug, str):
+            return slug
         provider_class = self.storage.__class__.__name__
         if "Local" in provider_class:
             return "local"
