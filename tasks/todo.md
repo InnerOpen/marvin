@@ -669,13 +669,14 @@ categories, get, apply, applyMany, update), `incomingWebhooks.signatureSchemes` 
       snapshot refreshed to develop rc.199 with the integration SDK installed (8 new endpoints deferred)
 - [x] Docs: reference pages per group (review, blueprints, incoming-webhooks, tags, smart collections,
       publishing); MIGRATION 3.2.0; `mkdocs build --strict`
-- [ ] Release: SDK 4.3.0 → relock CLI (`npm install @inneropen/marvin-sdk@^4.3.0`) → CLI 3.2.0 (trusted
-      publishing). Nothing pushed yet.
+- [x] Release: SDK 4.3.0 → relock CLI (`npm install @inneropen/marvin-sdk@^4.3.0`) → CLI 3.2.0 (trusted
+      publishing). Both published 2026-10-05.
 
 **Core gaps:** no endpoint missing. Found while smoke-testing against develop: `POST
 /api/platform/tags/{tag_id}/assets/{asset_id}` and `…/resources/{resource_id}` always 500 —
 `attach_tag_to_asset`/`attach_tag_to_resource` compare `asset.group_id`, but `repos.assets.get_one` returns
-`AssetRead`/`ResourceRead`, which have no `group_id` (entry tagging and both detaches work). Nice to have:
+`AssetRead`/`ResourceRead`, which have no `group_id` (entry tagging and both detaches work). Fixed in
+`fix(tags)`: the repos already scope both lookups to the workspace, so the comparison is gone. Nice to have:
 server-side `status`/`entry_type`/`limit` filters on `GET /api/platform/entries` (the CLI filters the full list
 today).
 
