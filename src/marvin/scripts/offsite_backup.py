@@ -9,24 +9,33 @@ installation secret, and the uploaded files.
     python -m marvin.scripts.offsite_backup restore --target DIR [--db-key KEY] [--config-key KEY]
                                                     [--skip-assets] [--force]
 
-Bucket layout:
+Bucket layout (every key under BACKUP_S3_PREFIX, e.g. `dev/`, when set — one bucket, separate
+environments, each with its own retention):
 
     sqlite/marvin-<UTC YYYYmmddTHHMMSSZ>.db.gz          consistent SQLite snapshot (gzip)
+    postgres/marvin-<UTC YYYYmmddTHHMMSSZ>.dump         pg_dump --format=custom (DB_ENGINE=postgres)
     config/marvin-config-<UTC YYYYmmddTHHMMSSZ>.tar.gz  .secret, scheduler_state.json, templates/
     assets/<path under DATA_DIR/assets>                 incremental mirror, never deleted remotely
 
-`sqlite/` and `config/` objects carry `sha256` (of the object) in their metadata, and the database
+Database and config objects carry `sha256` (of the object) in their metadata, and the SQLite snapshot
 also `db-sha256` (of the uncompressed file); restore checks both. Retention keeps the newest backup of
 each of the last KEEP_DAILY days that have one, plus the newest of each of the last KEEP_WEEKLY ISO
 weeks; it never touches `assets/` or keys it did not name.
+
+With Postgres the dump is a logical, engine-independent copy beside CloudNativePG's own base backups
+and WAL archive (physical, point-in-time). It is taken with the POSTGRES_* connection the app uses
+(passed to pg_dump through PG* environment variables, never the command line) and checked with
+`pg_restore --list` before upload. `restore` downloads and verifies it as DIR/marvin.dump; loading it
+is a deliberate `pg_restore` (docs/manual/postgres.md), never automatic.
 
 The config archive holds `.secret`, the key that decrypts encrypted values in the database. Anyone
 who can read the bucket can read every secret Marvin stores, so the bucket must stay private and its
 credentials scoped to it.
 
 Configuration (environment): BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET, AWS_ACCESS_KEY_ID,
-AWS_SECRET_ACCESS_KEY, BACKUP_S3_REGION (default `auto`, right for R2), BACKUP_DATA_DIR (default
-`/app/data`), BACKUP_DB_ENGINE (default: DB_ENGINE, else `sqlite`).
+AWS_SECRET_ACCESS_KEY, BACKUP_S3_REGION (default `auto`, right for R2), BACKUP_S3_PREFIX (default none),
+BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default: DB_ENGINE, else `sqlite`); for
+Postgres also POSTGRES_SERVER, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB.
 
 Deliberately standalone (stdlib + boto3, no Marvin settings import): it runs in a CronJob next to
 the live backend and must not create directories, read `.secret` through the app, or open the
@@ -43,6 +52,7 @@ import os
 import re
 import shutil
 import sqlite3
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -56,7 +66,9 @@ from typing import Any
 log = logging.getLogger("marvin.offsite_backup")
 
 DB_NAME = "marvin.db"
+PG_DUMP_NAME = "marvin.dump"
 DB_PREFIX = "sqlite/"
+PG_PREFIX = "postgres/"
 CONFIG_PREFIX = "config/"
 ASSETS_PREFIX = "assets/"
 TS_FORMAT = "%Y%m%dT%H%M%SZ"
@@ -72,7 +84,12 @@ META_SHA256 = "sha256"  # sha256 of the stored object (the .gz)
 META_DB_SHA256 = "db-sha256"  # sha256 of the uncompressed database
 
 CHUNK = 1024 * 1024
-_STAMPED_KEY = re.compile(r"^(?:sqlite/marvin|config/marvin-config)-(?P<ts>\d{8}T\d{6}Z)\.(?:db|tar)\.gz$")
+# The keys this script names (and so may prune): each family with its own extension.
+_KEY_EXT = {"sqlite/marvin-": ".db.gz", "postgres/marvin-": ".dump", "config/marvin-config-": ".tar.gz"}
+_STAMPED_KEY = re.compile(
+    r"^(?P<family>sqlite/marvin-|postgres/marvin-|config/marvin-config-)(?P<ts>\d{8}T\d{6}Z)(?P<ext>\.db\.gz|\.dump|\.tar\.gz)$"
+)
+PG_DUMP_TIMEOUT = 1800  # seconds
 
 
 class BackupError(Exception):
@@ -92,6 +109,14 @@ def db_key(ts: datetime) -> str:
     return f"{DB_PREFIX}marvin-{stamp(ts)}.db.gz"
 
 
+def pg_key(ts: datetime) -> str:
+    return f"{PG_PREFIX}marvin-{stamp(ts)}.dump"
+
+
+def db_prefix(engine: str) -> str:
+    return PG_PREFIX if engine == "postgres" else DB_PREFIX
+
+
 def config_key(ts: datetime) -> str:
     return f"{CONFIG_PREFIX}marvin-config-{stamp(ts)}.tar.gz"
 
@@ -101,9 +126,11 @@ def asset_key(rel_path: str) -> str:
 
 
 def key_timestamp(key: str) -> datetime | None:
-    """The UTC timestamp a `sqlite/` or `config/` key was named with, or None for any other key."""
+    """The UTC timestamp a `sqlite/`, `postgres/` or `config/` key was named with, or None for any other key."""
     m = _STAMPED_KEY.match(key)
-    return datetime.strptime(m["ts"], TS_FORMAT).replace(tzinfo=UTC) if m else None
+    if not m or _KEY_EXT[m["family"]] != m["ext"]:
+        return None
+    return datetime.strptime(m["ts"], TS_FORMAT).replace(tzinfo=UTC)
 
 
 def select_retained(keys: Iterable[str], keep_daily: int = KEEP_DAILY, keep_weekly: int = KEEP_WEEKLY) -> set[str]:
@@ -237,37 +264,49 @@ def asset_needs_upload(path: Path, remote: RemoteObject | None) -> bool:
 
 
 class Bucket:
-    """The handful of S3 calls the backup makes, over a boto3 client (or a test double)."""
+    """The handful of S3 calls the backup makes, over a boto3 client (or a test double).
 
-    def __init__(self, client: Any, name: str) -> None:
+    `root` (BACKUP_S3_PREFIX, e.g. `dev/`) is prepended to every key on the way out and stripped on
+    the way back, so the rest of the script — naming, retention, the asset diff — works in keys
+    relative to it and an environment under a prefix never sees (or prunes) another's objects."""
+
+    def __init__(self, client: Any, name: str, root: str = "") -> None:
         self.client = client
         self.name = name
+        self.root = root
 
     def list(self, prefix: str) -> dict[str, RemoteObject]:
         found: dict[str, RemoteObject] = {}
-        for page in self.client.get_paginator("list_objects_v2").paginate(Bucket=self.name, Prefix=prefix):
+        for page in self.client.get_paginator("list_objects_v2").paginate(Bucket=self.name, Prefix=self.root + prefix):
             for obj in page.get("Contents", []):
-                found[obj["Key"]] = RemoteObject(obj["Key"], int(obj["Size"]), obj.get("ETag", ""))
+                key = obj["Key"][len(self.root) :]
+                found[key] = RemoteObject(key, int(obj["Size"]), obj.get("ETag", ""))
         return found
 
     def put_file(self, key: str, path: Path, metadata: dict[str, str] | None = None, content_type: str | None = None) -> None:
         # One PUT per object (no multipart), so the ETag is the MD5 the asset diff compares against.
         extra = {"ContentType": content_type} if content_type else {}
         with path.open("rb") as fh:
-            self.client.put_object(Bucket=self.name, Key=key, Body=fh, Metadata=metadata or {}, **extra)
+            self.client.put_object(Bucket=self.name, Key=self.root + key, Body=fh, Metadata=metadata or {}, **extra)
 
     def download(self, key: str, dest: Path) -> dict[str, str]:
-        resp = self.client.get_object(Bucket=self.name, Key=key)
+        resp = self.client.get_object(Bucket=self.name, Key=self.root + key)
         with dest.open("wb") as fh:
             shutil.copyfileobj(resp["Body"], fh, CHUNK)
         return {k.lower(): v for k, v in (resp.get("Metadata") or {}).items()}
 
     def delete(self, keys: list[str]) -> None:
         for i in range(0, len(keys), 1000):
-            batch = keys[i : i + 1000]
+            batch = [self.root + k for k in keys[i : i + 1000]]
             resp = self.client.delete_objects(Bucket=self.name, Delete={"Objects": [{"Key": k} for k in batch], "Quiet": True})
             if errors := resp.get("Errors"):
                 raise BackupError(f"delete failed for {len(errors)} object(s), first: {errors[0].get('Key')} {errors[0].get('Code')}")
+
+
+def normalize_prefix(prefix: str | None) -> str:
+    """`dev`, `/dev/` and `dev/` all mean `dev/`; empty means the bucket root."""
+    prefix = (prefix or "").strip().strip("/")
+    return f"{prefix}/" if prefix else ""
 
 
 @dataclass
@@ -277,6 +316,9 @@ class Settings:
     region: str
     data_dir: Path
     engine: str
+    prefix: str = ""
+    # libpq environment for pg_dump (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE); never logged.
+    pg_env: dict[str, str] = field(default_factory=dict, repr=False)
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Settings:
@@ -290,6 +332,18 @@ class Settings:
             region=env.get("BACKUP_S3_REGION") or "auto",
             data_dir=Path(env.get("BACKUP_DATA_DIR") or "/app/data"),
             engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "sqlite").lower(),
+            prefix=normalize_prefix(env.get("BACKUP_S3_PREFIX")),
+            pg_env={
+                pg: env[app]
+                for pg, app in (
+                    ("PGHOST", "POSTGRES_SERVER"),
+                    ("PGPORT", "POSTGRES_PORT"),
+                    ("PGUSER", "POSTGRES_USER"),
+                    ("PGPASSWORD", "POSTGRES_PASSWORD"),
+                    ("PGDATABASE", "POSTGRES_DB"),
+                )
+                if env.get(app)
+            },
         )
 
 
@@ -308,7 +362,7 @@ def make_bucket(settings: Settings) -> Bucket:
         response_checksum_validation="when_required",
     )
     client = boto3.client("s3", endpoint_url=settings.endpoint, region_name=settings.region, config=config)
-    return Bucket(client, settings.bucket)
+    return Bucket(client, settings.bucket, settings.prefix)
 
 
 # --------------------------------------------------------------------------------------------------
@@ -332,7 +386,12 @@ class Report:
     def summary(self, seconds: float, dry_run: bool) -> str:
         status = "FAILED" if self.failures else "ok"
         verb = "would upload" if dry_run else "uploaded"
-        db = f"db {_mb(self.db_bytes)} -> {_mb(self.db_gz_bytes)} gz ({self.db_key})" if self.db_key else "db not backed up"
+        if not self.db_key:
+            db = "db not backed up"
+        elif self.db_gz_bytes:
+            db = f"db {_mb(self.db_bytes)} -> {_mb(self.db_gz_bytes)} gz ({self.db_key})"
+        else:
+            db = f"db {_mb(self.db_bytes)} ({self.db_key})"
         config = f"config {len(self.config_files)} item(s)" if self.config_key else "config not backed up"
         assets = f"assets {self.assets_uploaded} {verb} ({_mb(self.assets_uploaded_bytes)}), {self.assets_unchanged} unchanged"
         parts = [db, config, assets, f"pruned {self.pruned}", f"{seconds:.1f}s"]
@@ -352,11 +411,7 @@ def backup_database(settings: Settings, bucket: Bucket, now: datetime, work: Pat
     if settings.engine == "sqlite":
         backup_sqlite(settings, bucket, now, work, report, dry_run)
     elif settings.engine == "postgres":
-        # TODO(postgres): CloudNativePG's barman backups (base + WAL) to the same bucket are the
-        # primary copy once production is on Postgres. If an engine-independent logical copy is
-        # still wanted here, add `pg_dump --format=custom` (POSTGRES_* env, pg_dump in the image)
-        # to `postgres/marvin-<ts>.dump`, extend _STAMPED_KEY and prune that prefix like sqlite/.
-        raise BackupError("DB_ENGINE=postgres: database dump not implemented here (CloudNativePG backs Postgres up)")
+        backup_postgres(settings, bucket, now, work, report, dry_run)
     else:
         raise BackupError(f"unknown DB engine {settings.engine!r}")
 
@@ -372,6 +427,45 @@ def backup_sqlite(settings: Settings, bucket: Bucket, now: datetime, work: Path,
         bucket.put_file(key, packed, meta, "application/gzip")
     report.db_key, report.db_bytes, report.db_gz_bytes = key, snapshot.stat().st_size, packed.stat().st_size
     log.info("database: %s (%s, gz %s)", key, _mb(report.db_bytes), _mb(report.db_gz_bytes))
+
+
+def _run_pg(args: list[str], settings: Settings, what: str) -> subprocess.CompletedProcess:
+    """Run a libpq client with the connection in its environment (never argv: /proc/<pid>/cmdline is
+    world-readable). stderr is surfaced on failure; it never carries the password."""
+    missing = [k for k in ("PGHOST", "PGUSER", "PGDATABASE") if not settings.pg_env.get(k)]
+    if missing:
+        raise BackupError(f"{what}: POSTGRES_SERVER/POSTGRES_USER/POSTGRES_DB not set")
+    env = {**os.environ, **settings.pg_env}
+    try:
+        result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=PG_DUMP_TIMEOUT, check=False)
+    except FileNotFoundError as exc:
+        raise BackupError(f"{what}: {args[0]} not found (the backend image needs postgresql-client)") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise BackupError(f"{what}: timed out after {PG_DUMP_TIMEOUT}s") from exc
+    if result.returncode != 0:
+        raise BackupError(f"{what} failed ({result.returncode}): {result.stderr.strip()[-500:]}")
+    return result
+
+
+def dump_postgres(settings: Settings, dest: Path) -> int:
+    """pg_dump the database to `dest` (custom format: compressed, selective restore with pg_restore)
+    and prove the archive reads back; returns its number of table-data entries."""
+    _run_pg(["pg_dump", "--format=custom", "--no-owner", "--no-privileges", f"--file={dest}"], settings, "pg_dump")
+    listing = _run_pg(["pg_restore", "--list", str(dest)], settings, "pg_restore --list").stdout
+    tables = sum(1 for line in listing.splitlines() if " TABLE DATA " in line)
+    if tables == 0:
+        raise BackupError("pg_dump produced an archive with no table data")
+    return tables
+
+
+def backup_postgres(settings: Settings, bucket: Bucket, now: datetime, work: Path, report: Report, dry_run: bool) -> None:
+    dump = work / "marvin.dump"
+    tables = dump_postgres(settings, dump)  # raises before anything is uploaded
+    key = pg_key(now)
+    if not dry_run:
+        bucket.put_file(key, dump, {META_SHA256: file_digest(dump)}, "application/octet-stream")
+    report.db_key, report.db_bytes = key, dump.stat().st_size
+    log.info("database: %s (pg_dump, %d tables, %s)", key, tables, _mb(report.db_bytes))
 
 
 def backup_config(settings: Settings, bucket: Bucket, now: datetime, work: Path, report: Report, dry_run: bool) -> None:
@@ -422,7 +516,7 @@ def run_backup(settings: Settings, bucket: Bucket, dry_run: bool = False, now: d
     with tempfile.TemporaryDirectory(prefix="marvin-backup-") as tmp:
         work = Path(tmp)
         for name, step, prefix in (
-            ("database", lambda: backup_database(settings, bucket, now, work, report, dry_run), DB_PREFIX),
+            ("database", lambda: backup_database(settings, bucket, now, work, report, dry_run), db_prefix(settings.engine)),
             ("config", lambda: backup_config(settings, bucket, now, work, report, dry_run), CONFIG_PREFIX),
         ):
             try:
@@ -483,6 +577,20 @@ def restore_database(bucket: Bucket, key: str, target: Path, suffix: str) -> Pat
     return dest
 
 
+def restore_pg_dump(bucket: Bucket, key: str, target: Path, suffix: str) -> Path:
+    """Download and verify a pg_dump archive as target/marvin.dump. Loading it into a database is a
+    deliberate, separate `pg_restore` (see docs/manual/postgres.md) — never done here."""
+    with tempfile.TemporaryDirectory(prefix=".restore-", dir=target) as tmp:
+        staged = Path(tmp) / PG_DUMP_NAME
+        meta = bucket.download(key, staged)
+        _verify_sha(staged, meta.get(META_SHA256), key)
+        _move_aside(target / PG_DUMP_NAME, suffix)
+        dest = target / PG_DUMP_NAME
+        staged.replace(dest)
+    log.info("restored %s -> %s (load it with pg_restore)", key, dest)
+    return dest
+
+
 def restore_config(bucket: Bucket, key: str, target: Path, suffix: str) -> list[str]:
     with tempfile.TemporaryDirectory(prefix=".restore-", dir=target) as tmp:
         archive = Path(tmp) / "config.tar.gz"
@@ -530,9 +638,14 @@ def run_restore(
     skip_db: bool = False,
     skip_config: bool = False,
     force: bool = False,
+    engine: str = "sqlite",
 ) -> None:
+    """Restore into `target`. The database object is the newest of the engine's family unless `db`
+    names one; a `postgres/` key is fetched as marvin.dump, a `sqlite/` key restored as marvin.db."""
     target.mkdir(parents=True, exist_ok=True)
-    replaces = ([] if skip_db else [DB_NAME]) + ([] if skip_config else [".secret"])
+    db = None if skip_db else db or latest_key(bucket, db_prefix(engine))
+    is_pg = bool(db and db.startswith(PG_PREFIX))
+    replaces = ([] if not db else [PG_DUMP_NAME if is_pg else DB_NAME]) + ([] if skip_config else [".secret"])
     occupied = [n for n in replaces if (target / n).exists()]
     if occupied and not force:
         raise BackupError(
@@ -541,11 +654,10 @@ def run_restore(
         )
     # Pick the objects first, so a missing backup fails before anything in target changes. Each
     # object is downloaded and verified before the file it replaces is moved aside.
-    db = None if skip_db else db or latest_key(bucket, DB_PREFIX)
     config = None if skip_config else config or latest_key(bucket, CONFIG_PREFIX)
     suffix = stamp(datetime.now(UTC))
     if db:
-        restore_database(bucket, db, target, suffix)
+        (restore_pg_dump if is_pg else restore_database)(bucket, db, target, suffix)
     if config:
         restore_config(bucket, config, target, suffix)
     if assets:
@@ -565,7 +677,7 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("list", help="list database and config backups in the bucket")
     r = sub.add_parser("restore", help="restore a backup into a directory")
     r.add_argument("--target", type=Path, required=True, help="directory to restore into (a data dir layout)")
-    r.add_argument("--db-key", help="sqlite/... object to restore (default: the newest)")
+    r.add_argument("--db-key", help="sqlite/... or postgres/... object to restore (default: the newest for DB_ENGINE)")
     r.add_argument("--config-key", help="config/... object to restore (default: the newest)")
     r.add_argument("--skip-db", action="store_true")
     r.add_argument("--skip-config", action="store_true")
@@ -595,7 +707,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if report.failures else 0
     try:
         if command == "list":
-            for prefix in (DB_PREFIX, CONFIG_PREFIX):
+            for prefix in (DB_PREFIX, PG_PREFIX, CONFIG_PREFIX):
                 for key, obj in sorted(bucket.list(prefix).items()):
                     sys.stdout.write(f"{key}\t{obj.size}\n")
         else:
@@ -607,6 +719,7 @@ def main(argv: list[str] | None = None) -> int:
                 assets=not args.skip_assets,
                 skip_db=args.skip_db,
                 skip_config=args.skip_config,
+                engine=settings.engine,
                 force=args.force,
             )
     except Exception as exc:

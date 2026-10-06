@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import io
 import sqlite3
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -252,12 +253,142 @@ def test_check_integrity_rejects_a_corrupt_file(tmp_path: Path):
         ob.check_integrity(bad)
 
 
-def test_postgres_engine_is_a_reported_failure_not_a_silent_skip(settings, bucket, s3):
+def test_postgres_without_a_connection_is_a_reported_failure_not_a_silent_skip(settings, bucket, s3):
     settings.engine = "postgres"
     report = ob.run_backup(settings, bucket, now=NOW)
-    assert not [k for k in s3.objects if k.startswith("sqlite/")]
-    assert any("postgres" in f for f in report.failures)
+    assert not [k for k in s3.objects if k.startswith(("sqlite/", "postgres/"))]
+    assert any("POSTGRES_SERVER" in f for f in report.failures)
     assert ob.config_key(NOW) in s3.objects  # assets and config are still protected
+
+
+PG_ENV = {"PGHOST": "marvin-dev-pg-rw", "PGPORT": "5432", "PGUSER": "marvin", "PGPASSWORD": "pg-pass-do-not-print", "PGDATABASE": "marvin"}
+
+
+class FakePg:
+    """Stands in for subprocess.run of pg_dump / pg_restore --list."""
+
+    def __init__(self, returncode: int = 0, tables: int = 3) -> None:
+        self.calls: list[tuple[list[str], dict[str, str]]] = []
+        self.returncode = returncode
+        self.tables = tables
+
+    def __call__(self, args, env, capture_output, text, timeout, check):
+        self.calls.append((list(args), dict(env)))
+        if args[0] == "pg_dump":
+            if self.returncode == 0:
+                Path(next(a.split("=", 1)[1] for a in args if a.startswith("--file="))).write_bytes(b"PGDMP" + b"x" * 64)
+            return subprocess.CompletedProcess(args, self.returncode, "", "pg_dump: error: connection refused")
+        listing = "\n".join(f"{i}; 0 0 TABLE DATA public t{i} marvin" for i in range(self.tables))
+        return subprocess.CompletedProcess(args, 0, listing, "")
+
+
+def test_postgres_dump_is_uploaded_verified_and_pruned(settings, bucket, s3, monkeypatch):
+    settings.engine, settings.pg_env = "postgres", PG_ENV
+    fake = FakePg()
+    monkeypatch.setattr(ob.subprocess, "run", fake)
+    for i in range(1, 120):  # four months of nightly dumps: the oldest fall outside 14 daily + 8 weekly
+        s3.objects[ob.pg_key(NOW - timedelta(days=i))] = (b"old", {})
+    old = ob.pg_key(NOW - timedelta(days=119))
+    keep_sqlite = ob.db_key(NOW - timedelta(days=400))  # the other engine's family is not this run's to prune
+    s3.objects[keep_sqlite] = (b"old", {})
+
+    report = ob.run_backup(settings, bucket, now=NOW)
+
+    assert report.failures == []
+    key = ob.pg_key(NOW)
+    assert key == "postgres/marvin-20261006T071500Z.dump"
+    data, meta = s3.objects[key]
+    assert meta[ob.META_SHA256] == hashlib.sha256(data).hexdigest()
+    assert old not in s3.objects and keep_sqlite in s3.objects
+    assert [c[0][0] for c in fake.calls] == ["pg_dump", "pg_restore"]
+    for args, env in fake.calls:
+        assert env["PGPASSWORD"] == PG_ENV["PGPASSWORD"]  # the password travels in the environment...
+        assert not any(PG_ENV["PGPASSWORD"] in a for a in args)  # ...never on the command line
+    assert "--format=custom" in fake.calls[0][0]
+    assert PG_ENV["PGPASSWORD"] not in report.summary(1.0, False)
+
+
+def test_postgres_dump_failure_uploads_nothing(settings, bucket, s3, monkeypatch):
+    settings.engine, settings.pg_env = "postgres", PG_ENV
+    monkeypatch.setattr(ob.subprocess, "run", FakePg(returncode=1))
+    report = ob.run_backup(settings, bucket, now=NOW)
+    assert not [k for k in s3.objects if k.startswith("postgres/")]
+    assert any("connection refused" in f for f in report.failures)
+
+
+def test_postgres_empty_dump_is_refused(settings, bucket, s3, monkeypatch):
+    settings.engine, settings.pg_env = "postgres", PG_ENV
+    monkeypatch.setattr(ob.subprocess, "run", FakePg(tables=0))
+    report = ob.run_backup(settings, bucket, now=NOW)
+    assert not [k for k in s3.objects if k.startswith("postgres/")]
+    assert any("no table data" in f for f in report.failures)
+
+
+def test_missing_pg_dump_binary_says_what_to_install(settings, bucket, monkeypatch):
+    settings.engine, settings.pg_env = "postgres", PG_ENV
+
+    def missing(*a, **kw):
+        raise FileNotFoundError("pg_dump")
+
+    monkeypatch.setattr(ob.subprocess, "run", missing)
+    report = ob.run_backup(settings, bucket, now=NOW)
+    assert any("postgresql-client" in f for f in report.failures)
+
+
+def test_restore_fetches_a_postgres_dump_without_loading_it(settings, bucket, s3, monkeypatch, tmp_path):
+    settings.engine, settings.pg_env = "postgres", PG_ENV
+    monkeypatch.setattr(ob.subprocess, "run", FakePg())
+    ob.run_backup(settings, bucket, now=NOW)
+    target = tmp_path / "restore"
+    ob.run_restore(bucket, target, engine="postgres")
+    assert (target / "marvin.dump").read_bytes() == s3.objects[ob.pg_key(NOW)][0]
+    assert not (target / "marvin.db").exists()
+    assert (target / ".secret").read_text() == "s3cr3t-installation-key"
+
+
+def test_prefix_keeps_an_environment_to_itself(settings, s3):
+    s3.objects["sqlite/marvin-20200101T000000Z.db.gz"] = (b"prod", {})  # another environment's backup
+    s3.objects["config/marvin-config-20200101T000000Z.tar.gz"] = (b"prod", {})
+    dev = ob.Bucket(s3, "marvin-backups", "dev/")
+    report = ob.run_backup(settings, dev, now=NOW)
+    assert report.failures == []
+    ours = sorted(k for k in s3.objects if k.startswith("dev/"))
+    assert f"dev/{ob.db_key(NOW)}" in ours and f"dev/{ob.config_key(NOW)}" in ours
+    assert all(k.startswith(("dev/", "sqlite/marvin-2020", "config/marvin-config-2020")) for k in s3.objects)
+    assert "sqlite/marvin-20200101T000000Z.db.gz" in s3.objects  # never pruned from under the prefix
+    assert ob.db_key(NOW) in dev.list("sqlite/")  # keys come back relative to the prefix
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("", ""), (None, ""), ("dev", "dev/"), ("/dev/", "dev/"), ("a/b", "a/b/")])
+def test_normalize_prefix(raw, expected):
+    assert ob.normalize_prefix(raw) == expected
+
+
+def test_settings_from_env_maps_postgres_connection_and_prefix():
+    env = {
+        "BACKUP_S3_ENDPOINT": "e",
+        "BACKUP_S3_BUCKET": "b",
+        "AWS_ACCESS_KEY_ID": "k",
+        "AWS_SECRET_ACCESS_KEY": "s",
+        "BACKUP_S3_PREFIX": "dev",
+        "DB_ENGINE": "postgres",
+        "POSTGRES_SERVER": "h",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_USER": "u",
+        "POSTGRES_PASSWORD": "pw-do-not-print",
+        "POSTGRES_DB": "d",
+    }
+    s = ob.Settings.from_env(env)
+    assert s.prefix == "dev/" and s.engine == "postgres"
+    assert s.pg_env == {"PGHOST": "h", "PGPORT": "5432", "PGUSER": "u", "PGPASSWORD": "pw-do-not-print", "PGDATABASE": "d"}
+    assert "pw-do-not-print" not in repr(s)
+
+
+def test_key_families_do_not_cross():
+    assert ob.key_timestamp(ob.pg_key(NOW)) == NOW
+    assert ob.key_timestamp("postgres/marvin-20261006T071500Z.db.gz") is None
+    assert ob.key_timestamp("sqlite/marvin-20261006T071500Z.dump") is None
+    assert ob.db_prefix("postgres") == "postgres/" and ob.db_prefix("sqlite") == "sqlite/"
 
 
 def test_settings_from_env_names_missing_variables_without_values():

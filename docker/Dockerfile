@@ -122,6 +122,10 @@ COPY --chown=app:app docs/manual $MARVIN_HOME/docs/manual
 # The base for both the standalone backend (split mode) and the combined production image below.
 FROM build-base AS backend
 
+# pg_dump/pg_restore for the off-site backup's Postgres dump (marvin.scripts.offsite_backup). Debian's
+# client is the newest major (17 on trixie), which dumps any older server.
+RUN apt-get update && apt-get install --no-install-recommends -y postgresql-client && rm -rf /var/lib/apt/lists/*
+
 ENV PRODUCTION=True
 ENV TESTING=False
 ENV DATA_DIR="$MARVIN_HOME/data"
