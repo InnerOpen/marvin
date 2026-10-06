@@ -1,6 +1,7 @@
 ---
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { BACKUP_STALE_DAYS, formatAge, summarizeBackups, summarizeTasks } from "@/lib/admin/overview";
+import { listAdminEvents } from "@/lib/api/admin/events";
 import { listPlugins } from "@/lib/api/admin/plugins";
 import { listAllTasks } from "@/lib/api/admin/scheduledTasks";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
@@ -47,14 +48,21 @@ async function checkReadiness(): Promise<boolean | null> {
   }
 }
 
-const [about, ready, stats, backups, tasks, plugins] = await Promise.all([
+const EVENTS_WINDOW_DAYS = 7;
+const eventsSince = new Date(Date.now() - EVENTS_WINDOW_DAYS * 86_400_000).toISOString();
+
+const [about, ready, stats, backups, tasks, plugins, recentEvents] = await Promise.all([
   attempt("about", () => fetchApi<AboutInfo>("/api/admin/about", {}, authToken)),
   checkReadiness(),
   attempt("statistics", () => fetchApi<Statistics>("/api/admin/about/statistics", {}, authToken)),
   attempt("backups", () => fetchApi<Backup[]>("/api/admin/backups", {}, authToken)),
   attempt("scheduled tasks", () => listAllTasks(authToken)),
   attempt("plugins", () => listPlugins(authToken)),
+  attempt("events", () =>
+    listAdminEvents(new URLSearchParams({ per_page: "1", start_date: eventsSince }).toString(), authToken),
+  ),
 ]);
+const latestEvent = recentEvents?.items[0] ?? null;
 
 // The release check reports failures as text ("error fetching version"), so only a version-looking
 // tag counts as a newer release.
@@ -123,6 +131,14 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
         </ul>
       </a>
 
+      <a href="/admin/events" class="status-card">
+        <h3>Platform events</h3>
+        <div class="status-value">{recentEvents ? `${recentEvents.total} in ${EVENTS_WINDOW_DAYS} days` : NO_DATA}</div>
+        <ul class="status-details">
+          {latestEvent && <li>Latest: {latestEvent.eventName}, {formatAge(latestEvent.occurredAt)}</li>}
+          {recentEvents && !latestEvent && <li>None in the last {EVENTS_WINDOW_DAYS} days</li>}
+        </ul>
+      </a>
       <a href="/admin/scheduled-tasks" class:list={["status-card", { warn: (taskSummary?.failing.length ?? 0) > 0 }]}>
         <h3>Scheduled tasks</h3>
         <div class="status-value">{taskSummary ? `${taskSummary.failing.length} failing` : NO_DATA}</div>

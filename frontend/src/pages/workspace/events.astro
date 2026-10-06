@@ -101,7 +101,11 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
       <span>Event Log</span>
     </div>
     <h2>Event Log</h2>
-    <p>The workspace audit trail — every event: publishes, uploads, AI runs, embeddings, and more</p>
+    <p>
+      The workspace audit trail: publishes, uploads, members, workflows, AI runs and more. Platform events, such as
+      sign-ups and workspaces created by a platform admin, aren't listed here; platform admins find them under
+      Admin → Operations → Events.
+    </p>
   </div>
 
   {!authed ? (
@@ -123,9 +127,9 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
             <>
               <p class="ac-lead">
                 Choose which event types this log records. A type switched off is not written to the log at all, so
-                its events can't be found here later. Security events (members and invitations, sign-in, API clients
-                and tokens, secrets, workspace settings and approvals) are always recorded, and so is every change
-                made here.
+                its events can't be found here later. Security events (members and invitations, API clients and their
+                tokens, secrets, workspace settings and approvals) are always recorded, and so is every change made
+                here.
               </p>
               <div class="ac-tools">
                 <input id="ac-filter" class="search ac-filter" type="search" placeholder="Filter event types…" aria-label="Filter event types" />
