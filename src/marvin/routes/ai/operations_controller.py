@@ -86,10 +86,21 @@ class AIOperationsController(BaseUserController):
         Mirror of `list_operations`: MarvinMCP reads this to auto-project each tool. A tool is
         listed only when it declares the `mcp` source and the caller meets its min_role.
         """
+        # MarvinMCP's direct calls follow Marvin's permission matrix (see `invoke_tool`), so what it
+        # blocks isn't advertised. An "Ask first" tool stays listed: calling it says where it can run.
+        from marvin.services.ai.agents import POLICY_BLOCK, resolve_policy
         from marvin.services.ai.tools import list_tools as _list_tools
+        from marvin.services.ai.tools.categories import category_of
 
         role = self._user_role()
-        return [t.info() for t in _list_tools() if "mcp" in t.sources and role >= t.min_role]
+        marvin = self._agent_or_404(ROUTER_SLUG)
+        return [
+            t.info()
+            for t in _list_tools()
+            if "mcp" in t.sources
+            and role >= t.min_role
+            and resolve_policy(marvin, t.name, category_of(t.name, read_only=t.read_only), role)[0] != POLICY_BLOCK
+        ]
 
     @router.get("/agent/tools", summary="List the agent's bound tools")
     def list_agent_tools(self) -> list[dict]:
@@ -140,8 +151,10 @@ class AIOperationsController(BaseUserController):
         """
         import json
 
+        from marvin.services.ai.agents import unattended_refusal
         from marvin.services.ai.factory import get_workspace_ai_provider
         from marvin.services.ai.tools import ToolContext, bulk_writes, get_tool
+        from marvin.services.ai.tools.categories import category_of
 
         try:
             spec = get_tool(name)
@@ -153,6 +166,15 @@ class AIOperationsController(BaseUserController):
 
         # Invocation-source gate: tool's declared sources ∩ workspace policy.
         self._check_invocation_source(body.source, spec.sources)
+
+        # A direct call stands in for the workspace's main agent, so it follows Marvin's permission matrix,
+        # resolved as an agent run resolves it: it runs only what Marvin may run unasked. Block and
+        # "Ask first" answer with a refusal (nobody can approve from here); Allow goes on to the bulk-write /
+        # ask-first gate below.
+        category = category_of(spec.name, read_only=spec.read_only)
+        refusal = unattended_refusal(self._agent_or_404(ROUTER_SLUG), spec.name, category, self._user_role())
+        if refusal is not None:
+            return refusal
 
         provider = None
         try:

@@ -450,6 +450,31 @@ def resolve_policy(spec: AgentSpec, tool_name: str, category_id: str, role: int)
     return decision, reason
 
 
+def unattended_refusal(spec: AgentSpec, tool_name: str, category_id: str, role: int) -> dict | None:
+    """`resolve_policy` for a call nobody can approve (MarvinMCP's direct invoke): None when the matrix
+    allows the tool, else the refusal to answer with. "Ask first" refuses too — the call cannot pause."""
+    from marvin.services.ai.tools.categories import CATEGORY_BY_ID
+
+    decision, reason = resolve_policy(spec, tool_name, category_id, role)
+    if decision == POLICY_ALLOW:
+        return None
+    cat = CATEGORY_BY_ID.get(category_id)
+    label = f"“{cat.label if cat else category_id}”"
+    where = "Settings → AI → Agents"
+    if decision == POLICY_ASK:
+        error = (
+            f"Not done: {tool_name} is in {label}, which is set to Ask first for {spec.name} in this workspace, and this call "
+            "cannot pause for approval. Run it from the Ask page or an agent conversation, where it can be approved"
+        )
+        # A built-in agent's matrix is fixed in code; only a workspace agent's can be switched to Allow.
+        error += "." if spec.is_system else f", or set {label} to Allow for {spec.name} ({where})."
+    elif reason == "caller role is below EDITOR":
+        error = f"Not done: {tool_name} writes, and {spec.name} writes only for an EDITOR or above."
+    else:
+        error = f"Not done: {tool_name} is in {label}, which is switched off for {spec.name} in this workspace ({where})."
+    return {"error": error, "tool": tool_name, "category": category_id, "policy": decision, "reason": reason}
+
+
 def permission_matrix(spec: AgentSpec, role: int, catalog: list[dict]) -> list[dict]:
     """Rows for the UI: every category with its default and each known tool's effective decision.
 
