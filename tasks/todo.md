@@ -1097,7 +1097,7 @@ reclaimed leases count; automation_failed only for a chain's first failure and i
 **Goal:** one admin page, **Settings → Integrations → Alerts & health**, that shows what integration error
 handling is doing across the workspace: open alerts, pending retries (retry now / give up), recent handled
 failures, alert history, where alerts go, and a per-integration health summary on top. Scope approved by Jared
-2026-10-05: items 1–5 and 7; item 6 (per-integration overrides table) is later.
+2026-10-05: items 1–5 and 7; item 6 (per-integration overrides table) followed the same day (see the item 6 note below).
 
 **Today (origin/develop `99723737`):**
 - `integration_alerts` already stores how an alert ended: `resolution` (`check` | `action` | `manual`),
@@ -1161,6 +1161,17 @@ steps (and ignored ones) only. Verified: backend suite 2460 passed / 5 skipped w
 2182 passed / 175 skipped without; `npm test` 326 pass; biome clean on touched files; `astro check` 51 errors
 (baseline); live check against a seeded SQLite backend + `astro dev` (render, escaping, paging, links, both levers).
 
+**Item 6, overrides table (2026-10-05):** an **Error handling** section on the page: one row per connection ×
+code that differs from the provider's default (logo, code, default summary + Review/Alert, this connection's
+Review/Alert checkboxes, **Reset**), **Show all codes** to list and change every declared code, saved per connection
+through `PUT /{id}/error-overrides` (the whole set, Reset = without that code). No new endpoint: the page already
+loads the provider catalog (`errorPolicy`), and `GET /groups/integrations` (admin-only, workspace-scoped) carries
+`error_overrides`; `connectionPolicies()` in `lib/integrationPolicy.ts` reuses the card's `policyRows`. Verified:
+backend suite 2575 passed / 178 skipped (no SDK; no backend change); `npm test` 345 pass; biome clean; `astro
+check` 51 (baseline); live check on SQLite + SDK 0.6.0 (develop) + n8n provider + `astro dev` (filter, show all,
+check → save, reset, uncheck back to default, escaping, empty state, 390px stacked cards, no horizontal scroll).
+- [x] Per-integration overrides table on this page (item 6)
+
 ## Later
-Per-integration overrides table on this page (item 6); counting non-workflow failures (event subscriptions,
+Counting non-workflow failures (event subscriptions,
 capabilities, scheduled tasks) in the 7-day figure; live refresh; filters by integration.

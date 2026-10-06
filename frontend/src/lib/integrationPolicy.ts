@@ -85,3 +85,29 @@ export function overridesFrom(
   }
   return out;
 }
+
+/** One connection's "How errors are handled" rows, for the Alerts & health page's Error handling table. */
+export interface ConnectionPolicy {
+  id: string;
+  name: string;
+  provider: string;
+  rows: PolicyRow[];
+}
+
+/**
+ * Every connection whose provider declares an error policy, with its rows (connections keep their
+ * order). A connection whose provider isn't installed, or declares no policy, is left out: there is no
+ * default to compare against, and the server refuses overrides for it.
+ */
+export function connectionPolicies(
+  connections: { id: string; name: string; provider: string; errorOverrides?: ErrorOverrides | null }[],
+  providers: { slug: string; actions?: { key: string; label: string }[]; errorPolicy?: ErrorPolicyInfo | null }[],
+): ConnectionPolicy[] {
+  const bySlug = new Map(providers.map((p) => [p.slug, p]));
+  return connections.flatMap((c) => {
+    const provider = bySlug.get(c.provider);
+    const labels = Object.fromEntries((provider?.actions ?? []).map((a) => [a.key, a.label]));
+    const rows = policyRows(provider?.errorPolicy, labels, c.errorOverrides);
+    return rows.length ? [{ id: c.id, name: c.name, provider: c.provider, rows }] : [];
+  });
+}

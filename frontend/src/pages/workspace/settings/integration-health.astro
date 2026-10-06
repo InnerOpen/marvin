@@ -1,7 +1,8 @@
 ---
 // Settings → Integrations → Alerts & health: what integration error handling is doing across the
 // workspace — each connection at a glance, open alerts (Test / Resolve), retries waiting to run (Retry
-// now / Give up), failures a provider's policy handled, resolved alerts, and where alerts go. Admins
+// now / Give up), failures a provider's policy handled, resolved alerts, each connection's changes to
+// its provider's error handling (Review / Alert, the card's setting), and where alerts go. Admins
 // only (every route behind it is). Server strings are rendered with Astro JSX only, never innerHTML.
 import IntegrationAlertsPanel from "@/components/IntegrationAlertsPanel.astro";
 import IntegrationMark from "@/components/IntegrationMark.astro";
@@ -15,9 +16,11 @@ import {
   type IntegrationAlert,
   type IntegrationHealthRow,
   type IntegrationRetry,
+  type IntegrationWithHealth,
   listHandledFailures,
   listIntegrationAlerts,
   listIntegrationRetries,
+  listIntegrations,
   listProviders,
   type Paged,
   type ProviderInfo,
@@ -33,6 +36,7 @@ import {
   resolutionLabel,
   retryState,
 } from "@/lib/integrationHealth";
+import { connectionPolicies } from "@/lib/integrationPolicy";
 import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -47,6 +51,7 @@ let history: Paged<IntegrationAlert> = { items: [], page: 1, perPage: PER_PAGE, 
 let retries: IntegrationRetry[] = [];
 let handled: Paged<HandledFailure> = { items: [], page: 1, perPage: PER_PAGE, total: 0 };
 let routing: AlertRouting | null = null;
+let connections: IntegrationWithHealth[] = [];
 let providers: ProviderInfo[] = [];
 let adminOnly = false;
 let notInstalled = false;
@@ -54,13 +59,15 @@ let error: string | null = null;
 
 try {
   let open: Paged<IntegrationAlert>;
-  [health, open, history, retries, handled, routing] = await Promise.all([
+  [health, open, history, retries, handled, routing, connections] = await Promise.all([
     getIntegrationHealth(authToken),
     listIntegrationAlerts("open", 1, 100, authToken),
     listIntegrationAlerts("resolved", historyPage, PER_PAGE, authToken),
     listIntegrationRetries(authToken),
     listHandledFailures(handledPage, PER_PAGE, authToken),
     getAlertRouting(authToken),
+    // The connections' error_overrides; the providers' declared defaults come with the catalog below.
+    listIntegrations(authToken),
   ]);
   openAlerts = open.items;
 } catch (e) {
@@ -98,6 +105,13 @@ const workflowHref = (id: string) => `/automation/workflows?workflow=${encodeURI
 const runHref = (workflowId: string, runId: string) => `${workflowHref(workflowId)}&run=${encodeURIComponent(runId)}`;
 const entryHref = (id: string) => `/workspace/entries/${encodeURIComponent(id)}`;
 const historyPages = pageCount(history.total, history.perPage);
+// Error handling: every declared code per connection; only the ones that differ show until "Show all codes".
+const policies = connectionPolicies(connections, providers);
+const adjustedCount = policies.reduce((n, c) => n + c.rows.filter((r) => r.overridden).length, 0);
+const FLAGS = [
+  { key: "review", label: "Review", title: "Send the entry to Needs review" },
+  { key: "notify", label: "Alert", title: "Mark the connection Needs attention and alert admins" },
+] as const;
 const handledPages = pageCount(handled.total, handled.perPage);
 ---
 
@@ -394,6 +408,92 @@ const handledPages = pageCount(handled.total, handled.perPage);
           )}
         </section>
 
+        <!-- Error handling: per-connection changes to the providers' declared Review / Alert -->
+        <section class="block" id="error-handling" aria-labelledby="h-errors">
+          <div class="block-head">
+            <h3 class="block-title" id="h-errors">Error handling</h3>
+            {policies.length > 0 && (
+              <label class="toggle">
+                <input type="checkbox" id="show-all-codes" /> Show all codes
+              </label>
+            )}
+          </div>
+          <p class="block-sub">
+            Where a connection's <strong>Review</strong> or <strong>Alert</strong> differs from what its integration
+            declares. <strong>Show all codes</strong> lists every error each integration names, so you can change them
+            here too: it's the same setting as <strong>How errors are handled</strong> on the integration's card. Retries
+            stay as the integration declares them.
+          </p>
+          <p class="status-line" id="errors-status" role="status"></p>
+          <div class="empty" id="errors-empty" hidden={adjustedCount > 0}>
+            <p>No changes from the integrations' defaults.</p>
+          </div>
+          {policies.length > 0 && (
+            <table class="policy-table" id="errors-table" hidden={adjustedCount === 0}>
+              <thead>
+                <tr>
+                  <th>Integration</th>
+                  <th>Error</th>
+                  <th>Default</th>
+                  <th>This connection</th>
+                  <th><span class="sr-only">Reset</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {policies.flatMap((c) => {
+                  const prov = providersBySlug.get(c.provider);
+                  return c.rows.map((r) => (
+                    <tr
+                      data-integration={c.id}
+                      data-code={r.code}
+                      data-default-review={String(r.defaults.review)}
+                      data-default-notify={String(r.defaults.notify)}
+                      hidden={!r.overridden}
+                    >
+                      <td class="col-int">
+                        <span class="int-named">
+                          {prov && <IntegrationMark slug={prov.slug} icon={prov.icon} hasLogo={prov.hasLogo} />}
+                          <strong>{c.name}</strong>
+                        </span>
+                      </td>
+                      <td class="col-code"><code>{r.label}</code></td>
+                      <td class="col-default">
+                        {r.declared.map((d) => (
+                          <div><span class="muted">{d.scope}:</span> {d.summary}</div>
+                        ))}
+                        <div class="flag-defaults">
+                          {FLAGS.map((f) => (
+                            <span class={`badge ${r.defaults[f.key] ? "" : "muted"}`}>{f.label} {r.defaults[f.key] ? "on" : "off"}</span>
+                          ))}
+                        </div>
+                      </td>
+                      <td class="col-flags">
+                        {FLAGS.map((f) => (
+                          <label class="flag" title={f.title}>
+                            <input
+                              type="checkbox"
+                              class="js-policy"
+                              data-flag={f.key}
+                              checked={r.effective[f.key]}
+                              aria-label={`${f.label} on ${r.label} for ${c.name}`}
+                            />
+                            {f.label}
+                          </label>
+                        ))}
+                      </td>
+                      <td class="col-reset">
+                        <button type="button" class="button small secondary js-policy-reset" hidden={!r.overridden}>
+                          Reset
+                        </button>
+                      </td>
+                    </tr>
+                  ));
+                })}
+              </tbody>
+            </table>
+          )}
+        </section>
+
         <!-- Where alerts go -->
         <section class="block" aria-labelledby="h-routing">
           <h3 class="block-title" id="h-routing">Where alerts go</h3>
@@ -405,14 +505,15 @@ const handledPages = pageCount(handled.total, handled.perPage);
 </AppLayout>
 
 <script>
-  import { checkIntegration, giveUpRetry, resolveAttention, retryNow } from "@/lib/api/integrations";
+  import { checkIntegration, giveUpRetry, resolveAttention, retryNow, setErrorOverrides } from "@/lib/api/integrations";
+  import { overridesFrom } from "@/lib/integrationPolicy";
 
   const status = document.getElementById("health-status");
 
-  function say(message: string, ok = true) {
-    if (!status) return;
-    status.textContent = message;
-    status.classList.toggle("is-error", !ok);
+  function say(message: string, ok = true, where: HTMLElement | null = status) {
+    if (!where) return;
+    where.textContent = message;
+    where.classList.toggle("is-error", !ok);
   }
 
   function errorMessage(e: unknown): string {
@@ -461,6 +562,73 @@ const handledPages = pageCount(handled.total, handled.perPage);
       }
     }),
   );
+
+  // ---- Error handling: the same Review / Alert setting as the card's "How errors are handled", saved
+  // per connection through the same endpoint (its whole set each time; Reset = save without that code).
+  const table = document.getElementById("errors-table");
+  const empty = document.getElementById("errors-empty");
+  const showAll = document.getElementById("show-all-codes") as HTMLInputElement | null;
+  const errorsStatus = document.getElementById("errors-status");
+  const FLAGS = ["review", "notify"] as const;
+
+  const rowsOf = (id?: string) =>
+    [...(table?.querySelectorAll<HTMLTableRowElement>("tbody tr[data-integration]") ?? [])].filter(
+      (tr) => id === undefined || tr.dataset.integration === id,
+    );
+  const box = (tr: HTMLTableRowElement, flag: string) => tr.querySelector(`.js-policy[data-flag="${flag}"]`) as HTMLInputElement;
+  const isDefault = (tr: HTMLTableRowElement, flag: string) => tr.dataset[flag === "review" ? "defaultReview" : "defaultNotify"] === "true";
+
+  function state(tr: HTMLTableRowElement) {
+    return {
+      code: tr.dataset.code!,
+      defaults: { review: isDefault(tr, "review"), notify: isDefault(tr, "notify") },
+      review: box(tr, "review").checked,
+      notify: box(tr, "notify").checked,
+    };
+  }
+
+  /** Show the rows that differ from the default (or every row with "Show all codes"), and the empty state if none. */
+  function refresh() {
+    let visible = 0;
+    for (const tr of rowsOf()) {
+      const changed = FLAGS.some((flag) => box(tr, flag).checked !== isDefault(tr, flag));
+      (tr.querySelector(".js-policy-reset") as HTMLButtonElement).hidden = !changed;
+      tr.hidden = !(changed || showAll?.checked);
+      if (!tr.hidden) visible++;
+    }
+    if (table) table.hidden = visible === 0;
+    if (empty) empty.hidden = visible > 0;
+  }
+
+  // The last saved state, to put the boxes back if a save fails.
+  for (const tr of rowsOf()) for (const flag of FLAGS) box(tr, flag).dataset.saved = String(box(tr, flag).checked);
+
+  async function save(id: string) {
+    const rows = rowsOf(id);
+    const boxes = rows.flatMap((tr) => FLAGS.map((flag) => box(tr, flag)));
+    boxes.forEach((b) => (b.disabled = true));
+    try {
+      await setErrorOverrides(id, overridesFrom(rows.map(state)));
+      boxes.forEach((b) => (b.dataset.saved = String(b.checked)));
+      say("Error handling saved.", true, errorsStatus);
+    } catch (e) {
+      boxes.forEach((b) => (b.checked = b.dataset.saved === "true"));
+      say(errorMessage(e), false, errorsStatus);
+    } finally {
+      boxes.forEach((b) => (b.disabled = false));
+      refresh();
+    }
+  }
+
+  for (const tr of rowsOf()) {
+    const id = tr.dataset.integration!;
+    for (const flag of FLAGS) box(tr, flag).addEventListener("change", () => save(id));
+    tr.querySelector(".js-policy-reset")?.addEventListener("click", () => {
+      for (const flag of FLAGS) box(tr, flag).checked = isDefault(tr, flag);
+      save(id);
+    });
+  }
+  showAll?.addEventListener("change", refresh);
 </script>
 
 <style>
@@ -560,11 +728,33 @@ const handledPages = pageCount(handled.total, handled.perPage);
   .button.danger { background: var(--panel); color: var(--color-error); border-color: var(--color-error); }
   .button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
+  /* Error handling: a table on wide screens, one card per row on phones. */
+  .block-head { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 6px 16px; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+  .policy-table { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+  .policy-table th { text-align: left; font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  .policy-table td { padding: 8px 10px; vertical-align: top; border-bottom: 1px solid var(--line); }
+  .col-int, .col-default { overflow-wrap: anywhere; }
+  .col-code, .col-reset { white-space: nowrap; }
+  .policy-table tbody tr:last-child td { border-bottom: 0; }
+  .policy-table[hidden], .policy-table tr[hidden], .policy-table [hidden] { display: none; }
+  .col-default > div + div { margin-top: 2px; }
+  .flag-defaults { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .col-flags { white-space: nowrap; }
+  .flag { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; cursor: pointer; }
+  .col-reset { text-align: right; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
+
   .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 13px; }
 
   @media (max-width: 640px) {
     .health-grid { grid-template-columns: 1fr; }
     .card-top { flex-direction: column; align-items: flex-start; }
     .actions .button { flex: 1 1 auto; justify-content: center; }
+    .policy-table:not([hidden]), .policy-table tbody { display: block; background: none; border: 0; }
+    .policy-table thead { display: none; }
+    .policy-table tbody tr:not([hidden]) { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+    .policy-table td { display: block; padding: 0; border: 0; }
+    .col-reset { text-align: left; }
   }
 </style>

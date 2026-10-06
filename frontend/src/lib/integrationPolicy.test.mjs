@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { overridesFrom, policyRows } from "./integrationPolicy.ts";
+import { connectionPolicies, overridesFrom, policyRows } from "./integrationPolicy.ts";
 
 const handle = (summary, flags = {}) => ({
   review: false,
@@ -70,5 +70,43 @@ describe("overridesFrom", () => {
       ]),
       { invalid: { review: false } },
     );
+  });
+});
+
+describe("connectionPolicies", () => {
+  const providers = [
+    { slug: "square", actions: [{ key: "create_listing", label: "Create listing" }], errorPolicy: POLICY },
+    { slug: "plain", actions: [], errorPolicy: null },
+  ];
+
+  test("each connection with a declared policy, in order, with its own overrides applied", () => {
+    const result = connectionPolicies(
+      [
+        { id: "b", name: "Shop B", provider: "square", errorOverrides: { auth: { notify: false } } },
+        { id: "a", name: "Shop A", provider: "square" },
+      ],
+      providers,
+    );
+
+    assert.deepEqual(
+      result.map((c) => [c.id, c.rows.filter((r) => r.overridden).map((r) => r.code)]),
+      [
+        ["b", ["auth"]],
+        ["a", []],
+      ],
+    );
+    assert.deepEqual(result[0].rows[0].declared[1], { scope: "Create listing", summary: "notify admins" });
+  });
+
+  test("leaves out connections with no policy or no installed provider", () => {
+    const result = connectionPolicies(
+      [
+        { id: "p", name: "Plain", provider: "plain" },
+        { id: "g", name: "Gone", provider: "uninstalled", errorOverrides: { auth: { review: true } } },
+      ],
+      providers,
+    );
+
+    assert.deepEqual(result, []);
   });
 });
