@@ -6,6 +6,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.204 (2026-10-06)
+
+### Documentation
+
+- **tasks**: Events hub slice 2 review; two more sent_by senders
+  ([`aa86762`](https://github.com/InnerOpen/marvin/commit/aa86762f51d02f7c04c05fa74309c06f7cc7eb2b))
+
+### Features
+
+- **events**: Catalogue every sent event; one internal-events set
+  ([`28ba107`](https://github.com/InnerOpen/marvin/commit/28ba107967386f018a5d8dcc0c6aff0a8f03b8b8))
+
+- **events**: One catalog — triggerable, emittable, sent_by, leads_to
+  ([`9adf871`](https://github.com/InnerOpen/marvin/commit/9adf871d49ef9df173dbda0dce6ef35f9eb70cef))
+
+### Testing
+
+- **events**: Drop the retired side-list snapshots
+  ([`a7b6e80`](https://github.com/InnerOpen/marvin/commit/a7b6e809e1411b57c5dcdf9e62fa58aaf95e5a69))
+
+
 ## v1.0.0-rc.203 (2026-10-06)
 
 ### Bug Fixes
