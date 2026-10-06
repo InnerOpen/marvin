@@ -18,7 +18,7 @@ The database and config objects carry a `sha256` of the object in their metadata
 
 ## Retention
 
-After a successful upload, older `sqlite/` (or `postgres/`) and `config/` objects are pruned: the run keeps the newest backup of each of the last 14 days that have one, plus the newest of each of the last 8 ISO weeks, and deletes the rest. Days and weeks are counted among those that have a backup, not back from today, so a run of failed nights never empties the bucket. A prefix is pruned only when that night's upload to it succeeded. Keys the script did not name (for example a manually uploaded `sqlite/before-cutover.db.gz`) and everything under `assets/` are never deleted.
+After a successful upload, older `sqlite/` (or `postgres/`, which also keeps the newest of each of the last 48 hours) and `config/` objects are pruned: the run keeps the newest backup of each of the last 14 days that have one, plus the newest of each of the last 8 ISO weeks, and deletes the rest. Days and weeks are counted among those that have a backup, not back from today, so a run of failed nights never empties the bucket. A prefix is pruned only when that night's upload to it succeeded. Keys the script did not name (for example a manually uploaded `sqlite/before-cutover.db.gz`) and everything under `assets/` are never deleted.
 
 Two backups on the same day (a one-off run after the nightly one) keep only the newer.
 
@@ -134,15 +134,15 @@ To bring back only lost uploads, restore the assets alone. This needs no `--forc
 
 ## Postgres
 
-The backup is engine-aware through `DB_ENGINE`, which the CronJob reads from the release's ConfigMap. With `dbEngine: sqlite` it backs up the SQLite file as above. With `dbEngine: postgres` the database part is a `pg_dump --format=custom` of the app's database, taken with the same `POSTGRES_*` connection the backend uses (the chart passes them from the connection Secret; the script hands them to `pg_dump` as `PG*` environment variables, never on the command line), checked with `pg_restore --list`, and uploaded as `postgres/marvin-<stamp>.dump` with the same retention. It is the engine-independent copy beside CloudNativePG's own base backups and WAL archive, which are the primary, point-in-time backups (see [Postgres](postgres.md#backups)). The config archive and the assets are backed up either way.
+The backup is engine-aware through `DB_ENGINE`, which the CronJob reads from the release's ConfigMap. With `dbEngine: sqlite` it backs up the SQLite file as above. With `dbEngine: postgres` the database part is a `pg_dump --format=custom` of the app's database, taken with the same `POSTGRES_*` connection the backend uses (the chart passes them from the connection Secret; the script hands them to `pg_dump` as `PG*` environment variables, never on the command line), checked with `pg_restore --list`, and uploaded as `postgres/marvin-<stamp>.dump`. This dump **is** the Postgres backup — there is no WAL archiving or point-in-time recovery, by choice — so a Postgres release runs the job hourly (`backup.schedule: "0 * * * *"`), and `postgres/` keeps the newest of each of the last 48 hours on top of the 14 daily + 8 weekly rule. See [Postgres → Backups](postgres.md#backups), including the restore test.
 
-`restore` with `DB_ENGINE=postgres` (or a `--db-key postgres/...`) downloads and verifies the dump as `<target>/marvin.dump`; it never loads it. Load it deliberately with `pg_restore` — [Postgres → Restore from the logical dump](postgres.md#restore-from-the-logical-dump).
+`restore` with `DB_ENGINE=postgres` (or a `--db-key postgres/...`) downloads and verifies the dump as `<target>/marvin.dump`; it never loads it. Load it deliberately with `pg_restore`.
 
 `pg_dump` comes from the backend image's `postgresql-client` (Debian's, major 17). A dump only restores cleanly with a `pg_restore` at least as new, into a server of the same major or newer, which is why the clusters run Postgres 17.
 
-## Several environments, one bucket
+## Environments
 
-`backup.prefix` (`BACKUP_S3_PREFIX`) puts every key of a release under a prefix, e.g. `dev/` for `marvin-dev`: `dev/postgres/…`, `dev/config/…`, `dev/assets/…`. Listing, retention and restore all work relative to it, so one environment never sees or prunes another's objects. Production keeps the bucket root. The same token can write both, so a prefix separates environments by convention, not by permission.
+Each environment has its own bucket: production `marvin-backups`, dev `marvin-backups-dev` (`BACKUP_S3_BUCKET` in each namespace's `marvin-r2-backup` Secret). One R2 token covers both, by choice — the buckets separate the objects and their retention, not the permissions. `backup.prefix` (`BACKUP_S3_PREFIX`) can also put every key of a release under a prefix in a shared bucket (listing, retention and restore then work relative to it); nothing uses it today.
 
 ## Script reference
 

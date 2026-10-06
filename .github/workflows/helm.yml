@@ -57,14 +57,12 @@ jobs:
             --debug \
             --output-dir /tmp/marvin-templates-prod
 
-      # The Postgres path: CNPG Cluster + Barman Cloud ObjectStore + ScheduledBackup. Offline there is
-      # no Secret for the chart to look the R2 endpoint up from, so pass a placeholder.
+      # The Postgres path: POSTGRES_* wiring, the CNPG Cluster, the hourly pg_dump CronJob.
       - name: Template Helm chart (dev values, Postgres)
         run: |
           helm template marvin marvin-chart/ \
             --namespace marvin-dev \
             --values marvin-chart/values-dev.yaml \
-            --set postgres.cluster.backup.endpointURL=https://example.r2.cloudflarestorage.com \
             --api-versions route.openshift.io/v1 \
             --debug \
             --output-dir /tmp/marvin-templates-dev

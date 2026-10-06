@@ -305,21 +305,21 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
       the undo. `pullPolicy: IfNotPresent`. Dev will follow `:develop` once it exists.
 - [x] **Postgres on the cluster:** CloudNativePG operator v1.30.1 installed (OperatorHub, `openshift-operators`, manual
       approval). One small single-instance `Cluster` per environment, rendered by the chart (below).
-      Still to do (Jared): cert-manager (Red Hat operator) + the **Barman Cloud plugin** v0.15.1 into `openshift-operators`
-      — commands in `docs/manual/postgres.md` ("Cluster prerequisites"). Storage: `managed-nfs-storage` is the only
-      class; used, with the risks and better options written up in the same page ("Storage").
+      No Barman Cloud plugin / cert-manager (Jared, 2026-10-06): backups are the hourly `pg_dump` only — no PITR by
+      choice; how to add it later without moving data is in `docs/manual/postgres.md`. Storage: `managed-nfs-storage`
+      is the only class; used (Jared: keep), with the risks and better options in the same page ("Storage").
 - [x] **Chart (2026-10-06, branch `feat/postgres-dev`, not pushed):** `dbEngine: postgres` → `POSTGRES_*` from
       `postgres.existingSecret` or the CNPG `<cluster>-app` Secret (backend, combined mode, backup job);
       `templates/postgres-cluster.yaml` (`postgres.cluster.enabled`): Cluster (Postgres 17, initdb marvin/marvin,
-      `resource-policy: keep`) + plugin ObjectStore (`s3://marvin-backups/cnpg/<cluster>/`, 30d) + nightly
-      ScheduledBackup. SQLite renders byte-identical (values-iwobble/-production/-staging/-k8s/defaults). Keep the
+      `resource-policy: keep`), no backup section. SQLite renders byte-identical (values-iwobble/-production/-staging/-k8s/defaults). Keep the
       `marvin-data` PVC (assets + `.secret`). Allow `replicaCount > 1` only once assets are on shared/object storage.
-      Postgres 17, not 16: the image's `pg_dump` is Debian's 17 and its archives don't restore cleanly into 16, so
-      the clusters and the CI Postgres job moved to 17 together (suite green on 17 locally).
+      Postgres 17, not 16 (Jared: keep): the image's `pg_dump` is Debian's 17 and its archives don't restore cleanly
+      into 16, so the clusters and the CI Postgres job moved to 17 together (suite green on 17 locally).
 - [ ] **`marvin-dev` namespace:** `values-dev.yaml` built (split, `:develop` + `Always`, cluster `marvin-dev-pg`,
       2Gi assets PVC, routes `*-marvin-dev.apps.ocp4.iwobble.com` + `X-Robots-Tag: noindex`, plugins as prod,
-      off-site backup under `dev/`). To do: merge, create Secret `marvin-r2-backup` in `marvin-dev` from `pass`, then
-      `helm upgrade --install marvin marvin-chart -n marvin-dev -f marvin-chart/values-dev.yaml` (runbook).
+      scheduler off, hourly backup to bucket `marvin-backups-dev` — one R2 token for both buckets, Jared's choice).
+      To do: merge, Secret `marvin-r2-backup` (bucket `marvin-backups-dev`) from `pass`, `helm upgrade --install`,
+      load production with `--pause-outbound`, first backup + restore test (runbook "The marvin-dev environment").
 - [ ] **Hostnames:** `dev.admin.iwobble.com` + `dev.api.iwobble.com` as Public Hostnames on the existing cloudflared
       tunnel → `marvin-dev` services (cross-namespace service DNS). Dev `noindex`/not for real users.
 - [x] **Full SQLite → Postgres data copy:** `python -m marvin.scripts.sqlite_to_postgres` (in the backend image):
@@ -328,11 +328,13 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
       checksum); refuses a non-empty target without `--truncate`; `--dry-run`. Rehearsed locally on a copy of
       production (2026-10-06, PG 16 and 17, and inside the built image): 61 tables / 15,949 rows, 94 FKs, all
       checksums equal; the backend served entries, event connections, workflows and a workflow dry run on it.
-      To do: rehearse on dev (runbook "Loading production data into dev" — mind the scheduler warning).
-- [ ] **Backups:** CNPG plugin backups (base + WAL to R2, 30d PITR) built into the chart; the off-site job now
-      `pg_dump`s Postgres (`[prefix]postgres/marvin-<ts>.dump`, verified, same retention; `postgresql-client` in the
-      backend image) — tested end to end against an S3 stand-in and a pg_restore. To do once dev is up: a **tested
-      restore** from R2 (runbook "Restore a cluster") — R2 restore with the plugin is unverified (plugin issue #411).
+      `--pause-outbound` / `--unpause` switch off (and later restore exactly) webhooks, integrations + subscriptions,
+      workflows, email subscriptions, SMTP profiles, MCP servers, scheduled tasks and auto site rebuilds in a
+      non-production copy (record table `marvin_outbound_pause`). To do: load dev with it.
+- [ ] **Backups:** the off-site job `pg_dump`s Postgres **hourly** (`postgres/marvin-<ts>.dump`, verified; retention
+      48 hourly + 14 daily + 8 weekly; `postgresql-client` in the backend image) — ≤ 1 h data loss, no PITR by choice.
+      Tested end to end against an S3 stand-in and a pg_restore. To do once dev is up: the **restore test** from R2
+      (runbook "Restore test": dump → scratch Postgres 17 → per-table counts equal to live).
 - [x] **Off-site backup (built 2026-10-06, branch `feat/offsite-backup`, not yet deployed):** answer to "what backs up
       production today" was *nothing* (`/app/data/backups` empty; the Backups feature exports workspace content only).
       Nightly CronJob `marvin-offsite-backup` (chart `backup.*`, on in `values-iwobble.yaml`, 03:15 America/New_York) runs

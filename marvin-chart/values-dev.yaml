@@ -4,8 +4,8 @@
 #
 #   helm upgrade --install marvin marvin-chart -n marvin-dev -f marvin-chart/values-dev.yaml
 #
-# Prerequisites (once) and the runbook: docs/manual/postgres.md — the CNPG operator, the Barman Cloud
-# plugin (for postgres.cluster.backup), and Secret `marvin-r2-backup` in this namespace.
+# Prerequisites and the runbook: docs/manual/postgres.md — the CNPG operator (installed) and Secret
+# `marvin-r2-backup` in this namespace (BACKUP_S3_BUCKET=marvin-backups-dev).
 
 mode: split
 
@@ -40,13 +40,6 @@ postgres:
     storage:
       size: 10Gi
       storageClass: managed-nfs-storage
-    # Base backups + WAL to s3://marvin-backups/cnpg/marvin-dev-pg/ (the R2 endpoint is read from Secret
-    # marvin-r2-backup at install), 30 days of point-in-time recovery, nightly base backup.
-    backup:
-      enabled: true
-      existingSecret: marvin-r2-backup
-      bucket: marvin-backups
-      retentionPolicy: 30d
 
 resources:
   requests:
@@ -71,14 +64,16 @@ persistence:
   storageClass: managed-nfs-storage
   size: 2Gi
 
-# Nightly off-site backup under dev/ in the same bucket (own retention; never touches production's
-# keys): pg_dump + config + assets. 03:45 New York, after production's 03:15.
+# The Postgres backup: an hourly pg_dump (+ config + assets) to dev's own bucket, marvin-backups-dev
+# (BACKUP_S3_BUCKET in the Secret). At most an hour of data lost; no point-in-time recovery by choice.
+# Retention for postgres/: 48 hourly + 14 daily + 8 weekly.
 backup:
   enabled: true
   existingSecret: marvin-r2-backup
-  prefix: dev/
-  schedule: "45 3 * * *"
-  timeZone: America/New_York
+  schedule: "0 * * * *"
+  # An hourly run must finish (or give up) well before the next one.
+  activeDeadlineSeconds: 2700
+  startingDeadlineSeconds: 900
 
 route:
   enabled: true
@@ -132,6 +127,11 @@ extraVolumeMounts:
 extraEnv:
   - name: PYTHONPATH
     value: /plugins
+  # Dev holds a copy of production: no scheduler, so nothing fires on its own (webhook delivery,
+  # scheduled tasks, queued site rebuilds, retries). The copy is also loaded with --pause-outbound.
+  # Turn it on only to test something that needs it, with outbound rows still paused.
+  - name: SCHEDULER_ENABLED
+    value: "false"
   - name: STORAGE_LOCAL_PUBLIC_BASE_URL
     value: https://marvin-api-marvin-dev.apps.ocp4.iwobble.com/assets
   - name: INTEGRATION_HTTP_MAX_BYTES
