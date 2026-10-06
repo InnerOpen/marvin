@@ -315,11 +315,12 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
       `marvin-data` PVC (assets + `.secret`). Allow `replicaCount > 1` only once assets are on shared/object storage.
       Postgres 17, not 16 (Jared: keep): the image's `pg_dump` is Debian's 17 and its archives don't restore cleanly
       into 16, so the clusters and the CI Postgres job moved to 17 together (suite green on 17 locally).
-- [ ] **`marvin-dev` namespace:** `values-dev.yaml` built (split, `:develop` + `Always`, cluster `marvin-dev-pg`,
+- [x] **`marvin-dev` namespace:** `values-dev.yaml` built (split, `:develop` + `Always`, cluster `marvin-dev-pg`,
       2Gi assets PVC, routes `*-marvin-dev.apps.ocp4.iwobble.com` + `X-Robots-Tag: noindex`, plugins as prod,
       scheduler off, hourly backup to bucket `marvin-backups-dev` — one R2 token for both buckets, Jared's choice).
       To do: merge, Secret `marvin-r2-backup` (bucket `marvin-backups-dev`) from `pass`, `helm upgrade --install`,
       load production with `--pause-outbound`, first backup + restore test (runbook "The marvin-dev environment").
+      Up 2026-10-06 (helm rev 1): cluster `marvin-dev-pg` healthy; loaded from production's latest hourly dump + config + assets (Job `marvin-load-prod-copy`: offsite_backup restore from `marvin-backups`, `pg_restore --clean --single-transaction`, then `--pause-outbound` → 74 rows paused). Admin `marvin-marvin-dev.apps.ocp4.iwobble.com`, API `marvin-api-marvin-dev…` (LAN). First backup to `marvin-backups-dev` OK.
 - [ ] **Hostnames:** `dev.admin.iwobble.com` + `dev.api.iwobble.com` as Public Hostnames on the existing cloudflared
       tunnel → `marvin-dev` services (cross-namespace service DNS). Dev `noindex`/not for real users.
 - [x] **Full SQLite → Postgres data copy:** `python -m marvin.scripts.sqlite_to_postgres` (in the backend image):
@@ -331,10 +332,11 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
       `--pause-outbound` / `--unpause` switch off (and later restore exactly) webhooks, integrations + subscriptions,
       workflows, email subscriptions, SMTP profiles, MCP servers, scheduled tasks and auto site rebuilds in a
       non-production copy (record table `marvin_outbound_pause`). To do: load dev with it.
-- [ ] **Backups:** the off-site job `pg_dump`s Postgres **hourly** (`postgres/marvin-<ts>.dump`, verified; retention
+- [x] **Backups:** the off-site job `pg_dump`s Postgres **hourly** (`postgres/marvin-<ts>.dump`, verified; retention
       48 hourly + 14 daily + 8 weekly; `postgresql-client` in the backend image) — ≤ 1 h data loss, no PITR by choice.
       Tested end to end against an S3 stand-in and a pg_restore. To do once dev is up: the **restore test** from R2
       (runbook "Restore test": dump → scratch Postgres 17 → per-table counts equal to live).
+      Production verified 2026-10-06: hourly `pg_dump` to `marvin-backups/postgres/`, restore test into a scratch Postgres 17 matched 62/62 tables, 15,986 rows.
 - [x] **Off-site backup (built 2026-10-06, branch `feat/offsite-backup`, not yet deployed):** answer to "what backs up
       production today" was *nothing* (`/app/data/backups` empty; the Backups feature exports workspace content only).
       Nightly CronJob `marvin-offsite-backup` (chart `backup.*`, on in `values-iwobble.yaml`, 03:15 America/New_York) runs
@@ -353,7 +355,7 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
       `e646afad` (rev 23, `dbEngine: postgres`, hourly backups). Smoke: reads/save/dry run/asset OK; first `postgres/` dump
       (7.4 MB) restored into a scratch Postgres 17: 62/62 tables, 15,986 rows, no differences. Rollback = `helm rollback
       marvin 22 -n marvin` (SQLite file untouched) — only sensible while Postgres has no new data worth keeping.
-      Backend `Recreate` dropped the same day (rolling update, no-downtime promotions). Left: dev environment on Postgres.
+      Backend `Recreate` dropped the same day + `preStopSleepSeconds: 15`: a rolling restart measured 0/120 failed health checks (5s preStop dropped ~6s). Dev on Postgres is up (above).
 - [ ] **SQLite retired** (Jared: "not using sqlite"): no environment runs on SQLite after the cutover — dev and prod both
       Postgres, `values-iwobble.yaml` drops `dbEngine: sqlite`; the `.db` file leaves `marvin-data` (assets stay). The old `.db` is kept only
       as a cold, read-only copy for a set period, then deleted. (Local dev/tests may keep SQLite.)
