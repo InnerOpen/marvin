@@ -22,6 +22,8 @@ After a successful upload, older `sqlite/` (or `postgres/`, which also keeps the
 
 Two backups on the same day (a one-off run after the nightly one) keep only the newer.
 
+The counts are `backup.retention.hourly` / `.daily` / `.weekly` in the chart (`BACKUP_KEEP_HOURLY` / `_DAILY` / `_WEEKLY`); a key left out keeps the default above; 0 turns the hourly or weekly rule off (daily must be at least 1, so a run never prunes the backup it just made). Dev keeps 24 hourly + 7 daily and nothing weekly (`values-dev.yaml`); production uses the defaults.
+
 ## Enabling it
 
 1. Create the bucket and a token that can read, write and delete objects in it.
@@ -162,6 +164,7 @@ python -m marvin.scripts.offsite_backup restore --target DIR [--db-key KEY] [--c
 | `BACKUP_S3_PREFIX` | empty | e.g. `dev/`: every key under it |
 | `BACKUP_DATA_DIR` | `/app/data` | the data directory to back up |
 | `BACKUP_DB_ENGINE` | `DB_ENGINE`, else `sqlite` | |
+| `BACKUP_KEEP_HOURLY` / `BACKUP_KEEP_DAILY` / `BACKUP_KEEP_WEEKLY` | `48` / `14` / `8` | retention counts (hourly applies to `postgres/` only); `0` turns hourly or weekly off; daily is at least `1` |
 | `POSTGRES_SERVER`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | | Postgres only; passed to `pg_dump` as `PGHOST` … `PGDATABASE` |
 
 Exit codes: `0` success, `1` a step failed (the summary or error line says which), `2` missing configuration. `--dry-run` still snapshots and checks the database locally and lists the bucket, so it also proves the credentials work.

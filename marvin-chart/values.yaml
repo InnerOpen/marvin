@@ -288,6 +288,9 @@ backup:
   # Key prefix inside the bucket (e.g. "staging/") to share one bucket between environments, each with
   # its own retention. Empty = the bucket root; production and dev each have their own bucket instead.
   prefix: ""
+  # Retention counts (BACKUP_KEEP_HOURLY / _DAILY / _WEEKLY); a key left out keeps the script's default
+  # (48 hourly, postgres/ only; 14 daily, min 1; 8 weekly). 0 turns hourly/weekly off. e.g. {hourly: 24, daily: 7, weekly: 0}
+  retention: {}
   # A run (including time Pending with no backend pod to sit beside) is failed after this long.
   activeDeadlineSeconds: 3600
   # Skip a run that could not start within this many seconds of its schedule (0/empty = no limit).

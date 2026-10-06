@@ -21,7 +21,8 @@ Database and config objects carry `sha256` (of the object) in their metadata, an
 also `db-sha256` (of the uncompressed file); restore checks both. Retention keeps the newest backup of
 each of the last KEEP_DAILY days that have one, plus the newest of each of the last KEEP_WEEKLY ISO
 weeks — and for `postgres/` (dumped hourly) also the newest of each of the last KEEP_HOURLY hours; it
-never touches `assets/` or keys it did not name.
+never touches `assets/` or keys it did not name. BACKUP_KEEP_HOURLY / _DAILY / _WEEKLY override the
+three counts (0 turns the hourly or weekly rule off; daily is at least 1).
 
 With Postgres the dump is the database backup (no WAL archiving / point-in-time recovery, by choice),
 so a Postgres release runs this hourly. It is taken with the POSTGRES_* connection the app uses
@@ -35,8 +36,9 @@ credentials scoped to it.
 
 Configuration (environment): BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET, AWS_ACCESS_KEY_ID,
 AWS_SECRET_ACCESS_KEY, BACKUP_S3_REGION (default `auto`, right for R2), BACKUP_S3_PREFIX (default none),
-BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default: DB_ENGINE, else `sqlite`); for
-Postgres also POSTGRES_SERVER, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB.
+BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default: DB_ENGINE, else `sqlite`),
+BACKUP_KEEP_HOURLY / BACKUP_KEEP_DAILY / BACKUP_KEEP_WEEKLY (default 48 / 14 / 8); for Postgres also
+POSTGRES_SERVER, POSTGRES_PORT, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB.
 
 Deliberately standalone (stdlib + boto3, no Marvin settings import): it runs in a CronJob next to
 the live backend and must not create directories, read `.secret` through the app, or open the
@@ -316,6 +318,34 @@ def normalize_prefix(prefix: str | None) -> str:
     return f"{prefix}/" if prefix else ""
 
 
+@dataclass(frozen=True)
+class Retention:
+    """How many periods `prune` keeps: `hourly` applies to postgres/ only, `daily` and `weekly` to every
+    stamped prefix. 0 turns the hourly or weekly rule off; `daily` stays >= 1 so the backup a run just
+    made is never pruned by that same run."""
+
+    hourly: int = KEEP_HOURLY
+    daily: int = KEEP_DAILY
+    weekly: int = KEEP_WEEKLY
+
+    def __post_init__(self) -> None:
+        if self.daily < 1 or self.hourly < 0 or self.weekly < 0:
+            raise BackupError(f"retention needs daily >= 1 and hourly, weekly >= 0, not {self}")
+
+    @classmethod
+    def from_env(cls, env: dict[str, str]) -> Retention:
+        counts = {}
+        for name in ("hourly", "daily", "weekly"):
+            var = f"BACKUP_KEEP_{name.upper()}"
+            raw = (env.get(var) or "").strip()
+            if not raw:
+                continue
+            if not raw.isdecimal():
+                raise BackupError(f"{var} must be a whole number >= 0, not {raw!r}")
+            counts[name] = int(raw)
+        return cls(**counts)
+
+
 @dataclass
 class Settings:
     endpoint: str
@@ -324,6 +354,7 @@ class Settings:
     data_dir: Path
     engine: str
     prefix: str = ""
+    retention: Retention = field(default_factory=Retention)
     # libpq environment for pg_dump (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE); never logged.
     pg_env: dict[str, str] = field(default_factory=dict, repr=False)
 
@@ -340,6 +371,7 @@ class Settings:
             data_dir=Path(env.get("BACKUP_DATA_DIR") or "/app/data"),
             engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "sqlite").lower(),
             prefix=normalize_prefix(env.get("BACKUP_S3_PREFIX")),
+            retention=Retention.from_env(env),
             pg_env={
                 pg: env[app]
                 for pg, app in (
@@ -506,8 +538,9 @@ def backup_assets(settings: Settings, bucket: Bucket, report: Report, dry_run: b
             log.error("asset %s: %s", rel, exc)
 
 
-def prune(bucket: Bucket, prefix: str, report: Report, dry_run: bool) -> None:
-    expired = select_expired(bucket.list(prefix), keep_hourly=KEEP_HOURLY if prefix == PG_PREFIX else 0)
+def prune(bucket: Bucket, prefix: str, report: Report, dry_run: bool, retention: Retention | None = None) -> None:
+    r = retention or Retention()
+    expired = select_expired(bucket.list(prefix), keep_daily=r.daily, keep_weekly=r.weekly, keep_hourly=r.hourly if prefix == PG_PREFIX else 0)
     for key in expired:
         log.info("prune: %s%s", key, " (dry run)" if dry_run else "")
     if expired and not dry_run:
@@ -528,7 +561,7 @@ def run_backup(settings: Settings, bucket: Bucket, dry_run: bool = False, now: d
         ):
             try:
                 step()
-                prune(bucket, prefix, report, dry_run)
+                prune(bucket, prefix, report, dry_run, settings.retention)
             except Exception as exc:
                 report.failures.append(f"{name}: {exc}")
                 log.error("%s: %s", name, exc)

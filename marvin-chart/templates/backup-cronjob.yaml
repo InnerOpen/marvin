@@ -96,6 +96,13 @@ spec:
                 - name: BACKUP_S3_PREFIX
                   value: {{ . | quote }}
                 {{- end }}
+                {{- $retention := .Values.backup.retention | default dict }}
+                {{- range list "hourly" "daily" "weekly" }}
+                {{- if and (hasKey $retention .) (not (kindIs "invalid" (index $retention .))) }}
+                - name: BACKUP_KEEP_{{ upper . }}
+                  value: {{ index $retention . | quote }}
+                {{- end }}
+                {{- end }}
                 {{- with include "marvin.postgresEnv" . | trim }}
                 {{- . | nindent 16 }}
                 {{- end }}

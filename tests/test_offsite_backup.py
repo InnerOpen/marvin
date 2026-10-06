@@ -491,3 +491,59 @@ def test_prune_applies_the_hourly_rule_to_postgres_only(s3, bucket):
     assert len([k for k in s3.objects if k.startswith("postgres/")]) == 30  # all within 48 hours
     assert len([k for k in s3.objects if k.startswith("sqlite/")]) == 2  # newest per day
     assert report.pruned == 28
+
+
+# --- configurable retention (BACKUP_KEEP_*) -------------------------------------------------------
+
+
+def test_retention_defaults_are_todays_counts():
+    s = ob.Settings.from_env({"BACKUP_S3_ENDPOINT": "e", "BACKUP_S3_BUCKET": "b", "AWS_ACCESS_KEY_ID": "i", "AWS_SECRET_ACCESS_KEY": "k"})
+    assert s.retention == ob.Retention(hourly=48, daily=14, weekly=8)
+    assert ob.Retention.from_env({"BACKUP_KEEP_DAILY": ""}) == ob.Retention()  # empty = unset
+
+
+def test_retention_from_env_overrides_each_count():
+    env = {"BACKUP_KEEP_HOURLY": "24", "BACKUP_KEEP_DAILY": "7", "BACKUP_KEEP_WEEKLY": "0"}
+    assert ob.Retention.from_env(env) == ob.Retention(hourly=24, daily=7, weekly=0)
+    assert ob.Retention.from_env({"BACKUP_KEEP_DAILY": "30"}) == ob.Retention(hourly=48, daily=30, weekly=8)
+
+
+@pytest.mark.parametrize("raw", ["-1", "seven", "1.5"])
+def test_retention_from_env_rejects_bad_counts(raw):
+    with pytest.raises(ob.BackupError, match="BACKUP_KEEP_WEEKLY"):
+        ob.Retention.from_env({"BACKUP_KEEP_WEEKLY": raw})
+
+
+def test_retention_never_drops_the_daily_rule():
+    # daily=0 (with hourly/weekly off) would prune the backup the run just uploaded.
+    with pytest.raises(ob.BackupError, match="daily >= 1"):
+        ob.Retention.from_env({"BACKUP_KEEP_DAILY": "0"})
+
+
+def test_custom_retention_keeps_24_hourly_7_daily_no_weekly(s3, bucket):
+    hours = [NOW - timedelta(hours=h) for h in range(24 * 21)]  # three weeks of hourly dumps
+    for ts in hours:
+        s3.objects[ob.pg_key(ts)] = (b"x", {})
+        s3.objects[ob.config_key(ts)] = (b"x", {})
+    retention = ob.Retention(hourly=24, daily=7, weekly=0)
+    report = ob.Report()
+    ob.prune(bucket, ob.PG_PREFIX, report, dry_run=False, retention=retention)
+    ob.prune(bucket, ob.CONFIG_PREFIX, report, dry_run=False, retention=retention)
+
+    newest_per_day = {}
+    for ts in hours:  # newest first
+        newest_per_day.setdefault(ts.date(), ts)
+    last_7_days = list(newest_per_day.values())[:7]
+
+    pg = {k for k in s3.objects if k.startswith("postgres/")}
+    assert pg == {ob.pg_key(ts) for ts in hours[:24]} | {ob.pg_key(ts) for ts in last_7_days}
+    # config/ has no hourly rule: just the newest of each of the last 7 days, nothing weekly.
+    assert {k for k in s3.objects if k.startswith("config/")} == {ob.config_key(ts) for ts in last_7_days}
+
+
+def test_run_backup_prunes_with_the_settings_retention(settings, bucket, s3):
+    for d in range(1, 10):  # nine older daily snapshots
+        s3.objects[ob.db_key(NOW - timedelta(days=d))] = (b"x", {})
+    settings.retention = ob.Retention(daily=3, weekly=0)
+    ob.run_backup(settings, bucket, now=NOW)
+    assert sorted(k for k in s3.objects if k.startswith("sqlite/")) == sorted(ob.db_key(NOW - timedelta(days=d)) for d in range(3))

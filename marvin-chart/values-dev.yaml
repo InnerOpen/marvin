@@ -66,10 +66,15 @@ persistence:
 
 # The Postgres backup: an hourly pg_dump (+ config + assets) to dev's own bucket, marvin-backups-dev
 # (BACKUP_S3_BUCKET in the Secret). At most an hour of data lost; no point-in-time recovery by choice.
-# Retention for postgres/: 48 hourly + 14 daily + 8 weekly.
+# Retention for postgres/: 24 hourly + 7 daily, no weekly (config/: 7 daily) — less than production's
+# 48 + 14 + 8, since dev's data is disposable.
 backup:
   enabled: true
   existingSecret: marvin-r2-backup
+  retention:
+    hourly: 24
+    daily: 7
+    weekly: 0
   schedule: "0 * * * *"
   # An hourly run must finish (or give up) well before the next one.
   activeDeadlineSeconds: 2700
