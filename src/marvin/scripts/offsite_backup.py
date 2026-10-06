@@ -20,10 +20,11 @@ environments, each with its own retention):
 Database and config objects carry `sha256` (of the object) in their metadata, and the SQLite snapshot
 also `db-sha256` (of the uncompressed file); restore checks both. Retention keeps the newest backup of
 each of the last KEEP_DAILY days that have one, plus the newest of each of the last KEEP_WEEKLY ISO
-weeks; it never touches `assets/` or keys it did not name.
+weeks — and for `postgres/` (dumped hourly) also the newest of each of the last KEEP_HOURLY hours; it
+never touches `assets/` or keys it did not name.
 
-With Postgres the dump is a logical, engine-independent copy beside CloudNativePG's own base backups
-and WAL archive (physical, point-in-time). It is taken with the POSTGRES_* connection the app uses
+With Postgres the dump is the database backup (no WAL archiving / point-in-time recovery, by choice),
+so a Postgres release runs this hourly. It is taken with the POSTGRES_* connection the app uses
 (passed to pg_dump through PG* environment variables, never the command line) and checked with
 `pg_restore --list` before upload. `restore` downloads and verifies it as DIR/marvin.dump; loading it
 is a deliberate `pg_restore` (docs/manual/postgres.md), never automatic.
@@ -79,6 +80,9 @@ CONFIG_DIRS = ("templates",)  # operator-supplied email templates (services/emai
 
 KEEP_DAILY = 14
 KEEP_WEEKLY = 8
+# postgres/ dumps run hourly (backup.schedule), so they also keep the newest of each of the last
+# KEEP_HOURLY hours that have one; sqlite/ and config/ keep the daily + weekly rule only.
+KEEP_HOURLY = 48
 
 META_SHA256 = "sha256"  # sha256 of the stored object (the .gz)
 META_DB_SHA256 = "db-sha256"  # sha256 of the uncompressed database
@@ -133,23 +137,26 @@ def key_timestamp(key: str) -> datetime | None:
     return datetime.strptime(m["ts"], TS_FORMAT).replace(tzinfo=UTC)
 
 
-def select_retained(keys: Iterable[str], keep_daily: int = KEEP_DAILY, keep_weekly: int = KEEP_WEEKLY) -> set[str]:
-    """Keys to keep: the newest per UTC day for the newest `keep_daily` days that have a backup, plus
-    the newest per ISO week for the newest `keep_weekly` weeks. Counting days/weeks that *have* a
-    backup (not calendar days back from today) means a gap in backups never empties the bucket."""
+def select_retained(keys: Iterable[str], keep_daily: int = KEEP_DAILY, keep_weekly: int = KEEP_WEEKLY, keep_hourly: int = 0) -> set[str]:
+    """Keys to keep: the newest per UTC hour for the newest `keep_hourly` hours that have a backup, the
+    newest per UTC day for the newest `keep_daily` days that have one, plus the newest per ISO week for
+    the newest `keep_weekly` weeks. Counting periods that *have* a backup (not calendar periods back
+    from now) means a gap in backups never empties the bucket."""
     stamped = sorted(((ts, k) for k in keys if (ts := key_timestamp(k)) is not None), reverse=True)
-    newest_per_day: dict[Any, str] = {}
-    newest_per_week: dict[Any, str] = {}
-    for ts, key in stamped:  # newest first, so the first key seen per bucket is the newest
-        newest_per_day.setdefault(ts.date(), key)
-        newest_per_week.setdefault(ts.isocalendar()[:2], key)
-    return set(list(newest_per_day.values())[:keep_daily]) | set(list(newest_per_week.values())[:keep_weekly])
+    newest: dict[str, dict[Any, str]] = {"hour": {}, "day": {}, "week": {}}
+    for ts, key in stamped:  # newest first, so the first key seen per period is the newest
+        newest["hour"].setdefault((ts.date(), ts.hour), key)
+        newest["day"].setdefault(ts.date(), key)
+        newest["week"].setdefault(ts.isocalendar()[:2], key)
+    keep = set(list(newest["hour"].values())[:keep_hourly])
+    keep |= set(list(newest["day"].values())[:keep_daily])
+    return keep | set(list(newest["week"].values())[:keep_weekly])
 
 
-def select_expired(keys: Iterable[str], keep_daily: int = KEEP_DAILY, keep_weekly: int = KEEP_WEEKLY) -> list[str]:
+def select_expired(keys: Iterable[str], keep_daily: int = KEEP_DAILY, keep_weekly: int = KEEP_WEEKLY, keep_hourly: int = 0) -> list[str]:
     """Stamped keys outside the retention set. Keys this script did not name are never expired."""
     keys = list(keys)
-    keep = select_retained(keys, keep_daily, keep_weekly)
+    keep = select_retained(keys, keep_daily, keep_weekly, keep_hourly)
     return sorted(k for k in keys if key_timestamp(k) is not None and k not in keep)
 
 
@@ -500,7 +507,7 @@ def backup_assets(settings: Settings, bucket: Bucket, report: Report, dry_run: b
 
 
 def prune(bucket: Bucket, prefix: str, report: Report, dry_run: bool) -> None:
-    expired = select_expired(bucket.list(prefix))
+    expired = select_expired(bucket.list(prefix), keep_hourly=KEEP_HOURLY if prefix == PG_PREFIX else 0)
     for key in expired:
         log.info("prune: %s%s", key, " (dry run)" if dry_run else "")
     if expired and not dry_run:

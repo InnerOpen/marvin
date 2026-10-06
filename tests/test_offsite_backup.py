@@ -459,3 +459,35 @@ def test_restore_picks_the_newest_backup(settings, bucket, s3, data_dir, tmp_pat
     conn = sqlite3.connect(tmp_path / "r" / "marvin.db")
     assert conn.execute("SELECT count(*) FROM users").fetchone() == (51,)
     conn.close()
+
+
+# --- hourly retention for postgres/ ---------------------------------------------------------------
+
+
+def test_postgres_retention_keeps_48_hourly_14_daily_8_weekly():
+    hours = [NOW - timedelta(hours=h) for h in range(24 * 70)]  # ten weeks of hourly dumps
+    keys = [ob.pg_key(ts) for ts in hours]
+    keep = ob.select_retained(keys, keep_hourly=ob.KEEP_HOURLY)
+
+    assert {ob.pg_key(ts) for ts in hours[:48]} <= keep  # every one of the last 48 hours
+    assert ob.pg_key(hours[48]) not in keep  # the 49th hour is only an hour (not a day's newest)
+    newest_per_day = {}
+    for ts in hours:  # newest first
+        newest_per_day.setdefault(ts.date(), ob.pg_key(ts))
+    assert set(list(newest_per_day.values())[:14]) <= keep
+    assert list(newest_per_day.values())[14] not in keep or ob.key_timestamp(list(newest_per_day.values())[14]).weekday() == 6
+    assert ob.pg_key(hours[-1]) not in keep  # ten weeks back: outside 8 weekly
+    assert 48 < len(keep) <= 48 + 14 + 8
+
+
+def test_prune_applies_the_hourly_rule_to_postgres_only(s3, bucket):
+    for h in range(30):  # 30 hourly backups across two UTC days
+        ts = NOW - timedelta(hours=h)
+        s3.objects[ob.pg_key(ts)] = (b"x", {})
+        s3.objects[ob.db_key(ts)] = (b"x", {})
+    report = ob.Report()
+    ob.prune(bucket, ob.PG_PREFIX, report, dry_run=False)
+    ob.prune(bucket, ob.DB_PREFIX, report, dry_run=False)
+    assert len([k for k in s3.objects if k.startswith("postgres/")]) == 30  # all within 48 hours
+    assert len([k for k in s3.objects if k.startswith("sqlite/")]) == 2  # newest per day
+    assert report.pruned == 28
