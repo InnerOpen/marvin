@@ -1489,7 +1489,7 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
       of `marvin.db` (counts before = after)
 - [x] **Slice 2 — one catalog:** `triggerable`, `emittable`, `sent_by`, `leads_to`; built-in listeners declare
       `reacts_to`; side lists removed; drift tests
-- [ ] **Slice 3 — connections service + API:** reactions/senders/recent/summary; role + workspace scoping tests;
+- [x] **Slice 3 — connections service + API:** reactions/senders/recent/summary; role + workspace scoping tests;
       platform events excluded; SDK Quality Gate
 - [ ] **Slice 4 — UI:** event page (three parts + chain), catalog dots, "+ New workflow on this event", Installed-by
       badge, admin panel; live check incl. 390px
@@ -1593,6 +1593,55 @@ options endpoint): triggerable 41, emit_event accepts 24, emit menu 23, subscrib
 **Verified.** Backend 2725 passed / 179 skipped (develop 2704/179), with the integration SDK 3028/6 (develop
 3007/6); SDK gate reproduced twice in a fresh venv — only `AutomationOptions.emittable` changes. Frontend:
 `npm test` 439/439, `astro check` 51 errors (= develop), biome clean on the touched page.
+
+## Slice 3 review (2026-10-06, branch `feat/events-connections`)
+
+**Built.** `services/events/connections.py`, read-only, nothing stored:
+- `reactions()`: one UNION ALL over integration actions (+ integration), emails (+ template), event-driven webhooks,
+  workflows (`trigger_event`) and the system email templates, then the built-in reactions. Switched-off rows are
+  listed with `enabled=false`; `enabled` is decided the way each listener decides (`_runs`), including the email
+  rule for invitation / password reset / welcome: the system template sends unless the workspace connects its own
+  template of that type, and while it sends, other subscriptions on that event don't. Each row: kind, id, name,
+  enabled, detail (action / "To the workspace admins" / trigger ref), triggerType, managedAt, installedBy. No URLs,
+  headers, args, tokens or addresses.
+- `senders()`: the catalog's `sent_by`, then the workspace's workflows whose steps send it (Emit event; a task step
+  such as Request Site Rebuild → `site_rebuild_queued` + `webhook_triggered`; entry steps), the incoming webhooks
+  that start such a workflow (one hop; every incoming webhook also sends `incoming_webhook`), and scheduled tasks
+  whose type sends it, system tasks included. Two small declarations make that honest: `OP_SENDS` beside the entry
+  step's ops, and `ScheduledTaskHandler.sends` (publish/unpublish scheduled entries, request site rebuild, reindex);
+  tests run each op and task and compare.
+- `recent()` (Event Log, workspace scope, the caller's AI-run visibility) + `audited`; `leads_to` / `caused_by`.
+- `summary()`: per workspace-scope type `senders`, `reactions`, `activeReactions`, `builtinReactions`,
+  `lastOccurredAt` — 6 queries whatever the number of types (one grouped query for every stored reaction).
+- API: `GET /api/platform/event-types/connections`, `GET /api/platform/event-types/{type}/connections?limit=`,
+  `GET /api/admin/event-types/{type}/connections` (super admin: senders, built-in + system email, each workspace's
+  own reactions grouped by workspace, newest events across workspaces). 404 for unknown types and for the other
+  scope's types. SDK: types regenerated + `events.getConnectionsSummary()` / `events.getConnections(type)`
+  (MarvinSDK `feat/events-connections-types`).
+
+**Departures (Jared's call):**
+- Paths: `/api/platform/event-types/…`, not `/api/platform/events/…` (that prefix has `/{event_id}`).
+- Guard: workspace OWNER/ADMIN, not every member. The catalog page is admin-only, and every list it draws on
+  (workflows, webhooks, email subscriptions, integrations) refuses members; this API names all of them. Easy to
+  widen if members should see it.
+- Entry steps, incoming webhooks → `incoming_webhook`, task types and system tasks as senders go beyond the brief's
+  emit / rebuild examples; all are real code paths and tested.
+- Not listed (payload-dependent): an `integration_attention_resolved` notice also reaching the routes that delivered
+  its alert; `webhook_task` posting scheduled webhooks; workflow conditions; `run_automation` /
+  `run_integration_action` tasks; chains longer than incoming webhook → workflow.
+
+**Production, read-only** (non-secret columns copied into a scratch SQLite at head, then deleted): summary equals
+detail for all 105 types in both workspaces. Grace: `entry_updated` runs the three Square workflows and is sent by
+eleven workflows (Buttondown, Square, "Turn on Sell online"); `webhook_triggered` → "Rebuild Site" webhook, sent by
+five Square workflows' rebuild steps; `site_deployment_completed` ← "Cloudflare Pages: deployed" (Emit event) via
+its incoming webhook. M&B: `entry_published` → Buttondown issue + "Summarize published bench notes" (+ Slack, off);
+`form_submission_received` → Buttondown signup workflow, the notification email and the "n8n inquiry desk" webhook.
+**Found, not fixed:** M&B's "CloudFlare Rebuild Hook" is event-driven with no subscriptions (as before slice 1), so
+its 13 logged `webhook_triggered` reached nothing.
+
+**Verified.** Backend 2771 passed / 179 skipped (develop 2725/179; +46 in `tests/test_event_connections.py`), with
+the integration SDK 3074/6; the new tests on Postgres 16: 46/46. SDK gate reproduced in a fresh venv: only the new
+paths and schemas; MarvinSDK lint, `tsc --noEmit`, 185/185 tests.
 
 # Settings breadcrumbs — one trail on every admin and settings page (plan, 2026-10-06, design approved by Jared)
 
