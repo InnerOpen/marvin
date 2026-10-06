@@ -29,7 +29,7 @@ config:
   publicApiUrl: https://api.iwobble.com
   production: true      # OpenShift's random UID can't write /app/dev (dev mode); prod uses DATA_DIR
   logLevel: INFO
-  dbEngine: sqlite
+  dbEngine: postgres   # CloudNativePG cluster marvin-pg (below); SQLite file kept on marvin-data as the rollback
   # Split deploy: UI (marvin-marvin) and API (marvin-api-marvin) are on different hosts, so the
   # API must allow the UI origin for browser calls. Without this, production adds no CORS
   # middleware and the token page / client-side features fail with "Failed to fetch" (CORS).
@@ -74,6 +74,11 @@ backup:
   enabled: true
   existingSecret: marvin-r2-backup
   timeZone: America/New_York
+  # Postgres: an hourly pg_dump (+ config + assets) to marvin-backups — at most an hour of data lost.
+  # Retention for postgres/: 48 hourly + 14 daily + 8 weekly. An hourly run must finish well before the next.
+  schedule: "0 * * * *"
+  activeDeadlineSeconds: 2700
+  startingDeadlineSeconds: 900
 
 # Public UI route + public API route (the browser calls the API directly for login/interactive use).
 # config.publicApiUrl is pinned to the tunnel host below: the auto-derived value would be the
@@ -141,10 +146,8 @@ extraEnv:
   - name: INTEGRATION_HTTP_MAX_BYTES
     value: "16777216"
 
-# Postgres (CloudNativePG cluster `marvin-pg`, Secret `marvin-pg-app`). Phase 1 of the cutover
-# (docs/manual/postgres.md, "Production cutover"): the cluster runs while the app is still on SQLite
-# (config.dbEngine above); the switch to `dbEngine: postgres` is a separate promotion after the final
-# copy. NFS is the only storage class on this cluster — see the runbook's "Storage".
+# Postgres (CloudNativePG cluster `marvin-pg`, Secret `marvin-pg-app`) — production's database since the
+# cutover (docs/manual/postgres.md, "Production cutover"). NFS is the only storage class on this cluster — see the runbook's "Storage".
 postgres:
   cluster:
     enabled: true
