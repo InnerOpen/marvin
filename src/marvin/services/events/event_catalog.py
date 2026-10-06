@@ -1567,7 +1567,11 @@ CATALOG: list[CatalogEntry] = [
         name="AI Embeddings Reindexed",
         description="Workspace embeddings were (re)indexed for semantic search / RAG.",
         category="AI",
-        sent_by=["Reindexing the workspace for AI search (AI settings, API)", "Refreshing AI search after a content change (built-in)"],
+        sent_by=[
+            "Reindexing the workspace for AI search (AI settings, API)",
+            "Refreshing AI search after a content change (built-in)",
+            "The Reindex Embeddings scheduled task",
+        ],
         variables=COMMON_VARS
         + [
             EventVariable("model_id", "Embedding model", "text-embedding-3-small"),
@@ -1580,7 +1584,7 @@ CATALOG: list[CatalogEntry] = [
         name="AI Budget Threshold Reached",
         description="Workspace AI spend crossed a budget warning threshold (~80% of the monthly cost limit).",
         category="AI",
-        sent_by=["An AI call crossing the workspace's monthly budget warning (operations, workflows, AI settings)"],
+        sent_by=["An AI call crossing the workspace's monthly budget warning (AI operations, workflow steps, persona lines)"],
         variables=COMMON_VARS
         + [
             EventVariable("current_value", "Current monthly spend (USD)", "40.00", type="number"),
@@ -1593,7 +1597,7 @@ CATALOG: list[CatalogEntry] = [
         name="AI Budget Exceeded",
         description="The workspace monthly AI cost limit was reached.",
         category="AI",
-        sent_by=["An AI call going over the workspace's monthly budget (operations, workflows, AI settings)"],
+        sent_by=["An AI call going over the workspace's monthly budget (AI operations, workflow steps, persona lines)"],
         variables=COMMON_VARS
         + [
             EventVariable("current_value", "Current monthly spend (USD)", "50.00", type="number"),

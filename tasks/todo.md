@@ -1487,7 +1487,7 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
       downgrade; listeners and engine read the new storage; API shapes unchanged (contract tests on webhook and
       workflow read/write); migration tested up/down/up on SQLite and Postgres 16; prod backfill dry-run against a copy
       of `marvin.db` (counts before = after)
-- [ ] **Slice 2 — one catalog:** `triggerable`, `emittable`, `sent_by`, `leads_to`; built-in listeners declare
+- [x] **Slice 2 — one catalog:** `triggerable`, `emittable`, `sent_by`, `leads_to`; built-in listeners declare
       `reacts_to`; side lists removed; drift tests
 - [ ] **Slice 3 — connections service + API:** reactions/senders/recent/summary; role + workspace scoping tests;
       platform events excluded; SDK Quality Gate
@@ -1541,6 +1541,48 @@ after regenerating. Frontend untouched (tree identical to develop): 439/439 test
 
 **Found, not fixed:** on Postgres the `webhookmode` enum lacks `workflow`, so creating a "workflow" webhook 500s there
 (SQLite prod unaffected). Needs an `ALTER TYPE … ADD VALUE` migration.
+
+## Slice 2 review (2026-10-06, branch `feat/events-catalog`)
+
+**Built.** `services/events/event_catalog.py` is the one list of event facts. New `CatalogEntry` fields:
+`triggerable` (+ `trigger_group`, the builder's heading where it isn't the category: Entries, Collections,
+Entry types, Resources, Site), `emittable`, `sent_by` (91 entries — every one not in `_NO_EMITTER` — written from
+the dispatch sites; workflow-sent events are slice 3's), `leads_to` (24 entries: the 20 events the site-rebuild
+reaction takes → `site_rebuild_queued`; the 6 indexed-on events → `ai_embeddings_reindexed`; `site_rebuild_queued`
+→ `webhook_triggered`; `scheduled_task_triggered` → started/completed/failed). Derived: `TRIGGERABLE_EVENT_TYPES`,
+`EMITTABLE_EVENT_TYPES`, `trigger_groups()`, `offered_emittable()`.
+- Removed: `services/automation/triggers.py`, emit_event's `SITE_EVENTS`, the builder's own `SITE_EVENTS`
+  (`AutomationOptions.emittable` replaces it — the one API change, additive; MarvinSDK `feat/events-catalog-types`).
+- Built-in reactions: `BuiltinReaction` gives the five hard-coded listeners (scheduled tasks, AI search, media
+  embeds, site rebuild, smart collections) a `label` and `reacts_to()`, and one `get_subscribers` matching on it.
+  `builtin_reactions(event_type)` → [(label, class)] for slice 3.
+- Tests: `tests/test_event_catalog_facts.py` (dispatched types are catalogued, sent_by honest both ways, leads_to
+  targets exist and match the reactions that cause them, triggerable == what the automation listener takes,
+  emittable == what emit_event accepts, each reaction reacts to exactly its declared, catalogued set). The first
+  commit also asserted every derived set equal to a snapshot of the retired list; the second dropped those
+  literals once proven.
+
+**Same behaviour, checked old vs new** (listener sweeps over every `EventTypes` member, emit_event dry runs, the
+options endpoint): triggerable 41, emit_event accepts 24, emit menu 23, subscribable 90, /event/types 84, catalog
+flags 119, the five reaction sets (1/11/3/20/6) and the automation listener's 44 — all identical.
+
+**Visible difference:** the builder's trigger dropdown and Emit event menu follow catalog order — same events,
+same headings, new order: groups Entries, Collections, Entry types, Resources, Assets, Forms, Site (was …,
+Assets, Resources, Forms, Entry types, …); inside groups, e.g. Forms lists `form_submission_received` last (was
+first), Site lists deployments before builds, Collections lists collection_* before entry membership.
+
+**Found, not changed (Jared's call):**
+- `automation_ran` / `automation_failed` and `email_template_*` are dispatched but have no catalog entry (always
+  audited, never subscribable); the drift test pins them as the only exceptions.
+- `CATEGORIES` lacks "Secrets" and "Variables", so `/event/types` drops their 6 subscribable events and the Events
+  catalog never shows them.
+- emit_event accepts every `entry_*` type, incl. `entry_shared` (in `_NO_EMITTER`) and `entry_type_*` (which get
+  an entry payload); kept as is, so the builder still offers 23.
+- The "internal" event set (webhook_task, scheduled_task_*) is written twice (event_bus_service, console listener).
+
+**Verified.** Backend 2723 passed / 179 skipped (develop 2704/179), with the integration SDK 3026/6 (develop
+3007/6); SDK gate reproduced (fresh venv) — only `AutomationOptions.emittable` changes. Frontend: `npm test`
+439/439, `astro check` 51 errors (= develop), biome clean on the touched page.
 
 # Settings breadcrumbs — one trail on every admin and settings page (plan, 2026-10-06, design approved by Jared)
 
