@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.207 (2026-10-06)
+
+### Bug Fixes
+
+- **entries**: Publishing an entry into a smart collection could 500
+  ([`9b81965`](https://github.com/InnerOpen/marvin/commit/9b81965a04b9d49b48c7700253bde515b196a4b4))
+
+
 ## v1.0.0-rc.206 (2026-10-06)
 
 ### Documentation
