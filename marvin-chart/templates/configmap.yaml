@@ -22,7 +22,7 @@ data:
   production: {{ .Values.config.production | quote }}
   allowSignup: {{ .Values.config.allowSignup | quote }}
   logLevel: {{ .Values.config.logLevel | quote }}
-  dbEngine: {{ .Values.config.dbEngine | quote }}
+  dbEngine: {{ include "marvin.dbEngine" . | quote }}
   dataDir: {{ .Values.config.dataDir | quote }}
   apiPort: {{ .Values.config.apiPort | quote }}
   apiHost: {{ .Values.config.apiHost | quote }}

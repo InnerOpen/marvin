@@ -32,6 +32,18 @@ spec:
     insecureEdgeTerminationPolicy: {{ . }}
     {{- end }}
   {{- end }}
+  {{- with $.Values.route.responseHeaders }}
+  httpHeaders:
+    actions:
+      response:
+        {{- range . }}
+        - name: {{ .name }}
+          action:
+            type: Set
+            set:
+              value: {{ .value | quote }}
+        {{- end }}
+  {{- end }}
   wildcardPolicy: None
 {{- end }}
 {{- if .Values.route.api.enabled }}
@@ -67,6 +79,18 @@ spec:
     {{- with .Values.route.tls.insecureEdgeTerminationPolicy }}
     insecureEdgeTerminationPolicy: {{ . }}
     {{- end }}
+  {{- end }}
+  {{- with $.Values.route.responseHeaders }}
+  httpHeaders:
+    actions:
+      response:
+        {{- range . }}
+        - name: {{ .name }}
+          action:
+            type: Set
+            set:
+              value: {{ .value | quote }}
+        {{- end }}
   {{- end }}
   wildcardPolicy: None
 {{- end }}

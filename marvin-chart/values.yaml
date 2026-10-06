@@ -184,6 +184,10 @@ route:
     host: ""
     path: /
 
+  # Response headers set by the router on both routes (OpenShift 4.14+ Route spec.httpHeaders), e.g.
+  # a non-production instance: [{name: X-Robots-Tag, value: "noindex, nofollow"}].
+  responseHeaders: []
+
 # Persistent storage
 persistence:
   enabled: true
@@ -202,7 +206,7 @@ config:
   allowSignup: true
   logLevel: DEBUG
 
-  # Database configuration
+  # Database configuration: sqlite (a file in dataDir) or postgres (see `postgres` below).
   dbEngine: sqlite
   dataDir: /app/data
 
@@ -270,8 +274,8 @@ secrets:
 # Retention for sqlite/ and config/: the newest backup of each of the last 14 days, plus the newest of
 # each of the last 8 weeks. The bucket holds the app's .secret, which decrypts every stored secret:
 # keep it private and its token scoped to that one bucket. Runbook: docs/manual/offsite-backup.md.
-# With dbEngine: postgres the database step reports a failure (not built yet; CloudNativePG backs
-# Postgres up); config and assets are still backed up.
+# With dbEngine: postgres the database part is instead postgres/marvin-<UTC stamp>.dump: a pg_dump
+# (custom format), an engine-independent copy beside CloudNativePG's own base backups + WAL archive.
 backup:
   enabled: false
   # Cron schedule, and the zone it is read in (empty = the cluster controller's zone, usually UTC).
@@ -282,6 +286,9 @@ backup:
   existingSecret: ""
   # "auto" is right for R2; set the bucket's region for AWS.
   s3Region: auto
+  # Key prefix inside the bucket, e.g. "dev/": separate environments in one bucket, each with its own
+  # retention. Empty = the bucket root (production's existing layout).
+  prefix: ""
   # A run (including time Pending with no backend pod to sit beside) is failed after this long.
   activeDeadlineSeconds: 3600
   # Skip a run that could not start within this many seconds of its schedule (0/empty = no limit).
@@ -293,6 +300,67 @@ backup:
     limits:
       cpu: 500m
       memory: 512Mi
+
+# PostgreSQL — used when config.dbEngine is postgres, ignored with sqlite. The app's POSTGRES_SERVER,
+# _PORT, _USER, _PASSWORD and _DB come from an existing Secret: by default the one CloudNativePG keeps
+# for a cluster's owner, `<cluster>-app`. The data PVC (persistence) stays either way: it holds the
+# uploaded assets and the `.secret` key that decrypts stored secrets; only the database moves.
+# Runbook: docs/manual/postgres.md.
+postgres:
+  # Secret with the connection. Empty = "<postgres.cluster.name>-app" when the chart renders the cluster.
+  existingSecret: ""
+  # Key names inside that Secret (CloudNativePG's).
+  secretKeys:
+    host: host
+    port: port
+    username: username
+    password: password
+    database: dbname
+
+  # A CloudNativePG Cluster rendered by this chart (templates/postgres-cluster.yaml). Needs the CNPG
+  # operator (>= 1.26); backups also need the Barman Cloud plugin installed beside it. The Cluster and
+  # its ObjectStore carry helm.sh/resource-policy: keep — `helm uninstall` never deletes the database.
+  cluster:
+    enabled: false
+    name: ""   # default "<release fullname>-pg"
+    instances: 1
+    # The Postgres major the clusters run, the CI suite tests and the backend image's pg_dump (Debian
+    # trixie's postgresql-client, 17) matches — a pg_dump 17 archive only restores cleanly into >= 17.
+    imageName: ghcr.io/cloudnative-pg/postgresql:17
+    database: marvin
+    owner: marvin
+    storage:
+      size: 10Gi
+      storageClass: ""   # cluster default if empty
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
+    # postgresql.conf parameters (CNPG manages the rest).
+    parameters: {}
+
+    # Base backups + continuous WAL archiving to S3 (R2) through the Barman Cloud plugin (CNPG-I) —
+    # the in-tree spec.backup.barmanObjectStore is deprecated and goes away in CNPG 1.31. Layout:
+    # s3://<bucket>/<path>/<serverName>/{base,wals}/. Point-in-time recovery within retentionPolicy.
+    backup:
+      enabled: false
+      # Bucket and endpoint: empty = BACKUP_S3_BUCKET / BACKUP_S3_ENDPOINT read (Helm lookup) from the
+      # credentials Secret at install time, so the R2 account endpoint need not be committed.
+      bucket: ""
+      endpointURL: ""
+      path: cnpg
+      # Folder under path; defaults to the cluster name. A cluster restored from these backups must
+      # archive under a NEW serverName (CNPG refuses to write WAL into a non-empty archive).
+      serverName: ""
+      # Secret with AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (and BACKUP_S3_* for the lookup above).
+      # Empty = backup.existingSecret (the off-site backup's).
+      existingSecret: ""
+      retentionPolicy: 30d
+      # Six fields, seconds first (robfig/cron), in UTC. A first base backup is taken right away.
+      schedule: "0 0 8 * * *"
+      compression: gzip
 
 # Pod disruption budget (only meaningful with replicaCount > 1)
 podDisruptionBudget:

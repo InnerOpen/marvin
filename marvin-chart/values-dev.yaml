@@ -1,0 +1,138 @@
+# Deployment values for the `marvin` release in namespace `marvin-dev` on the iwobble OpenShift cluster:
+# where changes land before production. Split topology, follows the moving `develop` images, Postgres
+# on a CloudNativePG cluster rendered by this chart. Not for real users.
+#
+#   helm upgrade --install marvin marvin-chart -n marvin-dev -f marvin-chart/values-dev.yaml
+#
+# Prerequisites (once) and the runbook: docs/manual/postgres.md — the CNPG operator, the Barman Cloud
+# plugin (for postgres.cluster.backup), and Secret `marvin-r2-backup` in this namespace.
+
+mode: split
+
+# Dev tracks develop: every CI build of develop is picked up on the next rollout
+# (`oc rollout restart deploy/marvin-backend deploy/marvin-frontend -n marvin-dev`).
+image:
+  repository: ghcr.io/inneropen/marvin   # backend/frontend derive as -backend / -frontend
+  tag: develop
+  pullPolicy: Always
+
+# The database is Postgres, so the backend can roll: the new pod serves before the old one drains
+# (split.backend.strategy left empty = the shared RollingUpdate). One replica still — uploaded assets
+# live on the RWO data PVC below.
+split:
+  backend:
+    replicaCount: 1
+
+config:
+  production: true      # OpenShift's random UID can't write /app/dev (dev mode); dev uses DATA_DIR too
+  logLevel: INFO
+  dbEngine: postgres
+  corsOrigins: "https://marvin-marvin-dev.apps.ocp4.iwobble.com"
+  # publicApiUrl derives from route.api.host below. Switch both to dev.api.iwobble.com / dev.admin.iwobble.com
+  # once those tunnel hostnames exist (tasks/todo.md, "Hostnames").
+
+# Postgres: CloudNativePG cluster `marvin-dev-pg` (Secret `marvin-dev-pg-app` → POSTGRES_*).
+postgres:
+  cluster:
+    enabled: true
+    name: marvin-dev-pg
+    # NFS is the only storage class on this cluster; see docs/manual/postgres.md ("Storage").
+    storage:
+      size: 10Gi
+      storageClass: managed-nfs-storage
+    # Base backups + WAL to s3://marvin-backups/cnpg/marvin-dev-pg/ (the R2 endpoint is read from Secret
+    # marvin-r2-backup at install), 30 days of point-in-time recovery, nightly base backup.
+    backup:
+      enabled: true
+      existingSecret: marvin-r2-backup
+      bucket: marvin-backups
+      retentionPolicy: 30d
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 768Mi
+
+# Same relaxed probe cadence as production (see values-iwobble.yaml for why).
+livenessProbe:
+  periodSeconds: 30
+  timeoutSeconds: 15
+  failureThreshold: 5
+readinessProbe:
+  periodSeconds: 15
+  timeoutSeconds: 10
+
+# Uploaded assets and the installation .secret (the database is in Postgres).
+persistence:
+  enabled: true
+  storageClass: managed-nfs-storage
+  size: 2Gi
+
+# Nightly off-site backup under dev/ in the same bucket (own retention; never touches production's
+# keys): pg_dump + config + assets. 03:45 New York, after production's 03:15.
+backup:
+  enabled: true
+  existingSecret: marvin-r2-backup
+  prefix: dev/
+  schedule: "45 3 * * *"
+  timeZone: America/New_York
+
+route:
+  enabled: true
+  ui:
+    enabled: true
+    host: marvin-marvin-dev.apps.ocp4.iwobble.com
+  api:
+    enabled: true
+    host: marvin-api-marvin-dev.apps.ocp4.iwobble.com
+  tls:
+    enabled: true
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  # Not for search engines, whatever hostname ends up in front of it.
+  responseHeaders:
+    - name: X-Robots-Tag
+      value: "noindex, nofollow"
+
+# --- Integration plugins (split backend only) — same set as production ----------------------------
+initContainers:
+  - name: install-integrations
+    image: python:3.12-slim
+    command: ["sh", "-c"]
+    args:
+      - >
+        set -eux;
+        pip install --target=/plugins
+        https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
+        https://github.com/InnerOpen/marvin-integration-apprise/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-openai-images/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-instagram/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-square/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-cloudflare-pages/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-buttondown/archive/refs/heads/main.tar.gz
+        https://github.com/InnerOpen/marvin-integration-n8n/archive/refs/heads/main.tar.gz;
+        echo "--- installed into /plugins ---";
+        ls -1 /plugins
+    volumeMounts:
+      - name: plugins
+        mountPath: /plugins
+
+extraVolumes:
+  - name: plugins
+    emptyDir: {}
+
+extraVolumeMounts:
+  - name: plugins
+    mountPath: /plugins
+
+extraEnv:
+  - name: PYTHONPATH
+    value: /plugins
+  - name: STORAGE_LOCAL_PUBLIC_BASE_URL
+    value: https://marvin-api-marvin-dev.apps.ocp4.iwobble.com/assets
+  - name: INTEGRATION_HTTP_MAX_BYTES
+    value: "16777216"

@@ -74,7 +74,9 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        # The major the CloudNativePG clusters run (marvin-chart postgres.cluster.imageName) and the
+        # backend image's pg_dump matches. Move all three together.
+        image: postgres:17-alpine
         env:
           POSTGRES_USER: marvin
           POSTGRES_PASSWORD: marvin

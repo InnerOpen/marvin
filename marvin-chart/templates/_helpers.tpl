@@ -193,6 +193,56 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
     secretKeyRef:
       name: {{ include "marvin.fullname" . }}
       key: jwtSecret
+{{- with include "marvin.postgresEnv" . | trim }}
+{{ . }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Database engine guard: only the two engines the app knows.
+*/}}
+{{- define "marvin.dbEngine" -}}
+{{- $engine := .Values.config.dbEngine | default "sqlite" -}}
+{{- if not (has $engine (list "sqlite" "postgres")) -}}
+{{- fail (printf "config.dbEngine must be sqlite or postgres, not %q" $engine) -}}
+{{- end -}}
+{{- $engine -}}
+{{- end -}}
+
+{{/*
+CloudNativePG cluster name (postgres.cluster.name, else "<fullname>-pg") and the Secret holding the
+app's connection: postgres.existingSecret, else the "<cluster>-app" Secret CNPG keeps for the owner.
+*/}}
+{{- define "marvin.pgClusterName" -}}
+{{- .Values.postgres.cluster.name | default (printf "%s-pg" (include "marvin.fullname" .)) | trunc 50 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "marvin.pgSecretName" -}}
+{{- if .Values.postgres.existingSecret -}}
+{{- .Values.postgres.existingSecret -}}
+{{- else if .Values.postgres.cluster.enabled -}}
+{{- printf "%s-app" (include "marvin.pgClusterName" .) -}}
+{{- else -}}
+{{- fail "config.dbEngine=postgres needs postgres.existingSecret, or postgres.cluster.enabled to use the chart's CloudNativePG cluster" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+POSTGRES_* for the app (and the backup job) from the connection Secret — nothing with sqlite, so a
+sqlite render is unchanged. Keys default to CloudNativePG's <cluster>-app Secret.
+*/}}
+{{- define "marvin.postgresEnv" -}}
+{{- if eq (include "marvin.dbEngine" .) "postgres" }}
+{{- $secret := include "marvin.pgSecretName" . }}
+{{- $k := .Values.postgres.secretKeys }}
+{{- range $env, $key := dict "POSTGRES_SERVER" $k.host "POSTGRES_PORT" $k.port "POSTGRES_USER" $k.username "POSTGRES_PASSWORD" $k.password "POSTGRES_DB" $k.database }}
+- name: {{ $env }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: {{ $key }}
+{{- end }}
+{{- end }}
 {{- end -}}
 
 {{/*

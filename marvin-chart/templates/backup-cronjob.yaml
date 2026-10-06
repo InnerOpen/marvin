@@ -2,6 +2,8 @@
 {{- if not .Values.persistence.enabled }}
 {{- fail "backup.enabled needs persistence.enabled: there is no data volume to back up" }}
 {{- end }}
+{{- /* With dbEngine postgres the database part is a pg_dump (POSTGRES_* from the connection Secret)
+       instead of the SQLite snapshot; backup.prefix puts every key under e.g. dev/. */}}
 # Nightly off-site backup: a consistent SQLite snapshot, the config archive (.secret included) and
 # an incremental mirror of uploaded assets to an S3-compatible bucket (Cloudflare R2 in production).
 # Runs `python -m marvin.scripts.offsite_backup` from the backend image; see docs/manual/offsite-backup.md.
@@ -90,6 +92,13 @@ spec:
                       key: dbEngine
                 - name: BACKUP_S3_REGION
                   value: {{ .Values.backup.s3Region | quote }}
+                {{- with .Values.backup.prefix }}
+                - name: BACKUP_S3_PREFIX
+                  value: {{ . | quote }}
+                {{- end }}
+                {{- with include "marvin.postgresEnv" . | trim }}
+                {{- . | nindent 16 }}
+                {{- end }}
                 {{- $secret := required "backup.existingSecret is required when backup.enabled" .Values.backup.existingSecret }}
                 {{- range list "AWS_ACCESS_KEY_ID" "AWS_SECRET_ACCESS_KEY" "BACKUP_S3_ENDPOINT" "BACKUP_S3_BUCKET" }}
                 - name: {{ . }}
