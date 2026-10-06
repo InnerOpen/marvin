@@ -28,10 +28,12 @@ _reports: list[PluginLoadReport] | None = None
 
 
 def _builtins() -> Iterator[tuple[StoragePlugin, str]]:
+    from marvin.services.backup_engine.local_target import LocalBackupTarget
+
     from .local_provider import LocalStorageProvider
     from .s3_provider import S3StorageProvider
 
-    yield StoragePlugin(slug=LOCAL, name="Local disk", provider=LocalStorageProvider), BUILTIN
+    yield StoragePlugin(slug=LOCAL, name="Local disk", provider=LocalStorageProvider, target=LocalBackupTarget), BUILTIN
     yield StoragePlugin(slug="s3", name="S3-compatible (core, until marvin-storage-s3)", provider=S3StorageProvider), CORE_TEMPORARY
 
 
