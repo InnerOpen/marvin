@@ -1509,6 +1509,13 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
    `entry_type_*` (which get an entry payload). Narrow `emittable` to the entry lifecycle events, or keep it?
    (Slice 2 kept it as it was; the builder offers only the 23 subscribable ones.)
 
+## Later
+- **`media_embed_failed` event** (Jared 2026-10-06, "if it's important" — low priority): today a link the embed
+  resolver can't turn into a player (private/removed video, unsupported host, provider down) silently renders as a
+  plain link on the site; nothing tells the editor. Dispatch `media_embed_failed` (entry, url, provider, reason) from
+  the media-embed cache warm-up, catalogue it (Content, triggerable, sent_by "Warming the media-embed cache"), so a
+  workflow, email or Slack action can flag it. No retry storm: once per URL until it changes.
+
 ## Slice 1 review (2026-10-06, branch `feat/events-storage`)
 
 **Built.** Migrations `cba7c23b692e` (webhook subscriptions table + workflow trigger columns) and `1dbc9b51d024`
