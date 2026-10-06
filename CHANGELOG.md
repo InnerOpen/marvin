@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.200 (2026-10-06)
+
+### Bug Fixes
+
+- **tags**: Attaching a tag to an asset or resource returned 500
+  ([`7cd788d`](https://github.com/InnerOpen/marvin/commit/7cd788d5d6b9d8e30b4ab1e1f0137cad3d53bb29))
+
+
 ## v1.0.0-rc.199 (2026-10-05)
 
 ### Continuous Integration
