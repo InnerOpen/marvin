@@ -56,6 +56,22 @@ REVIEW_REASONS_KEY = "review_reasons"
 
 ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS, *REVIEW_OPS)
 
+# What each op sends (through EntryService), from the entry's usual starting point: every write sends
+# entry_updated, a status op its transition too. The Events hub lists a workflow with these steps as a
+# sender (services/events/connections.py). A different starting status can add one (archiving a
+# published entry also sends entry_unpublished); test_event_connections runs each op to keep this honest.
+OP_SENDS: dict[str, tuple[str, ...]] = {
+    "publish": ("entry_updated", "entry_published"),
+    "unpublish": ("entry_updated", "entry_unpublished"),
+    "archive": ("entry_updated", "entry_archived"),
+    "restore": ("entry_updated", "entry_restored"),
+    "add_to_collection": ("entry_added_to_collection",),
+    "remove_from_collection": ("entry_removed_from_collection",),
+    "set_metadata": ("entry_updated",),
+    "set_data": ("entry_updated",),
+    "request_review": ("entry_updated",),
+}
+
 
 def _typed_like_schema(patch: dict, entry_type) -> dict:
     """Convert typed-in text to the field's type — the workflow editor sends every value as text, so

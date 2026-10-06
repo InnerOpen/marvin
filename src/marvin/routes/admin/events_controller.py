@@ -36,46 +36,47 @@ def _subject_user_id(row: EventLogModel):
     return row.entity_id if row.entity_type == "user" else None
 
 
+def summaries(session, rows: list[EventLogModel], schema=AdminEventSummary) -> list:
+    """The rows with their catalog name, workspace and user filled in: two lookups for the page, not per row."""
+    group_ids = {r.workspace_id for r in rows if r.workspace_id}
+    user_ids = {uid for r in rows if (uid := _subject_user_id(r))}
+    groups = {g.id: g for g in session.query(Groups).filter(Groups.id.in_(group_ids)).all()} if group_ids else {}
+    users = {u.id: u for u in session.query(Users).filter(Users.id.in_(user_ids)).all()} if user_ids else {}
+
+    out = []
+    for row in rows:
+        entry = get_catalog_entry(row.event_type)
+        group = groups.get(row.workspace_id)
+        uid = _subject_user_id(row)
+        user = users.get(uid)
+        doc = _document(row.event_data)
+        # A password reset names its account only in the payload.
+        fallback_name = doc.get("username")
+        fallback_email = doc.get("email")
+        data = {
+            "event_id": row.event_id,
+            "event_type": row.event_type,
+            "event_name": entry.name if entry else row.event_type,
+            "occurred_at": row.occurred_at,
+            "message_title": row.message_title,
+            "message_body": row.message_body,
+            "workspace_id": row.workspace_id,
+            "workspace_name": group.name if group else None,
+            "workspace_slug": group.slug if group else None,
+            "user_id": uid,
+            "user_name": (user.full_name or user.username) if user else (str(fallback_name) if fallback_name else None),
+            "user_email": user.email if user else (str(fallback_email) if fallback_email else None),
+            "entity_id": row.entity_id,
+            "entity_type": row.entity_type,
+        }
+        if schema is AdminEventRead:
+            data |= {"integration_id": row.integration_id, "correlation_id": row.correlation_id, "event_data": row.event_data or {}}
+        out.append(schema.model_validate(data))
+    return out
+
+
 @controller(router)
 class AdminEventsController(BaseAdminController):
-    def _summaries(self, rows: list[EventLogModel], schema=AdminEventSummary) -> list:
-        """The rows with their catalog name, workspace and user filled in: two lookups for the page, not per row."""
-        group_ids = {r.workspace_id for r in rows if r.workspace_id}
-        user_ids = {uid for r in rows if (uid := _subject_user_id(r))}
-        groups = {g.id: g for g in self.session.query(Groups).filter(Groups.id.in_(group_ids)).all()} if group_ids else {}
-        users = {u.id: u for u in self.session.query(Users).filter(Users.id.in_(user_ids)).all()} if user_ids else {}
-
-        out = []
-        for row in rows:
-            entry = get_catalog_entry(row.event_type)
-            group = groups.get(row.workspace_id)
-            uid = _subject_user_id(row)
-            user = users.get(uid)
-            doc = _document(row.event_data)
-            # A password reset names its account only in the payload.
-            fallback_name = doc.get("username")
-            fallback_email = doc.get("email")
-            data = {
-                "event_id": row.event_id,
-                "event_type": row.event_type,
-                "event_name": entry.name if entry else row.event_type,
-                "occurred_at": row.occurred_at,
-                "message_title": row.message_title,
-                "message_body": row.message_body,
-                "workspace_id": row.workspace_id,
-                "workspace_name": group.name if group else None,
-                "workspace_slug": group.slug if group else None,
-                "user_id": uid,
-                "user_name": (user.full_name or user.username) if user else (str(fallback_name) if fallback_name else None),
-                "user_email": user.email if user else (str(fallback_email) if fallback_email else None),
-                "entity_id": row.entity_id,
-                "entity_type": row.entity_type,
-            }
-            if schema is AdminEventRead:
-                data |= {"integration_id": row.integration_id, "correlation_id": row.correlation_id, "event_data": row.event_data or {}}
-            out.append(schema.model_validate(data))
-        return out
-
     @router.get("", response_model=AdminEventPagination, summary="List platform events")
     def list_events(
         self,
@@ -101,7 +102,7 @@ class AdminEventsController(BaseAdminController):
             per_page=per_page,
             total=total,
             total_pages=math.ceil(total / per_page) if total else 0,
-            items=self._summaries(rows),
+            items=summaries(self.session, rows),
         )
 
     @router.get("/catalog", response_model=list[AdminEventType], summary="List platform event types")
@@ -120,4 +121,4 @@ class AdminEventsController(BaseAdminController):
         row = self.session.query(EventLogModel).filter(EventLogModel.event_id == event_id).first()
         if row is None or not is_platform_event(row.event_type):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Platform event {event_id} not found.")
-        return self._summaries([row], schema=AdminEventRead)[0]
+        return summaries(self.session, [row], schema=AdminEventRead)[0]

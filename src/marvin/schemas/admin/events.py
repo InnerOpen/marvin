@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import UUID4
 
 from marvin.schemas._marvin import _MarvinModel
+from marvin.schemas.platform.event_connections import EventReaction, EventSender, EventTypeRef, WorkspaceEventReactions
 from marvin.schemas.response.pagination import PaginationBase
 
 
@@ -53,3 +54,21 @@ class AdminEventType(_MarvinModel):
     name: str
     description: str
     category: str
+
+
+class AdminEventConnections(_MarvinModel):
+    """A platform event type's story across the platform: what sends it, what happens (built in, plus each
+    workspace's own subscriptions, grouped by workspace), and its newest events in any workspace."""
+
+    event_type: str
+    name: str
+    description: str
+    category: str
+    senders: list[EventSender]
+    reactions: list[EventReaction]
+    """Built-in reactions and the system email template the type sends, if any."""
+    workspaces: list[WorkspaceEventReactions]
+    """Workspaces with their own reactions to it (workflows, integration actions, emails, webhooks)."""
+    recent: list[AdminEventSummary]
+    leads_to: list[EventTypeRef]
+    caused_by: list[EventTypeRef]

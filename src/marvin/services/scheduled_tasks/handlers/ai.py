@@ -25,6 +25,7 @@ class ReindexEmbeddingsHandler(ScheduledTaskHandler):
     """
 
     name = "Reindex AI Embeddings"
+    sends = ("ai_embeddings_reindexed",)
     description = "Rebuild RAG embeddings for this workspace (or all workspaces for a system task)"
     config_schema = {"type": "object", "properties": {}}
 

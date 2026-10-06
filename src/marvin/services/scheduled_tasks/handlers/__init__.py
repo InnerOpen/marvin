@@ -31,6 +31,10 @@ class ScheduledTaskHandler(ABC):
     can_run_platform_wide: bool = False
     """If True, a workspace-usable handler also handles group_id=NULL by covering every
     workspace, so it can back a system task (admin-only handlers are platform-wide already)."""
+    sends: tuple[str, ...] = ()
+    """The event types (by name) a run of this task sends, where the task type alone decides it — the
+    Events hub lists the workspace's tasks of this type as their senders (services/events/connections.py).
+    Empty when it depends on the task's config (run_automation, run_integration_action) or nothing is sent."""
 
     @abstractmethod
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:

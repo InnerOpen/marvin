@@ -144,6 +144,7 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
     name = "Publish Scheduled Entries"
     description = "Publish entries whose publish_at time has arrived"
     can_run_platform_wide = True
+    sends = ("entry_updated", "entry_published", "entry_scheduled_publish_blocked")
 
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
         dry_run = task.task_config.get("dry_run", False)
@@ -236,6 +237,7 @@ class UnpublishExpiredEntriesHandler(ScheduledTaskHandler):
     name = "Unpublish Expired Entries"
     description = "Archive entries whose expire_at time has passed"
     can_run_platform_wide = True
+    sends = ("entry_updated", "entry_unpublished", "entry_archived")
 
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
         dry_run = task.task_config.get("dry_run", False)
@@ -290,6 +292,8 @@ class RequestSiteRebuildHandler(ScheduledTaskHandler):
 
     name = "Request Site Rebuild"
     description = "Queue a static site rebuild; one webhook_triggered event is sent once requests go quiet"
+    # site_rebuild_queued when the request opens a batch; webhook_triggered when the scheduler sends it.
+    sends = ("site_rebuild_queued", "webhook_triggered")
 
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
         from marvin.core.config import get_app_settings

@@ -13,6 +13,7 @@ All routes are mounted under /api/platform/ prefix:
 - /api/platform/scheduled-tasks - Scheduled task automation
 - /api/platform/site/rebuild - Request a site rebuild / read its status
 - /api/platform/media-embeds - Media-embed providers and link resolution (editor previews)
+- /api/platform/event-types - What sends each event type and what reacts to it (Events hub)
 """
 
 from marvin.routes._base.routers import UserAPIRouter
@@ -24,6 +25,7 @@ from . import (
     email_controller,
     entries_controller,
     entry_types_controller,
+    event_connections_controller,
     events_controller,
     forms_controller,
     media_embeds_controller,
@@ -51,6 +53,7 @@ router.include_router(forms_controller.router, tags=["Platform: Forms"])
 router.include_router(workspace_controller.router, tags=["Platform: Workspace"])
 router.include_router(workspace_members_controller.router, tags=["Platform: Workspace Members"])
 router.include_router(events_controller.router, tags=["Platform: Events"])
+router.include_router(event_connections_controller.router, tags=["Platform: Events"])
 router.include_router(scheduled_tasks_controller.router, tags=["Platform: Scheduled Tasks"])
 router.include_router(stats_controller.router, tags=["Platform: Stats"])
 router.include_router(email_controller.router, tags=["Platform: Email"])
