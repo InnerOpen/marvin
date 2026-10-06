@@ -26,6 +26,7 @@ from marvin.schemas.user import (
     LongLiveTokenWithToken,
     TokenResponseDelete,
 )
+from marvin.services.event_bus_service.event_types import EventAPITokenData, EventOperation, EventTypes
 
 router = UserAPIRouter(prefix="/self/api-tokens", tags=["User: Self Service"])
 
@@ -41,6 +42,30 @@ class UserApiTokensController(BaseUserController):
     - Token format: marvin_tk_{43-character-random}
     - Supports rotation, revocation, usage tracking
     """
+
+    def _announce(self, event_type: EventTypes, operation: EventOperation, token, verb: str) -> None:
+        """api_token_created / _rotated / _revoked (platform scope, always audited): the token's name and owner —
+        never its value or hash."""
+        workspace_id = self.user.active_group_id or self.user.group_id  # stored with it, shown only to super admins
+        if not workspace_id:
+            return
+        owner = getattr(self.user, "full_name", None) or self.user.username
+        self.event_bus.dispatch(
+            integration_id="api_token_management",
+            group_id=workspace_id,
+            event_type=event_type,
+            document_data=EventAPITokenData(
+                operation=operation,
+                token_id=token.id,
+                token_name=token.name,
+                user_id=self.user.id,
+                user_name=owner,
+            ),
+            message=f"Personal API token '{token.name}' {verb} for {owner}",
+            user_id=self.user.id,
+            entity_id=token.id,
+            entity_type="api_token",
+        )
 
     @router.get("", response_model=list[LongLiveTokenRead], summary="List API Tokens")
     def list_tokens(self) -> list[LongLiveTokenRead]:
@@ -84,6 +109,7 @@ class UserApiTokensController(BaseUserController):
         new_token = self.repos.api_tokens.create(token_data)
 
         self.logger.info(f"API Token '{data.name}' created for user {self.user.username}")
+        self._announce(EventTypes.api_token_created, EventOperation.create, new_token, "created")
         return new_token
 
     @router.get("/{token_id}", response_model=LongLiveTokenRead, summary="Get API Token")
@@ -161,6 +187,8 @@ class UserApiTokensController(BaseUserController):
         # Delete token
         deleted = self.repos.api_tokens.delete(token_id)
         self.logger.info(f"API Token '{deleted.name}' (ID: {token_id}) deleted by user {self.user.username}")
+        # Deleting a token revokes it too (it stops working), so the security record says so.
+        self._announce(EventTypes.api_token_revoked, EventOperation.delete, deleted, "deleted")
 
         return TokenResponseDelete(token_delete=deleted.name)
 
@@ -198,6 +226,7 @@ class UserApiTokensController(BaseUserController):
         # Rotate token
         rotated = self.repos.api_tokens.rotate_token(token_id)
         self.logger.info(f"API Token '{token.name}' (ID: {token_id}) rotated by user {self.user.username}")
+        self._announce(EventTypes.api_token_rotated, EventOperation.update, rotated, "rotated")
 
         return rotated
 
@@ -227,5 +256,6 @@ class UserApiTokensController(BaseUserController):
         # Revoke token
         revoked = self.repos.api_tokens.revoke(token_id)
         self.logger.info(f"API Token '{token.name}' (ID: {token_id}) revoked by user {self.user.username}")
+        self._announce(EventTypes.api_token_revoked, EventOperation.update, revoked, "revoked")
 
         return revoked

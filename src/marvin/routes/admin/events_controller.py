@@ -112,7 +112,7 @@ class AdminEventsController(BaseAdminController):
         def rank(category: str) -> int:
             return CATEGORIES.index(category) if category in CATEGORIES else len(CATEGORIES)
 
-        entries = sorted((e for e in CATALOG if e.scope == "platform"), key=lambda e: rank(e.category))
+        entries = sorted((e for e in CATALOG if e.scope == "platform" and not e.hidden), key=lambda e: rank(e.category))
         return [AdminEventType(event_type=e.event_type, name=e.name, description=e.description, category=e.category) for e in entries]
 
     @router.get("/{event_id}", response_model=AdminEventRead, summary="Get a platform event")

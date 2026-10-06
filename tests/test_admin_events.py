@@ -355,7 +355,9 @@ def test_admin_catalog_lists_the_platform_types(world):
     res = _admin(world).get(f"{ADMIN_EVENTS}/catalog")
     assert res.status_code == 200, res.text
     rows = res.json()
-    assert {r["eventType"] for r in rows} == EXPECTED_PLATFORM
+    # Hidden ones (nothing sends them: the security signals, user_updated/_deleted, backups…) aren't listed.
+    assert {r["eventType"] for r in rows} == {t for t in EXPECTED_PLATFORM if not get_catalog_entry(t).hidden}
+    assert "api_token_created" in {r["eventType"] for r in rows} and "suspicious_activity_detected" not in {r["eventType"] for r in rows}
     assert set(rows[0]) == {"eventType", "name", "description", "category"}
     assert rows[0]["category"] == "Authentication"
 

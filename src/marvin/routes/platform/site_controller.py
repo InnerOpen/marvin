@@ -37,7 +37,7 @@ router = APIRouter(prefix="/site")
 
 NOTHING_BUILDS = (
     "Nothing is set up to build this workspace's site: add an outgoing webhook (your host's deploy hook) "
-    "on the Webhook Triggered event, or subscribe an integration action (e.g. Cloudflare Pages → Deploy) to it."
+    "on the Site Rebuild Sent event (webhook_triggered), or subscribe an integration action (e.g. Cloudflare Pages → Deploy) to it."
 )
 
 BUILD_EVENTS = tuple(f"site_{stage}_{state}" for stage in ("build", "deployment") for state in ("started", "completed", "failed"))

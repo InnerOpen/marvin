@@ -30,7 +30,12 @@ from marvin.schemas.group.webhook import (
 )
 from marvin.schemas.mapper import cast
 from marvin.schemas.response.pagination import PaginationQuery
-from marvin.services.event_bus_service.event_types import WEBHOOK_MODE_DESCRIPTIONS
+from marvin.services.event_bus_service.event_types import (
+    WEBHOOK_MODE_DESCRIPTIONS,
+    EventOperation,
+    EventTypes,
+    EventWebhookConfigData,
+)
 from marvin.services.scheduler.tasks.post_webhooks import post_group_webhooks, post_single_webhook
 
 # EventDocumentType was imported but not used in the current code.
@@ -52,6 +57,13 @@ def _validate_webhook_mode(data: WebhookCreate) -> None:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"{data.webhook_type.value} webhooks must have a scheduled_time.",
             )
+
+
+_WEBHOOK_EVENTS = {
+    EventOperation.create: (EventTypes.webhook_created, "added"),
+    EventOperation.update: (EventTypes.webhook_updated, "updated"),
+    EventOperation.delete: (EventTypes.webhook_deleted, "deleted"),
+}
 
 
 @controller(router)
@@ -89,6 +101,30 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
             self.logger,
             # Assuming registered_exceptions is available from BaseUserController
             # self.registered_exceptions
+        )
+
+    def _announce(self, operation: EventOperation, webhook: WebhookRead) -> None:
+        """webhook_created / _updated / _deleted: the webhook's name, type, switch and subscriptions — never its URL or
+        headers (either can carry a credential)."""
+        event_type, verb = _WEBHOOK_EVENTS[operation]
+        webhook_type = getattr(webhook.webhook_type, "value", webhook.webhook_type)
+        self.event_bus.dispatch(
+            integration_id="webhook_management",
+            group_id=self.group_id,
+            event_type=event_type,
+            document_data=EventWebhookConfigData(
+                operation=operation,
+                webhook_id=webhook.id,
+                webhook_name=webhook.name,
+                webhook_type=str(webhook_type),
+                enabled=bool(webhook.enabled),
+                subscribed_events=list(webhook.subscribed_events or []),
+                changed_by_name=getattr(self.user, "full_name", None) or getattr(self.user, "username", None),
+            ),
+            message=f"Outgoing webhook '{webhook.name}' {verb}",
+            user_id=self.user.id,
+            entity_id=webhook.id,
+            entity_type="webhook",
         )
 
     @router.get("/types", summary="List available webhook types with descriptions")
@@ -145,7 +181,9 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         save_data_dict["group_id"] = self.group_id
         create_payload = WebhookCreate(**save_data_dict)
         save_data = cast(create_payload, WebhookSave, group_id=self.group_id)
-        return self.mixins.create_one(save_data)
+        created = self.mixins.create_one(save_data)
+        self._announce(EventOperation.create, created)
+        return created
 
     @router.get("/rerun", summary="Re-run All Scheduled Webhooks for Today", status_code=status.HTTP_202_ACCEPTED)
     def rerun_webhooks(self) -> dict[str, str]:
@@ -257,7 +295,9 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         require_workspace_admin(self.user, self.group_id)
         _validate_webhook_mode(data)
         save_data = cast(data, WebhookSave, group_id=self.group_id)
-        return self.mixins.update_one(item_id=item_id, data=save_data)
+        updated = self.mixins.update_one(item_id=item_id, data=save_data)
+        self._announce(EventOperation.update, updated)
+        return updated
 
     @router.delete("/{item_id}", summary="Delete a Webhook")
     def delete_one(self, item_id: UUID4) -> dict:
@@ -273,5 +313,6 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
             dict: Status message on successful deletion.
         """
         require_workspace_admin(self.user, self.group_id)
-        self.mixins.delete_one(item_id)  # type: ignore
+        deleted = self.mixins.delete_one(item_id)  # type: ignore
+        self._announce(EventOperation.delete, deleted)
         return {"status": "ok", "message": "Webhook deleted successfully"}

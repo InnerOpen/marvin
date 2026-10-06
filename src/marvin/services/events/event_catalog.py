@@ -11,6 +11,7 @@ Each entry describes:
   - triggerable / trigger_group: whether a workflow can start on it, and under which heading the builder lists it
   - emittable: whether a workflow's Emit event step may send it
   - sent_by: what in Marvin sends it; leads_to: the events it causes through Marvin's own code
+  - alias_of: an old name for another type; hidden: nothing sends it or it's an alias, so it's never shown
 
 Everything else that needs one of these lists reads it from here (the workflow trigger allowlist, the
 emit_event action, the builder's menus); tests/test_event_catalog_facts.py keeps them honest.
@@ -74,6 +75,12 @@ class CatalogEntry:
     leads_to: list[str] = field(default_factory=list)
     """Event types this one causes through Marvin's own code (built-in reactions, the scheduler), e.g.
     entry_published → site_rebuild_queued → webhook_triggered. What workflows cause is data, not listed here."""
+    alias_of: str | None = None
+    """An old name for another event type: nothing sends it, and a workflow trigger, Emit event step or
+    subscription that names it is stored (and read, and run) as the event it stands for (`canonical_event_type`)."""
+    hidden: bool = False
+    """Not shown or offered anywhere: nothing sends it (_NO_EMITTER), or it's an alias. Set by the hidden gate
+    below; its enum member and its catalog entry stay, so old rows still have a name."""
 
 
 COMMON_VARS = [
@@ -85,6 +92,23 @@ COMMON_VARS = [
     EventVariable("email_address", "Email address from the event (invitee, recipient, etc.)", "user@example.com", type="email"),
     EventVariable("button_link", "Primary URL from the event (invitation link, reset link, etc.)", "https://...", type="url"),
 ]
+
+_WEBHOOK_VARS = [
+    EventVariable("webhook_id", "ID of the outgoing webhook", "<webhook-uuid>", type="string"),
+    EventVariable("webhook_name", "Name of the outgoing webhook", "Deploy hook", type="name"),
+    EventVariable("webhook_type", "Its type", "event_driven", type="string"),
+    EventVariable("enabled", "Whether it is switched on", "true"),
+    EventVariable("subscribed_events", "The events it is subscribed to", "[...]"),
+]
+"""An outgoing webhook's settings, never its URL or headers (either can carry a credential)."""
+
+_API_TOKEN_VARS = [
+    EventVariable("token_id", "ID of the token", "<token-uuid>", type="string"),
+    EventVariable("token_name", "Name given to the token", "CI Deploy Token", type="name"),
+    EventVariable("user_id", "ID of the user who owns it", "<user-uuid>", type="string"),
+    EventVariable("user_name", "Name of the user who owns it", "Jane Smith", type="name"),
+]
+"""A personal API token's identity, never its value or hash."""
 
 CATALOG: list[CatalogEntry] = [
     # ── Invitations ─────────────────────────────────────────────────────────
@@ -866,92 +890,6 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
-        event_type="site_deployment_started",
-        name="Site Deployment Started",
-        description="A site deployment has begun.",
-        category="Publishing",
-        trigger_group="Site",
-        triggerable=True,
-        emittable=True,
-        sent_by=["A workflow's Emit event step (e.g. from a host's deploy notification)"],
-        variables=COMMON_VARS
-        + [
-            EventVariable("site_url", "URL of the site being deployed", "https://mysite.com", type="url"),
-        ],
-    ),
-    CatalogEntry(
-        event_type="site_deployment_completed",
-        name="Site Deployment Completed",
-        description="A site deployment finished successfully.",
-        category="Publishing",
-        trigger_group="Site",
-        triggerable=True,
-        emittable=True,
-        sent_by=["A workflow's Emit event step (e.g. from a host's deploy notification)"],
-        variables=COMMON_VARS
-        + [
-            EventVariable("site_url", "URL of the deployed site", "https://mysite.com", type="url"),
-            EventVariable("duration", "How long the deployment took", "45s", type="duration"),
-        ],
-    ),
-    CatalogEntry(
-        event_type="site_deployment_failed",
-        name="Site Deployment Failed",
-        description="A site deployment failed.",
-        category="Publishing",
-        trigger_group="Site",
-        triggerable=True,
-        emittable=True,
-        sent_by=["A workflow's Emit event step (e.g. from a host's deploy notification)"],
-        variables=COMMON_VARS
-        + [
-            EventVariable("error_message", "What went wrong", "Build timeout", type="error"),
-        ],
-    ),
-    CatalogEntry(
-        event_type="site_build_started",
-        name="Site Build Started",
-        description="A site build process has started.",
-        category="Publishing",
-        trigger_group="Site",
-        triggerable=True,
-        emittable=True,
-        sent_by=["A workflow's Emit event step (e.g. from a host's build notification)"],
-        variables=COMMON_VARS
-        + [
-            EventVariable("site_url", "URL of the site being built", "https://mysite.com", type="url"),
-        ],
-    ),
-    CatalogEntry(
-        event_type="site_build_completed",
-        name="Site Build Completed",
-        description="A site build process finished successfully.",
-        category="Publishing",
-        trigger_group="Site",
-        triggerable=True,
-        emittable=True,
-        sent_by=["A workflow's Emit event step (e.g. from a host's build notification)"],
-        variables=COMMON_VARS
-        + [
-            EventVariable("site_url", "URL of the deployed site", "https://mysite.com", type="url"),
-            EventVariable("duration", "How long the build took", "45s", type="duration"),
-        ],
-    ),
-    CatalogEntry(
-        event_type="site_build_failed",
-        name="Site Build Failed",
-        description="A site build failed.",
-        category="Publishing",
-        trigger_group="Site",
-        triggerable=True,
-        emittable=True,
-        sent_by=["A workflow's Emit event step (e.g. from a host's build notification)"],
-        variables=COMMON_VARS
-        + [
-            EventVariable("error_message", "What went wrong", "Compilation error", type="error"),
-        ],
-    ),
-    CatalogEntry(
         event_type="site_rebuild_queued",
         name="Site Rebuild Queued",
         # One per batch: later requests join it silently, and `webhook_triggered` sends it.
@@ -971,6 +909,100 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("max_wait_seconds", "...or at the latest this long after the first request", "600", type="number"),
             EventVariable("queued_at", "When the first request arrived", "2026-07-16T10:00:00Z", type="datetime"),
             EventVariable("expected_send_at", "When it is sent if nothing else joins it", "2026-07-16T10:01:00Z", type="datetime"),
+        ],
+    ),
+    CatalogEntry(
+        # Internal name kept: deploy-hook webhooks and integration actions subscribe to webhook_triggered.
+        event_type="webhook_triggered",
+        name="Site Rebuild Sent",
+        description=(
+            "A queued site rebuild was sent once its requests went quiet. This is the signal deploy hooks listen to: "
+            "connect your host's deploy hook (an outgoing webhook, or an integration action such as Cloudflare Pages → "
+            "Deploy) here and it rebuilds the site, with the changes the rebuild covers."
+        ),
+        category="Publishing",
+        sent_by=["Sending a queued site rebuild once its requests go quiet (scheduler)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("request_count", "Rebuild requests this build covers", "3", type="number"),
+            EventVariable("changes", "The changes it covers (label, event, entity), newest last", "[...]"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="site_deployment_started",
+        name="Site Deployment Started",
+        description="A site build or deployment has begun (the host reported it).",
+        category="Publishing",
+        trigger_group="Site",
+        triggerable=True,
+        emittable=True,
+        sent_by=["A workflow's Emit event step (e.g. from a host's deploy notification)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("site_url", "URL of the site being deployed", "https://mysite.com", type="url"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="site_deployment_completed",
+        name="Site Deployment Completed",
+        description="A site build or deployment finished successfully (the host reported it).",
+        category="Publishing",
+        trigger_group="Site",
+        triggerable=True,
+        emittable=True,
+        sent_by=["A workflow's Emit event step (e.g. from a host's deploy notification)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("site_url", "URL of the deployed site", "https://mysite.com", type="url"),
+            EventVariable("duration", "How long the deployment took", "45s", type="duration"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="site_deployment_failed",
+        name="Site Deployment Failed",
+        description="A site build or deployment failed (the host reported it).",
+        category="Publishing",
+        trigger_group="Site",
+        triggerable=True,
+        emittable=True,
+        sent_by=["A workflow's Emit event step (e.g. from a host's deploy notification)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("error_message", "What went wrong", "Build timeout", type="error"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="site_build_started",
+        name="Site Build Started (old name)",
+        description="Old name for Site Deployment Started: workflows and the Emit event step that name it get site_deployment_started.",
+        category="Publishing",
+        alias_of="site_deployment_started",
+        variables=COMMON_VARS
+        + [
+            EventVariable("site_url", "URL of the site being built", "https://mysite.com", type="url"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="site_build_completed",
+        name="Site Build Completed (old name)",
+        description="Old name for Site Deployment Completed: workflows and the Emit event step that name it get site_deployment_completed.",
+        category="Publishing",
+        alias_of="site_deployment_completed",
+        variables=COMMON_VARS
+        + [
+            EventVariable("site_url", "URL of the deployed site", "https://mysite.com", type="url"),
+            EventVariable("duration", "How long the build took", "45s", type="duration"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="site_build_failed",
+        name="Site Build Failed (old name)",
+        description="Old name for Site Deployment Failed: workflows and the Emit event step that name it get site_deployment_failed.",
+        category="Publishing",
+        alias_of="site_deployment_failed",
+        variables=COMMON_VARS
+        + [
+            EventVariable("error_message", "What went wrong", "Compilation error", type="error"),
         ],
     ),
     # ── Connect: Integrations ─────────────────────────────────────────────────
@@ -1032,68 +1064,53 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         event_type="webhook_created",
         name="Webhook Created",
-        description="A new webhook was configured.",
+        description="An outgoing webhook was added.",
         category="Connect",
-        variables=COMMON_VARS
-        + [
-            EventVariable("webhook_url", "URL the webhook posts to", "https://...", type="url"),
-            EventVariable("created_by", "Who created the webhook", "Jane Smith", type="name"),
-        ],
+        sent_by=["Adding an outgoing webhook (app, API)"],
+        variables=COMMON_VARS + _WEBHOOK_VARS + [EventVariable("changed_by_name", "Who added it", "Jane Smith", type="name")],
     ),
     CatalogEntry(
         event_type="webhook_updated",
         name="Webhook Updated",
-        description="A webhook configuration was updated.",
+        description="An outgoing webhook's settings were changed.",
         category="Connect",
-        variables=COMMON_VARS
-        + [
-            EventVariable("webhook_url", "URL the webhook posts to", "https://...", type="url"),
-        ],
+        sent_by=["Saving an outgoing webhook (app, API)"],
+        variables=COMMON_VARS + _WEBHOOK_VARS + [EventVariable("changed_by_name", "Who changed it", "Jane Smith", type="name")],
     ),
     CatalogEntry(
         event_type="webhook_deleted",
         name="Webhook Deleted",
-        description="A webhook was deleted.",
+        description="An outgoing webhook was deleted.",
         category="Connect",
-        variables=COMMON_VARS
-        + [
-            EventVariable("webhook_url", "URL of the deleted webhook", "https://...", type="url"),
-        ],
+        sent_by=["Deleting an outgoing webhook (app, API)"],
+        variables=COMMON_VARS + _WEBHOOK_VARS + [EventVariable("changed_by_name", "Who deleted it", "Jane Smith", type="name")],
     ),
     CatalogEntry(
-        event_type="webhook_triggered",
-        name="Webhook Triggered",
-        # Its one emitter is the coalesced site rebuild: deploy-hook webhooks subscribe to it.
-        description="A site rebuild was sent: the workspace's deploy-hook webhooks fire, carrying the changes it covers.",
-        category="Connect",
-        sent_by=["Sending a queued site rebuild once its requests go quiet (scheduler)"],
-        variables=COMMON_VARS
-        + [
-            EventVariable("request_count", "Rebuild requests this build covers", "3", type="number"),
-            EventVariable("changes", "The changes it covers (label, event, entity), newest last", "[...]"),
-        ],
-    ),
-    CatalogEntry(
+        # Hidden (_NO_EMITTER): one per delivery is noise, and the webhook's activity log already records each one.
         event_type="webhook_delivery_succeeded",
         name="Webhook Delivery Succeeded",
         description="A webhook was delivered successfully.",
         category="Connect",
         variables=COMMON_VARS
         + [
-            EventVariable("webhook_url", "URL the webhook was delivered to", "https://...", type="url"),
+            EventVariable("webhook_name", "Name of the webhook", "Deploy hook", type="name"),
             EventVariable("status_code", "HTTP response code received", "200", type="count"),
         ],
     ),
     CatalogEntry(
         event_type="webhook_delivery_failed",
         name="Webhook Delivery Failed",
-        description="A webhook delivery failed.",
+        description="An outgoing webhook couldn't deliver an event, even after its retries.",
         category="Connect",
+        sent_by=["An outgoing webhook delivery failing after its retries (event, scheduled and test sends)"],
         variables=COMMON_VARS
         + [
-            EventVariable("webhook_url", "URL the webhook attempted to post to", "https://...", type="url"),
-            EventVariable("error_message", "What went wrong", "Connection refused", type="error"),
-            EventVariable("status_code", "HTTP response code received (if any)", "503", type="count"),
+            EventVariable("webhook_id", "ID of the webhook", "<webhook-uuid>", type="string"),
+            EventVariable("webhook_name", "Name of the webhook", "Deploy hook", type="name"),
+            EventVariable("delivered_event_type", "The event it was delivering", "webhook_triggered", type="string"),
+            EventVariable("status_code", "HTTP status of the last attempt (if the host answered)", "503", type="count"),
+            EventVariable("error_message", "What went wrong", "HTTP 503", type="error"),
+            EventVariable("attempts", "How many attempts were made", "3", type="count"),
         ],
     ),
     # ── Connect: API Clients ──────────────────────────────────────────────────
@@ -1220,33 +1237,26 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         event_type="api_token_created",
         name="API Token Created",
-        description="A new API token was generated.",
+        description="A personal API token was created.",
         category="Security",
-        variables=COMMON_VARS
-        + [
-            EventVariable("token_name", "Name given to the token", "CI Deploy Token", type="name"),
-            EventVariable("created_by", "Who created it", "Jane Smith", type="name"),
-        ],
+        sent_by=["Creating a personal API token (profile, API)"],
+        variables=COMMON_VARS + _API_TOKEN_VARS,
     ),
     CatalogEntry(
         event_type="api_token_rotated",
         name="API Token Rotated",
-        description="An API token was rotated (old token invalidated, new one issued).",
+        description="A personal API token was rotated (old token invalidated, new one issued).",
         category="Security",
-        variables=COMMON_VARS
-        + [
-            EventVariable("token_name", "Name of the rotated token", "CI Deploy Token", type="name"),
-        ],
+        sent_by=["Rotating a personal API token (profile, API)"],
+        variables=COMMON_VARS + _API_TOKEN_VARS,
     ),
     CatalogEntry(
         event_type="api_token_revoked",
         name="API Token Revoked",
-        description="An API token was revoked.",
+        description="A personal API token was revoked or deleted, so it no longer works.",
         category="Security",
-        variables=COMMON_VARS
-        + [
-            EventVariable("token_name", "Name of the revoked token", "CI Deploy Token", type="name"),
-        ],
+        sent_by=["Revoking or deleting a personal API token (profile, API)"],
+        variables=COMMON_VARS + _API_TOKEN_VARS,
     ),
     CatalogEntry(
         event_type="api_rate_limit_exceeded",
@@ -1797,10 +1807,9 @@ CATALOG: list[CatalogEntry] = [
 # set stays accurate as emitters come and go. Give any of these a real dispatch site → remove it here.
 _NO_EMITTER: frozenset[str] = frozenset(
     {
+        # Security signals with no feature behind them yet. They stay platform scope and audit-locked, so building
+        # one is: dispatch it, then take it out of this set.
         "api_rate_limit_exceeded",
-        "api_token_created",
-        "api_token_revoked",
-        "api_token_rotated",
         # asset_attached_to_entry / asset_detached_from_entry now have emitters (EntryService.attach_asset
         # / detach_asset) — no longer dead.
         "backup_completed",
@@ -1817,25 +1826,41 @@ _NO_EMITTER: frozenset[str] = frozenset(
         "login_failed_multiple_times",
         "mention_created",
         "scheduled_task_cancelled",
-        # site_build_* / site_deployment_* now have an emitter (the workflow emit_event step, e.g. from a
-        # host's deploy notification) — no longer dead.
-        "site_published",
+        # site_deployment_* have an emitter (the workflow emit_event step, e.g. from a host's deploy notification);
+        # site_build_* are its old names (alias_of), not senders' names.
+        "site_published",  # nothing publishes "the site" as one act: site_rebuild_queued / webhook_triggered do
         "storage_quota_exceeded",
         "storage_quota_warning",
         "suspicious_activity_detected",
         "user_deleted",
         "user_password_reset_completed",
         "user_updated",
-        "webhook_created",
-        "webhook_deleted",
-        "webhook_delivery_failed",
+        # webhook_created/updated/deleted and webhook_delivery_failed are sent (outgoing webhook routes, the
+        # publisher). One event per successful delivery would be noise next to the webhook's own activity log.
         "webhook_delivery_succeeded",
-        "webhook_updated",
     }
 )
 for _e in CATALOG:
     if _e.event_type in _NO_EMITTER:
         _e.enabled = False  # not offered for subscription — nothing ever emits it
+
+# ── Aliases: old names for another event type ────────────────────────────────────────────────────────
+# site_build_* and site_deployment_* were two families for one thing (a host reporting a build/deploy); the
+# deployment family is the one kept. An alias is never offered, triggerable or emittable, and anything that
+# names it — a workflow trigger, an Emit event step, a subscription — is stored and run as its target
+# (`canonical_event_type`; the 2026-10-06 migration rewrote stored ones). Its enum member stays.
+ALIASES: dict[str, str] = {e.event_type: e.alias_of for e in CATALOG if e.alias_of}
+for _e in CATALOG:
+    if _e.alias_of:
+        _e.enabled = _e.triggerable = _e.emittable = False
+
+# ── Hidden gate: never shown ─────────────────────────────────────────────────────────────────────────
+# Nothing sends a _NO_EMITTER type and an alias is another type's old name, so neither is listed anywhere a
+# workspace or admin browses or picks event types (the Events catalog, the pickers, Audit coverage, the admin
+# Events filter, the connections summary). Their entries stay so old Event Log rows keep a name.
+HIDDEN_EVENT_TYPES: frozenset[str] = _NO_EMITTER | frozenset(ALIASES)
+for _e in CATALOG:
+    _e.hidden = _e.event_type in HIDDEN_EVENT_TYPES
 
 # ── Security gate: events that are always audited ─────────────────────────────
 # Who can get in and with what rights, which credentials exist, and how the workspace (its audit
@@ -1937,6 +1962,17 @@ CATEGORIES = [
     "Variables",
     "System",
 ]
+
+
+def canonical_event_type(event_type: str) -> str:
+    """The event type a name stands for: an alias's target (site_build_completed → site_deployment_completed),
+    anything else unchanged."""
+    return ALIASES.get(event_type, event_type)
+
+
+def aliases_of(event_type: str) -> list[str]:
+    """The old names that stand for `event_type` (empty for most types)."""
+    return [alias for alias, target in ALIASES.items() if target == event_type]
 
 
 def get_event_variables(event_type: str) -> list[EventVariable]:

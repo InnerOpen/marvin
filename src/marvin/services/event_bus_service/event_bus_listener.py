@@ -324,6 +324,7 @@ class WebhookEventListener(EventListenerBase):
                     group_id=self.group_id,
                     headers=resolved_headers,
                     payload_override=payload_override,
+                    webhook_name=webhook_config.name,
                 )
             return
 
@@ -400,6 +401,7 @@ class WebhookEventListener(EventListenerBase):
                 group_id=self.group_id,
                 headers=resolved_headers,
                 payload_override=clean_payload,
+                webhook_name=webhook_config.name,
             )
 
     def get_scheduled_webhooks(self, start_datetime: datetime, end_datetime: datetime) -> list[WebhookRead]:  # Renamed params

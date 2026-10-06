@@ -125,7 +125,9 @@ def _drop_workspace(db_session, gid):
         db_session.delete(hook)  # the ORM delete takes its subscriptions along
     db_session.flush()
     from marvin.db.models.users.users import Users
+    from marvin.services.group.group_purge import purge_group_dependents
 
+    purge_group_dependents(db_session, gid)  # the Event Log rows the webhook routes now write, among others
     db_session.query(Users).filter(Users.group_id == gid).delete(synchronize_session=False)
     db_session.query(Groups).filter(Groups.id == gid).delete(synchronize_session=False)
     db_session.commit()

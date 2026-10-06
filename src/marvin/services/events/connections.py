@@ -52,9 +52,9 @@ _RECIPIENTS = {"admins": "To the workspace admins", "specific": "To specific add
 
 
 def workspace_entry(event_type: str) -> CatalogEntry | None:
-    """The catalog entry for a workspace-scope event type, or None (unknown, or a platform event)."""
+    """The catalog entry for a shown workspace-scope event type, or None (unknown, hidden, or a platform event)."""
     entry = get_catalog_entry(event_type)
-    return entry if entry is not None and entry.scope == "workspace" else None
+    return entry if entry is not None and entry.scope == "workspace" and not entry.hidden else None
 
 
 # ── reactions ────────────────────────────────────────────────────────────────
@@ -361,14 +361,15 @@ def _step_sends(step) -> list[tuple[str, str]]:
     """(event type, what sends it) for one workflow step, when the step's kind and settings decide it."""
     from marvin.services.automation.actions.entry import OP_SENDS
     from marvin.services.automation.actions.handler import AUTOMATION_ALLOWED_HANDLERS
-    from marvin.services.events.event_catalog import EMITTABLE_EVENT_TYPES
+    from marvin.services.events.event_catalog import EMITTABLE_EVENT_TYPES, canonical_event_type
     from marvin.services.scheduled_tasks.handlers import TaskHandlerRegistry
 
     if not isinstance(step, dict):
         return []
     kind = step.get("kind")
-    if kind == "emit_event" and step.get("event") in EMITTABLE_EVENT_TYPES:  # anything else fails at run time
-        return [(step["event"], "Emit event step")]
+    emits = canonical_event_type(step["event"]) if kind == "emit_event" and isinstance(step.get("event"), str) else None
+    if emits in EMITTABLE_EVENT_TYPES:  # anything else fails at run time
+        return [(emits, "Emit event step")]
     if kind == "handler" and step.get("task") in AUTOMATION_ALLOWED_HANDLERS and TaskHandlerRegistry.is_registered(step["task"]):
         handler = TaskHandlerRegistry.get_handler(step["task"])
         return [(e, f"{handler.name} step") for e in handler.sends]
@@ -601,7 +602,7 @@ def summary(session: Session, group_id, *, visible=None) -> list[EventConnection
             last_occurred_at=last.get(e.event_type),
         )
         for e in CATALOG
-        if e.scope == "workspace"
+        if e.scope == "workspace" and not e.hidden
     ]
 
 

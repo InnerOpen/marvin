@@ -120,9 +120,12 @@ class GroupWebhooksModel(SqlAlchemyBase, BaseMixins):
     @subscribed_events.setter
     def subscribed_events(self, value: list[str] | None) -> None:
         """Replace the subscriptions with `value`. Rows for events that stay are kept (not deleted and
-        re-inserted, which would trip the unique (webhook_id, event_type) constraint in one flush)."""
+        re-inserted, which would trip the unique (webhook_id, event_type) constraint in one flush). An old
+        event name is stored as the event it stands for (site_build_* → site_deployment_*)."""
+        from marvin.services.events.event_catalog import canonical_event_type
+
         from .webhook_event_subscriptions import WebhookEventSubscriptionModel
 
-        wanted = list(dict.fromkeys(e for e in (value or []) if e))
+        wanted = list(dict.fromkeys(canonical_event_type(e) for e in (value or []) if e))
         kept = {sub.event_type: sub for sub in self.event_subscriptions if sub.event_type in wanted}
         self.event_subscriptions = [kept.get(e) or WebhookEventSubscriptionModel(event_type=e) for e in sorted(wanted)]

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sa
 from sqlalchemy import ForeignKey, String
-from sqlalchemy.orm import Mapped, Session, mapped_column, relationship
+from sqlalchemy.orm import Mapped, Session, mapped_column, relationship, validates
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
@@ -43,6 +43,13 @@ class IntegrationEventSubscriptionModel(SqlAlchemyBase, BaseMixins, InstalledByM
     """Action arguments, may contain {{field}} placeholders filled from the event."""
 
     enabled: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True, server_default=sa.true())
+
+    @validates("event_type")
+    def _canonical_event_type(self, _key: str, value: str) -> str:
+        """An old event name is stored as the event it stands for (site_build_* → site_deployment_*)."""
+        from marvin.services.events.event_catalog import canonical_event_type
+
+        return canonical_event_type(value) if value else value
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:

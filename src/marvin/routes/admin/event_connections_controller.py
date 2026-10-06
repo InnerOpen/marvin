@@ -20,12 +20,12 @@ class AdminEventConnectionsController(BaseAdminController):
     @router.get("/{event_type}/connections", response_model=AdminEventConnections, summary="What sends a platform event type and what reacts to it")
     def detail(self, event_type: str, limit: int = Query(10, ge=1, le=50)) -> AdminEventConnections:
         """A platform event type's senders, reactions (platform-wide, then by workspace) and newest `limit` events in
-        any workspace. 404 for an unknown type or a workspace one (the workspace API has those)."""
+        any workspace. 404 for an unknown or hidden type or a workspace one (the workspace API has those)."""
         from marvin.services.events import connections
         from marvin.services.events.event_catalog import get_catalog_entry
 
         entry = get_catalog_entry(event_type)
-        if entry is None or entry.scope != "platform":
+        if entry is None or entry.scope != "platform" or entry.hidden:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Platform event type {event_type} not found.")
         senders, reactions, workspaces = connections.platform_detail(self.session, entry)
         rows, _ = self.repos.event_log.page_platform_events(event_type=event_type, page=1, per_page=limit)

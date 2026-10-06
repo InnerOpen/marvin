@@ -28,6 +28,34 @@ TRIGGER_TYPE_EVENTS: dict[str, str] = {"incoming_webhook": "incoming_webhook", "
 TRIGGER_REF_KEYS: dict[str, str] = {"incoming_webhook": "webhook", "chained": "automation", "on_error": "automation"}
 
 
+def _canonical(event: str | None) -> str | None:
+    """An old event name → the event it stands for (site_build_* → site_deployment_*)."""
+    from marvin.services.events.event_catalog import canonical_event_type
+
+    return canonical_event_type(event) if event else event
+
+
+def canonical_body(body: dict | None) -> dict | None:
+    """The rule with every Emit event step (actions and on-failure steps) naming the event an old name stands
+    for. Returns `body` itself when nothing changes."""
+    if not isinstance(body, dict):
+        return body
+    out = body
+    for key in ("actions", "on_failure"):
+        steps = body.get(key)
+        if not isinstance(steps, list):
+            continue
+        fixed = [
+            {**step, "event": _canonical(step["event"])}
+            if isinstance(step, dict) and step.get("kind") == "emit_event" and isinstance(step.get("event"), str)
+            else step
+            for step in steps
+        ]
+        if fixed != steps:
+            out = {**out, key: fixed}
+    return out
+
+
 def split_trigger(trigger: dict | None) -> dict:
     """The API's ``definition.trigger`` → the four trigger columns. ``assemble_trigger`` is the inverse.
 
@@ -42,7 +70,7 @@ def split_trigger(trigger: dict | None) -> dict:
     event = ref = None
     if ttype == "event":
         if isinstance(rest.get("event"), str) or rest.get("event") is None:
-            event = rest.pop("event", None)
+            event = _canonical(rest.pop("event", None))
     elif ttype in TRIGGER_TYPE_EVENTS:
         event = TRIGGER_TYPE_EVENTS[ttype]
         key = TRIGGER_REF_KEYS[ttype]
@@ -57,7 +85,7 @@ def assemble_trigger(trigger_type: str | None, trigger_event: str | None, trigge
         return None
     trigger: dict = {"type": trigger_type}
     if trigger_type == "event" and trigger_event is not None:
-        trigger["event"] = trigger_event
+        trigger["event"] = _canonical(trigger_event)
     if trigger_type in TRIGGER_REF_KEYS and trigger_ref is not None:
         trigger[TRIGGER_REF_KEYS[trigger_type]] = trigger_ref
     trigger.update(trigger_config or {})
@@ -125,10 +153,10 @@ class WorkspaceAutomationModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     @property
     def definition(self) -> dict | None:
         """The whole rule as the API reads and writes it: the stored body plus the trigger."""
-        trigger = self.trigger
+        trigger, body = self.trigger, canonical_body(self.body)
         if trigger is None:
-            return dict(self.body) if self.body is not None else None
-        return {"trigger": trigger, **(self.body or {})}
+            return dict(body) if body is not None else None
+        return {"trigger": trigger, **(body or {})}
 
     @definition.setter
     def definition(self, value: dict | None) -> None:
@@ -136,4 +164,4 @@ class WorkspaceAutomationModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
             self.body, self.trigger = None, None
             return
         self.trigger = value.get("trigger")
-        self.body = {k: v for k, v in value.items() if k != "trigger"}
+        self.body = canonical_body({k: v for k, v in value.items() if k != "trigger"})

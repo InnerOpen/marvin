@@ -115,7 +115,7 @@ def settings(overrides: dict[str, bool]) -> list[AuditSetting]:
             locked=entry.audit_locked,
         )
         for entry in sorted(CATALOG, key=_sort_key)
-        if entry.scope == "workspace"
+        if entry.scope == "workspace" and not entry.hidden  # nothing sends a hidden type: nothing to record
     ]
 
 

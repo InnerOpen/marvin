@@ -831,7 +831,7 @@ def _seed(db, world):
 def test_summary_equals_detail_for_every_catalog_type(db_session, world):
     _seed(db_session, world)
     rows = {r.event_type: r for r in connections.summary(db_session, world.a)}
-    assert set(rows) == {e.event_type for e in CATALOG if e.scope == "workspace"}
+    assert set(rows) == {e.event_type for e in CATALOG if e.scope == "workspace" and not e.hidden}
     for event_type, row in rows.items():
         reactions = connections.reactions(db_session, world.a, event_type)
         data = _data(reactions)

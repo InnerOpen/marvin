@@ -18,12 +18,16 @@ from marvin.services.event_bus_service import event_bus_listener as L
 from marvin.services.event_bus_service.event_types import EventTypes
 from marvin.services.events.event_catalog import (
     _NO_EMITTER,
+    ALIASES,
     CATALOG,
     CATALOG_BY_TYPE,
     CATEGORIES,
     EMITTABLE_EVENT_TYPES,
+    HIDDEN_EVENT_TYPES,
     INTERNAL_EVENT_TYPES,
     TRIGGERABLE_EVENT_TYPES,
+    aliases_of,
+    canonical_event_type,
     offered_emittable,
     trigger_groups,
 )
@@ -63,10 +67,10 @@ def test_every_category_is_listed():
 
 
 def test_every_sent_event_says_who_sends_it():
-    silent = sorted(e.event_type for e in CATALOG if e.event_type not in _NO_EMITTER and not e.sent_by)
-    assert not silent, f"These events are sent but have no sent_by line: {silent}"
-    claimed = sorted(e.event_type for e in CATALOG if e.event_type in _NO_EMITTER and e.sent_by)
-    assert not claimed, f"Nothing sends these (_NO_EMITTER), yet they list a sender: {claimed}"
+    silent = sorted(e.event_type for e in CATALOG if not e.hidden and not e.sent_by)
+    assert not silent, f"These events are shown but have no sent_by line: {silent}"
+    claimed = sorted(e.event_type for e in CATALOG if e.hidden and e.sent_by)
+    assert not claimed, f"These are hidden (nothing sends them, or an alias), yet they list a sender: {claimed}"
     blank = sorted(e.event_type for e in CATALOG for line in e.sent_by if not line.strip())
     assert not blank, blank
 
@@ -76,6 +80,99 @@ def test_every_event_with_a_sender_is_really_sent():
     sent = _referenced_in_code() | EMITTABLE_EVENT_TYPES
     unsent = sorted(e.event_type for e in CATALOG if e.sent_by and e.event_type not in sent)
     assert not unsent, f"These list a sender but nothing in src/marvin sends them: {unsent}"
+
+
+# ── Hidden types: explicit, and offered nowhere ────────────────────────────────────────────────────
+
+
+# Hiding a type is a decision, so the list is spelled out: a change here should be a change someone meant.
+NEVER_SENT = {
+    # security signals with no feature behind them yet (platform scope, always audited: one flag to turn on)
+    "api_rate_limit_exceeded",
+    "login_failed_multiple_times",
+    "suspicious_activity_detected",
+    # one event per successful delivery is noise; the webhook's activity log records each
+    "webhook_delivery_succeeded",
+    # nothing publishes "the site" as one act (site_rebuild_queued / webhook_triggered do)
+    "site_published",
+    # declared, never built
+    "backup_started",
+    "backup_completed",
+    "backup_failed",
+    "comment_added",
+    "comment_updated",
+    "comment_deleted",
+    "mention_created",
+    "entry_shared",
+    "form_submission_processed",
+    "form_submission_failed",
+    "scheduled_task_cancelled",
+    "storage_quota_warning",
+    "storage_quota_exceeded",
+    "user_updated",
+    "user_deleted",
+    "user_password_reset_completed",
+}
+OLD_NAMES = {f"site_build_{s}": f"site_deployment_{s}" for s in ("started", "completed", "failed")}
+
+
+def test_hidden_types_are_exactly_the_listed_ones():
+    assert _NO_EMITTER == NEVER_SENT
+    assert ALIASES == OLD_NAMES
+    assert HIDDEN_EVENT_TYPES == NEVER_SENT | set(OLD_NAMES)
+    assert {e.event_type for e in CATALOG if e.hidden} == HIDDEN_EVENT_TYPES
+
+
+def test_hidden_types_are_not_offered_for_anything():
+    for name in HIDDEN_EVENT_TYPES:
+        entry = CATALOG_BY_TYPE[name]
+        assert not (entry.enabled or entry.triggerable or entry.sent_by or entry.leads_to), name
+        assert not any(name in e.leads_to for e in CATALOG), f"{name} is hidden but something leads to it"
+    assert not HIDDEN_EVENT_TYPES & {t for names in trigger_groups().values() for t in names}
+    assert not HIDDEN_EVENT_TYPES & set(offered_emittable())
+    # The Emit event step still accepts every entry_* type, entry_shared included, though the builder doesn't offer
+    # it (open question 6 in tasks/todo.md); nothing else hidden can be emitted.
+    assert {e.event_type for e in CATALOG if e.hidden and e.emittable} == {"entry_shared"}
+
+
+def test_hidden_types_are_not_shown_in_audit_coverage_or_the_admin_catalog():
+    from marvin.services.events.audit_settings import settings
+
+    assert not HIDDEN_EVENT_TYPES & {s.event_type for s in settings({})}
+    # (the admin catalog, /event/types and the connections summary are checked over HTTP in test_events_cleanup.py)
+
+
+def test_security_types_stay_platform_and_locked_while_hidden():
+    for name in ("api_rate_limit_exceeded", "login_failed_multiple_times", "suspicious_activity_detected"):
+        entry = CATALOG_BY_TYPE[name]
+        assert entry.scope == "platform" and entry.audit_locked and entry.category == "Security", name
+
+
+def test_newly_sent_types_are_shown():
+    sent = {"webhook_created", "webhook_updated", "webhook_deleted", "webhook_delivery_failed"}
+    sent |= {"api_token_created", "api_token_rotated", "api_token_revoked"}
+    assert not sent & HIDDEN_EVENT_TYPES
+    assert sent <= _referenced_in_code()
+    for name in ("api_token_created", "api_token_rotated", "api_token_revoked"):
+        assert CATALOG_BY_TYPE[name].scope == "platform" and CATALOG_BY_TYPE[name].audit_locked, name
+
+
+def test_an_alias_stands_for_a_shown_type_and_nothing_sends_it():
+    referenced = _referenced_in_code()
+    for alias, target in ALIASES.items():
+        assert target in CATALOG_BY_TYPE and not CATALOG_BY_TYPE[target].hidden, alias
+        assert CATALOG_BY_TYPE[target].triggerable and CATALOG_BY_TYPE[target].emittable, target
+        assert CATALOG_BY_TYPE[alias].category == CATALOG_BY_TYPE[target].category, alias
+        assert alias not in referenced, f"{alias} is an alias; send {target}"
+        assert canonical_event_type(alias) == target and alias in aliases_of(target)
+        assert canonical_event_type(target) == target
+    assert canonical_event_type("entry_published") == "entry_published" and aliases_of("entry_published") == []
+
+
+def test_site_rebuild_sent_is_the_publishing_signal():
+    entry = CATALOG_BY_TYPE["webhook_triggered"]
+    assert (entry.name, entry.category) == ("Site Rebuild Sent", "Publishing")
+    assert "deploy hook" in entry.description
 
 
 # ── leads_to ──────────────────────────────────────────────────────────────────────────────────────────
@@ -148,7 +245,10 @@ def _emit_accepts(name: str) -> bool:
 
 
 def test_emittable_is_what_emit_event_accepts():
-    assert {et.name for et in EventTypes if _emit_accepts(et.name)} == EMITTABLE_EVENT_TYPES
+    # ...plus the old names of emittable types, which emit their counterpart (site_build_* → site_deployment_*).
+    old_names = {alias for alias, target in ALIASES.items() if target in EMITTABLE_EVENT_TYPES}
+    assert old_names == set(ALIASES)
+    assert {et.name for et in EventTypes if _emit_accepts(et.name)} == EMITTABLE_EVENT_TYPES | old_names
 
 
 def test_the_builder_offers_emittable_events_that_are_subscribable():

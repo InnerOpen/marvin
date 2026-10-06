@@ -36,8 +36,18 @@ def test_a_failed_deploy_carries_its_message_and_reason(dispatched):
 
 
 def test_a_site_event_needs_no_entry(dispatched):
-    run_emit_event(None, uuid.uuid4(), {"kind": "emit_event", "event": "site_build_completed"}, {"event": {}, "depth": 0}, authorizer_role=ROLE_ADMIN)
-    assert dispatched[0]["message"] == "Site build completed"
+    run_emit_event(
+        None, uuid.uuid4(), {"kind": "emit_event", "event": "site_deployment_completed"}, {"event": {}, "depth": 0}, authorizer_role=ROLE_ADMIN
+    )
+    assert dispatched[0]["message"] == "Site deploy completed"
+
+
+def test_an_old_site_build_name_emits_its_deployment_counterpart(dispatched):
+    out = run_emit_event(
+        None, uuid.uuid4(), {"kind": "emit_event", "event": "site_build_failed"}, {"event": {}, "depth": 0}, authorizer_role=ROLE_ADMIN
+    )
+    assert out["emitted"] == "site_deployment_failed"
+    assert dispatched[0]["event_type"].name == "site_deployment_failed" and dispatched[0]["message"] == "Site deploy failed"
 
 
 def test_other_event_families_are_refused():
@@ -51,15 +61,18 @@ def test_the_feed_shows_a_deploy_failure_reason():
     assert _detail({"documentData": {"errorMessage": "Build exited 1"}}) == "Build exited 1"
 
 
-SITE_EVENTS = {f"site_{kind}_{status}" for kind in ("build", "deployment") for status in ("started", "completed", "failed")}
+SITE_EVENTS = {f"site_deployment_{status}" for status in ("started", "completed", "failed")}
 
 
 def test_site_events_are_emittable_triggers_and_subscriptions():
     # They were gated as "no emitter" because emit_event matched them by prefix, so "site deployed" could not
     # start a workflow or a notification. Now the catalog says it: the Emit event step sends them, a workflow
-    # can start on them ("deploy failed" → tell someone), and they're offered for subscription.
+    # can start on them ("deploy failed" → tell someone), and they're offered for subscription. site_build_* are
+    # their old names: hidden, standing for these.
     from marvin.services.events.event_catalog import CATALOG_BY_TYPE
 
     for name in SITE_EVENTS:
         entry = CATALOG_BY_TYPE[name]
         assert entry.emittable and entry.triggerable and entry.enabled, name
+        old = CATALOG_BY_TYPE[name.replace("deployment", "build")]
+        assert old.alias_of == name and old.hidden and not (old.emittable or old.triggerable or old.enabled)

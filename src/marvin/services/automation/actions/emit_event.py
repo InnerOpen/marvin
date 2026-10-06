@@ -7,15 +7,16 @@ refuses to react past `MAX_REACTION_DEPTH` (see engine).
 
 Supported families:
 - entry lifecycle (`entry_*`), built from the entry in the automation's context;
-- site build / deployment (`site_build_*`, `site_deployment_*`) — so a workflow on an incoming webhook
+- site build / deployment (`site_deployment_*`) — so a workflow on an incoming webhook
   can turn a host's "deploy failed" notification into Marvin's own event (activity toast, event log,
-  notifications). Optional templated `message`, `error`, `site_url`, `deployment_id`.
+  notifications). Optional templated `message`, `error`, `site_url`, `deployment_id`. The old names
+  `site_build_*` are accepted and emit their `site_deployment_*` counterpart (`canonical_event_type`).
 """
 
 import uuid
 
 from marvin.services.event_bus_service.event_types import EventTypes
-from marvin.services.events.event_catalog import EMITTABLE_EVENT_TYPES
+from marvin.services.events.event_catalog import EMITTABLE_EVENT_TYPES, canonical_event_type
 
 from .base import AutomationActionError, register_action
 
@@ -31,14 +32,15 @@ def run_emit_event(session, group_id, action, context, *, user_id=None, authoriz
     ev_name = action.get("event")
     if not ev_name:
         raise AutomationActionError("emit_event action is missing 'event'")
+    ev_name = canonical_event_type(str(ev_name))  # an old name (site_build_*) emits the event it stands for
     require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, EMIT_EVENT_MIN_ROLE, f"emit_event '{ev_name}'")
     try:
         event_type = EventTypes[ev_name]
     except KeyError as e:
         raise AutomationActionError(f"unknown event type '{ev_name}'") from e
 
-    if ev_name not in EMITTABLE_EVENT_TYPES:  # the catalog's `emittable` — entry_* and site build/deploy events
-        raise AutomationActionError(f"emit_event supports entry_* and site_build_* / site_deployment_* events, not '{ev_name}'")
+    if ev_name not in EMITTABLE_EVENT_TYPES:  # the catalog's `emittable` — entry_* and site deployment events
+        raise AutomationActionError(f"emit_event supports entry_* and site_deployment_* events, not '{ev_name}'")
     depth = int(context.get("depth", 0)) + 1
     if ev_name.startswith("site_"):
         return _emit_site_event(group_id, action, context, event_type, ev_name, depth, user_id, dry_run)
@@ -90,7 +92,7 @@ def _emit_site_event(group_id, action: dict, context: dict, event_type, ev_name:
         return str(value)[:500] if value not in (None, "") else None
 
     status = ev_name.rsplit("_", 1)[-1]  # started | completed | failed
-    message = text("message") or f"Site {'build' if 'build' in ev_name else 'deploy'} {status}"
+    message = text("message") or f"Site deploy {status}"
     error = text("error")
     if dry_run:
         return {"dry_run": True, "kind": "emit_event", "event": ev_name, "message": message, "error": error, "reaction_depth": depth}

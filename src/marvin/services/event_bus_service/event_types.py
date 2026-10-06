@@ -280,11 +280,11 @@ class EventTypes(EventTypeBase):
     webhook_deleted = auto()
     """Event dispatched when a webhook is deleted."""
     webhook_triggered = auto()
-    """Event dispatched when a webhook is triggered."""
+    """A queued site rebuild was sent ("Site Rebuild Sent"): the event deploy hooks listen to."""
     webhook_delivery_succeeded = auto()
-    """Event dispatched when a webhook delivery succeeds."""
+    """Never sent: the webhook's own activity log records each delivery (hidden in the catalog)."""
     webhook_delivery_failed = auto()
-    """Event dispatched when a webhook delivery fails."""
+    """Event dispatched when an outgoing webhook delivery fails after its retries."""
 
     # ==========================================================================
     # API & Integration Events
@@ -964,7 +964,7 @@ class EventInvitationData(EventDocumentDataBase):
 
 
 class EventAPITokenData(EventDocumentDataBase):
-    """Data payload for API token events."""
+    """Data payload for personal API token events. Never the token value or its hash."""
 
     document_type: EventDocumentTypeBase = EventDocumentType.api_token
     token_id: UUID4
@@ -973,8 +973,49 @@ class EventAPITokenData(EventDocumentDataBase):
     """The name of the API token."""
     user_id: UUID4
     """The user who owns the token."""
+    user_name: str | None = None
+    """The owner's full name (or username)."""
     token_prefix: str | None = None
     """The prefix of the token (for identification)."""
+
+
+class EventWebhookConfigData(EventDocumentDataBase):
+    """Data payload for `webhook_created` / `webhook_updated` / `webhook_deleted`: an outgoing webhook's settings.
+    Never its URL or headers (either can carry a credential)."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.webhook
+    webhook_id: UUID4
+    """The outgoing webhook."""
+    webhook_name: str | None = None
+    """Its name."""
+    webhook_type: str
+    """Its type (event_driven, workflow, generic, …)."""
+    enabled: bool
+    """Whether it is switched on."""
+    subscribed_events: list[str] = []
+    """The event types it is subscribed to (event-driven webhooks)."""
+    changed_by_name: str | None = None
+    """Who created, changed or deleted it."""
+
+
+class EventWebhookDeliveryData(EventDocumentDataBase):
+    """Data payload for `webhook_delivery_failed`: one delivery that failed after its retries.
+    Never the URL, headers, request body or response body."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.webhook
+    operation: EventOperationBase = EventOperation.info
+    webhook_id: UUID4
+    """The outgoing webhook."""
+    webhook_name: str | None = None
+    """Its name."""
+    delivered_event_type: str | None = None
+    """The event it was delivering (webhook_task for a scheduled or test send)."""
+    status_code: int | None = None
+    """The HTTP status of the last attempt, when the host answered."""
+    error_message: str
+    """What went wrong on the last attempt (an HTTP status or the kind of connection error)."""
+    attempts: int
+    """How many attempts were made."""
 
 
 class EventDeploymentData(EventDocumentDataBase):

@@ -96,6 +96,54 @@ def _calculate_retry_delay(attempt: int) -> float:
     return min(RETRY_BACKOFF_BASE**attempt, RETRY_BACKOFF_MAX)
 
 
+def _delivery_error(error: Exception, response: requests.Response | None) -> str:
+    """What went wrong, safe to put in an event: the HTTP status, or the kind of error. Never str(error) —
+    requests quotes the URL (which can carry a token) in its connection errors."""
+    if response is not None:
+        return f"HTTP {response.status_code}"
+    return type(error).__name__  # ConnectionError, ConnectTimeout, ReadTimeout, SSLError, …
+
+
+def _announce_delivery_failure(
+    event: Event,
+    webhook_id: GUID | None,
+    group_id: GUID | None,
+    webhook_name: str | None,
+    status_code: int | None,
+    error: str,
+) -> None:
+    """One `webhook_delivery_failed` per delivery that failed after its retries: the webhook's name and id, the
+    event it carried, the HTTP status or error — never its URL, headers or a body."""
+    if webhook_id is None or group_id is None:
+        return
+    delivered = getattr(event.event_type, "name", None)
+    if delivered == "webhook_delivery_failed":
+        return  # a webhook subscribed to this event failing too must not announce itself in a loop
+    try:
+        from .event_bus_service import EventBusService
+        from .event_types import EventTypes, EventWebhookDeliveryData
+
+        name = webhook_name or "Webhook"
+        EventBusService(bg_tasks=None).dispatch(
+            integration_id="webhook_delivery",
+            group_id=group_id,
+            event_type=EventTypes.webhook_delivery_failed,
+            document_data=EventWebhookDeliveryData(
+                webhook_id=webhook_id,
+                webhook_name=webhook_name,
+                delivered_event_type=delivered,
+                status_code=status_code,
+                error_message=error,
+                attempts=MAX_RETRY_ATTEMPTS,
+            ),
+            message=f"Outgoing webhook '{name}' couldn't deliver {delivered or 'an event'}: {error}",
+            entity_id=webhook_id,
+            entity_type="webhook",
+        )
+    except Exception as e:  # announcing a failure must never break the delivery path
+        get_logger().error(f"Failed to announce webhook delivery failure: {e}")
+
+
 class ConsolePublisher:
     """
     Publishes events to console/logs for debugging.
@@ -167,6 +215,7 @@ class WebhookPublisher:
         group_id: GUID | None = None,
         headers: dict[str, str] | None = None,
         payload_override: dict | None = None,
+        webhook_name: str | None = None,
         **_: Any,
     ) -> None:
         """
@@ -185,6 +234,8 @@ class WebhookPublisher:
                                     Defaults to "POST".
             webhook_id (GUID | None, optional): The ID of the webhook being executed (for logging).
             group_id (GUID | None, optional): The ID of the group the webhook belongs to (for logging).
+            webhook_name (str | None, optional): Its name, for the `webhook_delivery_failed` event sent when
+                                    a delivery fails after its retries.
             **_ (Any): Catches any additional keyword arguments (ignored by this publisher).
 
 
@@ -268,6 +319,14 @@ class WebhookPublisher:
                     if is_last_attempt:
                         # Final attempt failed
                         self.logger.error(f"Webhook to {url} failed after {MAX_RETRY_ATTEMPTS} attempts: {e}")
+                        _announce_delivery_failure(
+                            event,
+                            webhook_id,
+                            group_id,
+                            webhook_name,
+                            getattr(failed_response, "status_code", None),
+                            _delivery_error(e, failed_response),
+                        )
                         if self.hard_fail:
                             raise
                         # Don't retry further, move to next URL

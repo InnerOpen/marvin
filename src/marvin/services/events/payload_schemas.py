@@ -475,6 +475,43 @@ def get_payload_example(event_type: str) -> dict:
             "status": "failed",
             "errorMessage": "Build command exited with code 1",
         },
+        # --- Outgoing webhooks: settings, never the URL or headers ---
+        **{
+            f"webhook_{op}": {
+                "documentType": "webhook",
+                "operation": {"created": "create", "updated": "update", "deleted": "delete"}[op],
+                "webhookId": "<webhook-uuid>",
+                "webhookName": "Deploy hook",
+                "webhookType": "event_driven",
+                "enabled": True,
+                "subscribedEvents": ["webhook_triggered"],
+                "changedByName": "Jane Smith",
+            }
+            for op in ("created", "updated", "deleted")
+        },
+        # One per delivery that failed after its retries: never the URL, headers or a body.
+        "webhook_delivery_failed": {
+            "documentType": "webhook",
+            "operation": "info",
+            "webhookId": "<webhook-uuid>",
+            "webhookName": "Deploy hook",
+            "deliveredEventType": "webhook_triggered",
+            "statusCode": 503,
+            "errorMessage": "HTTP 503",
+            "attempts": 3,
+        },
+        # --- Personal API tokens: never the token value or hash ---
+        **{
+            f"api_token_{op}": {
+                "documentType": "api_token",
+                "operation": operation,
+                "tokenId": "<token-uuid>",
+                "tokenName": "CI Deploy Token",
+                "userId": "<user-uuid>",
+                "userName": "Jane Smith",
+            }
+            for op, operation in (("created", "create"), ("rotated", "update"), ("revoked", "update"))
+        },
         # --- API client events ---
         "api_client_created": {
             "documentType": "api_client",

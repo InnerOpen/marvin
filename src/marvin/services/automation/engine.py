@@ -168,6 +168,7 @@ def run_automations_for_event(
     ``automation_ran`` event (used to preview what an event *would* trigger).
     """
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.services.events.event_catalog import aliases_of
 
     recorder = recorder or NullRecorder()
     # Only the workflows listening to this event (`trigger_event`); `_trigger_matches` below still
@@ -178,7 +179,8 @@ def run_automations_for_event(
         .filter(
             WorkspaceAutomationModel.group_id == group_id,
             WorkspaceAutomationModel.enabled.is_(True),
-            WorkspaceAutomationModel.trigger_event == event_type,
+            # an old name a row still holds (stored before the alias migration) counts as the event
+            WorkspaceAutomationModel.trigger_event.in_([event_type, *aliases_of(event_type)]),
         )
         .all()
         if event_type

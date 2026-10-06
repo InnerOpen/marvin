@@ -255,7 +255,7 @@ def test_get_lists_every_workspace_catalog_type(workspace):
     res = _sign_in(workspace, AD).get(URL)
     assert res.status_code == 200, res.text
     rows = {r["eventType"]: r for r in res.json()}
-    assert set(rows) == {e.event_type for e in CATALOG if e.scope == "workspace"}
+    assert set(rows) == {e.event_type for e in CATALOG if e.scope == "workspace" and not e.hidden}  # nothing sends a hidden one
     assert not set(rows) & PLATFORM_EVENT_TYPES
     assert rows[ON] == {"eventType": ON, "name": "Entry Updated", "category": "Content", "defaultAudited": True, "audited": True, "locked": False}
     assert rows[OFF]["defaultAudited"] is False and rows[OFF]["audited"] is False

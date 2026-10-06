@@ -34,7 +34,7 @@ class EventTypesController(BaseUserController):
         from marvin.services.events.payload_schemas import get_payload_example
 
         for entry in CATALOG:
-            if not entry.enabled or entry.scope == "platform":
+            if not entry.enabled or entry.hidden or entry.scope == "platform":
                 continue  # internal/disabled events and the platform's own aren't offered to a workspace
             cat = entry.category if entry.category in by_category else "Other"
             by_category[cat].append(
