@@ -162,10 +162,9 @@ const NODES: NavNode[] = [
     parent: "settings",
   },
 
-  // Automation: no page of its own — the settings hub's Automation tab lists these pages.
-  { id: "automation", label: "Automation", href: "/workspace/settings?tab=automation" },
-  { id: "automation.workflows", label: "Workflows", href: "/automation/workflows", parent: "automation" },
-  { id: "automation.events", label: "Events", href: "/automation/events", parent: "automation" },
+  // Automation and Publishing pages sit directly under Settings: the hub's tabs aren't pages, so they're not crumbs.
+  { id: "automation.workflows", label: "Workflows", href: "/automation/workflows", parent: "settings" },
+  { id: "automation.events", label: "Events", href: "/automation/events", parent: "settings" },
   { id: "automation.events.type", label: "Event", href: "/automation/events/[type]", parent: "automation.events" },
   {
     id: "automation.events.type.webhook",
@@ -173,7 +172,7 @@ const NODES: NavNode[] = [
     href: "/automation/events/[type]/webhook/[webhookId]",
     parent: "automation.events.type",
   },
-  { id: "automation.webhooks", label: "Webhooks", href: "/automation/webhooks", parent: "automation" },
+  { id: "automation.webhooks", label: "Webhooks", href: "/automation/webhooks", parent: "settings" },
   {
     id: "automation.webhooks.new",
     label: "New Webhook",
@@ -197,13 +196,13 @@ const NODES: NavNode[] = [
     id: "automation.incoming-webhooks",
     label: "Incoming Webhooks",
     href: "/automation/incoming-webhooks",
-    parent: "automation",
+    parent: "settings",
   },
   {
     id: "automation.scheduled-tasks",
     label: "Scheduled Tasks",
     href: "/workspace/scheduled-tasks",
-    parent: "automation",
+    parent: "settings",
   },
   {
     id: "automation.scheduled-tasks.new",
@@ -223,12 +222,10 @@ const NODES: NavNode[] = [
     href: "/workspace/scheduled-tasks/[id]",
     parent: "automation.scheduled-tasks",
   },
-  { id: "automation.event-log", label: "Event Log", href: "/workspace/events", parent: "automation" },
+  { id: "automation.event-log", label: "Event Log", href: "/workspace/events", parent: "settings" },
 
-  // Publishing: likewise listed by the settings hub's Publishing tab.
-  { id: "publishing", label: "Publishing", href: "/workspace/settings?tab=publishing" },
-  { id: "publishing.site", label: "Site", href: "/publishing/site", parent: "publishing", title: "Site Configuration" },
-  { id: "publishing.clients", label: "API Clients", href: "/publishing/clients", parent: "publishing" },
+  { id: "publishing.site", label: "Site", href: "/publishing/site", parent: "settings", title: "Site Configuration" },
+  { id: "publishing.clients", label: "API Clients", href: "/publishing/clients", parent: "settings" },
   {
     id: "publishing.clients.new",
     label: "New API Client",

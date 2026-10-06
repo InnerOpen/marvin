@@ -81,7 +81,7 @@ describe("nav map", () => {
         labels: { "automation.events.type": "Entry published" },
       }),
       [
-        { label: "Automation", href: "/workspace/settings?tab=automation" },
+        { label: "Settings", href: "/workspace/settings" },
         { label: "Events", href: "/automation/events" },
         { label: "Entry published", href: "/automation/events/entry_published" },
       ],

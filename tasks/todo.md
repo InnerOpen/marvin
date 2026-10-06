@@ -1528,9 +1528,9 @@ resources) don't use `Breadcrumb.astro`, so the component can go.
   short name (crumb, sidebar), `title` the H1 when it differs. Detail pages are nodes with a route-pattern href
   (`/admin/users/[id]`); the page passes its dynamic `title` (and `crumbParams`/`crumbLabels` when an ancestor is
   dynamic — only the event type → webhook page). Pages declare `crumb="settings.email.smtp"`.
-- **Roots:** Admin (`/admin`), Settings (`/workspace/settings`), Automation, Publishing. Automation and Publishing
-  aren't in AppLayout's sidebar and have no landing page of their own; the settings hub's tab is the page that lists
-  them, so the root links there (`/workspace/settings?tab=automation` / `?tab=publishing`). Sidebar group names
+- **Roots:** Admin (`/admin`) and Settings (`/workspace/settings`) only. Automation and Publishing pages sit directly
+  under Settings (Jared 2026-10-06: "just consistent"): they're tabs of the settings hub, not pages, and every crumb
+  is a link to a real page — so no tab-based roots. Sidebar group names
   that aren't pages ("People & access", "Operations") are not crumbs. Root pages (Admin overview, the settings hub,
   the workspace dashboard, Create Workspace) have no trail.
 - **Readers of the map:** AdminLayout's sidebar takes its hrefs and labels from it (same groups, icons, look); the
