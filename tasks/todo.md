@@ -1505,6 +1505,9 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
 4. Workflows installed by an integration: may they be switched off from the event page, or only on the workflow /
    integration page? (Proposed: link only, so the event page never fights the integration that owns them.)
 5. Slice order OK (storage first), or UI first on top of today's storage and normalise after?
+6. The Emit event step accepts every `entry_*` type, including `entry_shared` (nothing else sends it) and
+   `entry_type_*` (which get an entry payload). Narrow `emittable` to the entry lifecycle events, or keep it?
+   (Slice 2 kept it as it was; the builder offers only the 23 subscribable ones.)
 
 ## Slice 1 review (2026-10-06, branch `feat/events-storage`)
 
@@ -1546,7 +1549,7 @@ after regenerating. Frontend untouched (tree identical to develop): 439/439 test
 
 **Built.** `services/events/event_catalog.py` is the one list of event facts. New `CatalogEntry` fields:
 `triggerable` (+ `trigger_group`, the builder's heading where it isn't the category: Entries, Collections,
-Entry types, Resources, Site), `emittable`, `sent_by` (91 entries — every one not in `_NO_EMITTER` — written from
+Entry types, Resources, Site), `emittable`, `sent_by` (96 entries — every one not in `_NO_EMITTER` — written from
 the dispatch sites; workflow-sent events are slice 3's), `leads_to` (24 entries: the 20 events the site-rebuild
 reaction takes → `site_rebuild_queued`; the 6 indexed-on events → `ai_embeddings_reindexed`; `site_rebuild_queued`
 → `webhook_triggered`; `scheduled_task_triggered` → started/completed/failed). Derived: `TRIGGERABLE_EVENT_TYPES`,
@@ -1563,26 +1566,33 @@ reaction takes → `site_rebuild_queued`; the 6 indexed-on events → `ai_embedd
   literals once proven.
 
 **Same behaviour, checked old vs new** (listener sweeps over every `EventTypes` member, emit_event dry runs, the
-options endpoint): triggerable 41, emit_event accepts 24, emit menu 23, subscribable 90, /event/types 84, catalog
-flags 119, the five reaction sets (1/11/3/20/6) and the automation listener's 44 — all identical.
+options endpoint): triggerable 41, emit_event accepts 24, emit menu 23, subscribable 90, the five reaction sets
+(1/11/3/20/6) and the automation listener's 44 — all identical.
 
-**Visible difference:** the builder's trigger dropdown and Emit event menu follow catalog order — same events,
-same headings, new order: groups Entries, Collections, Entry types, Resources, Assets, Forms, Site (was …,
-Assets, Resources, Forms, Entry types, …); inside groups, e.g. Forms lists `form_submission_received` last (was
-first), Site lists deployments before builds, Collections lists collection_* before entry membership.
+**Decided with Jared's coordinator (2026-10-06) and done:**
+- Every dispatched type is catalogued: `automation_ran` / `automation_failed` (Automation) and
+  `email_template_created/updated/deleted` (Connect), all `enabled=False` and `audit_locked=True` — exactly as
+  before (an uncatalogued type was always audited and never subscribable). The drift test has no exceptions.
+- "Secrets" and "Variables" are in `CATEGORIES`; a test checks every entry's category is listed.
+- One internal-events set: `CatalogEntry.internal` (webhook_task, scheduled_task_*) → `INTERNAL_EVENT_TYPES`, read
+  by EventBusService's dispatch logging and the console listener (the two copies are gone).
+- Builder order follows the catalog; `form_submission_received` moved to the top of the Forms entries.
+- emit_event left as is; open question 6 above.
 
-**Found, not changed (Jared's call):**
-- `automation_ran` / `automation_failed` and `email_template_*` are dispatched but have no catalog entry (always
-  audited, never subscribable); the drift test pins them as the only exceptions.
-- `CATEGORIES` lacks "Secrets" and "Variables", so `/event/types` drops their 6 subscribable events and the Events
-  catalog never shows them.
-- emit_event accepts every `entry_*` type, incl. `entry_shared` (in `_NO_EMITTER`) and `entry_type_*` (which get
-  an entry payload); kept as is, so the builder still offers 23.
-- The "internal" event set (webhook_task, scheduled_task_*) is written twice (event_bus_service, console listener).
+**Visible differences (intended):**
+- `/event/types` (the Events catalog) lists 90 instead of 84: the 6 secret_* / variable_* events now show. Forms
+  starts with Form Submission Received.
+- Event Log settings list 105 rows instead of 100: the 5 newly catalogued types, as locked ("always recorded");
+  Secrets and Variables now sort by their place in `CATEGORIES` instead of last.
+- Builder menus follow catalog order — same events, same headings: groups Entries, Collections, Entry types,
+  Resources, Assets, Forms, Site (was …, Assets, Resources, Forms, Entry types, …); inside groups, Site lists
+  deployments before builds, Collections lists collection_* before entry membership, Forms keeps
+  `form_submission_received` first but lists `submission_surge_detected` last.
+- An admin Events row for an email template now shows its catalog name.
 
-**Verified.** Backend 2723 passed / 179 skipped (develop 2704/179), with the integration SDK 3026/6 (develop
-3007/6); SDK gate reproduced (fresh venv) — only `AutomationOptions.emittable` changes. Frontend: `npm test`
-439/439, `astro check` 51 errors (= develop), biome clean on the touched page.
+**Verified.** Backend 2725 passed / 179 skipped (develop 2704/179), with the integration SDK 3028/6 (develop
+3007/6); SDK gate reproduced twice in a fresh venv — only `AutomationOptions.emittable` changes. Frontend:
+`npm test` 439/439, `astro check` 51 errors (= develop), biome clean on the touched page.
 
 # Settings breadcrumbs — one trail on every admin and settings page (plan, 2026-10-06, design approved by Jared)
 

@@ -20,18 +20,15 @@ from marvin.services.events.event_catalog import (
     _NO_EMITTER,
     CATALOG,
     CATALOG_BY_TYPE,
+    CATEGORIES,
     EMITTABLE_EVENT_TYPES,
+    INTERNAL_EVENT_TYPES,
     TRIGGERABLE_EVENT_TYPES,
     offered_emittable,
     trigger_groups,
 )
 
 _DECLARATIONS = {"event_types.py", "event_catalog.py", "payload_schemas.py", "event_variables.py"}
-
-# Dispatched, but with no catalog entry yet: always audited (audit_settings audits uncatalogued types), never
-# offered for subscription, absent from the Events catalog. Giving one an entry changes what the Event Log
-# settings and the Events catalog show, so it's a deliberate step — this set may only shrink.
-_KNOWN_UNCATALOGUED = frozenset({"automation_ran", "automation_failed", "email_template_created", "email_template_updated", "email_template_deleted"})
 
 
 def _referenced_in_code() -> set[str]:
@@ -56,11 +53,13 @@ def _names(events) -> set[str]:
 
 
 def test_every_dispatched_event_type_has_a_catalog_entry():
-    uncatalogued = _referenced_in_code() - set(CATALOG_BY_TYPE)
-    assert uncatalogued == _KNOWN_UNCATALOGUED, (
-        f"Give these a catalog entry (services/events/event_catalog.py): {sorted(uncatalogued - _KNOWN_UNCATALOGUED)}; "
-        f"these now have one — drop them from _KNOWN_UNCATALOGUED: {sorted(_KNOWN_UNCATALOGUED - uncatalogued)}"
-    )
+    uncatalogued = sorted(_referenced_in_code() - set(CATALOG_BY_TYPE))
+    assert not uncatalogued, f"Give these a catalog entry (services/events/event_catalog.py): {uncatalogued}"
+
+
+def test_every_category_is_listed():
+    # An entry whose category isn't in CATEGORIES vanishes from the Events catalog (/event/types).
+    assert not sorted({e.category for e in CATALOG} - set(CATEGORIES))
 
 
 def test_every_sent_event_says_who_sends_it():
@@ -184,3 +183,9 @@ def test_builtin_reactions_lookup():
     assert L.builtin_reactions(EventTypes.scheduled_task_triggered) == [("Runs the scheduled task", L.ScheduledTaskListener)]
     assert L.builtin_reactions("user_signup") == []
     assert L.builtin_reactions("no_such_event") == []
+
+
+def test_internal_events_stay_out_of_the_console():
+    listener = L.ConsoleEventListener(uuid.uuid4())
+    assert {et.name for et in EventTypes if not listener.get_subscribers(_event(et))} == INTERNAL_EVENT_TYPES
+    assert INTERNAL_EVENT_TYPES == {"webhook_task"} | {f"scheduled_task_{s}" for s in ("triggered", "started", "completed", "failed")}

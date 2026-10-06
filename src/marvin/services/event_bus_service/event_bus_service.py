@@ -36,6 +36,7 @@ from marvin.services.event_bus_service.event_bus_listener import (
     SmartCollectionReactionListener,
     WebhookEventListener,
 )
+from marvin.services.events.event_catalog import INTERNAL_EVENT_TYPES  # scheduler plumbing, logged quietly
 
 # Core event types used by the bus
 from .event_types import Event, EventBusMessage, EventDocumentDataBase, EventTypeBase
@@ -252,13 +253,7 @@ class EventBusService(BaseService):
         )
 
         event_name = event_type.name if hasattr(event_type, "name") else str(event_type)
-        is_internal = event_name in (
-            "webhook_task",
-            "scheduled_task_triggered",
-            "scheduled_task_started",
-            "scheduled_task_completed",
-            "scheduled_task_failed",
-        )
+        is_internal = event_name in INTERNAL_EVENT_TYPES  # scheduler plumbing: logged at debug level
 
         if self.bg_tasks:
             if not is_internal:

@@ -1155,14 +1155,9 @@ class ConsoleEventListener(EventListenerBase):
         Returns:
             list[str]: Always returns ["console"] to log all events.
         """
-        _INTERNAL = {
-            EventTypes.webhook_task,
-            EventTypes.scheduled_task_triggered,
-            EventTypes.scheduled_task_started,
-            EventTypes.scheduled_task_completed,
-            EventTypes.scheduled_task_failed,
-        }
-        if event.event_type in _INTERNAL:
+        from marvin.services.events.event_catalog import INTERNAL_EVENT_TYPES
+
+        if event.event_type.name in INTERNAL_EVENT_TYPES:  # scheduler plumbing stays out of the console
             return []
         return ["console"]
 

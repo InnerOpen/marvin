@@ -64,6 +64,9 @@ class CatalogEntry:
     """A workflow's Emit event step may send it (services/automation/actions/emit_event.py): entry_* events,
     built from the entry in the workflow's context, and site build/deploy events — e.g. a host's "deploy
     failed" notification turned into Marvin's own event. The emitted event carries reaction_depth + 1."""
+    internal: bool = False
+    """Scheduler plumbing that fires on every tick: dispatch logs it at debug level and the console listener
+    skips it, so the log isn't flooded."""
     sent_by: list[str] = field(default_factory=list)
     """What in Marvin sends it, one short line per sender, written from the dispatch sites. Workflows that
     send it (an Emit event step, an integration's blueprint) are data, not listed here. Empty only for an
@@ -737,6 +740,22 @@ CATALOG: list[CatalogEntry] = [
     ),
     # ── Forms ────────────────────────────────────────────────────────────────
     CatalogEntry(
+        event_type="form_submission_received",
+        name="Form Submission Received",
+        description="Someone submitted a form in the workspace.",
+        category="Forms",
+        triggerable=True,
+        sent_by=["A site visitor submitting a form (a Form, or an entry type that takes submissions)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("form_name", "Name of the form", "Contact Form", type="name"),
+            EventVariable("submitter_email", "Email of the submitter (if provided)", "user@example.com", type="email"),
+            EventVariable("duplicate", "True when the submitter was already on file and their entry was updated", "false"),
+            EventVariable("existing_entry_id", "The entry the submission matched by the type's match field (if any)", "<entry-uuid>"),
+            EventVariable("previous_status", "The matched entry's status before this submission (if any)", "published"),
+        ],
+    ),
+    CatalogEntry(
         event_type="form_created",
         name="Form Created",
         description="A new form was created.",
@@ -797,22 +816,6 @@ CATALOG: list[CatalogEntry] = [
         variables=COMMON_VARS
         + [
             EventVariable("form_name", "Name of the deleted form", "Contact Form", type="name"),
-        ],
-    ),
-    CatalogEntry(
-        event_type="form_submission_received",
-        name="Form Submission Received",
-        description="Someone submitted a form in the workspace.",
-        category="Forms",
-        triggerable=True,
-        sent_by=["A site visitor submitting a form (a Form, or an entry type that takes submissions)"],
-        variables=COMMON_VARS
-        + [
-            EventVariable("form_name", "Name of the form", "Contact Form", type="name"),
-            EventVariable("submitter_email", "Email of the submitter (if provided)", "user@example.com", type="email"),
-            EventVariable("duplicate", "True when the submitter was already on file and their entry was updated", "false"),
-            EventVariable("existing_entry_id", "The entry the submission matched by the type's match field (if any)", "<entry-uuid>"),
-            EventVariable("previous_status", "The matched entry's status before this submission (if any)", "published"),
         ],
     ),
     CatalogEntry(
@@ -1165,6 +1168,54 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("client_name", "Name of the API client", "My Site Client", type="name"),
         ],
     ),
+    # ── Connect: Email templates ──────────────────────────────────────────────
+    # Not subscribable and always audited, as they were before they had an entry (an uncatalogued type is
+    # always audited): the record of who changed what an automated email says.
+    CatalogEntry(
+        event_type="email_template_created",
+        name="Email Template Created",
+        description="A workspace email template, or a platform admin's system template, was created.",
+        category="Connect",
+        sent_by=["Creating an email template (workspace Email settings, API)", "A platform admin creating a system email template"],
+        enabled=False,
+        audit_locked=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("template_id", "The template's id", "<template-uuid>"),
+            EventVariable("template_type", "What the template is for", "invitation"),
+            EventVariable("system_template", "A platform-wide system template (not the workspace's own)", "false"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="email_template_updated",
+        name="Email Template Updated",
+        description="A workspace email template, or a platform admin's system template, was updated.",
+        category="Connect",
+        sent_by=["Editing an email template (workspace Email settings, API)", "A platform admin editing a system email template"],
+        enabled=False,
+        audit_locked=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("template_id", "The template's id", "<template-uuid>"),
+            EventVariable("template_type", "What the template is for", "invitation"),
+            EventVariable("system_template", "A platform-wide system template (not the workspace's own)", "false"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="email_template_deleted",
+        name="Email Template Deleted",
+        description="A workspace email template, or a platform admin's system template, was deleted.",
+        category="Connect",
+        sent_by=["Deleting an email template (workspace Email settings, API)", "A platform admin deleting a system email template"],
+        enabled=False,
+        audit_locked=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("template_id", "The template's id", "<template-uuid>"),
+            EventVariable("template_type", "What the template is for", "invitation"),
+            EventVariable("system_template", "A platform-wide system template (not the workspace's own)", "false"),
+        ],
+    ),
     # ── Security ─────────────────────────────────────────────────────────────
     CatalogEntry(
         event_type="api_token_created",
@@ -1268,7 +1319,7 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         event_type="automation_started",
         name="Workflow Started",
-        # Not a workflow trigger (automation/triggers.py): reacting to a run starting would loop.
+        # Not triggerable: reacting to a run starting would loop.
         description="A workflow run began; the run's automation_ran / automation_failed event carries the same execution id.",
         category="Automation",
         sent_by=["A workflow starting a run"],
@@ -1282,11 +1333,48 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="automation_ran",
+        name="Workflow Ran",
+        # Not an "event" trigger: it drives the chained / on_error trigger types. Not subscribable and always
+        # audited, as before it had an entry.
+        description="A workflow run finished; what each step did is in its steps.",
+        category="Automation",
+        sent_by=["A workflow run finishing"],
+        enabled=False,
+        audit_locked=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("automation_name", "The workflow's name", "Tag new recipes", type="name"),
+            EventVariable("automation_slug", "The workflow's slug", "tag-new-recipes"),
+            EventVariable("execution_id", "The run's id, shared with its automation_started event", "<execution-uuid>"),
+            EventVariable("error", "Why it failed (failed runs)", "", type="error"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="automation_failed",
+        name="Workflow Failed",
+        # Not an "event" trigger: it drives the chained / on_error trigger types. Not subscribable and always
+        # audited, as before it had an entry.
+        description="A workflow run failed; its error names the step that failed.",
+        category="Automation",
+        sent_by=["A workflow run failing"],
+        enabled=False,
+        audit_locked=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("automation_name", "The workflow's name", "Tag new recipes", type="name"),
+            EventVariable("automation_slug", "The workflow's slug", "tag-new-recipes"),
+            EventVariable("execution_id", "The run's id, shared with its automation_started event", "<execution-uuid>"),
+            EventVariable("error", "Why it failed (failed runs)", "", type="error"),
+        ],
+    ),
+    CatalogEntry(
         event_type="webhook_task",
         name="Webhook Task (internal)",
         description="Internal scheduler tick that dispatches due webhooks. Not subscribable; "
         "delivery outcomes are recorded in webhook_execution_logs.",
         category="Automation",
+        internal=True,
         sent_by=["The scheduler's webhook tick", "Re-running today's scheduled webhooks or testing one (app, API)"],
         enabled=False,  # internal plumbing — not offered for subscription
         audited=False,  # high-frequency noise — kept out of the audit log
@@ -1296,6 +1384,7 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Triggered",
         description="A scheduled task was manually triggered.",
         category="Automation",
+        internal=True,
         sent_by=["The scheduler, when a task is due", "Run now (workspace or admin Scheduled Tasks)"],
         leads_to=["scheduled_task_started", "scheduled_task_completed", "scheduled_task_failed"],
         audited=False,  # internal trigger — outcome captured by started/completed/failed
@@ -1309,6 +1398,7 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Started",
         description="A scheduled task has begun execution.",
         category="Automation",
+        internal=True,
         sent_by=["Running a scheduled task"],
         audited=False,  # start marker — completed/failed carry the audit value
         variables=COMMON_VARS
@@ -1321,6 +1411,7 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Completed",
         description="A scheduled task ran successfully and had something to report, or was run by hand. Routine runs with nothing to do are not announced.",
         category="Automation",
+        internal=True,
         sent_by=["Running a scheduled task, when it succeeds"],
         variables=COMMON_VARS
         + [
@@ -1333,6 +1424,7 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Failed",
         description="A scheduled task failed to execute.",
         category="Automation",
+        internal=True,
         sent_by=["Running a scheduled task, when it fails"],
         variables=COMMON_VARS
         + [
@@ -1807,6 +1899,9 @@ incoming_webhook / chained / on_error trigger types' own events)."""
 EMITTABLE_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALOG if e.emittable)
 """What a workflow's Emit event step accepts."""
 
+INTERNAL_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALOG if e.internal)
+"""Scheduler plumbing kept out of the info log and the console listener."""
+
 
 def trigger_groups() -> dict[str, list[str]]:
     """The builder's trigger dropdown: triggerable events under their heading, both in catalog order."""
@@ -1838,6 +1933,8 @@ CATEGORIES = [
     "Collaboration",
     "Workflow",
     "Security",
+    "Secrets",
+    "Variables",
     "System",
 ]
 
