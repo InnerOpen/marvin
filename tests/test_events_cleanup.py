@@ -337,7 +337,7 @@ def test_the_migration_rewrites_old_names_idempotently(db_session, world):
         db_session.commit()
 
     def raw(table, column, key, value):
-        return [r[0] for r in db_session.execute(sa.select(table.c[column]).where(table.c[key] == value).order_by(table.c[column]))]
+        return [r[0] for r in db_session.execute(sa.select(table.c[column]).where(table.c[key] == value))]  # one row each
 
     assert raw(wf, "trigger_event", "id", flow.id) == ["site_deployment_started"]
     assert raw(wf, "definition", "id", flow.id)[0]["actions"] == [
