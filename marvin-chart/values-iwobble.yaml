@@ -7,13 +7,10 @@
 
 mode: split
 
-# SQLite on an NFS volume: one writer at a time. Recreate stops the old backend (letting its AI runs
-# finish, up to shutdown.terminationGracePeriodSeconds) before the new one starts. The frontend keeps
-# the shared rolling update.
-split:
-  backend:
-    strategy:
-      type: Recreate
+# Backend and frontend both use the chart's rolling update (maxUnavailable 0, maxSurge 1): the new pod
+# is ready before the old one stops, so a promotion has no downtime. Safe since the move to Postgres —
+# no single-writer file any more; the scheduler's leader lease keeps scheduled work on one pod during
+# the brief overlap, and the old pod drains its AI runs (shutdown.terminationGracePeriodSeconds).
 
 # Production runs one exact, CI-built commit: `develop-<7-char sha>` (immutable GHCR tags). Don't edit
 # the tag here — promote with `scripts/deploy/promote-iwobble.sh <sha>`, which helm-upgrades with the chart

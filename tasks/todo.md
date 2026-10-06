@@ -353,7 +353,7 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
       `e646afad` (rev 23, `dbEngine: postgres`, hourly backups). Smoke: reads/save/dry run/asset OK; first `postgres/` dump
       (7.4 MB) restored into a scratch Postgres 17: 62/62 tables, 15,986 rows, no differences. Rollback = `helm rollback
       marvin 22 -n marvin` (SQLite file untouched) — only sensible while Postgres has no new data worth keeping.
-      Left: drop the backend `Recreate` strategy; delete the copy Job (TTL 7 d); dev environment on Postgres.
+      Backend `Recreate` dropped the same day (rolling update, no-downtime promotions). Left: dev environment on Postgres.
 - [ ] **SQLite retired** (Jared: "not using sqlite"): no environment runs on SQLite after the cutover — dev and prod both
       Postgres, `values-iwobble.yaml` drops `dbEngine: sqlite`; the `.db` file leaves `marvin-data` (assets stay). The old `.db` is kept only
       as a cold, read-only copy for a set period, then deleted. (Local dev/tests may keep SQLite.)
