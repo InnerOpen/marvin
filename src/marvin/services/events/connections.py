@@ -595,6 +595,8 @@ def summary(session: Session, group_id, *, visible=None) -> list[EventConnection
     return [
         EventConnectionCounts(
             event_type=e.event_type,
+            name=e.name,
+            category=e.category,
             senders=len(e.sent_by) + len(data_senders.get(e.event_type, [])),
             reactions=counts[e.event_type].reactions,
             active_reactions=counts[e.event_type].active,

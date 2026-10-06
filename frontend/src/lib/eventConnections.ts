@@ -66,6 +66,8 @@ export interface EventConnections {
 
 export interface EventConnectionCounts {
   eventType: string;
+  name: string;
+  category: string;
   senders: number;
   reactions: number;
   activeReactions: number;

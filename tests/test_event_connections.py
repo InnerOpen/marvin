@@ -833,6 +833,7 @@ def test_summary_equals_detail_for_every_catalog_type(db_session, world):
     rows = {r.event_type: r for r in connections.summary(db_session, world.a)}
     assert set(rows) == {e.event_type for e in CATALOG if e.scope == "workspace" and not e.hidden}
     for event_type, row in rows.items():
+        assert (row.name, row.category) == (CATALOG_BY_TYPE[event_type].name, CATALOG_BY_TYPE[event_type].category)
         reactions = connections.reactions(db_session, world.a, event_type)
         data = _data(reactions)
         assert (row.senders, row.reactions, row.active_reactions, row.builtin_reactions) == (
@@ -882,7 +883,8 @@ def test_workspace_admins_read_both(db_session, world, role):
     res = client.get(f"{WS}/connections")
     assert res.status_code == 200, res.text
     row = next(r for r in res.json() if r["eventType"] == "entry_published")
-    assert set(row) == {"eventType", "senders", "reactions", "activeReactions", "builtinReactions", "lastOccurredAt"}
+    assert set(row) == {"eventType", "name", "category", "senders", "reactions", "activeReactions", "builtinReactions", "lastOccurredAt"}
+    assert (row["name"], row["category"]) == ("Entry Published", "Content")
 
     res = client.get(f"{WS}/entry_published/connections", params={"limit": 1})
     assert res.status_code == 200, res.text

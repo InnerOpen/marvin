@@ -87,6 +87,10 @@ class EventConnectionCounts(_MarvinModel):
     """One row of the Events catalog: how connected an event type is, in both directions."""
 
     event_type: str
+    name: str
+    """The catalog's name for it (e.g. "Site Rebuild Sent")."""
+    category: str
+    """The catalog's category (e.g. "Publishing")."""
     senders: int
     """Marvin's own senders plus the workspace's workflows, incoming webhooks and scheduled tasks that send it."""
     reactions: int
