@@ -73,6 +73,7 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "workspace_overview": "library_read",  # counts + index coverage; the "what is in the RAG?" answer
     "import_asset": "assets_import",
     "list_events": "automation_read",
+    "describe_event": "automation_read",
     "list_scheduled_tasks": "automation_read",
     "list_workflows": "automation_read",
     "get_scheduled_task_history": "automation_read",

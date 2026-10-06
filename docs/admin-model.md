@@ -103,7 +103,8 @@ AI tools follow the same gates: every write tool (`attach_*`, `detach_*`, `add_t
 `remove_from_collection`, `import_asset`, `revise_entry`, `compose_entry`) needs EDITOR, and the agent
 never binds a write for a caller below EDITOR. Tools that read or run workspace settings need ADMIN:
 `list_scheduled_tasks`, `get_scheduled_task_history`, `list_workflows` and `run_workflow` (like the
-scheduled-task and automation routes), and `get_ai_settings` (the AI settings page itself stays
+scheduled-task and automation routes), `describe_event` (like the Events pages: it names the workspace's
+workflows, webhooks, emails and integrations), and `get_ai_settings` (the AI settings page itself stays
 readable to members). `workspace_overview` lists workflows, scheduled tasks, webhooks,
 MCP servers and integrations by name only to admins.
 

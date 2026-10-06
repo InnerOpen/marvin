@@ -6,6 +6,8 @@ binds in-process AND MarvinMCP projects outward via `GET /api/ai/tools`, so a ch
 with zero MCP code. Read-only. AI executions and the event log are gated at VIEWER, like their routes.
 Scheduled tasks and the workspace AI policy are workspace settings, so those tools need ADMIN, matching
 the scheduled-task routes (a VIEWER asking the agent must not see what the settings pages refuse them).
+`describe_event` (what sends an event and what reacts to it, from services/events/connections.py) needs ADMIN too,
+like the Events pages: it names the workspace's workflows, webhooks, emails and integrations.
 
 Handlers reuse the same repos the platform controllers use, so the shapes match what the REST endpoints
 return. Return a JSON string (fed to the model verbatim / parsed by the invoke endpoint).
@@ -223,6 +225,126 @@ def get_entity_history(ctx: ToolContext, args: dict) -> str:
         for e in events
     ]
     return _dump({"entityId": str(args.get("entity_id")), "events": out, "count": len(out)})
+
+
+_HINT_STOPWORDS = frozenset(
+    "a an and are does do event events fire fires happen happens i if is it my of on someone something the to what when who".split()
+)
+
+
+def _stem(word: str) -> str:
+    for suffix in ("ing", "ed", "es", "s"):
+        if len(word) > len(suffix) + 3 and word.endswith(suffix):
+            return word[: -len(suffix)]
+    return word
+
+
+def _words(text: str) -> set[str]:
+    import re
+
+    return {_stem(w) for w in re.findall(r"[a-z0-9]+", text.lower())} - _HINT_STOPWORDS
+
+
+def _as_type(hint: str) -> str:
+    return hint.strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _resolve_event(hint: str, allowed: list) -> tuple[object | None, list]:
+    """The catalog entry `hint` names: an event type (an old name counts as its counterpart), else the entry whose
+    name and type share the most words with it ("publish" → entry_published), catalog order breaking ties. Returns
+    (entry or None, the other close matches)."""
+    from marvin.services.events.event_catalog import canonical_event_type
+
+    by_type = {e.event_type: e for e in allowed}
+    exact = by_type.get(canonical_event_type(_as_type(hint)))
+    if exact is not None:
+        return exact, []
+    wanted = _words(hint)
+    if not wanted:
+        return None, []
+
+    def hits(entry) -> int:
+        have = _words(entry.event_type.replace("_", " ")) | _words(entry.name)
+        return sum(1 for w in wanted if any(h.startswith(w) or (len(h) > 3 and w.startswith(h)) for h in have))
+
+    scored = sorted(((hits(e), -i, e) for i, e in enumerate(allowed)), key=lambda t: (t[0], t[1]), reverse=True)
+    best = [e for n, _, e in scored if n == scored[0][0] and n > 0] if scored else []
+    if not best:
+        return None, []
+    return best[0], best[1:6]
+
+
+def _ref(entry) -> dict:
+    return {"eventType": entry.event_type, "name": entry.name}
+
+
+def _rows(items) -> list[dict]:
+    return [i.model_dump(by_alias=True, mode="json", exclude_none=True, exclude={"managed_at"}) for i in items]
+
+
+@register_tool(
+    name="describe_event",
+    description="Explain what happens when an event fires in this workspace — 'what happens when I publish?'. Give an event type (entry_published) or a plain-language hint (publish, site rebuild, form submission). Returns what sends it (Marvin itself, workflows, incoming webhooks, scheduled tasks), everything that reacts to it (workflows, integration actions, emails, webhooks — switched-off ones marked, and what an integration installed — then Marvin's built-in reactions), the events it leads to and is caused by, and when it last happened. Read-only.",  # noqa: E501
+    input_schema={
+        "type": "object",
+        "properties": {
+            "event": {"type": "string", "description": "an event type (e.g. entry_published) or a hint (e.g. 'publish')"},
+        },
+        "required": ["event"],
+    },
+    min_role=ROLE_ADMIN,
+)
+def describe_event(ctx: ToolContext, args: dict) -> str:
+    """Workspace OWNER/ADMIN, like the Events pages: it names the workspace's workflows, webhooks, emails and
+    integrations. Workspace-scope events only, plus platform events for a super admin (their reactions across
+    workspaces, as on the admin Events page)."""
+    from marvin.db.models.users.roles import PlatformRole
+    from marvin.services.events import connections
+    from marvin.services.events.event_catalog import CATALOG, canonical_event_type, get_catalog_entry
+
+    user = ctx.user
+    super_admin = getattr(user, "platform_role", None) == PlatformRole.SUPER_ADMIN or bool(getattr(user, "is_superuser", False))
+    allowed = [e for e in CATALOG if not e.hidden and (e.scope == "workspace" or super_admin)]
+    asked = str(args.get("event") or "")
+    named = get_catalog_entry(canonical_event_type(_as_type(asked)))
+    if named is not None and named not in allowed:  # a real type this caller can't ask about: say why, don't guess
+        why = "nothing sends it" if named.hidden else "it's a platform event (super admins only)"
+        return _dump({"found": False, "error": f"{named.event_type} isn't described here: {why}.", "eventTypes": [_ref(e) for e in allowed]})
+    entry, others = _resolve_event(asked, allowed)
+    if entry is None:
+        return _dump({"found": False, "error": f"No event matches {args.get('event')!r}.", "eventTypes": [_ref(e) for e in allowed]})
+
+    out: dict = {
+        "found": True,
+        "eventType": entry.event_type,
+        "name": entry.name,
+        "description": entry.description,
+        "category": entry.category,
+        "scope": entry.scope,
+    }
+    if entry.scope == "workspace":
+        detail = connections.detail(ctx.session, ctx.group_id, entry, limit=1, visible=_visible_events(ctx))
+        out |= {
+            "sentBy": _rows(detail.senders),
+            "reactions": _rows(detail.reactions),
+            "recorded": detail.audited,  # False: the Event Log leaves it out, so no lastOccurredAt is "not recorded"
+            "lastOccurredAt": detail.recent[0].occurred_at if detail.recent else None,
+        }
+    else:
+        senders, reactions, workspaces = connections.platform_detail(ctx.session, entry)
+        rows, _ = _repos(ctx).event_log.page_platform_events(event_type=entry.event_type, page=1, per_page=1)
+        out |= {
+            "sentBy": _rows(senders),
+            "reactions": _rows(reactions),
+            "workspaceReactions": [{"workspace": w.workspace_name, "reactions": _rows(w.reactions)} for w in workspaces],
+            "lastOccurredAt": rows[0].occurred_at if rows else None,
+        }
+    out["leadsTo"] = [_ref(get_catalog_entry(t)) for t in entry.leads_to if get_catalog_entry(t)]
+    shown = {e.event_type for e in allowed}
+    out["causedBy"] = [_ref(e) for e in CATALOG if entry.event_type in e.leads_to and e.event_type in shown]
+    if others:
+        out["otherMatches"] = [_ref(e) for e in others]
+    return _dump(out)
 
 
 @register_tool(
