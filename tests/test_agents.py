@@ -242,7 +242,7 @@ def test_resolve_policy_reads_allow_and_writes_follow_allow_writes():
 def test_custom_agent_write_categories_default_to_ask_when_writes_are_on_and_block_otherwise():
     on = AgentSpec(slug="w", name="W", allow_writes=True)
     off = AgentSpec(slug="w", name="W")
-    for cat in ("entries_author", "links", "assets_import", "automation_run", "ai_ops", "mcp", "mcp_destructive", "other_write"):
+    for cat in ("entries_author", "entries_archive", "links", "assets_import", "automation_run", "ai_ops", "mcp", "mcp_destructive", "other_write"):
         assert default_policy(on, cat) == POLICY_ASK, cat
         assert default_policy(off, cat) == POLICY_BLOCK, cat
     for cat in ("entries_read", "library_read", "mcp_read", "other_read"):
@@ -254,7 +254,7 @@ def test_marvin_asks_only_for_outward_writes_and_allows_the_rest():
     for cat in ROUTER_ASK_CATEGORIES:
         assert default_policy(marvin, cat) == POLICY_ASK, cat
     assert ROUTER_ASK_CATEGORIES == ("automation_run", "mcp", "mcp_destructive")
-    for cat in ("entries_author", "links", "assets_import", "ai_ops", "other_write"):
+    for cat in ("entries_author", "entries_archive", "links", "assets_import", "ai_ops", "other_write"):
         assert default_policy(marvin, cat) == POLICY_ALLOW, cat
     assert resolve_policy(marvin, "compose_entry", "entries_author", ROLE_EDITOR) == (POLICY_ALLOW, "router default")
     assert resolve_policy(marvin, "run_workflow", "automation_run", ROLE_EDITOR) == (POLICY_ASK, "ask first (default)")

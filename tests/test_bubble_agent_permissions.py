@@ -200,3 +200,16 @@ def test_agent_tools_list_follows_marvins_matrix_and_marks_ask_first(ctl, monkey
     assert listed["mcp__srv__send"]["source"] == "external" and listed["mcp__srv__send"]["server"] == "Srv"
     # exactly what the bubble's run binds (with a thread to park on)
     assert {n: t["asksFirst"] for n, t in listed.items()} == _surface(_bubble(ctl))
+
+
+# ── archive_entries: allowed by the matrix, asks per call ────────────────────
+
+
+def test_marvin_binds_archive_entries_and_it_asks_only_per_published_call(ctl):
+    """Marvin's matrix allows the entries_archive row (archive is reversible), so the tool is not "ask first"
+    as a whole; its own check pends a call that would archive a published entry — only with a thread to park on."""
+    for tools in (_bubble(ctl), _ask_page(ctl)):
+        tool = tools["archive_entries"]
+        assert (tool.category, tool.requires_approval, tool.approval_check is not None) == ("entries_archive", False, True)
+    # no thread: still bound, but a published call is refused by the tool itself (no check to pend on)
+    assert _bubble(ctl, thread_id=None)["archive_entries"].approval_check is None

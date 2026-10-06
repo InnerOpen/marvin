@@ -101,10 +101,13 @@ export interface Referral {
   question?: string | null;
   reason?: string | null;
 }
-/** A big bulk write's approval card: what it would link (see services/ai/tools/bulk_writes.py). */
+/**
+ * An approval card's preview: what a big bulk write would link, or what an ask-first call would touch
+ * (`archive`: the entries, no items) — see services/ai/tools/bulk_writes.py.
+ */
 export interface BulkWritePreview {
   summary: string;
-  action: "attach" | "detach";
+  action: "attach" | "detach" | "archive";
   links: number;
   targetType: string;
   targetCount: number;

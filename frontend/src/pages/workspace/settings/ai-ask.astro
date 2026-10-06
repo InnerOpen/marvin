@@ -715,13 +715,18 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     // selected" / "Deny all". Deciding resumes the run on the same thread and execution; the card
     // greys out ("resolved") and a new placeholder shows the resumed run's live steps.
     // A big bulk write carries a preview: the summary replaces the raw arguments line, and the card
-    // spells out every target and item so the user approves the actual links, not a filter.
+    // spells out every target and item so the user approves the actual links, not a filter. An ask-first
+    // preview with no items (archive_entries on a published entry) lists only its targets.
     function bulkPreviewHtml(p: BulkWritePreview): string {
+      const plural = (w: string) => (w.endsWith("y") ? `${w.slice(0, -1)}ies` : `${w}s`);
       const more = p.targetCount - p.targets.length;
       const targets = p.targets.map(esc).join(", ") + (more > 0 ? ` and ${more} more` : "");
+      const items = p.items.length
+        ? `<div><span>${esc(plural(p.itemKind))} (${p.items.length}):</span> ${p.items.map(esc).join(", ")}</div>`
+        : "";
       return (
-        `<div class="approval-bulk"><div><span>${esc(p.targetType)}s (${p.targetCount}):</span> ${targets}</div>` +
-        `<div><span>${esc(p.itemKind)}s (${p.items.length}):</span> ${p.items.map(esc).join(", ")}</div></div>`
+        `<div class="approval-bulk"><div><span>${esc(plural(p.targetType))} (${p.targetCount}):</span> ${targets}</div>` +
+        `${items}</div>`
       );
     }
     // A specialist's asks (carried up through a hand-off) are grouped under a "via <agent>" chip; their

@@ -85,6 +85,17 @@ TAGGING_RULE = (
     "on each asset (it sees the image) or view_image, then attach only what fits that asset."
 )
 
+# Asked to delete test inbox entries, an agent with no remove tool staged no-op revise suggestions ("Deleted test
+# inbox entry.") on seven real entries. Archive is the reversible delete; there is no AI hard delete.
+REMOVING_RULE = (
+    "Deleting or removing entries: call archive_entries — Marvin's reversible delete — and tell the user they were "
+    "archived, not deleted, and how to restore them. Never use revise_entry or compose_entry to 'delete' or blank an entry."
+)
+NO_REMOVE_RULE = (
+    "You cannot delete or archive entries here: if asked to, say so and point the user to the entry page. Never use "
+    "revise_entry or compose_entry to 'delete' or blank an entry."
+)
+
 
 def external_servers(tool_names: Iterable[str]) -> dict[str, int]:
     """`{server_prefix: tool_count}` from bound `mcp__<server>__<tool>` names."""
@@ -130,6 +141,10 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
         lines.append(SOURCE_HONESTY_RULE)
     if "attach_tag" in names:
         lines.append(TAGGING_RULE)
+    if "archive_entries" in names:
+        lines.append(REMOVING_RULE)
+    elif names.intersection(("revise_entry", "compose_entry")):
+        lines.append(NO_REMOVE_RULE)
     if names.intersection(ENTRY_URL_TOOLS):
         lines.append(entry_links_rule(names))
     if names:

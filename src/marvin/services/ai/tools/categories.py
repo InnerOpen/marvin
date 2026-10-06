@@ -23,6 +23,7 @@ class ToolCategory:
 CATEGORIES: tuple[ToolCategory, ...] = (
     ToolCategory("entries_read", "Entries: read", False, "Search and read entries, entry types and history"),
     ToolCategory("entries_author", "Entries: author", True, "Compose and revise entries (always as drafts for review)"),
+    ToolCategory("entries_archive", "Entries: archive", True, "Archive entries, Marvin's reversible delete (a published entry asks first)"),
     ToolCategory("links", "Links", True, "Attach or detach tags, assets and resources; add to or remove from collections"),
     ToolCategory("library_read", "Library: read", False, "List and read collections, resources, tags and assets"),
     ToolCategory("assets_import", "Assets: import", True, "Import files as assets"),
@@ -53,6 +54,7 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "compose_entry": "entries_author",
     "revise_entry": "entries_author",
     "add_embed": "entries_author",  # staged as a suggestion, like a staged revise
+    "archive_entries": "entries_archive",
     "attach_tag": "links",
     "detach_tag": "links",
     "attach_asset": "links",
