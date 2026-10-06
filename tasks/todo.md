@@ -1237,3 +1237,45 @@ check → save, reset, uncheck back to default, escaping, empty state, 390px sta
 ## Later
 Counting non-workflow failures (event subscriptions,
 capabilities, scheduled tasks) in the 7-day figure; live refresh; filters by integration.
+
+# Audit toggles — choose what the Event Log records, per workspace (plan, 2026-10-05)
+
+**Goal:** a workspace admin decides which event types land in the Event Log, on top of the catalog default
+(`CatalogEntry.audited`). Security events always land and can't be switched off. The Event Log page's
+**Audit coverage** panel reads the API instead of a hand-kept mirror of the three non-audited types.
+
+**Today (origin/develop `349974e4`):** `AuditLogListener.get_subscribers` skips an event whose catalog entry has
+`audited=False` (scheduled_task_triggered, scheduled_task_started, webhook_task); everything else, and anything
+without a catalog entry, is audited. `events.astro` mirrors that list by hand, read-only.
+
+## Design
+1. **Storage:** `group_preferences.audit_overrides_json` — `{event_type: bool}`, only the types that differ from
+   the catalog default (the `submission_protection_json` / `integrations.error_overrides` pattern: a JSON override
+   map on the owning row). Not on the preferences Read/Update schemas, so the lock can't be bypassed through
+   `PATCH /groups/{id}/preferences`. Migration: one nullable column (batch mode).
+2. **Locked:** `CatalogEntry.audit_locked`, set after the catalog like the `_NO_EMITTER` gate: every entry in
+   Members, Authentication, Workspaces (incl. `workspace_settings_changed`, which records the audit change
+   itself), Security and Secrets, plus the API client events (`api_client_*`, token rotation included).
+3. **Service** `services/events/audit_settings.py`: rows for the API, validate + apply a change set, and
+   `is_audited(group_id, event_type)` for the listener — locked or uncatalogued → audited; overrides cached per
+   workspace (short TTL, dropped on write); any read error → audited.
+4. **API** `/api/groups/audit-settings` (active workspace): `GET` (ADMIN/OWNER) every catalog type with
+   `{event_type, name, category, default_audited, audited, locked}`; `PATCH` (ADMIN/OWNER) `{overrides: {type:
+   bool | null}}` (null = default; unknown type 422; locked type 409); `GET /excluded` (any member) the types
+   not recorded, for the read-only panel. A change dispatches `workspace_settings_changed`
+   (`changed_fields: ["audit_overrides"]`), audited and locked.
+5. **Frontend:** the panel loads the API: admins get switches by category, a filter box, locked rows marked,
+   **Reset** where overridden, the excluded count in the summary; everyone else the read-only excluded list.
+   Rows stack under 640px. Shown even when the log is empty.
+6. **Docs:** manual Event Log section + what's new.
+
+## Checklist
+- [ ] Plan (this section)
+- [ ] Catalog `audit_locked` + migration + model column
+- [ ] Service (cache, fail-safe) + listener uses it
+- [ ] Controller + schemas; change dispatches `workspace_settings_changed`
+- [ ] Tests: listener honours override/default, locked can't be disabled (API + listener), role gates, the change is
+      logged, cache invalidation, uncatalogued/unknown types, migration up/down on SQLite
+- [ ] Frontend panel + `lib/auditSettings.ts` (+ node test) + API wrapper
+- [ ] Docs: manual Event Log + what's new; `mkdocs build --strict`
+- [ ] Verify: backend suite (no SDK), `npm test`, biome, `astro check` vs baseline 51, SDK gate regeneration
