@@ -347,8 +347,13 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
       job, then a test restore into a scratch dir. Postgres: `pg_dump` step built 2026-10-06 (see Backups
       below); `backup.prefix` for dev.
 - [ ] **First feature through dev:** Trash (above).
-- [ ] **Production cutover (planned downtime):** stop the backend → copy SQLite → prod Postgres → switch `dbEngine` →
-      verify → pin release tag. Checklist (incl. the copy Job and rollback) in `docs/manual/postgres.md`.
+- [x] **Production cutover — done 2026-10-06** (Jared: "run it"). Phase 1 `691395d3` (rev 22): `marvin-pg` up while still on SQLite;
+      in-cluster rehearsal copy OK (61 tables, 15,974 rows, ~1 min). Window 21:20:55–21:23:02 UTC (~2 min down): backend
+      scaled to 0 → copy Job `marvin-sqlite-to-postgres` COPIED 61/61 ok, 0 problems, rev `011f6c720d1d` → promoted
+      `e646afad` (rev 23, `dbEngine: postgres`, hourly backups). Smoke: reads/save/dry run/asset OK; first `postgres/` dump
+      (7.4 MB) restored into a scratch Postgres 17: 62/62 tables, 15,986 rows, no differences. Rollback = `helm rollback
+      marvin 22 -n marvin` (SQLite file untouched) — only sensible while Postgres has no new data worth keeping.
+      Left: drop the backend `Recreate` strategy; delete the copy Job (TTL 7 d); dev environment on Postgres.
 - [ ] **SQLite retired** (Jared: "not using sqlite"): no environment runs on SQLite after the cutover — dev and prod both
       Postgres, `values-iwobble.yaml` drops `dbEngine: sqlite`; the `.db` file leaves `marvin-data` (assets stay). The old `.db` is kept only
       as a cold, read-only copy for a set period, then deleted. (Local dev/tests may keep SQLite.)
