@@ -74,6 +74,8 @@ Moving a cluster to a new class = restore the newest dump into a new cluster wit
 
 The Postgres backup is the off-site CronJob (`marvin-offsite-backup`), run **hourly** (`backup.schedule: "0 * * * *"`): a `pg_dump --format=custom` of the app's database, read back with `pg_restore --list`, uploaded as `postgres/marvin-<UTC stamp>.dump`, plus the config archive and the asset mirror ([Off-site backup](offsite-backup.md)). Retention for `postgres/`: the newest of each of the last 48 hours, of each of the last 14 days and of each of the last 8 weeks. Dev keeps less: 24 hours and 7 days, no weeks (`backup.retention` in `values-dev.yaml`).
 
+Production also writes a nightly copy to the NAS: backup target `nas-nightly` (CronJob `marvin-backup-nas-nightly`, 02:30 New York time, 30 daily + 8 weekly), the backup engine with the same `pg_dump`, config archive and asset mirror ([Off-site backup → Backup targets](offsite-backup.md#backup-targets)). It shares a ZFS pool with the live data, so R2 stays the off-site copy. Dev has no NAS target.
+
 - **At most an hour of data can be lost** (whatever was written since the last dump).
 - **No point-in-time recovery, by choice**: no WAL archiving, no Barman Cloud plugin, no cert-manager. A restore goes back to a dump's moment.
 

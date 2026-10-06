@@ -146,6 +146,64 @@ The backup is engine-aware through `DB_ENGINE`, which the CronJob reads from the
 
 Each environment has its own bucket: production `marvin-backups`, dev `marvin-backups-dev` (`BACKUP_S3_BUCKET` in each namespace's `marvin-r2-backup` Secret). One R2 token covers both, by choice — the buckets separate the objects and their retention, not the permissions. `backup.prefix` (`BACKUP_S3_PREFIX`) can also put every key of a release under a prefix in a shared bucket (listing, retention and restore then work relative to it); nothing uses it today.
 
+## Backup targets
+
+The off-site job above is being replaced by the **backup engine** (`python -m marvin.scripts.backup`, also in the backend image), which writes the same objects (`postgres/` or `sqlite/`, `config/`, `assets/`) to a list of independent **targets**. Each target has its own schedule, retention, run and exit code, so a failing NAS never stops the R2 run and the other way round. Until the cutover both run side by side: `backup.enabled` keeps the `marvin-offsite-backup` CronJob described above, and `backup.targets[]` adds one CronJob `<release>-backup-<name>` per target.
+
+A target's `type` is the built-in `local` (a directory on a volume of its own, for example the NAS) or a storage plugin's target slug (for example `s3` from `marvin-storage-s3`, installed through `plugins.packages`, which the target CronJobs get too). Production has one target today:
+
+```yaml
+backup:
+  targets:
+    - name: nas-nightly                       # CronJob marvin-backup-nas-nightly
+      type: local
+      schedule: "30 2 * * *"
+      timeZone: America/New_York
+      retention: {hourly: 0, daily: 30, weekly: 8}
+      volume:
+        nfs: {server: 192.168.30.10, path: /tank/backups/marvin}   # static PV + PVC from the chart
+        subPath: prod                         # the target root inside the export; dev would use dev/
+```
+
+- **Retention** (`retention.hourly` / `.daily` / `.weekly` → `BACKUP_KEEP_*`) follows the rule under [Retention](#retention), with the engine's defaults: 48 hourly, 30 daily, 0 weekly. `hourly` counts database backups (`postgres/`, `sqlite/`). The NAS keeps the newest backup of each of the last 30 days that have one plus the newest of each of the last 8 weeks. A one-off run on the same day replaces that day's nightly backup.
+- **Volume** (`local` only): `volume.existingClaim`, or `volume.nfs: {server, path}`, from which the chart renders a static PersistentVolume `<namespace>-<release>-backup-<name>` (ReadWriteMany, `Retain`, `storageClassName: ""`, mount options `hard,nfsvers=4.2`, `claimRef` to the PVC) and the PVC `<release>-backup-<name>`. It has to be a PV, because OpenShift's `restricted-v2` SCC doesn't allow inline `nfs:` volumes. `volume.subPath` picks a directory inside the volume, which the kubelet creates on the first run. The volume is mounted at `/backup-target` (`BACKUP_LOCAL_ROOT`).
+- **Guardrails:** `helm template` fails when a local target has no volume or points at the data volume (`marvin-data`, `<release>-data` or `persistence.existingClaim`). At runtime the engine also refuses a target directory inside `DATA_DIR` or on the same filesystem as it, and a directory that doesn't exist (a missing mount mustn't fill the container's disk).
+- **Plugin targets** take their settings from `existingSecret` (every key becomes an environment variable) and `env`. They take no `volume`.
+- Other keys: `prefix` (`BACKUP_PREFIX`), `activeDeadlineSeconds` and `startingDeadlineSeconds` (default 3600 each), `resources` (default `backup.resources`). The chart's `values.yaml` lists them all.
+
+!!! warning "The NAS shares a pool with the live data"
+    The export `/tank/backups/marvin` (ZFS dataset `tank/backups` on `pve`, 50 GB quota) is in the same `tank` pool as `managed-nfs-storage`. The NAS copy covers a deleted or corrupted PVC and app bugs, not losing the NAS. R2 remains the off-site copy. Like the bucket, the NAS export holds `.secret`. The export squashes every client to uid 3100 (`all_squash`), which owns it at mode 0770, so any pod UID can write. Any host in the export's client range (`192.168.50.0/25`, the cluster nodes) can mount it.
+
+### Running and checking a target
+
+```bash
+oc -n marvin get cronjob marvin-backup-nas-nightly
+oc -n marvin create job --from=cronjob/marvin-backup-nas-nightly marvin-nas-now
+oc -n marvin wait --for=condition=complete job/marvin-nas-now --timeout=30m
+oc -n marvin logs job/marvin-nas-now | tail -1   # "backup[nas-nightly] ok: db … config 3 item(s), assets N uploaded …"
+```
+
+The first run copies every asset (516 files, about 90 MB in production). Later runs copy only new or changed files. To list the target's backups, or restore into a scratch directory inside the pod, run a Job from the CronJob with a different command:
+
+```bash
+oc -n marvin create job --from=cronjob/marvin-backup-nas-nightly marvin-nas-check --dry-run=client -o json \
+  | jq '.spec.template.spec.containers[0].command = ["sh", "-c"]
+        | .spec.template.spec.containers[0].args = ["python -m marvin.scripts.backup list --target local
+            && python -m marvin.scripts.backup restore --target local --into /tmp/restore --skip-assets
+            && ls -la /tmp/restore"]' \
+  | oc apply -f -
+oc -n marvin logs -f job/marvin-nas-check; oc -n marvin delete job marvin-nas-check
+```
+
+### Restoring from the NAS
+
+The engine's `restore` works like the off-site script's, with `--target local --into DIR` (see [Restoring](#restoring)). With Postgres it downloads and verifies the dump as `DIR/marvin.dump` and never loads it. Load it with `pg_restore` as in [Postgres → Restore test](postgres.md#restore-test-do-this-first-on-dev-then-after-any-change-to-the-backup).
+
+- **Into the cluster:** follow [Into the cluster](#into-the-cluster), with the Job made from `marvin-backup-nas-nightly` and the arguments `["restore", "--target", "local", "--into", "/app/data", "--force"]`. Suspend `marvin-backup-nas-nightly` as well as the off-site CronJob while you do it.
+- **Without the cluster:** the target is plain files. On `pve`, `/tank/backups/marvin/prod/postgres/marvin-<stamp>.dump`, `config/…tar.gz` and `assets/…` are the objects, and each has a `<file>.meta.json` beside it with its size and `sha256`. Check a file with `sha256sum` against its sidecar before using it.
+
+The engine's settings and options are in its module docstrings (`marvin/scripts/backup.py`, `marvin/services/backup_engine/`): `BACKUP_TARGET` / `--target`, `BACKUP_LOCAL_ROOT`, `BACKUP_PREFIX` (falls back to `BACKUP_S3_PREFIX`), `BACKUP_KEEP_*`, and the same `BACKUP_DATA_DIR`, `DB_ENGINE` and `POSTGRES_*` as below. Restore takes `--into DIR` instead of the old `--target DIR`.
+
 ## Script reference
 
 ```text

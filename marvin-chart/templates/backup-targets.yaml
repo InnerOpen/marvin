@@ -1,0 +1,262 @@
+{{- /*
+Backup targets (backup.targets[]): one CronJob per target running the backup engine,
+`python -m marvin.scripts.backup run --target <type> --name <name>`, from the backend image. Each target
+has its own schedule, retention, run and exit code, so a failing target never stops another. A `local`
+target writes into a volume of its own: an existing claim, or a static NFS PV + PVC rendered here
+(OpenShift's restricted-v2 SCC rules out inline nfs: volumes). Independent of the single-target
+`backup.enabled` CronJob (backup-cronjob.yaml, offsite_backup.py), which stays until the cutover.
+Runbook: docs/manual/offsite-backup.md ("Backup targets").
+*/}}
+{{- if .Values.backup.targets }}
+{{- if not .Values.persistence.enabled }}
+{{- fail "backup.targets needs persistence.enabled: there is no data volume to back up" }}
+{{- end }}
+{{- $fullname := include "marvin.fullname" . }}
+{{- $dataClaims := list (include "marvin.pvcName" .) (printf "%s-data" $fullname) "marvin-data" }}
+{{- $seen := dict }}
+{{- range $i, $t := .Values.backup.targets }}
+{{- $name := required (printf "backup.targets[%d].name is required" $i) $t.name | toString }}
+{{- if not (regexMatch "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $name) }}
+{{- fail (printf "backup.targets[%d].name %q must be lower-case letters, digits and '-' (a DNS label)" $i $name) }}
+{{- end }}
+{{- if hasKey $seen $name }}
+{{- fail (printf "backup.targets: the name %q is used twice" $name) }}
+{{- end }}
+{{- $_ := set $seen $name true }}
+{{- $base := printf "%s-backup-%s" $fullname $name }}
+{{- /* A Job's name is the CronJob's plus 11 characters, and must stay within 63. */}}
+{{- if gt (len $base) 52 }}
+{{- fail (printf "backup.targets[%d]: %q is longer than a CronJob name may be (52); shorten the name" $i $base) }}
+{{- end }}
+{{- $type := required (printf "backup.targets[%d] (%s): type is required (local, or a plugin's target slug)" $i $name) $t.type | toString }}
+{{- $schedule := required (printf "backup.targets[%d] (%s): schedule is required" $i $name) $t.schedule }}
+{{- $retention := $t.retention | default dict }}
+{{- range $k, $_ := $retention }}
+{{- if not (has $k (list "hourly" "daily" "weekly")) }}
+{{- fail (printf "backup.targets[%d] (%s): retention takes hourly, daily and weekly, not %q" $i $name $k) }}
+{{- end }}
+{{- end }}
+{{- $volume := $t.volume | default dict }}
+{{- $nfs := $volume.nfs | default dict }}
+{{- $claim := "" }}
+{{- $pvName := "" }}
+{{- if eq $type "local" }}
+{{- if and $volume.existingClaim $nfs }}
+{{- fail (printf "backup.targets[%d] (%s): set volume.existingClaim or volume.nfs, not both" $i $name) }}
+{{- else if $volume.existingClaim }}
+{{- $claim = $volume.existingClaim | toString }}
+{{- if has $claim $dataClaims }}
+{{- fail (printf "backup.targets[%d] (%s): volume.existingClaim %q is the data volume; a backup on the live volume doesn't survive losing it" $i $name $claim) }}
+{{- end }}
+{{- else if $nfs }}
+{{- $_ := required (printf "backup.targets[%d] (%s): volume.nfs.server is required" $i $name) $nfs.server }}
+{{- if not (hasPrefix "/" (toString (required (printf "backup.targets[%d] (%s): volume.nfs.path is required" $i $name) $nfs.path))) }}
+{{- fail (printf "backup.targets[%d] (%s): volume.nfs.path must be absolute" $i $name) }}
+{{- end }}
+{{- $claim = $base }}
+{{- /* PersistentVolumes are cluster-scoped: the namespace keeps two releases' names apart. */}}
+{{- $pvName = printf "%s-%s" $.Release.Namespace $base }}
+{{- else }}
+{{- fail (printf "backup.targets[%d] (%s): a local target needs volume.existingClaim or volume.nfs" $i $name) }}
+{{- end }}
+{{- else if $volume }}
+{{- fail (printf "backup.targets[%d] (%s): volume is only for type local, not %q" $i $name $type) }}
+{{- end }}
+{{- if $pvName }}
+---
+# Static NFS volume for backup target {{ $name }}: Retain, so the backups outlive the release.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ $pvName }}
+  labels:
+    {{- include "marvin.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  capacity:
+    storage: {{ $nfs.size | default "50Gi" }}
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  mountOptions:
+    {{- toYaml ($nfs.mountOptions | default (list "hard" "nfsvers=4.2")) | nindent 4 }}
+  nfs:
+    server: {{ $nfs.server | quote }}
+    path: {{ $nfs.path | quote }}
+  claimRef:
+    namespace: {{ $.Release.Namespace }}
+    name: {{ $claim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $claim }}
+  labels:
+    {{- include "marvin.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: ""
+  volumeName: {{ $pvName }}
+  resources:
+    requests:
+      storage: {{ $nfs.size | default "50Gi" }}
+{{- end }}
+---
+# Backup target {{ $name }} ({{ $type }}): the database, the config archive (.secret included) and an
+# incremental asset mirror, with this target's own retention.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ $base }}
+  labels:
+    {{- include "marvin.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: backup
+spec:
+  schedule: {{ $schedule | quote }}
+  {{- with $t.timeZone }}
+  timeZone: {{ . | quote }}
+  {{- end }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  {{- with (hasKey $t "startingDeadlineSeconds" | ternary $t.startingDeadlineSeconds 3600) }}
+  startingDeadlineSeconds: {{ int . }}
+  {{- end }}
+  jobTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        app.kubernetes.io/component: backup
+    spec:
+      backoffLimit: 2
+      # Bounds a stuck run (or one left Pending with no backend pod to sit beside), so
+      # concurrencyPolicy: Forbid can never block the following runs.
+      activeDeadlineSeconds: {{ int ($t.activeDeadlineSeconds | default 3600) }}
+      template:
+        metadata:
+          # Not the chart's selector labels: a backup pod must never become a Service endpoint.
+          labels:
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+            app.kubernetes.io/part-of: {{ include "marvin.name" $ }}
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          {{- with $.Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          serviceAccountName: {{ include "marvin.serviceAccountName" $ }}
+          automountServiceAccountToken: false
+          securityContext:
+            {{- toYaml $.Values.podSecurityContext | nindent 12 }}
+          # The data PVC is ReadWriteOnce (and SQLite's WAL index is shared memory): run on the
+          # backend's node. Required, so with no backend pod the job stays Pending until
+          # activeDeadlineSeconds fails it rather than mounting elsewhere.
+          affinity:
+            podAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      {{- include "marvin.selectorLabels" $ | nindent 22 }}
+                      {{- if eq $.Values.mode "split" }}
+                      app.kubernetes.io/component: backend
+                      {{- end }}
+          {{- with $.Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with include "marvin.plugins.initContainer" $ }}
+          # Storage plugins (plugins.packages): the target or the asset provider may come from one.
+          initContainers:
+            {{- . | nindent 12 }}
+          {{- end }}
+          containers:
+            - name: backup
+              securityContext:
+                {{- toYaml $.Values.securityContext | nindent 16 }}
+              {{- if eq $.Values.mode "split" }}
+              image: "{{ include "marvin.backendImage" $ }}"
+              {{- else }}
+              image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag | default $.Chart.AppVersion }}"
+              {{- end }}
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
+              command: ["python", "-m", "marvin.scripts.backup"]
+              args: ["run", "--target", {{ $type | quote }}, "--name", {{ $name | quote }}]
+              {{- with $t.existingSecret }}
+              # The target's settings and credentials (a plugin target's keys), one variable per key.
+              envFrom:
+                - secretRef:
+                    name: {{ . }}
+              {{- end }}
+              env:
+                - name: BACKUP_DATA_DIR
+                  value: {{ $.Values.config.dataDir | quote }}
+                - name: DB_ENGINE
+                  valueFrom:
+                    configMapKeyRef:
+                      name: {{ $fullname }}
+                      key: dbEngine
+                {{- if $claim }}
+                - name: BACKUP_LOCAL_ROOT
+                  value: /backup-target
+                {{- end }}
+                {{- with $t.prefix }}
+                - name: BACKUP_PREFIX
+                  value: {{ . | quote }}
+                {{- end }}
+                {{- range list "hourly" "daily" "weekly" }}
+                {{- if and (hasKey $retention .) (not (kindIs "invalid" (index $retention .))) }}
+                - name: BACKUP_KEEP_{{ upper . }}
+                  value: {{ index $retention . | quote }}
+                {{- end }}
+                {{- end }}
+                {{- with include "marvin.postgresEnv" $ | trim }}
+                {{- . | nindent 16 }}
+                {{- end }}
+                {{- with include "marvin.plugins.env" $ }}
+                {{- . | nindent 16 }}
+                {{- end }}
+                {{- with $t.env }}
+                {{- toYaml . | nindent 16 }}
+                {{- end }}
+              resources:
+                {{- toYaml ($t.resources | default $.Values.backup.resources) | nindent 16 }}
+              volumeMounts:
+                # Read-write, though the engine only reads: a reader of a WAL-mode SQLite database
+                # takes its read locks in marvin.db-shm. The engine opens the database read-only.
+                - name: data
+                  mountPath: {{ $.Values.config.dataDir }}
+                {{- if $claim }}
+                - name: target
+                  mountPath: /backup-target
+                  {{- with $volume.subPath }}
+                  # Created by the kubelet on first mount if it doesn't exist yet.
+                  subPath: {{ . | quote }}
+                  {{- end }}
+                {{- end }}
+                - name: tmp
+                  mountPath: /tmp
+                {{- with include "marvin.plugins.volumeMount" $ }}
+                {{- . | nindent 16 }}
+                {{- end }}
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ include "marvin.pvcName" $ }}
+            {{- if $claim }}
+            - name: target
+              persistentVolumeClaim:
+                claimName: {{ $claim }}
+            {{- end }}
+            # Snapshot / pg_dump + gzip staging (about 1.2x the database size).
+            - name: tmp
+              emptyDir: {}
+            {{- with include "marvin.plugins.volume" $ }}
+            {{- . | nindent 12 }}
+            {{- end }}
+{{- end }}
+{{- end }}

@@ -302,6 +302,44 @@ backup:
     limits:
       cpu: 500m
       memory: 512Mi
+  # Backup targets for the backup engine (templates/backup-targets.yaml), independent of `enabled`
+  # above (the single-target offsite_backup.py CronJob, kept until the cutover). One CronJob
+  # `<fullname>-backup-<name>` per target runs `python -m marvin.scripts.backup run --target <type>
+  # --name <name>` from the backend image, on the backend's node, with the plugins init container when
+  # plugins.packages is set. Same key layout as the off-site job (postgres/ or sqlite/, config/,
+  # assets/). Each target has its own schedule, retention and exit code. Empty = nothing rendered.
+  #   name                     DNS label, unique; the CronJob name must stay within 52 characters
+  #   type                     `local` (built in: a directory on a volume of its own), or a storage
+  #                            plugin's target slug (e.g. `s3`, from plugins.packages)
+  #   schedule, timeZone       cron schedule and the zone it is read in (empty = the controller's, UTC)
+  #   retention                {hourly, daily, weekly} → BACKUP_KEEP_*; a key left out keeps the
+  #                            engine's default (48 / 30 / 0). hourly counts database backups only;
+  #                            daily >= 1; 0 turns hourly or weekly off
+  #   prefix                   key prefix inside the target (BACKUP_PREFIX), e.g. "dev/"
+  #   activeDeadlineSeconds    a run (including time Pending) is failed after this long (default 3600)
+  #   startingDeadlineSeconds  skip a run that couldn't start this long after its time (default 3600, 0 = no limit)
+  #   resources                default: backup.resources
+  #   existingSecret           a Secret whose keys all become environment variables (a plugin
+  #                            target's settings and credentials)
+  #   env                      extra environment variables (a list of EnvVar)
+  #   volume                   type local only, and required there; never the data volume (the chart
+  #                            refuses marvin-data / persistence's claim), and the engine refuses a
+  #                            directory on the same filesystem as DATA_DIR. Mounted at /backup-target.
+  #     existingClaim          a PVC that already exists, or
+  #     nfs                    {server, path, size (default 50Gi), mountOptions (default [hard,
+  #                            nfsvers=4.2])}: a static PV `<namespace>-<fullname>-backup-<name>`
+  #                            (ReadWriteMany, Retain, storageClassName "", claimRef) + PVC
+  #     subPath                a subdirectory of that volume to use; the kubelet creates it if missing
+  # targets:
+  #   - name: nas-nightly
+  #     type: local
+  #     schedule: "30 2 * * *"
+  #     timeZone: America/New_York
+  #     retention: {hourly: 0, daily: 30, weekly: 8}
+  #     volume:
+  #       nfs: {server: 192.168.30.10, path: /tank/backups/marvin}
+  #       subPath: prod
+  targets: []
 
 # PostgreSQL — used when config.dbEngine is postgres, ignored with sqlite. The app's POSTGRES_SERVER,
 # _PORT, _USER, _PASSWORD and _DB come from an existing Secret: by default the one CloudNativePG keeps

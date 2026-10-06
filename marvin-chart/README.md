@@ -138,6 +138,38 @@ private and its token scoped to it. One-off run:
 Restore runbook, retention details and the script's options:
 [docs/manual/offsite-backup.md](../docs/manual/offsite-backup.md).
 
+#### Backup targets
+
+`backup.targets[]` (empty by default) runs the backup engine, `python -m marvin.scripts.backup`, as one
+CronJob `<release>-backup-<name>` per target, each with its own schedule and retention. It is
+independent of `backup.enabled` above, which stays until the cutover. `type` is `local` (built in: a
+directory on a volume of its own) or a storage plugin's target slug (from `plugins.packages`, which
+these CronJobs get as well).
+
+```yaml
+backup:
+  targets:
+    - name: nas-nightly
+      type: local
+      schedule: "30 2 * * *"
+      timeZone: America/New_York
+      retention: {hourly: 0, daily: 30, weekly: 8}   # → BACKUP_KEEP_*; engine default 48 / 30 / 0
+      volume:
+        nfs: {server: 192.168.30.10, path: /tank/backups/marvin}   # or existingClaim: <pvc>
+        subPath: prod                                 # created by the kubelet if missing
+    # - name: r2                                      # a plugin target (slice 5+)
+    #   type: s3
+    #   schedule: "0 * * * *"
+    #   existingSecret: marvin-r2-backup              # every key becomes an env var
+```
+
+`volume.nfs` renders a static PV `<namespace>-<release>-backup-<name>` (ReadWriteMany, `Retain`,
+`storageClassName: ""`, `hard,nfsvers=4.2`, `claimRef`) and its PVC; OpenShift's `restricted-v2` SCC
+doesn't allow inline `nfs:` volumes. `helm template` fails on a local target without a volume or on
+the data volume (`marvin-data`, `<release>-data`, `persistence.existingClaim`); the engine also refuses
+a directory on the data volume's filesystem. Every key is described in `values.yaml`; runbook:
+[docs/manual/offsite-backup.md → Backup targets](../docs/manual/offsite-backup.md#backup-targets).
+
 #### OpenShift Route
 
 ```yaml
