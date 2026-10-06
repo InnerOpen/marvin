@@ -274,23 +274,14 @@ now leads with "Default (…)" and sends no tone for it, so the workspace defaul
 the persona, custom tones add their instructions; agent `compose_entry`/`revise_entry` tools use the workspace
 default (the run's tone isn't plumbed into ToolContext). Not done: a browser walk-through of the new UI.
 
-# Trash — reversible delete (2026-10-01, Jared: "add that feature to todos")
+# Trash — dropped (Jared 2026-10-06)
 
-Asked to delete inbox entries, an agent had no delete tool and staged no-op `revise_entry`
-suggestions ("Deleted test inbox entry.") on 7 newsletter signups instead. Trash gives "delete" a
-real, reversible home; only an admin empties it. Tool name is open (doesn't have to be `trash_entry`).
+Trash dropped (Jared 2026-10-06): Archive is the reversible delete; the original bug (agent had no remove tool)
+fixed by `archive_entries`; hard delete stays human-only; hourly R2 backups cover mistakes.
 
-## Plan
-- [ ] Entry status `trashed` + a system collection **Trash** 🗑️ in `WORKFLOW_COLLECTIONS` (smart on status, locked,
-      internal; after Archive). Record the previous status + who/when in `metadata_json` so Restore returns it.
-- [ ] Trashed entries hidden everywhere: publish API, search/embeddings, agent read tools, non-system collections.
-      Tests per read path (a leak here is the real risk).
-- [ ] Agent tool to move entries to Trash (non-destructive → no ask-first). `revise_entry` description: not for
-      deleting, use the trash tool. Test: an agent asked to delete calls the trash tool, not `revise_entry`.
-- [ ] Trash page/collection view: list with who/when, untick to keep, **Restore** and **Empty trash** (hard delete,
-      workspace OWNER/ADMIN only). Events for trashed / restored / purged.
-- [ ] Optional: system scheduled task to empty items trashed > 30 days (like `prune_scheduled_task_executions`).
-- [ ] Build on the dev instance (dev.admin.iwobble.com) first — touches every content read path.
+- [x] `archive_entries` (branch `feat/archive-entries-tool`): up to 50 entries, same path as the entry page
+      (EntryService.set_status, `require_can_edit_entry`), published entries ask first, own `entries_archive`
+      matrix row; `revise_entry` + the agent preamble steer deletes to it. No AI hard delete.
 
 # Dev instance + Postgres (2026-10-01, Jared: "add that plan to the todos")
 
@@ -348,7 +339,7 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
       `marvin/r2/endpoint`; bucket `marvin-backups`), deploy an image that has the script, `helm upgrade`, run a one-off
       job, then a test restore into a scratch dir. Postgres: `pg_dump` step built 2026-10-06 (see Backups
       below); `backup.prefix` for dev.
-- [ ] **First feature through dev:** Trash (above).
+- [ ] **First feature through dev:** `archive_entries` (the agent's reversible delete, above; replaces Trash).
 - [x] **Production cutover — done 2026-10-06** (Jared: "run it"). Phase 1 `691395d3` (rev 22): `marvin-pg` up while still on SQLite;
       in-cluster rehearsal copy OK (61 tables, 15,974 rows, ~1 min). Window 21:20:55–21:23:02 UTC (~2 min down): backend
       scaled to 0 → copy Job `marvin-sqlite-to-postgres` COPIED 61/61 ok, 0 problems, rev `011f6c720d1d` → promoted
