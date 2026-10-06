@@ -6,6 +6,27 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.202 (2026-10-06)
+
+### Bug Fixes
+
+- **frontend**: Admin Events cards hide closed payload rows on a phone
+  ([`106e4ff`](https://github.com/InnerOpen/marvin/commit/106e4ffa4d56404ded683dde1167c9e42658a9da))
+
+### Documentation
+
+- Platform events and the admin Events page (manual + what's new)
+  ([`b4254c1`](https://github.com/InnerOpen/marvin/commit/b4254c15e634fddb3e827a365f167822e79dee4b))
+
+### Features
+
+- **events**: Platform events leave the workspace Event Log for an admin API
+  ([`0db17f4`](https://github.com/InnerOpen/marvin/commit/0db17f482ac7b116840dc43c8602ef488ac3ec0f))
+
+- **frontend**: Admin Events page for platform events
+  ([`ca641d9`](https://github.com/InnerOpen/marvin/commit/ca641d9ec7b663faf5ca5af69163f488b41d5d9b))
+
+
 ## v1.0.0-rc.201 (2026-10-06)
 
 ### Bug Fixes
