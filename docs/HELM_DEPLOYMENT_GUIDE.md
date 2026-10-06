@@ -165,7 +165,6 @@ kubectl create secret generic marvin-secrets \
   --from-literal=SMTP_USER=youruser \
   --from-literal=SMTP_PASSWORD=yourpassword \
   --from-literal=SMTP_FROM_EMAIL=noreply@yourdomain.com \
-  --from-literal=JWT_SECRET=$(openssl rand -base64 32) \
   --dry-run=client -o yaml | \
   kubeseal -o yaml > marvin-chart/templates/sealed-secret.yaml
 

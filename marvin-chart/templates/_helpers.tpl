@@ -188,11 +188,6 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
     secretKeyRef:
       name: {{ include "marvin.fullname" . }}
       key: smtpFromEmail
-- name: JWT_SECRET
-  valueFrom:
-    secretKeyRef:
-      name: {{ include "marvin.fullname" . }}
-      key: jwtSecret
 {{- with include "marvin.postgresEnv" . | trim }}
 {{ . }}
 {{- end }}

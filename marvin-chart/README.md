@@ -160,7 +160,6 @@ route:
 kubectl create secret generic marvin-secrets \
   --from-literal=SMTP_HOST=smtp.example.com \
   --from-literal=SMTP_PORT=587 \
-  --from-literal=JWT_SECRET=your-secret-here \
   --dry-run=client -o yaml | \
   kubeseal -o yaml > marvin-chart/templates/sealed-secret.yaml
 

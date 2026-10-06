@@ -36,11 +36,10 @@ The backend-based images carry `CHANGELOG.md` and `UNRELEASED.txt` (the update b
 
 The trade-off: a pod with a long run in flight takes that long to stop. Under the default `RollingUpdate` the new pod serves while the old one drains, so with SQLite on a shared volume two processes write at once for up to the grace period. To rule that out, set the API pod's strategy to `{type: Recreate}` (`strategy` in combined mode; in split mode the backend's own `split.backend.strategy`, so the frontend keeps rolling) and accept downtime while the old pod drains, or use Postgres. Under `Recreate` the chart sweeps interrupted runs at startup, since the old pod is already gone.
 
-!!! warning "Two chart keys the app does not read"
-    - `JWT_SECRET` is rendered into the Deployment (`templates/deployment.yaml`, `_helpers.tpl`) but nothing in `src/` reads it. The signing secret is `DATA_DIR/.secret`, generated on first production start; keep `DATA_DIR` on a persistent volume or every restart invalidates sessions.
-    - `config.webhookRetryAttempts` and `config.webhookRetryDelay` land in the ConfigMap but nothing in `src/` reads them.
+**Session signing key.** JWTs are signed with `DATA_DIR/.secret`, generated on first production start; the chart has no JWT setting. Keep `DATA_DIR` on a persistent volume or every restart invalidates sessions.
 
-    `docs/HELM_DEPLOYMENT_GUIDE.md` and `docs/OPENSHIFT_DEPLOYMENT.md` predate this and are superseded on these two points.
+!!! warning "Chart keys the app does not read"
+    `config.webhookRetryAttempts` and `config.webhookRetryDelay` land in the ConfigMap but nothing in `src/` reads them. `docs/HELM_DEPLOYMENT_GUIDE.md` and `docs/OPENSHIFT_DEPLOYMENT.md` predate this and are superseded on this point.
 
 ## Scheduler
 

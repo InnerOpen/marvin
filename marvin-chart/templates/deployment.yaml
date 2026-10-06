@@ -159,11 +159,6 @@ spec:
             secretKeyRef:
               name: {{ include "marvin.fullname" . }}
               key: smtpFromEmail
-        - name: JWT_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: {{ include "marvin.fullname" . }}
-              key: jwtSecret
         {{- with include "marvin.postgresEnv" . | trim }}
         {{- . | nindent 8 }}
         {{- end }}

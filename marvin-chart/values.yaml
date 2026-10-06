@@ -256,10 +256,8 @@ secrets:
   smtpFromEmail: "noreply@marvin.local"
 
   # Security
-  # Deliberately empty: a default here is a published signing key, and `secrets: {}` in an
-  # overlay would not clear it (Helm coalesces maps, so unset keys keep the parent's value).
-  # Left empty, the chart reuses the key already in the cluster or generates a random one.
-  jwtSecret: ""
+  # No JWT key here: the app signs sessions with DATA_DIR/.secret (generated on first start), so
+  # keep config.dataDir on the persistent volume.
   apiKey: ""
 
   # External services (if any)
