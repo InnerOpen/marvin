@@ -1882,8 +1882,9 @@ errors; 390px shows only the parent with no horizontal scroll, light and dark.
 
 # Storage plugins + backup targets — cloud storage leaves core (plan, 2026-10-06, Jared: "everything uses the same APIs")
 
-**Status:** all 8 slices approved by Jared (2026-10-06); slices 1–3 built on `feat/storage-plugins-1-3` (core) and
-`feat/storage-contract` (SDK 0.7.0), not pushed yet — see "Review (slices 1–3)" below.
+**Status:** all 8 slices approved by Jared (2026-10-06); slices 1–3 merged and in production since revision 28
+(`develop-f83140e`) — see "Review (slices 1–3)" below. Slice 4 built on `feat/storage-slice-4`, not pushed — see
+"Review (slice 4)".
 Decisions below are Jared's (2026-10-06), open questions answered the same day.
 
 **Goal (Jared 2026-10-06):** keep core lean. Cloud SDKs leave core, and storage becomes a site-wide plugin type the
@@ -2060,8 +2061,9 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
       local target (atomic writes, sidecar sha256, `st_dev` guardrail); assets via the provider; per-target
       retention (48/30/0 default); port the offsite_backup tests (snapshot under a live writer, incremental re-run
       uploads 0, restore matches, retention, pg_dump path). `offsite_backup.py` untouched and still running
-- [ ] **Slice 4 — chart targets:** `backup.targets[]`, one CronJob per target, static NFS PV/PVC for `local`,
-      data-PVC guardrail (`helm template` fails as expected), old `backup.*` still renders unchanged
+- [x] **Slice 4 — chart targets:** `backup.targets[]`, one CronJob per target, static NFS PV/PVC for `local`,
+      data-PVC guardrail (`helm template` fails as expected), old `backup.*` still renders unchanged; production
+      gets the `nas-nightly` local target (NAS export, `prod/` subfolder, 02:30 New York, 0/30/8)
 - [ ] **Slice 5 — `marvin-storage-s3`:** repo, provider + target, conformance kit on MinIO, ported S3 tests,
       per-provider credential docs; installed in dev
 - [ ] **Slice 6 — backup cutover, no R2 gap:** NAS export ready (Jared); **dev first:** targets `r2` (bucket
@@ -2119,6 +2121,42 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
 - Not covered yet: character-library files (`LibraryFileStore`) still use the active provider, not per row;
   slice 8 has to give them a provider of their own before switching `STORAGE_PROVIDER`. The mirror reads only the
   active provider (fine for the no-freeze move, since earlier copies stay in the target).
+
+## Review (slice 4, 2026-10-06)
+- **Chart** `templates/backup-targets.yaml`: per `backup.targets[]` entry a CronJob `<fullname>-backup-<name>`
+  (`python -m marvin.scripts.backup run --target <type> --name <name>`, backend image, backend-node podAffinity,
+  plugins init container + `PYTHONPATH` when `plugins.packages` is set, `marvin-data` mounted as the legacy job
+  does + `/tmp` emptyDir). `local` gets `/backup-target` (`BACKUP_LOCAL_ROOT`) from `volume.existingClaim` or
+  `volume.nfs` → static PV `<namespace>-<fullname>-backup-<name>` (RWX, Retain, `storageClassName: ""`,
+  `[hard, nfsvers=4.2]`, `claimRef`) + PVC (`volumeName`), optional `volume.subPath`. Plugin targets get
+  `existingSecret` (envFrom) and `env`. Retention `{hourly, daily, weekly}` → `BACKUP_KEEP_*`; deadlines default
+  3600/3600; resources default `backup.resources`. No engine change.
+- **Missing root:** the NAS PV points at the export root `/tank/backups/marvin` and the CronJob mounts
+  `subPath: prod`; the kubelet creates the subfolder on the first mount (it does on NFS: all_squash maps it to
+  3100, which owns the root). Chosen over an `mkdir -p` wrapper (keeps the plain engine command and the engine's
+  "root must exist" guardrail meaningful) and over pointing at the root (dev gets `dev/` later without a
+  second export). Trade-off: prod's PV could see a future `dev/` sibling; same trust (one NAS, one admin).
+- **Guardrails** (`helm template` fails): local target with no volume, or with `existingClaim` = the data claim
+  (`marvin.pvcName`, `<fullname>-data`, literal `marvin-data`, with or without `subPath`), both `existingClaim`
+  and `nfs`, missing `nfs.server`/`path` or a relative path, `volume` on a non-local type, bad / duplicate name,
+  CronJob name > 52 chars, missing type / schedule, unknown retention key (`keepDaily` typo), targets without
+  `persistence.enabled`.
+- **Renders:** default, dev, k8s, production, staging byte-identical; `values-iwobble.yaml` adds exactly
+  PV `marvin-marvin-backup-nas-nightly`, PVC `marvin-backup-nas-nightly`, CronJob `marvin-backup-nas-nightly`
+  (per-object diff: 3 added, 0 removed, 0 changed; `marvin-offsite-backup` unchanged). `helm lint --strict`
+  clean for every values file.
+- **Dev end to end** (`marvin-dev`, throwaway objects from the chart with name `slice4-test`, subPath
+  `slice4-test`, never-firing schedule): PVC bound; the kubelet created the subfolder (3100, 0770); run 1:
+  pg_dump 63 tables 7.4 MB + config + 516 assets (91 MB) in 33 s, the `st_dev` guardrail passed (target
+  `192.168.30.10:/tank/backups/marvin/slice4-test` vs `/tank/nfs/...marvin-data...`); run 2: 0 uploaded / 516
+  unchanged, pruned the first run's dump + config (same day, hourly 0); `list --target local` shows the dump
+  and config; `restore --into /tmp/restore`: 516 assets sha256-identical to `marvin-data`, `.secret` identical,
+  dump lists 63 TABLE DATA entries. Test PV/PVC/CronJob/Jobs deleted and `slice4-test/` removed (export root
+  empty again). `marvin` namespace untouched.
+- **Promote expectations:** the next `promote-iwobble.sh` adds the PV/PVC (binds at once) and CronJob
+  `marvin-backup-nas-nightly`; nothing runs until 02:30 New York. The first run creates `prod/` and copies all
+  assets (~90 MB) + a dump; later runs are incremental. Optionally trigger one right after the promote
+  (`oc -n marvin create job --from=cronjob/marvin-backup-nas-nightly marvin-nas-first`).
 
 ## Decisions (Jared, 2026-10-06)
 - Keep core lean: cloud SDKs out of core. Storage is its own plugin type (`marvin.storage_providers`), with the
