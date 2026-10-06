@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.205 (2026-10-06)
+
+### Documentation
+
+- **tasks**: Events hub slice 3 review
+  ([`cee7272`](https://github.com/InnerOpen/marvin/commit/cee7272987f5c65ff2a1932a7854f89cb1e1d984))
+
+### Features
+
+- **events**: One lookup for what sends an event and what reacts to it
+  ([`e226a10`](https://github.com/InnerOpen/marvin/commit/e226a10a1667ee327d4c37659b5da0a043d66e67))
+
+
 ## v1.0.0-rc.204 (2026-10-06)
 
 ### Documentation
