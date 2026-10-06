@@ -7,9 +7,13 @@ Each entry describes:
   - category: grouping for the UI
   - variables: {{slug}} values available in templates/notifications
   - enabled: whether this event is available for subscription
+  - scope: "workspace" (shown in the workspace's Event Log) or "platform" (the admin Events page)
 """
 
 from dataclasses import dataclass, field
+from typing import Literal
+
+EventScope = Literal["workspace", "platform"]
 
 
 @dataclass
@@ -35,6 +39,10 @@ class CatalogEntry:
     override it per event type (services/events/audit_settings.py) unless the entry is locked."""
     audit_locked: bool = False
     """Always audited: no workspace override can turn it off. Set by the security gate below."""
+    scope: EventScope = "workspace"
+    """Whose event it is. "platform" events (sign-ups, workspaces created by a platform admin, personal tokens…)
+    are still stored with the workspace they touched, but only the super-admin Events page shows them; the
+    workspace's Event Log, activity feeds and audit settings leave them out. Set by the platform gate below."""
 
 
 COMMON_VARS = [
@@ -182,6 +190,16 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("username", "Username who completed the reset", "jsmith", type="username"),
         ],
     ),
+    CatalogEntry(
+        event_type="token_refreshed",
+        name="Access Token Refreshed",
+        description="A signed-in user's access token was renewed.",
+        category="Authentication",
+        variables=COMMON_VARS
+        + [
+            EventVariable("username", "Username whose token was renewed", "jsmith", type="username"),
+        ],
+    ),
     # ── Workspaces ───────────────────────────────────────────────────────────
     CatalogEntry(
         event_type="workspace_created",
@@ -207,6 +225,13 @@ CATALOG: list[CatalogEntry] = [
         event_type="workspace_deleted",
         name="Workspace Deleted",
         description="A workspace was permanently deleted.",
+        category="Workspaces",
+        variables=COMMON_VARS + [],
+    ),
+    CatalogEntry(
+        event_type="workspace_activated",
+        name="Workspace Activated",
+        description="A user switched to this workspace.",
         category="Workspaces",
         variables=COMMON_VARS + [],
     ),
@@ -1472,6 +1497,45 @@ for _e in CATALOG:
     if _e.category in _AUDIT_LOCKED_CATEGORIES or _e.event_type.startswith(_AUDIT_LOCKED_PREFIXES):
         _e.audit_locked = True  # test_audit_settings checks a locked entry isn't also declared audited=False
 
+# ── Platform gate: events that belong to the platform, not to a workspace ─────────────────────────────
+# Accounts (sign-up, profile, password, token refresh), workspaces as a platform admin creates, edits and deletes
+# them (workspace_updated is only emitted by the admin workspace controller) or a user switches to them, personal
+# API tokens (user-level, unlike a workspace's API clients), the platform's own security signals and backups.
+# They keep the workspace_id they were dispatched with and fire the same subscriptions; only the super-admin
+# Events page lists them. They're always audited (most are security records, and no workspace admin owns them).
+# What stays workspace scope: members and invitations, workspace_settings_changed (a workspace admin changing
+# their own workspace), secrets, variables, storage quota, content, automation, AI.
+_PLATFORM_SCOPE: frozenset[str] = frozenset(
+    {
+        "user_signup",
+        "user_updated",
+        "user_deleted",
+        "user_password_reset_requested",
+        "user_password_reset_completed",
+        "token_refreshed",
+        "workspace_created",
+        "workspace_updated",
+        "workspace_deleted",
+        "workspace_activated",
+        "api_token_created",
+        "api_token_rotated",
+        "api_token_revoked",
+        "api_rate_limit_exceeded",
+        "login_failed_multiple_times",
+        "suspicious_activity_detected",
+        "backup_started",
+        "backup_completed",
+        "backup_failed",
+    }
+)
+for _e in CATALOG:
+    if _e.event_type in _PLATFORM_SCOPE:
+        _e.scope = "platform"
+        _e.audit_locked = True
+
+PLATFORM_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALOG if e.scope == "platform")
+"""Every platform-scope event type: what the workspace's reads of the Event Log leave out."""
+
 # Quick lookup
 CATALOG_BY_TYPE: dict[str, CatalogEntry] = {e.event_type: e for e in CATALOG}
 
@@ -1502,3 +1566,8 @@ def get_event_variables(event_type: str) -> list[EventVariable]:
 
 def get_catalog_entry(event_type: str) -> CatalogEntry | None:
     return CATALOG_BY_TYPE.get(event_type)
+
+
+def is_platform_event(event_type: str) -> bool:
+    """A platform-scope event: the admin Events page shows it, a workspace's Event Log doesn't."""
+    return event_type in PLATFORM_EVENT_TYPES

@@ -2,6 +2,7 @@
 from .about import AdminAboutInfo, AppInfo, AppStartupInfo, AppStatistics, CheckAppConfig
 from .debug import DebugResponse
 from .email import EmailReady, EmailSuccess, EmailTest
+from .events import AdminEventPagination, AdminEventRead, AdminEventSummary, AdminEventType
 from .maintenance import MaintenanceLogs, MaintenanceStorageDetails, MaintenanceSummary
 from .plugins import PluginProviderRead, PluginRead
 from .settings import CustomPageBase, CustomPageOut
@@ -16,6 +17,10 @@ __all__ = [
     "EmailReady",
     "EmailSuccess",
     "EmailTest",
+    "AdminEventPagination",
+    "AdminEventRead",
+    "AdminEventSummary",
+    "AdminEventType",
     "CustomPageBase",
     "CustomPageOut",
     "AdminAboutInfo",

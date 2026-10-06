@@ -2,9 +2,10 @@
 
 Each catalog entry declares a default (`CatalogEntry.audited`). A workspace admin can override it per event
 type; the overrides live in `group_preferences.audit_overrides_json` as `{event_type: bool}`, holding only the
-types that differ from the default. Locked entries (`CatalogEntry.audit_locked`: members, auth, workspace
-settings, security, secrets, API clients) are always audited, whatever the map says, and so is any event
-type the catalog doesn't know.
+types that differ from the default. Locked entries (`CatalogEntry.audit_locked`: members, workspace settings,
+secrets, API clients, approvals) are always audited, whatever the map says, and so is any event type the catalog
+doesn't know. Platform-scope entries (sign-ups, workspaces created by a platform admin, personal tokens…) aren't
+workspace events at all: they're always audited (locked), left out of the settings, and refused in a change.
 
 `is_audited` runs for every event the bus dispatches, so the map is cached per workspace: dropped on every
 write in this process, and re-read after `CACHE_TTL_SECONDS` so another process's write (a second worker, the
@@ -35,6 +36,14 @@ class UnknownEventTypes(ValueError):
     def __init__(self, event_types: list[str]) -> None:
         self.event_types = event_types
         super().__init__(f"Unknown event type: {', '.join(event_types)}.")
+
+
+class PlatformEventTypes(ValueError):
+    """The change names platform-scope event types, which no workspace setting covers."""
+
+    def __init__(self, event_types: list[str]) -> None:
+        self.event_types = event_types
+        super().__init__(f"Not a workspace event (platform events are always recorded, on the admin Events page): {', '.join(event_types)}.")
 
 
 class LockedEventTypes(ValueError):
@@ -94,8 +103,8 @@ def _sort_key(entry: CatalogEntry) -> tuple[int, str]:
 
 
 def settings(overrides: dict[str, bool]) -> list[AuditSetting]:
-    """Every catalog event type with its default and effective coverage, grouped by category (display order,
-    then the catalog's own order within a category)."""
+    """Every workspace-scope catalog event type with its default and effective coverage, grouped by category
+    (display order, then the catalog's own order within a category)."""
     return [
         AuditSetting(
             event_type=entry.event_type,
@@ -106,6 +115,7 @@ def settings(overrides: dict[str, bool]) -> list[AuditSetting]:
             locked=entry.audit_locked,
         )
         for entry in sorted(CATALOG, key=_sort_key)
+        if entry.scope == "workspace"
     ]
 
 
@@ -121,11 +131,14 @@ def apply_changes(session: Session, group_id, changes: dict[str, bool | None]) -
     Returns the new overrides and what actually changed (`{event_type: new value}`, None where an override
     was removed); the latter is empty when the request changed nothing.
 
-    Raises UnknownEventTypes or LockedEventTypes.
+    Raises UnknownEventTypes, PlatformEventTypes or LockedEventTypes.
     """
     unknown = sorted(t for t in changes if get_catalog_entry(t) is None)
     if unknown:
         raise UnknownEventTypes(unknown)
+    platform = sorted(t for t in changes if get_catalog_entry(t).scope == "platform")  # type: ignore[union-attr]
+    if platform:
+        raise PlatformEventTypes(platform)
     locked = sorted(t for t in changes if get_catalog_entry(t).audit_locked)  # type: ignore[union-attr]
     if locked:
         raise LockedEventTypes(locked)

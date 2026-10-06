@@ -134,19 +134,22 @@ def _fires(automation, sample: Sample) -> bool:
 
 def _log_query(session, group_id, event_type):
     from marvin.db.models.platform.event_log import EventLogModel
+    from marvin.repos.platform.event_log import workspace_events_clause
 
     return (
         session.query(EventLogModel)
-        .filter(EventLogModel.workspace_id == group_id, EventLogModel.event_type == event_type)
+        .filter(EventLogModel.workspace_id == group_id, EventLogModel.event_type == event_type, workspace_events_clause())
         .order_by(EventLogModel.occurred_at.desc())
     )
 
 
 def _log_row(session, group_id, event_id):
     from marvin.db.models.platform.event_log import EventLogModel
+    from marvin.services.events.event_catalog import is_platform_event
 
     row = session.get(EventLogModel, event_id)
-    if row is None or row.workspace_id != group_id:
+    # A platform event isn't in the workspace's log, so it isn't a sample either.
+    if row is None or row.workspace_id != group_id or is_platform_event(row.event_type):
         raise SampleNotFound("Event not found in this workspace.")
     return row
 

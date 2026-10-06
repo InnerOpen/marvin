@@ -5,6 +5,7 @@ from . import (
     backups_controller,
     character_packs_controller,
     email_controller,
+    events_controller,
     group_controller,
     maintenance_controller,
     plugins_controller,
@@ -20,6 +21,7 @@ router.include_router(about_controller.router, tags=["Admin: About"])
 router.include_router(backups_controller.router, tags=["Admin: Backups"])
 router.include_router(character_packs_controller.router, tags=["Admin: Character Library"])
 router.include_router(email_controller.router, tags=["Admin: Email"])
+router.include_router(events_controller.router, tags=["Admin: Events"])
 router.include_router(user_controller.router, tags=["Admin: Users"])
 router.include_router(group_controller.router, tags=["Admin: Groups"])
 router.include_router(maintenance_controller.router, tags=["Admin: Maintenance"])

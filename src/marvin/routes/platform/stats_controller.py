@@ -131,9 +131,10 @@ class StatsController(BaseUserController):
 
         recent: list[RecentEvent] = []
         try:
+            from marvin.repos.platform.event_log import workspace_events_clause
             from marvin.services.ai.executions import user_sees_every_run, visible_events_clause
 
-            stmt = select(EventLogModel).where(EventLogModel.workspace_id == gid)
+            stmt = select(EventLogModel).where(EventLogModel.workspace_id == gid, workspace_events_clause())
             # Other members' AI-run events are admin-only, like the event log.
             visible = visible_events_clause(sees_all=user_sees_every_run(self.user, gid), user_id=self.user.id)
             if visible is not None:

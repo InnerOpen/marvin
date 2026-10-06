@@ -2,7 +2,8 @@
 Platform endpoints for querying event logs.
 
 Provides read-only access to the event audit trail for workspace members.
-Events can be filtered by type, entity, user, and date range.
+Events can be filtered by type, entity, user, and date range. Platform-scope events (sign-ups, workspaces
+created by a platform admin, …) are left out on every route here; the admin Events page lists them.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -200,8 +201,13 @@ class EventsController(BaseUserController):
             HTTPException: 404 if event not found or not in current workspace
         """
         from marvin.services.ai.executions import may_see_event
+        from marvin.services.events.event_catalog import is_platform_event
 
         event = self.repos.event_log.get_by_event_id(event_id)
+
+        # A platform event (the admin Events page's) isn't in the workspace's log: the same 404 as a missing one.
+        if event and is_platform_event(event.event_type):
+            event = None
 
         # Another member's AI-run event, below ADMIN, is the same 404 as a missing one.
         if event and event.workspace_id == self.group_id and not may_see_event(event, sees_all=self._sees_all_runs(), user_id=self.user.id):

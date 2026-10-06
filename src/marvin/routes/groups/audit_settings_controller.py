@@ -3,8 +3,9 @@ Workspace audit settings: which event types the Event Log records.
 
 Reading and changing the settings is ADMIN/OWNER (the gate every workspace-management route uses); any member
 may read which types are left out, which is what the Event Log page tells everyone. Security events are locked:
-always audited, refused here with a 409. A change is itself recorded as `workspace_settings_changed`, a locked
-type, so switching auditing off always leaves a trace.
+always audited, refused here with a 409. Platform events (the admin Events page's) aren't listed and are refused
+with a 422. A change is itself recorded as `workspace_settings_changed`, a locked type, so switching auditing
+off always leaves a trace.
 """
 
 from fastapi import APIRouter, HTTPException, status
@@ -40,11 +41,12 @@ class AuditSettingsController(BaseUserController):
     @router.patch("", response_model=list[AuditEventSetting], summary="Change event types' audit settings")
     def update_audit_settings(self, data: AuditSettingsUpdate):
         """Record (`true`) or skip (`false`) event types, or put them back to the default (`null`). Types left
-        out keep their setting. An unknown type is a 422; a locked (security) type a 409; nothing is saved then."""
+        out keep their setting. An unknown or platform type is a 422; a locked (security) type a 409; nothing is saved
+        then."""
         require_workspace_admin(self.user, self.group_id)
         try:
             _, changed = audit_settings.apply_changes(self.session, self.group_id, data.overrides)
-        except audit_settings.UnknownEventTypes as e:
+        except (audit_settings.UnknownEventTypes, audit_settings.PlatformEventTypes) as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
         except audit_settings.LockedEventTypes as e:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e

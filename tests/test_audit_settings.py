@@ -4,7 +4,8 @@ The catalog sets each type's default (`audited`); a workspace override wins over
 (security) types, which are always audited, as is any type the catalog doesn't know. The listener reads the
 overrides through a per-workspace cache that a write drops, and audits if the read fails. The API is
 ADMIN/OWNER (the excluded list any member), refuses unknown (422) and locked (409) types, and records the
-change itself as `workspace_settings_changed`, which is locked.
+change itself as `workspace_settings_changed`, which is locked. Platform-scope types (the admin Events page's)
+aren't workspace settings at all: never listed, refused (422), always audited.
 """
 
 import uuid
@@ -20,7 +21,7 @@ from marvin.db.models.users.roles import PlatformRole, WorkspaceRole
 from marvin.services.event_bus_service.event_bus_listener import AuditLogListener
 from marvin.services.event_bus_service.event_types import Event, EventBusMessage, EventTypes
 from marvin.services.events import audit_settings
-from marvin.services.events.event_catalog import CATALOG, get_catalog_entry
+from marvin.services.events.event_catalog import CATALOG, PLATFORM_EVENT_TYPES, get_catalog_entry
 
 URL = "/api/groups/audit-settings"
 V, A, E, AD, OW = WorkspaceRole.VIEWER, WorkspaceRole.AUTHOR, WorkspaceRole.EDITOR, WorkspaceRole.ADMIN, WorkspaceRole.OWNER
@@ -136,6 +137,10 @@ def test_a_locked_entry_is_audited_by_default():
     assert [e.event_type for e in CATALOG if e.audit_locked and not e.audited] == []
 
 
+def test_platform_events_are_locked():
+    assert PLATFORM_EVENT_TYPES and all(get_catalog_entry(t).audit_locked for t in PLATFORM_EVENT_TYPES)
+
+
 # ── listener ────────────────────────────────────────────────────────────────
 
 
@@ -230,17 +235,28 @@ def test_a_rejected_change_saves_nothing(workspace, db_session):
         audit_settings.apply_changes(db_session, workspace.gid, {ON: False, "member_added": False})
     with pytest.raises(audit_settings.UnknownEventTypes):
         audit_settings.apply_changes(db_session, workspace.gid, {ON: False, "not_an_event": False})
+    with pytest.raises(audit_settings.PlatformEventTypes):
+        audit_settings.apply_changes(db_session, workspace.gid, {ON: False, "backup_started": False})
+    assert audit_settings.read_overrides(db_session, workspace.gid) == {}
+
+
+def test_listener_always_audits_a_platform_type(workspace, db_session):
+    # backup_started sits in System (not a locked category): only its platform scope keeps it on.
+    _store(db_session, workspace.gid, {"backup_started": False, "user_signup": False})
+    assert _audited(workspace.gid, "backup_started")
+    assert _audited(workspace.gid, "user_signup")
     assert audit_settings.read_overrides(db_session, workspace.gid) == {}
 
 
 # ── API ─────────────────────────────────────────────────────────────────────
 
 
-def test_get_lists_every_catalog_type(workspace):
+def test_get_lists_every_workspace_catalog_type(workspace):
     res = _sign_in(workspace, AD).get(URL)
     assert res.status_code == 200, res.text
     rows = {r["eventType"]: r for r in res.json()}
-    assert set(rows) == {e.event_type for e in CATALOG}
+    assert set(rows) == {e.event_type for e in CATALOG if e.scope == "workspace"}
+    assert not set(rows) & PLATFORM_EVENT_TYPES
     assert rows[ON] == {"eventType": ON, "name": "Entry Updated", "category": "Content", "defaultAudited": True, "audited": True, "locked": False}
     assert rows[OFF]["defaultAudited"] is False and rows[OFF]["audited"] is False
     assert rows["member_added"]["locked"] is True and rows["member_added"]["audited"] is True
@@ -265,6 +281,13 @@ def test_patch_refuses_a_locked_type(workspace):
     res = _sign_in(workspace, AD).patch(URL, json={"overrides": {"member_role_changed": False}})
     assert res.status_code == 409
     assert "member_role_changed" in res.json()["detail"]
+
+
+@pytest.mark.parametrize("event_type", ["user_signup", "workspace_created", "backup_completed"])
+def test_patch_refuses_a_platform_type(workspace, event_type):
+    res = _sign_in(workspace, AD).patch(URL, json={"overrides": {ON: False, event_type: False}})
+    assert res.status_code == 422
+    assert event_type in res.json()["detail"] and "Not a workspace event" in res.json()["detail"]
 
 
 def test_patch_refuses_an_unknown_type(workspace):
@@ -325,4 +348,5 @@ def test_any_member_reads_the_excluded_list(workspace):
     assert res.status_code == 200, res.text
     excluded = {r["eventType"] for r in res.json()}
     assert excluded == {e.event_type for e in CATALOG if not e.audited and not e.audit_locked}
+    assert not excluded & PLATFORM_EVENT_TYPES
     assert set(res.json()[0]) == {"eventType", "name", "category"}
