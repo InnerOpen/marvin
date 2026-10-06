@@ -27,9 +27,10 @@ config:
   production: true      # OpenShift's random UID can't write /app/dev (dev mode); dev uses DATA_DIR too
   logLevel: INFO
   dbEngine: postgres
-  corsOrigins: "https://marvin-marvin-dev.apps.ocp4.iwobble.com"
-  # publicApiUrl derives from route.api.host below. Switch both to dev.api.iwobble.com / dev.admin.iwobble.com
-  # once those tunnel hostnames exist (tasks/todo.md, "Hostnames").
+  # Public tunnel hosts (Cloudflare, one level deep so the free *.iwobble.com certificate covers them):
+  # admin-dev.iwobble.com → UI, api-dev.iwobble.com → API. The LAN .apps routes below keep working.
+  publicApiUrl: https://api-dev.iwobble.com
+  corsOrigins: "https://admin-dev.iwobble.com,https://marvin-marvin-dev.apps.ocp4.iwobble.com"
 
 # Postgres: CloudNativePG cluster `marvin-dev-pg` (Secret `marvin-dev-pg-app` → POSTGRES_*).
 postgres:

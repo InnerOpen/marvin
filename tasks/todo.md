@@ -312,8 +312,9 @@ production's SQLite-on-NFS is the known weak point (the 2026-09-11 502s; backend
       To do: merge, Secret `marvin-r2-backup` (bucket `marvin-backups-dev`) from `pass`, `helm upgrade --install`,
       load production with `--pause-outbound`, first backup + restore test (runbook "The marvin-dev environment").
       Up 2026-10-06 (helm rev 1): cluster `marvin-dev-pg` healthy; loaded from production's latest hourly dump + config + assets (Job `marvin-load-prod-copy`: offsite_backup restore from `marvin-backups`, `pg_restore --clean --single-transaction`, then `--pause-outbound` → 74 rows paused). Admin `marvin-marvin-dev.apps.ocp4.iwobble.com`, API `marvin-api-marvin-dev…` (LAN). First backup to `marvin-backups-dev` OK.
-- [ ] **Hostnames:** `dev.admin.iwobble.com` + `dev.api.iwobble.com` as Public Hostnames on the existing cloudflared
-      tunnel → `marvin-dev` services (cross-namespace service DNS). Dev `noindex`/not for real users.
+- [x] **Hostnames** (2026-10-06): `admin-dev.iwobble.com` + `api-dev.iwobble.com` on the cloudflared tunnel (one level deep,
+      so the free `*.iwobble.com` certificate covers them — `dev.admin.…` would need Advanced Certificate Manager).
+      values-dev pins `publicApiUrl` + `corsOrigins` to them. Still to do (Jared): Cloudflare Access in front of both.
 - [x] **Full SQLite → Postgres data copy:** `python -m marvin.scripts.sqlite_to_postgres` (in the backend image):
       alembic head, same revision both sides, every value checked against the Postgres column type first, then one
       transaction (truncate, drop FKs, copy, re-create FKs, reset sequences, verify counts + per-table content
