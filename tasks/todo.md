@@ -1674,21 +1674,31 @@ paths and schemas; MarvinSDK lint, `tsc --noEmit`, 185/185 tests.
   reactions, then each workspace's own, grouped) and the chain; the filtered log below is its Recent.
 - Event Log: `?event=<id>` highlights and expands that row (or says it's older than the 100 shown);
   `#audit-coverage` opens that section.
+- Platform events off the workspace side (Jared 2026-10-06, after review): `GET /api/event/types` skips
+  `scope == "platform"`, so the Events list, the event page (a platform type's link redirects to the list), the
+  webhook / email / integration pickers and the email template page offer none of the 7. Workflow triggers and
+  Emit event never offered them (now tested). Marvin's welcome / password-reset / invitation emails still send with
+  no subscription (tested per template). OpenAPI unchanged (the filter is in the body), so no SDK change.
 - Shared: `lib/eventConnections.ts` (types, grouping, managed-here rule, dot state, tooltip, dates, links,
-  `?trigger=` parsing, platform-type fallback) + `components/events/ConnectionRow|ConnectionGroup|ConnState.astro`.
+  `?trigger=` parsing) + `components/events/ConnectionRow|ConnectionGroup|ConnState.astro`.
   Server strings only through Astro JSX / textContent; the event page's integration modal now builds its options
   as DOM nodes too.
 
 **Departures (Jared's call):**
-- Platform event types still appear in the workspace catalog (7: sign-ups, workspaces); the summary has no row for
-  them, so they show no dot. Their event page builds What happens from the old lists (emails incl. the system
-  welcome/reset email, webhooks, integration actions) and points Sent by at Admin → Events.
 - The Subscribe "menu" opens inline under What happens rather than as a popover (works the same at 390px).
 - Admin panel has no separate Recent list: the type-filtered log under it is that.
 - Also fixed on the way: workflow card buttons wrapped at 390px (3px horizontal scroll before).
 
-**Verified.** `npm test` 457/457 (develop 439; +18 in `lib/eventConnections.test.mjs`); biome clean on the 11
-touched/new files; `astro check` 51 errors (= develop), hints unchanged; `mkdocs build --strict` clean. Live on SQLite
+- The email template page's welcome / password-reset override (a workspace template on `user_signup` /
+  `user_password_reset_requested`) is still there, but those events no longer appear in its event list or variable
+  hints. Production has no such override. Removing the override path (or keeping it with its own variable list) is
+  open.
+
+**Verified.** `npm test` 454/454 (develop 439; +15 in `lib/eventConnections.test.mjs`); biome clean on the 11
+touched/new files; `astro check` 51 errors / 69 hints (= develop); `mkdocs build --strict` clean. Backend:
+3078 passed / 6 skipped with the integration SDK (0.6.0), 2775 / 170 without (+4 in
+`tests/test_event_connections.py`: workspace pickers and triggers offer no platform type; the three system emails
+send with no subscription); ruff clean; OpenAPI identical to develop. Live on SQLite
 + `astro dev` + headless Chromium (integration SDK + Slack plugin in the worktree venv so the integrations list
 answers), seeded with a Buttondown-installed workflow on entry_published, own workflows on entry_updated (one off),
 a webhook on webhook_triggered, an email subscription, an incoming webhook → Emit event workflow, entries
@@ -1696,7 +1706,9 @@ published/updated, `collection_created` audited off. As workspace admin: entry_p
 webhook_triggered / site_deployment_completed / collection_created / user_signup pages as described; catalog 5
 active dots; **+ New workflow on this event** → builder with Event / entry_published set → saved, listed on the event
 page; absent on webhook_triggered; Recent → Event Log row expanded; Audit coverage link opens it; Workflows badge
-"Installed by Buttondown". As super admin: `/admin/events?type=user_signup` and `workspace_created` panels. No
+"Installed by Buttondown". After hiding platform types: the list shows 83 types and none of the 7,
+`/automation/events/user_signup` and `/workspace_created` redirect to the list, the new-webhook picker offers none.
+As super admin: `/admin/events?type=user_signup` and `workspace_created` panels. No
 console errors, no 4xx/5xx, no horizontal scroll at 390px; light + dark. Screenshots in the job's
 `events-ui-shots/`.
 
