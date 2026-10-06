@@ -1401,14 +1401,14 @@ class TestGeneralizedTriggers:
         assert seen == {"method": "GET", "url": "https://example.test/subscribers/abc"}
 
     def test_curated_catalog_excludes_noise(self):
-        from marvin.services.automation.triggers import TRIGGER_EVENT_NAMES_SET
+        from marvin.services.events.event_catalog import TRIGGERABLE_EVENT_TYPES
 
-        assert "asset_uploaded" in TRIGGER_EVENT_NAMES_SET
-        assert "entry_published" in TRIGGER_EVENT_NAMES_SET
+        assert "asset_uploaded" in TRIGGERABLE_EVENT_TYPES
+        assert "entry_published" in TRIGGERABLE_EVENT_TYPES
         # A site's signup/contact forms are the most common thing to react to.
-        assert "form_submission_received" in TRIGGER_EVENT_NAMES_SET
+        assert "form_submission_received" in TRIGGERABLE_EVENT_TYPES
         for noise in ("ai_operation_executed", "ai_embeddings_reindexed", "webhook_task", "scheduled_task_completed", "automation_ran"):
-            assert noise not in TRIGGER_EVENT_NAMES_SET
+            assert noise not in TRIGGERABLE_EVENT_TYPES
 
 
 # ── Entry actions (publish/unpublish/archive/restore) ─────────────────────────

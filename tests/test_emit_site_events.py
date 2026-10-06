@@ -51,19 +51,15 @@ def test_the_feed_shows_a_deploy_failure_reason():
     assert _detail({"documentData": {"errorMessage": "Build exited 1"}}) == "Build exited 1"
 
 
-def test_site_events_are_offered_as_triggers_and_subscriptions():
-    # They were gated as "no emitter" because emit_event matched them by prefix, so "site deployed"
-    # could not start a workflow or a notification.
-    from marvin.services.automation.actions.emit_event import SITE_EVENTS
-    from marvin.services.events.event_catalog import CATALOG
-
-    subscribable = {c.event_type for c in CATALOG if c.enabled}
-    assert SITE_EVENTS <= subscribable
+SITE_EVENTS = {f"site_{kind}_{status}" for kind in ("build", "deployment") for status in ("started", "completed", "failed")}
 
 
-def test_site_events_can_trigger_a_workflow():
-    # "deploy failed" → tell someone: the curated trigger list is a separate allowlist from the catalog.
-    from marvin.services.automation.actions.emit_event import SITE_EVENTS
-    from marvin.services.automation.triggers import TRIGGER_EVENT_NAMES_SET
+def test_site_events_are_emittable_triggers_and_subscriptions():
+    # They were gated as "no emitter" because emit_event matched them by prefix, so "site deployed" could not
+    # start a workflow or a notification. Now the catalog says it: the Emit event step sends them, a workflow
+    # can start on them ("deploy failed" → tell someone), and they're offered for subscription.
+    from marvin.services.events.event_catalog import CATALOG_BY_TYPE
 
-    assert SITE_EVENTS <= TRIGGER_EVENT_NAMES_SET
+    for name in SITE_EVENTS:
+        entry = CATALOG_BY_TYPE[name]
+        assert entry.emittable and entry.triggerable and entry.enabled, name

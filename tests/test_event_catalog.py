@@ -29,7 +29,8 @@ def _referenced_in_code() -> set[str]:
 
 
 def test_every_subscribable_catalog_entry_has_an_emitter():
-    ref = _referenced_in_code()
+    # A workflow's Emit event step sends the catalog's `emittable` events by name (no EventTypes.X reference).
+    ref = _referenced_in_code() | {c.event_type for c in CATALOG if c.emittable}
     offenders = sorted(c.event_type for c in CATALOG if c.enabled and c.event_type not in ref)
     assert not offenders, (
         f"These events are advertised for subscription but nothing emits them — add a dispatch site or gate them in _NO_EMITTER: {offenders}"

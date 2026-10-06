@@ -106,6 +106,7 @@ class AutomationOptions(_MarvinModel):
     trigger_types: list[str] = []  # event | manual (schedule/webhook/chat/mcp/… as they land)
     triggers: list[str] = []  # event names, for trigger_type="event" (flat, all groups)
     trigger_groups: dict[str, list[str]] = {}  # same event names grouped (Entries/Assets/…) for the picker
+    emittable: list[str] = []  # event names the emit_event step offers (the event catalog's `emittable`)
     condition_ops: list[str] = []  # eq | neq | contains | exists
     # Suggested condition fields per trigger type — so the builder offers the right fields and can't
     # silently pair an entry.* condition with a trigger that has no entry.

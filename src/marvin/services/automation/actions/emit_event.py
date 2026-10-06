@@ -15,22 +15,9 @@ Supported families:
 import uuid
 
 from marvin.services.event_bus_service.event_types import EventTypes
+from marvin.services.events.event_catalog import EMITTABLE_EVENT_TYPES
 
 from .base import AutomationActionError, register_action
-
-# Named one by one (not matched by prefix) so the event catalog's emitter check sees that these events
-# have a real emitter and offers them as workflow triggers and notification subscriptions.
-SITE_EVENTS = frozenset(
-    e.name
-    for e in (
-        EventTypes.site_build_started,
-        EventTypes.site_build_completed,
-        EventTypes.site_build_failed,
-        EventTypes.site_deployment_started,
-        EventTypes.site_deployment_completed,
-        EventTypes.site_deployment_failed,
-    )
-)
 
 
 @register_action("emit_event")
@@ -50,11 +37,11 @@ def run_emit_event(session, group_id, action, context, *, user_id=None, authoriz
     except KeyError as e:
         raise AutomationActionError(f"unknown event type '{ev_name}'") from e
 
-    depth = int(context.get("depth", 0)) + 1
-    if ev_name in SITE_EVENTS:
-        return _emit_site_event(group_id, action, context, event_type, ev_name, depth, user_id, dry_run)
-    if not ev_name.startswith("entry_"):
+    if ev_name not in EMITTABLE_EVENT_TYPES:  # the catalog's `emittable` — entry_* and site build/deploy events
         raise AutomationActionError(f"emit_event supports entry_* and site_build_* / site_deployment_* events, not '{ev_name}'")
+    depth = int(context.get("depth", 0)) + 1
+    if ev_name.startswith("site_"):
+        return _emit_site_event(group_id, action, context, event_type, ev_name, depth, user_id, dry_run)
     entry_ctx = context.get("entry") or {}
     raw_id = interpolate(action.get("entity_id", "$event.entry_id"), context)
     try:

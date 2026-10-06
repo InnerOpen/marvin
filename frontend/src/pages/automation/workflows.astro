@@ -344,10 +344,6 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
   const KIND_ORDER = ["operation", "entry", "handler", "webhook", "integration", "emit_event"];
-  const SITE_EVENTS = [
-    "site_build_started", "site_build_completed", "site_build_failed",
-    "site_deployment_started", "site_deployment_completed", "site_deployment_failed",
-  ];
   const orderedKinds = (): string[] => {
     const avail = OPTIONS.actionKinds || [];
     return KIND_ORDER.filter((k) => avail.includes(k)).concat(avail.filter((k: string) => !KIND_ORDER.includes(k)));
@@ -597,9 +593,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         wrap.querySelector(".a-target-hint")!.innerHTML = TARGET_MODE_HINTS[modeSel.value];
       });
     } else if (kind === "emit_event") {
-      // What a step may emit (services/automation/actions/emit_event.py): entry lifecycle events, and site
-      // build/deploy events — e.g. a host's "deploy failed" notification turned into Marvin's own event.
-      const emittable = [...(OPTIONS.triggers || []).filter((t: string) => t.startsWith("entry_")), ...SITE_EVENTS];
+      // What a step may emit (the event catalog's `emittable`): entry lifecycle events, and site build/deploy
+      // events — e.g. a host's "deploy failed" notification turned into Marvin's own event.
+      const emittable = [...(OPTIONS.emittable || [])];
       if (a.event && !emittable.includes(a.event)) emittable.unshift(a.event);
       const evs = emittable.map((t: string) => `<option value="${esc(t)}" ${a.event === t ? "selected" : ""}>${esc(prettyEvent(t))}</option>`).join("");
       wrap.innerHTML = `<select class="input a-event">${evs}</select>

@@ -20,7 +20,7 @@ from abc import ABC, abstractmethod  # For abstract base classes
 from collections.abc import Generator  # For generator type hints
 from datetime import UTC, datetime  # For datetime operations
 from logging import Logger
-from typing import Any, cast  # For type casting
+from typing import Any, ClassVar, cast  # For type casting
 
 from fastapi.encoders import jsonable_encoder  # For encoding Pydantic models to JSON-compatible dicts
 from pydantic import UUID4  # For UUID type hinting
@@ -432,7 +432,29 @@ class WebhookEventListener(EventListenerBase):
             return [WebhookRead.model_validate(db_webhook) for db_webhook in db_webhooks]
 
 
-class ScheduledTaskListener(EventListenerBase):
+class BuiltinReaction(EventListenerBase):
+    """A reaction Marvin ships in code, as opposed to one a person wired up (workflows, webhooks, emails,
+    integration actions). It says what it does (`label`) and which events it reacts to (`reacts_to()`), and
+    `get_subscribers` matches on that same set — so what the Events hub lists can't drift from what runs.
+    `builtin_reactions()` (end of this module) lists them."""
+
+    label: ClassVar[str]
+    """What it does, in a few words ("Queues a site rebuild")."""
+    subscriber: ClassVar[str]
+    """The subscriber name `get_subscribers` returns; the listener acts on the event itself."""
+    REACTS_TO: ClassVar[frozenset[EventTypes]] = frozenset()
+
+    @classmethod
+    def reacts_to(cls) -> frozenset[EventTypes]:
+        """The events it reacts to."""
+        return cls.REACTS_TO
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        """Act only on the events it reacts to; cheap check, no DB access."""
+        return [self.subscriber] if event.event_type in self.reacts_to() else []
+
+
+class ScheduledTaskListener(BuiltinReaction):
     """
     Event listener that executes scheduled tasks when triggered.
 
@@ -444,6 +466,10 @@ class ScheduledTaskListener(EventListenerBase):
     5. Updating task execution state
     """
 
+    label = "Runs the scheduled task"
+    subscriber = "scheduled_task_handler"
+    REACTS_TO = frozenset({EventTypes.scheduled_task_triggered})
+
     def __init__(self, group_id: UUID4) -> None:
         """
         Initializes the ScheduledTaskListener for a specific group.
@@ -454,22 +480,6 @@ class ScheduledTaskListener(EventListenerBase):
         from .publisher import ConsolePublisher  # We don't actually publish anything, but need a publisher
 
         super().__init__(group_id, ConsolePublisher())
-
-    def get_subscribers(self, event: Event) -> list[str]:
-        """
-        Returns a list indicating this listener should handle the event.
-
-        Only subscribes to scheduled_task.triggered events.
-
-        Args:
-            event (Event): The event to check.
-
-        Returns:
-            list[str]: Returns ["scheduled_task_handler"] if this is a triggered event, else empty list.
-        """
-        if event.event_type == EventTypes.scheduled_task_triggered:
-            return ["scheduled_task_handler"]
-        return []
 
     def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
         """
@@ -640,7 +650,7 @@ class ScheduledTaskListener(EventListenerBase):
         )
 
 
-class IndexingReactionListener(EventListenerBase):
+class IndexingReactionListener(BuiltinReaction):
     """
     Reaction listener that keeps the RAG index fresh for every registered indexable type.
 
@@ -660,11 +670,15 @@ class IndexingReactionListener(EventListenerBase):
 
         super().__init__(group_id, ConsolePublisher())
 
-    def get_subscribers(self, event: Event) -> list[str]:
-        """Act only on events some indexable type cares about; cheap check, no DB access."""
+    label = "Refreshes AI search"
+    subscriber = "ai_index"
+
+    @classmethod
+    def reacts_to(cls) -> frozenset[EventTypes]:
+        """Every registered indexable type's index and delete events."""
         from marvin.services.ai.embeddings_registry import trigger_events
 
-        return ["ai_index"] if event.event_type in trigger_events() else []
+        return frozenset(trigger_events())
 
     def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
         from marvin.services.ai.embeddings_registry import delete_descriptor_for, index_descriptor_for
@@ -782,7 +796,7 @@ class IndexingReactionListener(EventListenerBase):
             self.logger.error(f"IndexingReactionListener: failed to emit reindexed event: {e}")
 
 
-class SmartCollectionReactionListener(EventListenerBase):
+class SmartCollectionReactionListener(BuiltinReaction):
     """
     Reaction listener that keeps smart-collection membership in sync.
 
@@ -797,23 +811,23 @@ class SmartCollectionReactionListener(EventListenerBase):
     can never break entry writes.
     """
 
-    _TRIGGERS = (
-        EventTypes.entry_created,
-        EventTypes.entry_updated,
-        EventTypes.entry_published,
-        EventTypes.entry_unpublished,
-        EventTypes.entry_archived,
-        EventTypes.entry_restored,
+    label = "Updates smart collections"
+    subscriber = "smart_collections"
+    REACTS_TO = frozenset(
+        {
+            EventTypes.entry_created,
+            EventTypes.entry_updated,
+            EventTypes.entry_published,
+            EventTypes.entry_unpublished,
+            EventTypes.entry_archived,
+            EventTypes.entry_restored,
+        }
     )
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher  # We act on the event; we don't publish through it.
 
         super().__init__(group_id, ConsolePublisher())
-
-    def get_subscribers(self, event: Event) -> list[str]:
-        """Act only on entry lifecycle events; cheap check, no DB access."""
-        return ["smart_collections"] if event.event_type in self._TRIGGERS else []
 
     def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
         entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id
@@ -837,7 +851,7 @@ class SmartCollectionReactionListener(EventListenerBase):
                 self.logger.warning(f"SmartCollectionReactionListener: sync failed for entry {entry_id}: {e}")
 
 
-class MediaEmbedReactionListener(EventListenerBase):
+class MediaEmbedReactionListener(BuiltinReaction):
     """
     Warms the platform-wide media-embed cache when an entry is saved, so the publishing API (which
     never calls a provider) has titles, thumbnails and players for the entry's media links by the time
@@ -847,17 +861,15 @@ class MediaEmbedReactionListener(EventListenerBase):
     failure is logged and swallowed — it can never break a write. Emits nothing.
     """
 
+    label = "Warms the media-embed cache"
+    subscriber = "media_embeds"
+    REACTS_TO = frozenset({EventTypes.entry_created, EventTypes.entry_updated, EventTypes.entry_published})
     MAX_URLS = 20
-    _TRIGGERS = (EventTypes.entry_created, EventTypes.entry_updated, EventTypes.entry_published)
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher  # We act on the event; we don't publish through it.
 
         super().__init__(group_id, ConsolePublisher())
-
-    def get_subscribers(self, event: Event) -> list[str]:
-        """Act only on entry saves; cheap check, no DB access."""
-        return ["media_embeds"] if event.event_type in self._TRIGGERS else []
 
     def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
         entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id
@@ -886,7 +898,7 @@ class MediaEmbedReactionListener(EventListenerBase):
                 self.logger.warning(f"MediaEmbedReactionListener: resolving links for entry {entry_id} failed: {e}")
 
 
-class SiteRebuildReactionListener(EventListenerBase):
+class SiteRebuildReactionListener(BuiltinReaction):
     """
     Requests a static-site rebuild when published content changes, so a publish, an edit to a live
     entry, a collection change or a site-settings change reaches the site without a workflow.
@@ -932,6 +944,9 @@ class SiteRebuildReactionListener(EventListenerBase):
             EventTypes.workspace_settings_changed,
         }
     )
+    label = "Queues a site rebuild"
+    subscriber = "site_rebuild"
+    REACTS_TO = ENTRY_EVENTS | ALWAYS_EVENTS
     # Leaving 'published' is visible even though the entry no longer is.
     LEAVING_EVENTS = frozenset({EventTypes.entry_unpublished, EventTypes.entry_archived})
     COLLECTION_EVENTS = frozenset({EventTypes.collection_updated, EventTypes.collection_deleted})
@@ -947,9 +962,6 @@ class SiteRebuildReactionListener(EventListenerBase):
         from .publisher import ConsolePublisher
 
         super().__init__(group_id, ConsolePublisher())
-
-    def get_subscribers(self, event: Event) -> list[str]:
-        return ["site_rebuild"] if event.event_type in self.ENTRY_EVENTS or event.event_type in self.ALWAYS_EVENTS else []
 
     def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
         try:
@@ -1077,12 +1089,12 @@ class AutomationReactionListener(EventListenerBase):
 
     def get_subscribers(self, event: Event) -> list[str]:
         from marvin.services.automation.engine import MAX_REACTION_DEPTH
-        from marvin.services.automation.triggers import TRIGGER_EVENT_NAMES_SET
+        from marvin.services.events.event_catalog import TRIGGERABLE_EVENT_TYPES
 
         if getattr(event, "reaction_depth", 0) >= MAX_REACTION_DEPTH:
             return []  # loop-guard: a chain has gone deep enough — stop reacting
         name = event.event_type.name
-        if name in TRIGGER_EVENT_NAMES_SET or name == "incoming_webhook" or name in self._AUTOMATION_EVENT_NAMES:
+        if name in TRIGGERABLE_EVENT_TYPES or name == "incoming_webhook" or name in self._AUTOMATION_EVENT_NAMES:
             return ["automation"]
         return []
 
@@ -1504,3 +1516,19 @@ class IntegrationEventListener(EventListenerBase):
             return value
 
         return {k: render(v) for k, v in (args or {}).items()}
+
+
+BUILTIN_REACTIONS: tuple[type[BuiltinReaction], ...] = (
+    ScheduledTaskListener,
+    IndexingReactionListener,
+    MediaEmbedReactionListener,
+    SiteRebuildReactionListener,
+    SmartCollectionReactionListener,
+)
+"""Every built-in reaction, in the order EventBusService runs them."""
+
+
+def builtin_reactions(event_type: EventTypes | str) -> list[tuple[str, type[BuiltinReaction]]]:
+    """The built-in reactions to an event type (a member or its name), as (label, listener class) pairs."""
+    name = getattr(event_type, "name", event_type)
+    return [(cls.label, cls) for cls in BUILTIN_REACTIONS if name in {e.name for e in cls.reacts_to()}]

@@ -1,5 +1,5 @@
 """
-Event catalog — defines user-subscribable events with their data contracts.
+Event catalog — the one list of facts about each event type.
 
 Each entry describes:
   - name: human-readable event name
@@ -8,6 +8,12 @@ Each entry describes:
   - variables: {{slug}} values available in templates/notifications
   - enabled: whether this event is available for subscription
   - scope: "workspace" (shown in the workspace's Event Log) or "platform" (the admin Events page)
+  - triggerable / trigger_group: whether a workflow can start on it, and under which heading the builder lists it
+  - emittable: whether a workflow's Emit event step may send it
+  - sent_by: what in Marvin sends it; leads_to: the events it causes through Marvin's own code
+
+Everything else that needs one of these lists reads it from here (the workflow trigger allowlist, the
+emit_event action, the builder's menus); tests/test_event_catalog_facts.py keeps them honest.
 """
 
 from dataclasses import dataclass, field
@@ -43,6 +49,28 @@ class CatalogEntry:
     """Whose event it is. "platform" events (sign-ups, workspaces created by a platform admin, personal tokens…)
     are still stored with the workspace they touched, but only the super-admin Events page shows them; the
     workspace's Event Log, activity feeds and audit settings leave them out. Set by the platform gate below."""
+    triggerable: bool = False
+    """A workflow can start on it (an "event" trigger): the builder's trigger dropdown offers it and the
+    automation listener reacts to it. Curated, not the whole firehose: only events that are actually sent and
+    worth reacting to. Left out on purpose: internal/audit noise (AI runs, reindexing, deliveries,
+    scheduled_task_*, webhook_task, auth, budgets), automation_ran/automation_failed (they drive the chained /
+    on_error trigger types instead), automation_started (a workflow reacting to runs starting — its own
+    included — would loop) and site_rebuild_queued (rebuild progress, not content). A triggerable event's
+    `document_data` is flattened into `$event.*`, so conditions can key on its fields."""
+    trigger_group: str | None = None
+    """The heading the builder lists a triggerable event under, when it isn't `category` ("Entries",
+    "Collections", … split the Content category the way the dropdown reads best)."""
+    emittable: bool = False
+    """A workflow's Emit event step may send it (services/automation/actions/emit_event.py): entry_* events,
+    built from the entry in the workflow's context, and site build/deploy events — e.g. a host's "deploy
+    failed" notification turned into Marvin's own event. The emitted event carries reaction_depth + 1."""
+    sent_by: list[str] = field(default_factory=list)
+    """What in Marvin sends it, one short line per sender, written from the dispatch sites. Workflows that
+    send it (an Emit event step, an integration's blueprint) are data, not listed here. Empty only for an
+    event nothing sends (_NO_EMITTER)."""
+    leads_to: list[str] = field(default_factory=list)
+    """Event types this one causes through Marvin's own code (built-in reactions, the scheduler), e.g.
+    entry_published → site_rebuild_queued → webhook_triggered. What workflows cause is data, not listed here."""
 
 
 COMMON_VARS = [
@@ -62,6 +90,7 @@ CATALOG: list[CatalogEntry] = [
         name="Invitation Created",
         description="A workspace invitation link was created.",
         category="Members",
+        sent_by=["Creating an invitation link (Members settings, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("invitation_url", "Invitation link", "https://...", type="url"),
@@ -73,6 +102,7 @@ CATALOG: list[CatalogEntry] = [
         name="Invitation Sent",
         description="A user has been invited to join the workspace.",
         category="Members",
+        sent_by=["Emailing an invitation (Members settings, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("invitation_url", "Link for the recipient to accept the invite", "https://...", type="url"),
@@ -85,6 +115,7 @@ CATALOG: list[CatalogEntry] = [
         name="Invitation Accepted",
         description="A user accepted their workspace invitation.",
         category="Members",
+        sent_by=["Signing up with an invitation link"],
         variables=COMMON_VARS
         + [
             EventVariable("username", "Username of the new member", "jsmith", type="username"),
@@ -96,6 +127,7 @@ CATALOG: list[CatalogEntry] = [
         name="Invitation Revoked",
         description="A workspace invitation was revoked.",
         category="Members",
+        sent_by=["Revoking an invitation (Members settings, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("inviter_name", "Who revoked the invitation", "Jane Smith", type="name"),
@@ -107,6 +139,7 @@ CATALOG: list[CatalogEntry] = [
         name="Member Added",
         description="A new member joined the workspace.",
         category="Members",
+        sent_by=["Adding a member (workspace Members settings, admin Workspaces page, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("username", "Username of the new member", "jsmith", type="username"),
@@ -119,6 +152,7 @@ CATALOG: list[CatalogEntry] = [
         name="Member Role Changed",
         description="A workspace member's role was updated.",
         category="Members",
+        sent_by=["Changing a member's role (workspace Members settings, admin Workspaces page, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("username", "Username of the member", "jsmith", type="username"),
@@ -131,6 +165,7 @@ CATALOG: list[CatalogEntry] = [
         name="Member Removed",
         description="A member was removed from the workspace.",
         category="Members",
+        sent_by=["Removing a member (workspace Members settings, admin Workspaces page, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("username", "Username of the removed member", "jsmith", type="username"),
@@ -143,6 +178,7 @@ CATALOG: list[CatalogEntry] = [
         name="New User Signup",
         description="A new user account was created.",
         category="Authentication",
+        sent_by=["Signing up"],
         variables=COMMON_VARS
         + [
             EventVariable("username", "Username of the new user", "jsmith", type="username"),
@@ -175,6 +211,7 @@ CATALOG: list[CatalogEntry] = [
         name="Password Reset Requested",
         description="A user requested a password reset.",
         category="Authentication",
+        sent_by=["Asking for a password reset link"],
         variables=[
             EventVariable("username", "Username requesting the reset", "jsmith", type="username"),
             EventVariable("reset_url", "Password reset link", "https://...", type="url"),
@@ -195,6 +232,7 @@ CATALOG: list[CatalogEntry] = [
         name="Access Token Refreshed",
         description="A signed-in user's access token was renewed.",
         category="Authentication",
+        sent_by=["Refreshing a signed-in session's token"],
         variables=COMMON_VARS
         + [
             EventVariable("username", "Username whose token was renewed", "jsmith", type="username"),
@@ -206,6 +244,7 @@ CATALOG: list[CatalogEntry] = [
         name="Workspace Created",
         description="A new workspace was created.",
         category="Workspaces",
+        sent_by=["A platform admin creating a workspace"],
         variables=COMMON_VARS
         + [
             EventVariable("creator_name", "Name of the user who created the workspace", "Jane Smith", type="name"),
@@ -216,6 +255,7 @@ CATALOG: list[CatalogEntry] = [
         name="Workspace Updated",
         description="A workspace's name or configuration was updated.",
         category="Workspaces",
+        sent_by=["A platform admin editing a workspace"],
         variables=COMMON_VARS
         + [
             EventVariable("workspace_slug", "URL slug of the workspace", "my-blog", type="slug"),
@@ -226,6 +266,7 @@ CATALOG: list[CatalogEntry] = [
         name="Workspace Deleted",
         description="A workspace was permanently deleted.",
         category="Workspaces",
+        sent_by=["A platform admin deleting a workspace"],
         variables=COMMON_VARS + [],
     ),
     CatalogEntry(
@@ -233,6 +274,7 @@ CATALOG: list[CatalogEntry] = [
         name="Workspace Activated",
         description="A user switched to this workspace.",
         category="Workspaces",
+        sent_by=["Switching to a workspace"],
         variables=COMMON_VARS + [],
     ),
     CatalogEntry(
@@ -240,6 +282,8 @@ CATALOG: list[CatalogEntry] = [
         name="Workspace Settings Changed",
         description="Workspace preferences or settings were modified.",
         category="Workspaces",
+        sent_by=["Saving workspace preferences", "Changing which events the Event Log records"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("changed_by_name", "Name of the user who changed settings", "Jane Smith", type="name"),
@@ -252,6 +296,15 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Created",
         description="A new content entry was created.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=[
+            "Creating an entry (app, API, CLI)",
+            "Composing an entry with AI (AI operations, assistant, MCP)",
+            "A site visitor's form submission, stored as an inbox entry",
+            "An integration task storing fetched records as entries",
+        ],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "Draft Post", type="title"),
@@ -263,6 +316,16 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Updated",
         description="A content entry was updated.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=[
+            "Saving an entry (app, API, CLI)",
+            "Every status change (publish, unpublish, archive, restore), wherever it's made",
+            "Applying or revising an entry with AI (AI suggestions, revise operations, assistant, MCP)",
+            "An integration action failing on an entry (flags it for review)",
+        ],
+        leads_to=["site_rebuild_queued", "ai_embeddings_reindexed"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "My Post", type="title"),
@@ -274,6 +337,11 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Published",
         description="A content entry was published.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Publishing an entry (app, API, CLI)", "The Publish Scheduled Entries task (an entry's publish date)"],
+        leads_to=["site_rebuild_queued", "ai_embeddings_reindexed"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the published entry", "My Post", type="title"),
@@ -287,6 +355,11 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Unpublished",
         description="A published entry was taken offline.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Unpublishing an entry (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "My Post", type="title"),
@@ -298,6 +371,11 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Archived",
         description="An entry was archived.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Archiving an entry (app, API, CLI)", "The Unpublish Expired Entries task (an entry's expiry date)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the archived entry", "Old Post", type="title"),
@@ -309,6 +387,10 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Restored",
         description="An archived entry was restored.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Restoring an archived entry (app, API, CLI)"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the restored entry", "My Post", type="title"),
@@ -322,6 +404,10 @@ CATALOG: list[CatalogEntry] = [
         description="An entry's Scheduled Publish time arrived but it wasn't published: it doesn't meet its type's "
         "requirements (or its expiration date has passed), or the workspace publishes only approved entries on schedule.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["The Publish Scheduled Entries task, when an entry can't publish yet"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the waiting entry", "October newsletter", type="title"),
@@ -336,6 +422,11 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Deleted",
         description="A content entry was permanently deleted.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Deleting an entry (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the deleted entry", "Old Post", type="title"),
@@ -348,6 +439,9 @@ CATALOG: list[CatalogEntry] = [
         name="Collection Created",
         description="A new collection was created.",
         category="Content",
+        trigger_group="Collections",
+        triggerable=True,
+        sent_by=["Creating a collection (app, API, CLI)"],
         variables=COMMON_VARS
         + [
             EventVariable("collection_name", "Name of the collection", "Featured Posts", type="name"),
@@ -358,6 +452,10 @@ CATALOG: list[CatalogEntry] = [
         name="Collection Updated",
         description="A collection was updated.",
         category="Content",
+        trigger_group="Collections",
+        triggerable=True,
+        sent_by=["Editing a collection or reordering its entries (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("collection_name", "Name of the collection", "Featured Posts", type="name"),
@@ -368,6 +466,10 @@ CATALOG: list[CatalogEntry] = [
         name="Collection Deleted",
         description="A collection was permanently deleted.",
         category="Content",
+        trigger_group="Collections",
+        triggerable=True,
+        sent_by=["Deleting a collection (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("collection_name", "Name of the deleted collection", "Featured Posts", type="name"),
@@ -378,6 +480,11 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Added to Collection",
         description="An entry was added to a collection.",
         category="Content",
+        trigger_group="Collections",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Adding an entry to a collection (app, API, CLI, AI assistant, MCP)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "My Post", type="title"),
@@ -389,6 +496,11 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Removed from Collection",
         description="An entry was removed from a collection.",
         category="Content",
+        trigger_group="Collections",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Removing an entry from a collection (app, API, CLI, AI assistant, MCP)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "My Post", type="title"),
@@ -400,6 +512,11 @@ CATALOG: list[CatalogEntry] = [
         name="Resource Attached to Entry",
         description="A reusable resource (material, technique, supplier, …) was attached to an entry.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Attaching a resource to an entry (AI assistant, MCP)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "My Post", type="title"),
@@ -411,6 +528,11 @@ CATALOG: list[CatalogEntry] = [
         name="Resource Detached from Entry",
         description="A reusable resource was detached from an entry.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Detaching a resource from an entry (AI assistant, MCP)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "My Post", type="title"),
@@ -422,6 +544,11 @@ CATALOG: list[CatalogEntry] = [
         name="Tag Attached to Entry",
         description="A tag was attached to an entry.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Tagging an entry (AI assistant, MCP)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "My Post", type="title"),
@@ -433,6 +560,11 @@ CATALOG: list[CatalogEntry] = [
         name="Tag Detached from Entry",
         description="A tag was detached from an entry.",
         category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Untagging an entry (AI assistant, MCP)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the entry", "My Post", type="title"),
@@ -445,6 +577,10 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Type Created",
         description="A new content type schema was created.",
         category="Content",
+        trigger_group="Entry types",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Creating an entry type (app, API, CLI)"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_type_name", "Name of the entry type", "Blog Post", type="name"),
@@ -456,6 +592,10 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Type Updated",
         description="A content type schema was updated.",
         category="Content",
+        trigger_group="Entry types",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Editing an entry type (app, API, CLI)"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_type_name", "Name of the entry type", "Blog Post", type="name"),
@@ -467,6 +607,10 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Type Deleted",
         description="A content type schema was permanently deleted.",
         category="Content",
+        trigger_group="Entry types",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Deleting an entry type (app, API, CLI)"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_type_name", "Name of the entry type", "Blog Post", type="name"),
@@ -479,6 +623,10 @@ CATALOG: list[CatalogEntry] = [
         name="Resource Created",
         description="A new resource link was added.",
         category="Content",
+        trigger_group="Resources",
+        triggerable=True,
+        sent_by=["Creating a resource (app, API, CLI)"],
+        leads_to=["ai_embeddings_reindexed"],
         variables=COMMON_VARS
         + [
             EventVariable("resource_name", "Name of the resource", "API Docs", type="name"),
@@ -490,6 +638,10 @@ CATALOG: list[CatalogEntry] = [
         name="Resource Updated",
         description="A resource link was updated.",
         category="Content",
+        trigger_group="Resources",
+        triggerable=True,
+        sent_by=["Editing a resource (app, API, CLI)", "Tagging or untagging a resource (AI assistant, MCP)"],
+        leads_to=["site_rebuild_queued", "ai_embeddings_reindexed"],
         variables=COMMON_VARS
         + [
             EventVariable("resource_name", "Name of the resource", "API Docs", type="name"),
@@ -501,6 +653,10 @@ CATALOG: list[CatalogEntry] = [
         name="Resource Deleted",
         description="A resource link was deleted.",
         category="Content",
+        trigger_group="Resources",
+        triggerable=True,
+        sent_by=["Deleting a resource (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("resource_name", "Name of the deleted resource", "API Docs", type="name"),
@@ -512,6 +668,9 @@ CATALOG: list[CatalogEntry] = [
         name="Asset Uploaded",
         description="A new file or media asset was uploaded.",
         category="Assets",
+        triggerable=True,
+        sent_by=["Uploading an asset (app, API, CLI)"],
+        leads_to=["ai_embeddings_reindexed"],
         variables=COMMON_VARS
         + [
             EventVariable("asset_name", "Filename of the uploaded asset", "photo.jpg", type="name"),
@@ -524,6 +683,9 @@ CATALOG: list[CatalogEntry] = [
         name="Asset Updated",
         description="An asset's metadata was updated.",
         category="Assets",
+        triggerable=True,
+        sent_by=["Editing an asset (app, API, CLI)", "Tagging or untagging an asset (AI assistant, MCP)"],
+        leads_to=["site_rebuild_queued", "ai_embeddings_reindexed"],
         variables=COMMON_VARS
         + [
             EventVariable("asset_name", "Filename of the asset", "photo.jpg", type="name"),
@@ -535,6 +697,9 @@ CATALOG: list[CatalogEntry] = [
         name="Asset Deleted",
         description="An asset was deleted from the workspace.",
         category="Assets",
+        triggerable=True,
+        sent_by=["Deleting an asset (app, API, CLI)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("asset_name", "Filename of the deleted asset", "old-photo.jpg", type="name"),
@@ -545,6 +710,10 @@ CATALOG: list[CatalogEntry] = [
         name="Asset Attached to Entry",
         description="An asset was attached to a content entry.",
         category="Assets",
+        trigger_group="Entries",
+        triggerable=True,
+        sent_by=["Attaching an asset to an entry, or importing images into one (AI assistant, MCP)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("asset_name", "Filename of the asset", "photo.jpg", type="name"),
@@ -556,6 +725,10 @@ CATALOG: list[CatalogEntry] = [
         name="Asset Detached from Entry",
         description="An asset was detached from a content entry.",
         category="Assets",
+        trigger_group="Entries",
+        triggerable=True,
+        sent_by=["Detaching an asset from an entry (AI assistant, MCP)"],
+        leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("asset_name", "Filename of the asset", "photo.jpg", type="name"),
@@ -568,6 +741,8 @@ CATALOG: list[CatalogEntry] = [
         name="Form Created",
         description="A new form was created.",
         category="Forms",
+        triggerable=True,
+        sent_by=["Creating a form (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("form_name", "Name of the form", "Contact Form", type="name"),
@@ -579,6 +754,8 @@ CATALOG: list[CatalogEntry] = [
         name="Form Updated",
         description="A form was updated.",
         category="Forms",
+        triggerable=True,
+        sent_by=["Editing a form (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("form_name", "Name of the form", "Contact Form", type="name"),
@@ -590,6 +767,8 @@ CATALOG: list[CatalogEntry] = [
         name="Form Published",
         description="A form was published and is now accepting submissions.",
         category="Forms",
+        triggerable=True,
+        sent_by=["Publishing a form (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("form_name", "Name of the form", "Contact Form", type="name"),
@@ -601,6 +780,8 @@ CATALOG: list[CatalogEntry] = [
         name="Form Archived",
         description="A form was archived and is no longer accepting submissions.",
         category="Forms",
+        triggerable=True,
+        sent_by=["Archiving a form (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("form_name", "Name of the form", "Contact Form", type="name"),
@@ -611,6 +792,8 @@ CATALOG: list[CatalogEntry] = [
         name="Form Deleted",
         description="A form was permanently deleted.",
         category="Forms",
+        triggerable=True,
+        sent_by=["Deleting a form (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("form_name", "Name of the deleted form", "Contact Form", type="name"),
@@ -621,6 +804,8 @@ CATALOG: list[CatalogEntry] = [
         name="Form Submission Received",
         description="Someone submitted a form in the workspace.",
         category="Forms",
+        triggerable=True,
+        sent_by=["A site visitor submitting a form (a Form, or an entry type that takes submissions)"],
         variables=COMMON_VARS
         + [
             EventVariable("form_name", "Name of the form", "Contact Form", type="name"),
@@ -635,6 +820,8 @@ CATALOG: list[CatalogEntry] = [
         name="Submission Surge Detected",
         description="One form received an unusual burst of submissions within the configured window.",
         category="Forms",
+        triggerable=True,
+        sent_by=["Form submissions crossing the surge threshold (checked on each submission)"],
         variables=COMMON_VARS
         + [
             EventVariable("form_name", "Name of the form", "Newsletter", type="name"),
@@ -680,6 +867,10 @@ CATALOG: list[CatalogEntry] = [
         name="Site Deployment Started",
         description="A site deployment has begun.",
         category="Publishing",
+        trigger_group="Site",
+        triggerable=True,
+        emittable=True,
+        sent_by=["A workflow's Emit event step (e.g. from a host's deploy notification)"],
         variables=COMMON_VARS
         + [
             EventVariable("site_url", "URL of the site being deployed", "https://mysite.com", type="url"),
@@ -690,6 +881,10 @@ CATALOG: list[CatalogEntry] = [
         name="Site Deployment Completed",
         description="A site deployment finished successfully.",
         category="Publishing",
+        trigger_group="Site",
+        triggerable=True,
+        emittable=True,
+        sent_by=["A workflow's Emit event step (e.g. from a host's deploy notification)"],
         variables=COMMON_VARS
         + [
             EventVariable("site_url", "URL of the deployed site", "https://mysite.com", type="url"),
@@ -701,6 +896,10 @@ CATALOG: list[CatalogEntry] = [
         name="Site Deployment Failed",
         description="A site deployment failed.",
         category="Publishing",
+        trigger_group="Site",
+        triggerable=True,
+        emittable=True,
+        sent_by=["A workflow's Emit event step (e.g. from a host's deploy notification)"],
         variables=COMMON_VARS
         + [
             EventVariable("error_message", "What went wrong", "Build timeout", type="error"),
@@ -711,6 +910,10 @@ CATALOG: list[CatalogEntry] = [
         name="Site Build Started",
         description="A site build process has started.",
         category="Publishing",
+        trigger_group="Site",
+        triggerable=True,
+        emittable=True,
+        sent_by=["A workflow's Emit event step (e.g. from a host's build notification)"],
         variables=COMMON_VARS
         + [
             EventVariable("site_url", "URL of the site being built", "https://mysite.com", type="url"),
@@ -721,6 +924,10 @@ CATALOG: list[CatalogEntry] = [
         name="Site Build Completed",
         description="A site build process finished successfully.",
         category="Publishing",
+        trigger_group="Site",
+        triggerable=True,
+        emittable=True,
+        sent_by=["A workflow's Emit event step (e.g. from a host's build notification)"],
         variables=COMMON_VARS
         + [
             EventVariable("site_url", "URL of the deployed site", "https://mysite.com", type="url"),
@@ -732,6 +939,10 @@ CATALOG: list[CatalogEntry] = [
         name="Site Build Failed",
         description="A site build failed.",
         category="Publishing",
+        trigger_group="Site",
+        triggerable=True,
+        emittable=True,
+        sent_by=["A workflow's Emit event step (e.g. from a host's build notification)"],
         variables=COMMON_VARS
         + [
             EventVariable("error_message", "What went wrong", "Compilation error", type="error"),
@@ -743,6 +954,12 @@ CATALOG: list[CatalogEntry] = [
         # One per batch: later requests join it silently, and `webhook_triggered` sends it.
         description="A change queued a site rebuild; more changes join it until requests go quiet, then it is sent.",
         category="Publishing",
+        sent_by=[
+            "Queuing a site rebuild, once per pending rebuild: a content change a site can see",
+            "The Rebuild site button (app, API)",
+            "The Request Site Rebuild scheduled task",
+        ],
+        leads_to=["webhook_triggered"],
         variables=COMMON_VARS
         + [
             EventVariable("reason", "Why the first request asked for a rebuild", "content change: Entry 'Summer menu' published"),
@@ -763,6 +980,7 @@ CATALOG: list[CatalogEntry] = [
         "a misconfigured account, …). Sent once when the alert opens and again after each reminder window — "
         "never once per affected item.",
         category="Connect",
+        sent_by=["An integration failing (Alerts & health)"],
         variables=COMMON_VARS
         + [
             EventVariable("integration_name", "The connection's name", "Shop", type="name"),
@@ -782,6 +1000,7 @@ CATALOG: list[CatalogEntry] = [
         description="A connection that needed attention is working again — a passing health check, a successful action, "
         "or an admin's Resolve. Also delivered to every channel that delivered the alert.",
         category="Connect",
+        sent_by=["An integration working again: a passing health check, a successful action, or an admin"],
         variables=COMMON_VARS
         + [
             EventVariable("integration_name", "The connection's name", "Shop", type="name"),
@@ -799,6 +1018,7 @@ CATALOG: list[CatalogEntry] = [
         description="An external system POSTed to a tokened incoming-webhook URL. Automations can "
         "react to this and read the request body via $event.payload.",
         category="Connect",
+        sent_by=["A call to one of the workspace's incoming webhook URLs"],
         variables=COMMON_VARS
         + [
             EventVariable("webhook_slug", "Slug of the incoming webhook that fired", "stripe-payments", type="string"),
@@ -843,6 +1063,7 @@ CATALOG: list[CatalogEntry] = [
         # Its one emitter is the coalesced site rebuild: deploy-hook webhooks subscribe to it.
         description="A site rebuild was sent: the workspace's deploy-hook webhooks fire, carrying the changes it covers.",
         category="Connect",
+        sent_by=["Sending a queued site rebuild once its requests go quiet (scheduler)"],
         variables=COMMON_VARS
         + [
             EventVariable("request_count", "Rebuild requests this build covers", "3", type="number"),
@@ -878,6 +1099,7 @@ CATALOG: list[CatalogEntry] = [
         name="API Client Created",
         description="A new API client was registered.",
         category="Connect",
+        sent_by=["Creating an API client (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("client_name", "Name of the API client", "My Site Client", type="name"),
@@ -890,6 +1112,7 @@ CATALOG: list[CatalogEntry] = [
         name="API Client Updated",
         description="An API client's configuration was updated.",
         category="Connect",
+        sent_by=["Editing an API client (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("client_name", "Name of the API client", "My Site Client", type="name"),
@@ -901,6 +1124,7 @@ CATALOG: list[CatalogEntry] = [
         name="API Client Deleted",
         description="An API client was deleted.",
         category="Connect",
+        sent_by=["Deleting an API client (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("client_name", "Name of the deleted API client", "My Site Client", type="name"),
@@ -911,6 +1135,7 @@ CATALOG: list[CatalogEntry] = [
         name="API Client Enabled",
         description="An API client was enabled.",
         category="Connect",
+        sent_by=["Turning an API client on (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("client_name", "Name of the API client", "My Site Client", type="name"),
@@ -922,6 +1147,7 @@ CATALOG: list[CatalogEntry] = [
         name="API Client Disabled",
         description="An API client was disabled.",
         category="Connect",
+        sent_by=["Turning an API client off (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("client_name", "Name of the API client", "My Site Client", type="name"),
@@ -933,6 +1159,7 @@ CATALOG: list[CatalogEntry] = [
         name="API Client Token Rotated",
         description="An API client's token was rotated (old token invalidated, new one issued).",
         category="Connect",
+        sent_by=["Rotating an API client's token (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("client_name", "Name of the API client", "My Site Client", type="name"),
@@ -1009,6 +1236,7 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Created",
         description="A new scheduled task was created.",
         category="Automation",
+        sent_by=["Creating a scheduled task (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("task_name", "Name of the task", "Daily Cleanup", type="name"),
@@ -1020,6 +1248,7 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Updated",
         description="A scheduled task's configuration was updated.",
         category="Automation",
+        sent_by=["Editing a scheduled task (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("task_name", "Name of the task", "Daily Cleanup", type="name"),
@@ -1030,6 +1259,7 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Deleted",
         description="A scheduled task was deleted.",
         category="Automation",
+        sent_by=["Deleting a scheduled task (app, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("task_name", "Name of the deleted task", "Daily Cleanup", type="name"),
@@ -1041,6 +1271,7 @@ CATALOG: list[CatalogEntry] = [
         # Not a workflow trigger (automation/triggers.py): reacting to a run starting would loop.
         description="A workflow run began; the run's automation_ran / automation_failed event carries the same execution id.",
         category="Automation",
+        sent_by=["A workflow starting a run"],
         variables=COMMON_VARS
         + [
             EventVariable("automation_name", "The workflow's name", "Tag new recipes", type="name"),
@@ -1056,6 +1287,7 @@ CATALOG: list[CatalogEntry] = [
         description="Internal scheduler tick that dispatches due webhooks. Not subscribable; "
         "delivery outcomes are recorded in webhook_execution_logs.",
         category="Automation",
+        sent_by=["The scheduler's webhook tick", "Re-running today's scheduled webhooks or testing one (app, API)"],
         enabled=False,  # internal plumbing — not offered for subscription
         audited=False,  # high-frequency noise — kept out of the audit log
     ),
@@ -1064,6 +1296,8 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Triggered",
         description="A scheduled task was manually triggered.",
         category="Automation",
+        sent_by=["The scheduler, when a task is due", "Run now (workspace or admin Scheduled Tasks)"],
+        leads_to=["scheduled_task_started", "scheduled_task_completed", "scheduled_task_failed"],
         audited=False,  # internal trigger — outcome captured by started/completed/failed
         variables=COMMON_VARS
         + [
@@ -1075,6 +1309,7 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Started",
         description="A scheduled task has begun execution.",
         category="Automation",
+        sent_by=["Running a scheduled task"],
         audited=False,  # start marker — completed/failed carry the audit value
         variables=COMMON_VARS
         + [
@@ -1086,6 +1321,7 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Completed",
         description="A scheduled task ran successfully and had something to report, or was run by hand. Routine runs with nothing to do are not announced.",
         category="Automation",
+        sent_by=["Running a scheduled task, when it succeeds"],
         variables=COMMON_VARS
         + [
             EventVariable("task_name", "Name of the task", "Daily Cleanup", type="name"),
@@ -1097,6 +1333,7 @@ CATALOG: list[CatalogEntry] = [
         name="Scheduled Task Failed",
         description="A scheduled task failed to execute.",
         category="Automation",
+        sent_by=["Running a scheduled task, when it fails"],
         variables=COMMON_VARS
         + [
             EventVariable("task_name", "Name of the failed task", "Daily Cleanup", type="name"),
@@ -1165,6 +1402,7 @@ CATALOG: list[CatalogEntry] = [
         name="Entry Shared",
         description="An entry was shared with another user.",
         category="Collaboration",
+        emittable=True,
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the shared entry", "My Post", type="title"),
@@ -1181,6 +1419,7 @@ CATALOG: list[CatalogEntry] = [
             "handed off to asked for (via_agent)."
         ),
         category="AI",
+        sent_by=["An AI run pausing to ask before a tool call"],
         variables=COMMON_VARS
         + [
             EventVariable("agent_slug", "The agent whose run is waiting", "marvin"),
@@ -1198,6 +1437,7 @@ CATALOG: list[CatalogEntry] = [
         name="Agent Approval Granted",
         description="The user approved at least one of the tool calls a paused agent run was waiting on; the run resumed.",
         category="AI",
+        sent_by=["Approving a paused AI tool call"],
         variables=COMMON_VARS
         + [
             EventVariable("agent_slug", "The agent whose run resumed", "marvin"),
@@ -1220,6 +1460,11 @@ CATALOG: list[CatalogEntry] = [
             "a request not decided in time expires)."
         ),
         category="AI",
+        sent_by=[
+            "Denying a paused AI tool call",
+            "Sending a new message instead of answering (the paused call is abandoned)",
+            "Expiring runs left waiting too long (hourly)",
+        ],
         variables=COMMON_VARS
         + [
             EventVariable("agent_slug", "The agent whose run was waiting", "marvin"),
@@ -1295,6 +1540,7 @@ CATALOG: list[CatalogEntry] = [
         name="AI Operation Executed",
         description="An AI operation completed successfully.",
         category="AI",
+        sent_by=["Running an AI operation (app, API, CLI, MCP)", "An integration capability's AI call"],
         variables=COMMON_VARS
         + [
             EventVariable("operation_slug", "The operation that ran", "generate-summary"),
@@ -1308,6 +1554,7 @@ CATALOG: list[CatalogEntry] = [
         name="AI Operation Failed",
         description="An AI operation failed to complete.",
         category="AI",
+        sent_by=["Running an AI operation (app, API, CLI, MCP), when it fails", "An integration capability's AI call, when it fails"],
         variables=COMMON_VARS
         + [
             EventVariable("operation_slug", "The operation that ran", "generate-summary"),
@@ -1320,6 +1567,7 @@ CATALOG: list[CatalogEntry] = [
         name="AI Embeddings Reindexed",
         description="Workspace embeddings were (re)indexed for semantic search / RAG.",
         category="AI",
+        sent_by=["Reindexing the workspace for AI search (AI settings, API)", "Refreshing AI search after a content change (built-in)"],
         variables=COMMON_VARS
         + [
             EventVariable("model_id", "Embedding model", "text-embedding-3-small"),
@@ -1332,6 +1580,7 @@ CATALOG: list[CatalogEntry] = [
         name="AI Budget Threshold Reached",
         description="Workspace AI spend crossed a budget warning threshold (~80% of the monthly cost limit).",
         category="AI",
+        sent_by=["An AI call crossing the workspace's monthly budget warning (operations, workflows, AI settings)"],
         variables=COMMON_VARS
         + [
             EventVariable("current_value", "Current monthly spend (USD)", "40.00", type="number"),
@@ -1344,6 +1593,7 @@ CATALOG: list[CatalogEntry] = [
         name="AI Budget Exceeded",
         description="The workspace monthly AI cost limit was reached.",
         category="AI",
+        sent_by=["An AI call going over the workspace's monthly budget (operations, workflows, AI settings)"],
         variables=COMMON_VARS
         + [
             EventVariable("current_value", "Current monthly spend (USD)", "50.00", type="number"),
@@ -1355,6 +1605,7 @@ CATALOG: list[CatalogEntry] = [
         name="AI Provider Quota Exceeded",
         description="The AI provider rejected a call for lack of quota/credits (no tokens available).",
         category="AI",
+        sent_by=["An AI provider refusing a call for lack of quota or credits"],
         variables=COMMON_VARS
         + [
             EventVariable("provider_type", "Provider", "openai"),
@@ -1369,6 +1620,7 @@ CATALOG: list[CatalogEntry] = [
         name="Secret Created",
         description="A workspace secret was created.",
         category="Secrets",
+        sent_by=["Creating a secret (Secrets settings, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("slug", "The secret's reference slug", "OPENAI_API_KEY", type="string"),
@@ -1380,6 +1632,7 @@ CATALOG: list[CatalogEntry] = [
         name="Secret Updated",
         description="A workspace secret's name, description, or value changed. The value is never included.",
         category="Secrets",
+        sent_by=["Editing a secret (Secrets settings, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("slug", "The secret's reference slug", "OPENAI_API_KEY", type="string"),
@@ -1391,6 +1644,7 @@ CATALOG: list[CatalogEntry] = [
         name="Secret Deleted",
         description="A workspace secret was deleted.",
         category="Secrets",
+        sent_by=["Deleting a secret (Secrets settings, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("slug", "The secret's reference slug", "OPENAI_API_KEY", type="string"),
@@ -1404,6 +1658,7 @@ CATALOG: list[CatalogEntry] = [
         name="Variable Created",
         description="A workspace variable was created.",
         category="Variables",
+        sent_by=["Creating a variable (Variables settings, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("slug", "The variable's reference slug", "SITE_URL", type="string"),
@@ -1416,6 +1671,7 @@ CATALOG: list[CatalogEntry] = [
         name="Variable Updated",
         description="A workspace variable's name, description, or value changed.",
         category="Variables",
+        sent_by=["Editing a variable (Variables settings, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("slug", "The variable's reference slug", "SITE_URL", type="string"),
@@ -1428,6 +1684,7 @@ CATALOG: list[CatalogEntry] = [
         name="Variable Deleted",
         description="A workspace variable was deleted.",
         category="Variables",
+        sent_by=["Deleting a variable (Variables settings, API)"],
         variables=COMMON_VARS
         + [
             EventVariable("slug", "The variable's reference slug", "SITE_URL", type="string"),
@@ -1538,6 +1795,29 @@ PLATFORM_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALOG i
 
 # Quick lookup
 CATALOG_BY_TYPE: dict[str, CatalogEntry] = {e.event_type: e for e in CATALOG}
+
+TRIGGERABLE_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALOG if e.triggerable)
+"""What a workflow's "event" trigger can name — the automation listener reacts to exactly these (plus the
+incoming_webhook / chained / on_error trigger types' own events)."""
+
+EMITTABLE_EVENT_TYPES: frozenset[str] = frozenset(e.event_type for e in CATALOG if e.emittable)
+"""What a workflow's Emit event step accepts."""
+
+
+def trigger_groups() -> dict[str, list[str]]:
+    """The builder's trigger dropdown: triggerable events under their heading, both in catalog order."""
+    groups: dict[str, list[str]] = {}
+    for e in CATALOG:
+        if e.triggerable:
+            groups.setdefault(e.trigger_group or e.category, []).append(e.event_type)
+    return groups
+
+
+def offered_emittable() -> list[str]:
+    """What the builder's Emit event step offers, in catalog order: emittable events that are also subscribable
+    (an event nothing else sends isn't offered, though the step still accepts it)."""
+    return [e.event_type for e in CATALOG if e.emittable and e.enabled]
+
 
 # Categories in display order
 CATEGORIES = [
