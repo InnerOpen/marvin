@@ -1343,23 +1343,18 @@ class AuditLogListener(EventListenerBase):
         """
         Returns a list of subscribers for audit logging.
 
-        For AuditLogListener, we always return ["database"] to indicate
-        that all events should be persisted to the event_log table.
-
         Args:
             event (Event): The event to persist.
 
         Returns:
-            list[str]: ["database"] to persist the event, or [] to skip persistence
-                       for non-audited internal plumbing events (the "nolog" set).
+            list[str]: ["database"] to persist the event, or [] when this workspace doesn't audit its type.
         """
-        # Audit policy is declared per-event in the catalog (its `audited` flag). Events with no
-        # catalog entry default to audited (safe). Set audited=False on a CatalogEntry to keep it
-        # out of the audit trail — toggleable per event, no code change here.
-        from marvin.services.events.event_catalog import get_catalog_entry
+        # The catalog declares each type's default (`audited`); a workspace admin may override it per type
+        # (services/events/audit_settings.py). Locked (security) types and types without a catalog entry are
+        # always audited, and so is everything if the workspace's setting can't be read.
+        from marvin.services.events.audit_settings import is_audited
 
-        entry = get_catalog_entry(event.event_type.name)
-        if entry is not None and not entry.audited:
+        if not is_audited(self.group_id, event.event_type.name):
             return []
         return ["database"]
 

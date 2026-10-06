@@ -30,6 +30,7 @@ EMAIL_SUBS = "/api/groups/email-event-subscriptions"
 TASKS = "/api/platform/scheduled-tasks"
 WORKSPACE = "/api/platform/workspace"
 EMAIL = "/api/platform/email"
+AUDIT = "/api/groups/audit-settings"
 
 _WEBHOOK = {"name": "Hook", "url": "https://example.com/hook"}
 
@@ -104,6 +105,9 @@ GATED = [
     ("POST", f"{EMAIL}/test", {"email": "a@example.com"}),
     ("PATCH", f"{EMAIL}/templates/{NOPE}", {}),
     ("POST", f"{EMAIL}/templates/{NOPE}/test", {"recipient_email": "a@example.com"}),
+    # Event Log audit settings (what the log records; the change itself is a locked, audited event)
+    ("GET", AUDIT, None),
+    ("PATCH", AUDIT, {"overrides": {}}),
 ]
 
 # Reads with no workspace configuration in them, which member pages use.
@@ -111,6 +115,7 @@ OPEN = [
     f"{INTEGRATIONS}/providers",
     f"{WEBHOOKS}/types",
     f"{TASKS}/task-types",
+    f"{AUDIT}/excluded",  # which event types the log leaves out: the Event Log page tells every member
 ]
 
 BELOW_ADMIN = [WorkspaceRole.EDITOR, WorkspaceRole.AUTHOR, WorkspaceRole.VIEWER]

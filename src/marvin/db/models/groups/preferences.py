@@ -100,6 +100,13 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         doc="Workspace override of the platform submission-protection defaults (null fields inherit).",
     )
 
+    audit_overrides_json: Mapped[dict | None] = mapped_column(
+        sa.JSON,
+        nullable=True,
+        doc="Event types whose audit-log coverage differs from the catalog default: {event_type: bool}. "
+        "Read and written through services/events/audit_settings.py (locked types ignore it).",
+    )
+
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:
         """

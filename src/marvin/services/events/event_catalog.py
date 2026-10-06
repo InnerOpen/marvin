@@ -30,8 +30,11 @@ class CatalogEntry:
     enabled: bool = True
     """Whether this event is offered for subscription in the Events UI."""
     audited: bool = True
-    """Whether this event is persisted to the event_log audit trail. Set False for
-    high-frequency internal plumbing whose outcomes are captured elsewhere."""
+    """Whether this event is persisted to the event_log audit trail by default. Set False for
+    high-frequency internal plumbing whose outcomes are captured elsewhere. A workspace admin can
+    override it per event type (services/events/audit_settings.py) unless the entry is locked."""
+    audit_locked: bool = False
+    """Always audited: no workspace override can turn it off. Set by the security gate below."""
 
 
 COMMON_VARS = [
@@ -1455,6 +1458,19 @@ _NO_EMITTER: frozenset[str] = frozenset(
 for _e in CATALOG:
     if _e.event_type in _NO_EMITTER:
         _e.enabled = False  # not offered for subscription — nothing ever emits it
+
+# ── Security gate: events that are always audited ─────────────────────────────
+# Who can get in and with what rights, which credentials exist, and how the workspace (its audit
+# settings included: they're recorded as workspace_settings_changed) is configured. A workspace admin
+# can't drop these from the Event Log — the record of what an admin did must not be theirs to switch off.
+# Locking is by category, so a new entry in one of these categories is locked without anyone remembering.
+_AUDIT_LOCKED_CATEGORIES: frozenset[str] = frozenset({"Members", "Authentication", "Workspaces", "Security", "Secrets"})
+_AUDIT_LOCKED_PREFIXES: tuple[str, ...] = ("api_client_", "approval_")
+"""API clients (and their tokens) sit in Connect, next to webhooks: they're credentials. Approvals sit in AI:
+they're a person authorising (or refusing) an AI tool call."""
+for _e in CATALOG:
+    if _e.category in _AUDIT_LOCKED_CATEGORIES or _e.event_type.startswith(_AUDIT_LOCKED_PREFIXES):
+        _e.audit_locked = True  # test_audit_settings checks a locked entry isn't also declared audited=False
 
 # Quick lookup
 CATALOG_BY_TYPE: dict[str, CatalogEntry] = {e.event_type: e for e in CATALOG}
