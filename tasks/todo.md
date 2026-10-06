@@ -1482,7 +1482,7 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
   publish?". Docs: manual Events section + what's new.
 
 ## Checklist
-- [ ] **Slice 1 — storage:** webhook subscriptions table + workflow trigger columns + "installed by" columns on all
+- [x] **Slice 1 — storage:** webhook subscriptions table + workflow trigger columns + "installed by" columns on all
       five blueprint-created tables (set by `blueprints/apply.py`); backfill +
       downgrade; listeners and engine read the new storage; API shapes unchanged (contract tests on webhook and
       workflow read/write); migration tested up/down/up on SQLite and Postgres 16; prod backfill dry-run against a copy
@@ -1506,6 +1506,41 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
    integration page? (Proposed: link only, so the event page never fights the integration that owns them.)
 5. Slice order OK (storage first), or UI first on top of today's storage and normalise after?
 
+## Slice 1 review (2026-10-06, branch `feat/events-storage`)
+
+**Built.** Migrations `cba7c23b692e` (webhook subscriptions table + workflow trigger columns) and `1dbc9b51d024`
+("installed by" on the five blueprint-created tables), both with a working downgrade.
+- Webhooks: `webhook_event_subscriptions` (unique webhook+event, indexed event_type, cascade). The model's
+  `subscribed_events` is a property over the rows, so the API, seed loader and exporter still speak `subscribedEvents`.
+  `WebhookEventListener` and `site_rebuild.deploy_targets` are joins now.
+- Workflows: `trigger_type` / `trigger_event` (indexed) / `trigger_ref` / `trigger_config`; the `definition` column keeps
+  the rest. `trigger_event` is what the trigger listens to — `incoming_webhook` / `automation_ran` / `automation_failed`
+  for those three types — so "what reacts to X" is one column. `WorkspaceAutomationModel.definition` / `.trigger` are the
+  one accessor pair (assemble on read, split on write); engine, dry-run samples, AI tools, schedule sync read them. The
+  engine selects by `trigger_event` in SQL; `_trigger_matches` still settles the slug/target.
+- `source_integration_id` + `source_blueprint`, set only in `blueprints/apply.py` (`installed_by()`), read-only on the
+  five Read schemas (SDK types regenerated: MarvinSDK `feat/events-storage-types`).
+
+**Departures from the plan (Jared's call if any matters):**
+- A 4th column, `trigger_config`, holds what the other three can't (a schedule's `schedule_type`/`schedule_config`,
+  extra keys) — without it a schedule trigger would lose its interval.
+- `trigger_type` is nullable: NULL means "no trigger" (the API accepts `definition: {}`); making it NOT NULL would invent
+  a trigger. Every production row has one.
+- API shape changes, all normalisations: an untyped `{"event": X}` trigger reads back with `"type": "event"` (2 prod
+  rows, both "Summarize published bench notes"); `subscribedEvents` reads back sorted and de-duplicated, and `[]`
+  instead of `null` (2 prod rows, the `entries` webhooks).
+- Backfill name-prefix matching needs `"<Provider>: "` with the colon, so "n8n ping" / "n8n pong received" stay NULL.
+
+**Verified.** Backend 2703 passed / 178 skipped (develop 2648/178; +55 new in `tests/test_events_storage.py`), with
+the integration SDK 3006/5 (develop 2951/5), Postgres 16 2704/177; migration up/down/up with every trigger and webhook
+shape on SQLite and Postgres 16 (+ PG downgrade-to-base cycle); prod dry-run: counts equal before/after, all 25
+workflows' trigger columns as expected, 34 rows matched to their integration by blueprint slug (18 workflows, 5
+incoming webhooks, 8 collections, 2 scheduled tasks, 1 Slack subscription), rest NULL; downgrade gave back the original
+JSON except the normalisations above. API responses diffed against develop: only the changes listed. SDK gate clean
+after regenerating. Frontend untouched (tree identical to develop): 439/439 tests, astro check 51 errors (= develop).
+
+**Found, not fixed:** on Postgres the `webhookmode` enum lacks `workflow`, so creating a "workflow" webhook 500s there
+(SQLite prod unaffected). Needs an `ALTER TYPE … ADD VALUE` migration.
 
 # Settings breadcrumbs — one trail on every admin and settings page (plan, 2026-10-06, design approved by Jared)
 
