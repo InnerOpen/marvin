@@ -1491,7 +1491,7 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
       `reacts_to`; side lists removed; drift tests
 - [x] **Slice 3 — connections service + API:** reactions/senders/recent/summary; role + workspace scoping tests;
       platform events excluded; SDK Quality Gate
-- [ ] **Slice 4 — UI:** event page (three parts + chain), catalog dots, "+ New workflow on this event", Installed-by
+- [x] **Slice 4 — UI:** event page (three parts + chain), catalog dots, "+ New workflow on this event", Installed-by
       badge, admin panel; live check incl. 390px
 - [ ] **Slice 5 — cleanup:** only the items Jared picks
 - [ ] **Slice 6 — SDK/CLI/MCP/docs**
@@ -1649,6 +1649,60 @@ its 13 logged `webhook_triggered` reached nothing.
 **Verified.** Backend 2771 passed / 179 skipped (develop 2725/179; +46 in `tests/test_event_connections.py`), with
 the integration SDK 3074/6; the new tests on Postgres 16: 46/46. SDK gate reproduced in a fresh venv: only the new
 paths and schemas; MarvinSDK lint, `tsc --noEmit`, 185/185 tests.
+
+## Slice 4 review (2026-10-06, branch `feat/events-ui`)
+
+**Built** (frontend only; the connections API from slice 3 through `fetchApi`, not the unreleased SDK methods):
+- Event page (`automation/events/[type].astro`): **Sent by** (Marvin's lines; workflows with what step sends it;
+  incoming webhook → workflow hop with a link to the workflow; scheduled tasks), **What happens** (every reaction by
+  kind: workflows, integration actions, emails, webhooks, then the muted built-ins; On/Off badge on each; emails,
+  webhooks and integration actions connected here keep Edit/Disconnect; workflows, the system email and anything with
+  `installedBy` are read-only with an **Installed by <integration>** badge and an Open link; the system email row says
+  whether Marvin's own email sends), **Recent** (rows open `/workspace/events?event=<id>`; audited off → "This event
+  isn't recorded in this workspace's Event Log" + link to `#audit-coverage`), and **Caused by / Leads to** chips.
+  **Subscribe ▾** opens a menu of what can still be connected: **+ New workflow on this event** (only when the builder
+  options list the type as triggerable), unconnected event-driven webhooks, unconnected templates, + integration action.
+  `#subscribe` opens it (the catalog's Subscribe buttons link there).
+- Catalog list: one `GET /api/platform/event-types/connections` replaces the three client-side lists. Filled dot =
+  something reacts, ring = every reaction switched off, "Not sent" = nothing sends it (legend shows that item only
+  when a listed type has it; none does today); the row tooltip counts both directions + built-ins + last seen;
+  category counts use the summary.
+- Builder: `?trigger=<type>` opens a new workflow on that event if it's triggerable, then drops the parameter.
+- Workflows page: **Installed by <integration>** badge (name from the integrations list, "an integration" when the
+  list is unavailable; blueprint key in the tooltip).
+- Admin Events: filtering by a type (or clicking a row's type) shows a panel with Sent by / What happens (platform
+  reactions, then each workspace's own, grouped) and the chain; the filtered log below is its Recent.
+- Event Log: `?event=<id>` highlights and expands that row (or says it's older than the 100 shown);
+  `#audit-coverage` opens that section.
+- Shared: `lib/eventConnections.ts` (types, grouping, managed-here rule, dot state, tooltip, dates, links,
+  `?trigger=` parsing, platform-type fallback) + `components/events/ConnectionRow|ConnectionGroup|ConnState.astro`.
+  Server strings only through Astro JSX / textContent; the event page's integration modal now builds its options
+  as DOM nodes too.
+
+**Departures (Jared's call):**
+- Platform event types still appear in the workspace catalog (7: sign-ups, workspaces); the summary has no row for
+  them, so they show no dot. Their event page builds What happens from the old lists (emails incl. the system
+  welcome/reset email, webhooks, integration actions) and points Sent by at Admin → Events.
+- The Subscribe "menu" opens inline under What happens rather than as a popover (works the same at 390px).
+- Admin panel has no separate Recent list: the type-filtered log under it is that.
+- Also fixed on the way: workflow card buttons wrapped at 390px (3px horizontal scroll before).
+
+**Verified.** `npm test` 457/457 (develop 439; +18 in `lib/eventConnections.test.mjs`); biome clean on the 11
+touched/new files; `astro check` 51 errors (= develop), hints unchanged; `mkdocs build --strict` clean. Live on SQLite
++ `astro dev` + headless Chromium (integration SDK + Slack plugin in the worktree venv so the integrations list
+answers), seeded with a Buttondown-installed workflow on entry_published, own workflows on entry_updated (one off),
+a webhook on webhook_triggered, an email subscription, an incoming webhook → Emit event workflow, entries
+published/updated, `collection_created` audited off. As workspace admin: entry_published / entry_updated /
+webhook_triggered / site_deployment_completed / collection_created / user_signup pages as described; catalog 5
+active dots; **+ New workflow on this event** → builder with Event / entry_published set → saved, listed on the event
+page; absent on webhook_triggered; Recent → Event Log row expanded; Audit coverage link opens it; Workflows badge
+"Installed by Buttondown". As super admin: `/admin/events?type=user_signup` and `workspace_created` panels. No
+console errors, no 4xx/5xx, no horizontal scroll at 390px; light + dark. Screenshots in the job's
+`events-ui-shots/`.
+
+**Found, not fixed:** `PATCH /api/platform/entries/{id}` to `published` 500'd once in seeding — `EntryRead`
+validation got bare UUIDs in `collections` (an entry joining a smart collection during the same request?).
+Pre-existing, backend.
 
 # Settings breadcrumbs — one trail on every admin and settings page (plan, 2026-10-06, design approved by Jared)
 
