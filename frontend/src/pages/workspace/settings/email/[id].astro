@@ -267,7 +267,7 @@ for (const evtType of connectedEventTypes) {
               </label>
               <p class="system-event-note">
                 {replacesNow
-                  ? <>On: when {systemEmail.eventName.toLowerCase()} happens, Marvin sends this template, not its own.</>
+                  ? <>On: Marvin sends this template instead of its own {systemEmail.label}.</>
                   : isAutoConnected
                     ? <>Turned on, but this template is switched off, so {replaceLabel} still sends.</>
                     : replacedByOther
