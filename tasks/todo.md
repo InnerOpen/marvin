@@ -1296,3 +1296,52 @@ MarvinSDK `feat/audit-settings-types`, which has to reach marvin-sdk develop bef
 
 ## Later
 Bulk "reset all"; showing per-type event volume next to each switch, to pick what to silence.
+
+# Admin events — platform events leave the workspace Event Log (plan, 2026-10-05)
+
+**Goal:** Jared: "the events should not include any sort of admin events so we should probably have an events page
+on the admin settings". Sign-ups, workspace creation and the other platform events land in a workspace's Event Log
+today (they carry that workspace's id). They move to a super-admin **Events** page; the workspace log shows only
+what happened in the workspace.
+
+**Unchanged:** storage and dispatch. Platform events keep their `workspace_id` (context on the admin page), the bus
+fires the same subscriptions, webhooks and workflows. Only what's shown and toggled changes.
+
+## Design
+1. **Catalog scope:** `CatalogEntry.scope: "workspace" | "platform"` (default workspace), set by a gate after the
+   catalog like `_NO_EMITTER`. Platform: the Authentication category (sign-up, profile, password reset, token
+   refresh), workspace lifecycle done by a platform admin or a user's own switching (`workspace_created`,
+   `workspace_updated` (only the admin controller emits it), `workspace_deleted`, `workspace_activated`), personal
+   API tokens, the platform security events (rate limit, failed logins, suspicious activity) and platform backups.
+   `workspace_activated` and `token_refreshed` are dispatched and audited but uncatalogued: catalogue them.
+   `PLATFORM_EVENT_TYPES` / `is_platform_event()` are derived from the catalog.
+2. **One filter:** `workspace_events_clause()` beside `EventLogRepository`; its workspace reads
+   (`get_by_workspace`, `get_by_entity`, `get_by_user`) always apply it, and the readers that query the model
+   directly (dashboard activity, workflow dry-run samples) use the same clause. Single-event reads 404 a platform
+   event.
+3. **Audit settings:** platform entries are `audit_locked` (always audited) and leave the workspace audit settings
+   (GET list and `/excluded`); PATCH answers 422 "not a workspace event".
+4. **Admin API** (`AdminAPIRouter`, super admin): `GET /api/admin/events` — platform events across workspaces,
+   newest first, paginated (`page`, `perPage`), filters `eventType`, `workspaceId`, `startDate`, `endDate`; each
+   row with workspace name/slug and the user's name/email. `GET /api/admin/events/{event_id}` (payload) and
+   `GET /api/admin/events/catalog` (platform types for the filter).
+5. **Admin page** `/admin/events` (Operations nav + an Overview card): server-rendered filter form (GET query
+   string), a log table styled like the workspace Event Log with Workspace and User columns, lazy payload,
+   prev/next. Rows stack as cards under 640px.
+6. **Workspace Event Log page:** audit panel copy no longer lists sign-in/tokens as workspace security events;
+   lead line says platform events are on the admin page.
+7. **Docs:** manual Event Log + new admin Events section, what's new.
+
+## Checklist
+- [ ] Plan (this section)
+- [ ] Catalog scope + new entries + derived set
+- [ ] Shared filter; every workspace reader of the log uses it
+- [ ] Audit settings exclude/refuse/lock platform types
+- [ ] Admin API + schemas
+- [ ] Tests: scope classification, workspace log/feed/entity/user/single event, dashboard, dry-run samples, AI
+      tools exclude platform types; audit settings; admin endpoint (super admin only, owner 403, filters,
+      pagination); platform events still dispatched and stored
+- [ ] Admin page + nav + overview card; workspace page copy
+- [ ] Docs: manual + what's new; `mkdocs build --strict`
+- [ ] Verify: backend suite (no SDK), `npm test`, biome, `astro check` vs baseline, SDK gate + MarvinSDK types,
+      live check
