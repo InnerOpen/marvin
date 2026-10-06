@@ -2,8 +2,8 @@
 import IntegrationMark from "@/components/IntegrationMark.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
-import type { IntegrationPluginInfo, IntegrationWithHealth, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
-import { listIntegrations, listPlugins, listProviders } from "@/lib/api/integrations";
+import type { IntegrationWithHealth, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
+import { listIntegrations, listProviders } from "@/lib/api/integrations";
 import { policyRows } from "@/lib/integrationPolicy";
 import type { Blueprint } from "@/lib/api/blueprints";
 import { listBlueprints } from "@/lib/api/blueprints";
@@ -13,16 +13,14 @@ const authToken = getAuthToken(Astro.cookies);
 
 let providers: ProviderInfo[] = [];
 let integrations: IntegrationWithHealth[] = [];
-let plugins: IntegrationPluginInfo[] = [];
 let blueprints: Blueprint[] = [];
 let error: string | null = null;
 let adminOnly = false;
 
 try {
-  [providers, integrations, plugins, blueprints] = await Promise.all([
+  [providers, integrations, blueprints] = await Promise.all([
     listProviders(authToken),
     listIntegrations(authToken),
-    listPlugins(authToken),
     // A provider declares the workspace content its actions depend on; it can never create it.
     // The workspace applies it from here, deliberately — nothing is installed behind your back.
     listBlueprints({}, authToken),
@@ -94,7 +92,7 @@ function statusMeta(status: string): { text: string; cls: string } {
       <p>Connect external services — sources that feed content in, destinations that react when you publish.</p>
     </div>
     <div class="header-links">
-      <a href="/workspace/settings/integration-health" class="button secondary small">Alerts &amp; health</a>
+      <a href="/workspace/settings/integration-health" class="button secondary small">Alerts, health &amp; plugins</a>
       <a href="/workspace/settings?tab=integrations" class="button secondary small">Back to Settings</a>
     </div>
   </div>
@@ -433,32 +431,6 @@ function statusMeta(status: string): { text: string; cls: string } {
         ))}
       </div>
     )}
-  </section>
-
-  <!-- Installed plugins -->
-  <section class="block">
-    <h3 class="block-title">Installed plugins</h3>
-    <p class="block-sub">Provider packages available on this server. Install more with <code>uv pip install marvin-integration-…</code> and restart.</p>
-    <div class="plugin-list">
-      {plugins.map((pl) => (
-        <article class={`plugin-row ${pl.ok ? "" : "is-error"}`}>
-          <div class="plugin-id">
-            <strong>{pl.distribution ?? pl.name}</strong>
-            <span class="plugin-tags">
-              <span class="chip">{pl.source === "builtin" ? "Built-in" : "Plugin"}</span>
-              {pl.version && <span class="plugin-ver">v{pl.version}</span>}
-            </span>
-          </div>
-          <div class="plugin-slugs">
-            {pl.ok ? (
-              pl.slugs.length ? pl.slugs.map((s) => <code>{s}</code>) : <span class="muted">no providers</span>
-            ) : (
-              <span class="plugin-err">Failed to load: {pl.error}</span>
-            )}
-          </div>
-        </article>
-      ))}
-    </div>
   </section>
 
   <!-- Add panel (hidden until a provider is chosen) -->
@@ -1060,30 +1032,6 @@ function statusMeta(status: string): { text: string; cls: string } {
 
   .block { margin-bottom: 36px; }
   .block-title { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
-  .block-sub { margin: 0 0 14px; font-size: 13px; color: var(--muted); }
-  .block-sub code { font-family: ui-monospace, monospace; font-size: 12px; }
-
-  /* installed plugins */
-  .plugin-list { display: grid; gap: 8px; }
-  .plugin-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 12px 16px;
-    background: var(--panel);
-    border: 1px solid var(--line);
-    border-radius: var(--radius);
-  }
-  .plugin-row.is-error { border-color: var(--color-error); }
-  .plugin-id { display: flex; align-items: center; gap: 10px; min-width: 0; }
-  .plugin-id strong { font-size: 14px; }
-  .plugin-tags { display: flex; align-items: center; gap: 8px; }
-  .plugin-ver { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; }
-  .plugin-slugs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
-  .plugin-slugs code { font-family: ui-monospace, monospace; font-size: 12px; padding: 2px 7px; background: var(--panel-2); border-radius: 4px; }
-  .plugin-slugs .muted { font-size: 12px; color: var(--muted); }
-  .plugin-err { font-size: 12px; color: var(--color-error); }
 
   .empty {
     padding: 40px 24px;

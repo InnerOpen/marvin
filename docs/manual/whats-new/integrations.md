@@ -6,7 +6,7 @@ Connect a workspace to an external service through an installable provider packa
 
 An **integration** is a credentialed connection from one workspace to one external service. The code that knows how to talk to that service is a **provider**, and providers are not part of Marvin core: each one is a separate Python package that registers itself through the `marvin.integrations` entry-point group. Core ships no providers. With no provider installed the SDK is absent, `INTEGRATIONS_AVAILABLE` is `False`, and the whole integrations surface stays dormant (the API returns 404 and the Integrations page says so).
 
-On startup `src/marvin/services/integrations/loader.py` reads every entry point in the group, imports it and registers its provider. A package that fails to import is logged and skipped; it never blocks the others or crashes startup. Its load report (distribution, version, error) is what the **Installed plugins** panel shows.
+On startup `src/marvin/services/integrations/loader.py` reads every entry point in the group, imports it and registers its provider. A package that fails to import is logged and skipped; it never blocks the others or crashes startup. Its load report (distribution, version, error) is what the **Installed plugins** section of [Alerts & health](#alerts-health) shows (it used to sit at the bottom of the Integrations page).
 
 **Plugins and integrations.** A *plugin* is the package the platform operator installs; an *integration* is one workspace's connection to a provider that a plugin registers. Platform super admins see every installed plugin under **Admin → Extensions → Plugins** (`/admin/plugins`): its package, version and kind (the only kind today is **Integration**), whether it loaded and, if not, why, and for each provider it registers the number of actions, blueprints and workspaces that have connected it. The page is read-only: installing a plugin runs its code, so it stays with whoever builds the image or the Helm init container (see [Install a provider](#install-a-provider)).
 
@@ -43,7 +43,7 @@ Marvin core no longer ships its own Apprise notifier: the Automation → Notific
 ## Where
 
 - **Settings → Integrations**: `/workspace/settings/integrations`, for workspace admins (other members see an admins-only note).
-- **Alerts & health**: `/workspace/settings/integration-health`, linked from the Integrations page header and from the **Alerts & health** card in the Integrations section of **Settings** (`/workspace/settings?tab=integrations`), beside **Manage Integrations**; admins only. Where alerts go is set there.
+- **Alerts & health**: `/workspace/settings/integration-health`, linked from the Integrations page header and from the **Alerts & health** card in the Integrations section of **Settings** (`/workspace/settings?tab=integrations`), beside **Manage Integrations**; admins only. Where alerts go is set there, and it lists the plugins installed on this server; the Integrations page's header link reads **Alerts, health & plugins**.
 - **Per-event wiring**: `/automation/events/[type]`, "Integrations" section.
 - **Workflows**: the **Run integration** step (`kind: "integration"`); see [Workflows](workflows.md).
 - **Scheduled runs**: a "Run Integration Action" scheduled task (`run_integration_action`).
@@ -147,6 +147,7 @@ Where alerts go besides the bell is set on the **Integration alerts** card under
 - **Alert history**: resolved alerts, 20 a page: how long each was open and what resolved it (an admin, by name; a passing check; a successful action). Resolved alerts are kept 30 days.
 - **Error handling**: one table of every connection's changes to its provider's error policy: a row per connection and error code where **Review** or **Alert** differs from the default, with the provider's logo, the code, the default (what the provider does, per action where it declares one, and its Review / Alert) and this connection's **Review** and **Alert** checkboxes. **Reset** puts that code back to the default. **Show all codes** lists every code each connection's provider declares, so an admin can change any of them here: it is the same setting as the card's **How errors are handled** table (`error_overrides`, saved through `PUT /{integration_id}/error-overrides`). A connection whose provider isn't installed or declares no policy has no rows. With no changes it reads "No changes from the integrations' defaults."
 - **Where alerts go**: the **Integration alerts** routing card (see [Integration alerts](#integration-alerts)).
+- **Installed plugins**: the provider packages loaded on this server (`GET /plugins`): each package's name, **Built-in** or **Plugin**, its version and the provider slugs it registers, or "Failed to load" with the error. It moved here from the bottom of the Integrations page.
 
 ### Newsletter with Buttondown
 

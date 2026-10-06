@@ -2,8 +2,8 @@
 // Settings → Integrations → Alerts & health: what integration error handling is doing across the
 // workspace — each connection at a glance, open alerts (Test / Resolve), retries waiting to run (Retry
 // now / Give up), failures a provider's policy handled, resolved alerts, each connection's changes to
-// its provider's error handling (Review / Alert, the card's setting), and where alerts go. Admins
-// only (every route behind it is). Server strings are rendered with Astro JSX only, never innerHTML.
+// its provider's error handling (Review / Alert, the card's setting), where alerts go, and the
+// installed provider plugins. Admins only (every route behind it is). Server strings are rendered with Astro JSX only, never innerHTML.
 import IntegrationAlertsPanel from "@/components/IntegrationAlertsPanel.astro";
 import IntegrationMark from "@/components/IntegrationMark.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -15,12 +15,14 @@ import {
   type HandledFailure,
   type IntegrationAlert,
   type IntegrationHealthRow,
+  type IntegrationPluginInfo,
   type IntegrationRetry,
   type IntegrationWithHealth,
   listHandledFailures,
   listIntegrationAlerts,
   listIntegrationRetries,
   listIntegrations,
+  listPlugins,
   listProviders,
   type Paged,
   type ProviderInfo,
@@ -53,13 +55,14 @@ let handled: Paged<HandledFailure> = { items: [], page: 1, perPage: PER_PAGE, to
 let routing: AlertRouting | null = null;
 let connections: IntegrationWithHealth[] = [];
 let providers: ProviderInfo[] = [];
+let plugins: IntegrationPluginInfo[] = [];
 let adminOnly = false;
 let notInstalled = false;
 let error: string | null = null;
 
 try {
   let open: Paged<IntegrationAlert>;
-  [health, open, history, retries, handled, routing, connections] = await Promise.all([
+  [health, open, history, retries, handled, routing, connections, plugins] = await Promise.all([
     getIntegrationHealth(authToken),
     listIntegrationAlerts("open", 1, 100, authToken),
     listIntegrationAlerts("resolved", historyPage, PER_PAGE, authToken),
@@ -68,6 +71,7 @@ try {
     getAlertRouting(authToken),
     // The connections' error_overrides; the providers' declared defaults come with the catalog below.
     listIntegrations(authToken),
+    listPlugins(authToken),
   ]);
   openAlerts = open.items;
 } catch (e) {
@@ -122,7 +126,7 @@ const handledPages = pageCount(handled.total, handled.perPage);
         <h2>Alerts &amp; health</h2>
         <p>
           How your integrations are doing: connections that need attention, failed steps waiting to be retried, failures
-          an integration's error policy took care of, and where alerts go.
+          an integration's error policy took care of, where alerts go, and the installed plugins.
         </p>
       </div>
       <div class="header-links">
@@ -499,6 +503,34 @@ const handledPages = pageCount(handled.total, handled.perPage);
           <h3 class="block-title" id="h-routing">Where alerts go</h3>
           {routing && <IntegrationAlertsPanel routing={routing} />}
         </section>
+
+        <!-- Installed plugins -->
+        <section class="block" aria-labelledby="h-plugins">
+          <h3 class="block-title" id="h-plugins">Installed plugins</h3>
+          <p class="block-sub">Provider packages available on this server. Install more with <code>uv pip install marvin-integration-…</code> and restart.</p>
+          {plugins.length === 0 ? (
+            <div class="empty"><p>No plugins installed.</p></div>
+          ) : (
+            <div class="list">
+              {plugins.map((pl) => (
+                <article class={`plugin-row ${pl.ok ? "" : "is-error"}`}>
+                  <div class="plugin-id">
+                    <strong>{pl.distribution ?? pl.name}</strong>
+                    <span class="badge muted">{pl.source === "builtin" ? "Built-in" : "Plugin"}</span>
+                    {pl.version && <span class="plugin-ver">v{pl.version}</span>}
+                  </div>
+                  <div class="plugin-slugs">
+                    {pl.ok ? (
+                      pl.slugs.length ? pl.slugs.map((s) => <code>{s}</code>) : <span class="muted">no providers</span>
+                    ) : (
+                      <span class="err-text">Failed to load: {pl.error}</span>
+                    )}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </>
     )}
   </div>
@@ -745,6 +777,25 @@ const handledPages = pageCount(handled.total, handled.perPage);
   .col-reset { text-align: right; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); border: 0; }
 
+  /* Installed plugins: one row per package, its provider slugs on the right. */
+  .plugin-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    padding: 12px 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    font-size: 13px;
+  }
+  .plugin-row.is-error { border-color: var(--color-error); }
+  .plugin-id { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+  .plugin-id strong { font-size: 14px; overflow-wrap: anywhere; }
+  .plugin-ver { font-size: 12px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .plugin-slugs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
   .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; font-size: 13px; }
 
   @media (max-width: 640px) {
@@ -756,5 +807,6 @@ const handledPages = pageCount(handled.total, handled.perPage);
     .policy-table tbody tr:not([hidden]) { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
     .policy-table td { display: block; padding: 0; border: 0; }
     .col-reset { text-align: left; }
+    .plugin-slugs { justify-content: flex-start; }
   }
 </style>
