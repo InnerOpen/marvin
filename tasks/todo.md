@@ -1374,7 +1374,7 @@ redact `reset_url` from stored password-reset payloads.
 # Events hub — see what sends an event and what reacts to it (plan, 2026-10-06)
 
 **Status:** plan reviewed by Jared 2026-10-06 ("everything else looks fine"), with "installed by" widened to every
-blueprint-created row. Slice 5 (cleanup) still waits on his picks.
+blueprint-created row. Slices 1–5 built; slice 6's core part (`describe_event`) built, SDK methods / CLI left.
 
 **Goal (Jared 2026-10-06):** events are a central feature, so each event should show its whole story in one place —
 what sends it, everything that reacts to it (however it was connected), and when it last happened. Today the Events
@@ -1468,7 +1468,7 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
 - Workflows page: "Installed by Square" badge from `source_integration_id`.
 - Admin Events page: the same "Sent by / What happens" panel for platform events.
 
-**5. Events cleanup (needs Jared's call — not built until decided)**
+**5. Events cleanup (decided by Jared 2026-10-06, built in slice 5 — see the decisions under its review)**
 - `webhook_triggered`: label "Site Rebuild Sent", category Publishing (internal name stays — webhooks subscribe to it).
 - Never-sent types: webhook_created/updated/deleted, webhook_delivery_succeeded/failed, api_token_* — wire them up or
   hide them. api_token_* matter most (security, currently locked as "always audited" but never fired).
@@ -1493,14 +1493,17 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
       platform events excluded; SDK Quality Gate
 - [x] **Slice 4 — UI:** event page (three parts + chain), catalog dots, "+ New workflow on this event", Installed-by
       badge, admin panel; live check incl. 390px
-- [ ] **Slice 5 — cleanup:** only the items Jared picks
-- [ ] **Slice 6 — SDK/CLI/MCP/docs**
+- [x] **Slice 5 — cleanup:** Jared picked all four items (decisions below); plus the email-template override's own
+      variable list and `name`/`category` on the connections summary rows
+- [ ] **Slice 6 — SDK/CLI/MCP/docs:** core part done (`describe_event` AI/MCP tool + docs; SDK types regenerated with
+      slice 5). Left: SDK methods for the new endpoint, CLI `marvin events show <type>`
 - Each slice ships on its own (CI-gated rollout); slice 1 first, since everything else reads its storage.
 
 ## Open questions for Jared
 1. Built-in reactions (site rebuild, indexing, smart collections, embeds): show them as a muted "Built-in" line?
    (Proposed: yes.)
-2. Section 5 cleanup: which items, and `site_build_*` or `site_deployment_*` as the family to keep?
+2. ~~Section 5 cleanup: which items, and `site_build_*` or `site_deployment_*` as the family to keep?~~ All four;
+   `site_deployment_*` kept (Jared 2026-10-06; see the slice 5 decisions).
 3. "+ New workflow on this event" in the Subscribe menu — yes?
 4. Workflows installed by an integration: may they be switched off from the event page, or only on the workflow /
    integration page? (Proposed: link only, so the event page never fights the integration that owns them.)
@@ -1715,6 +1718,79 @@ console errors, no 4xx/5xx, no horizontal scroll at 390px; light + dark. Screens
 **Found, not fixed:** `PATCH /api/platform/entries/{id}` to `published` 500'd once in seeding — `EntryRead`
 validation got bare UUIDs in `collections` (an entry joining a smart collection during the same request?).
 Pre-existing, backend.
+
+## Slice 5 review (2026-10-06, branch `feat/events-cleanup`)
+
+**Decisions (Jared 2026-10-06; production checked the same day: nothing uses site_build_*, site_published,
+webhook_created/updated/deleted, webhook_delivery_*, api_token_*, api_rate_limit_exceeded,
+login_failed_multiple_times or suspicious_activity_detected; `webhook_triggered` has one subscription — Grace's
+"Rebuild Site" deploy hook — and 43 Event Log rows):**
+- `webhook_triggered` → display name **Site Rebuild Sent**, category Publishing, described as the signal deploy hooks
+  listen to; internal name unchanged.
+- Wire up `webhook_created/updated/deleted` (outgoing-webhook routes; name, type, switch, subscribed events, who —
+  never URL or headers) and `webhook_delivery_failed` (once per delivery after retries; webhook, event carried, HTTP
+  status or error kind — never URL, headers or body). Hide `webhook_delivery_succeeded` (noise; the webhook's
+  activity log covers it).
+- Wire up `api_token_created/rotated/revoked` from the personal-token routes (platform scope, audit-locked; name, id,
+  owner — never the token or hash).
+- `site_published`: hidden (no sender).
+- `site_build_*` → aliases of `site_deployment_*`: never offered, triggerable or emittable; triggers, Emit event
+  steps (and subscriptions) naming one are stored and read as the counterpart; data migration for stored ones; old
+  API inputs keep working.
+- Security types with no feature (`api_rate_limit_exceeded`, `login_failed_multiple_times`,
+  `suspicious_activity_detected`): hidden until built, enum members kept, still platform scope + audit-locked.
+- Email override of system emails: keep it, presented as "Replaces Marvin's … email" with its own variable list
+  from the catalog, served by its own endpoint (not by re-listing platform types).
+
+**Built.**
+- Catalog: `CatalogEntry.alias_of` + `ALIASES` / `canonical_event_type` / `aliases_of`; `CatalogEntry.hidden`
+  (`HIDDEN_EVENT_TYPES` = `_NO_EMITTER` ∪ aliases). Hidden types are left out of `/api/event/types`, Audit coverage
+  (`/api/groups/audit-settings`), the admin Events filter (`/api/admin/events/catalog`) and the connections summary,
+  and the connections detail answers 404 (workspace and admin).
+- Senders: `webhook_controller` (`EventWebhookConfigData`), `WebhookPublisher` (`EventWebhookDeliveryData`; error is
+  "HTTP 503" or the exception's class name because requests quotes the URL; a webhook on `webhook_delivery_failed`
+  failing doesn't announce itself), `api_token_controller` (`EventAPITokenData` + `user_name`).
+- Aliases: `WorkspaceAutomationModel` normalises the trigger and Emit event steps on write and on read; the engine
+  also matches a row still holding an old `trigger_event`; Emit event accepts an old name and emits the counterpart
+  ("Site deploy …"); webhook / email / integration subscription models store the counterpart. Migration
+  **`011f6c720d1d`** rewrites stored triggers, steps and the three subscription tables (a webhook already on the
+  counterpart keeps one row); idempotent; downgrade is a no-op.
+- Email override: `GET /api/platform/workspaces/{id}/email-templates/system-emails` (OWNER/ADMIN): per system email
+  its event, label, recipients, `systemSends`, `replacedBy` (from `connections.system_email`, the event page's `_runs`
+  rule) and the catalog entry's variables. The template page shows "Replaces Marvin's welcome email" with a "Send this
+  template instead" switch (saved as the email subscription with the system email's recipients) and a note on what
+  sends now; the system template's page says Sending / Replaced; the hard-coded map copy in the page is gone.
+- Coordinator add-on: connections summary rows carry the catalog `name` and `category` (for the CLI).
+- `describe_event` (slice 6 core): registry tool, ADMIN, `automation_read`, agent + MCP; event type or hint →
+  senders, reactions (built-ins, installed-by), leads_to / caused_by, last occurred; workspace events, platform
+  events for super admins only; hidden / platform names asked by a workspace caller get a reason, not a guess.
+- Drift tests: the hidden set is spelled out; every shown type has a `sent_by`, every hidden one none and isn't
+  offered; aliases point at shown, triggerable, emittable types and nothing sends an alias.
+
+**Departures / Jared's call:**
+- Hiding is global: besides the cleanup's types, the other never-sent ones (comments, backups, storage quota,
+  user_updated/deleted, …) also left Audit coverage and the admin Events filter (they were listed there, switchable,
+  though never written). Audit coverage lists 90 workspace types now (was 105); the admin Events filter 10 platform types.
+- Deleting a personal token sends `api_token_revoked` too (it stops working); switching one off through PATCH
+  `enabled=false` sends nothing — say if that should count as revoked.
+- Aliases also cover webhook, email and integration subscriptions (save + migration), not only workflows.
+- `webhook_delivery_failed` is sent for scheduled and Test sends as well (same publisher); not for a workflow's
+  Webhook step (its failure is the run's `automation_failed`).
+- The Event Log's message title for `webhook_triggered` stays "Webhook Triggered" (titles come from the enum name for
+  every event); the activity toast has its own "Site rebuild" label.
+- `entry_shared` is hidden but the Emit event step still accepts it (open question 6).
+
+**Verified.** Backend 2822 passed / 179 skipped without the integration SDK (develop 2777/179), 3125 / 6 with it
+(develop 3080/6); new and touched event tests on Postgres 16: 116/116. Migration up/down/up with old-name rows
+(trigger, Emit event steps, duplicate webhook rows, email and integration subscriptions) on SQLite and Postgres 16.
+SDK gate reproduced (fresh venv, `pip install -e .[dev]` + integration SDK): only the new endpoint, `SystemEmail*`
+schemas and the summary's `name`/`category` — MarvinSDK `feat/events-cleanup-types`; lint, tsc, 185/185 tests,
+build. Frontend `npm test` 454/454, biome clean on touched files, `astro check` 51 errors / 69 hints (= develop);
+`mkdocs build --strict` clean. Live (SQLite + astro dev + headless Chromium, as workspace admin): the Events list has
+84 types and none hidden, Site Rebuild Sent under Publishing; `/automation/events/site_build_completed` and
+`/webhook_delivery_succeeded` send back to the list; a welcome template's switch on → off → on, each saved and
+reflected on Marvin's own welcome template (Sending / Replaced), variables from the catalog; password reset shown off;
+no console errors, no 4xx/5xx, no horizontal scroll at 390px, light + dark. Screenshots in the job's `cleanup-shots/`.
 
 # Settings breadcrumbs — one trail on every admin and settings page (plan, 2026-10-06, design approved by Jared)
 
