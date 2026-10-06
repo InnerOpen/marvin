@@ -1512,9 +1512,9 @@ API shapes stay the same, so the SDK, CLI, MCP and the sites don't break.
 **Goal (Jared 2026-10-06):** every admin and workspace settings page shows where it sits the same way: one trail of
 its ancestors above the title, built from one map, instead of four home-made styles.
 
-**Today:** 66 in-scope pages (`pages/admin`, the non-content pages of `pages/workspace`, `pages/automation`,
+**Today:** 67 in-scope pages (`pages/admin`, the non-content pages of `pages/workspace`, `pages/automation`,
 `pages/publishing`) use four styles: `components/Breadcrumb.astro` (16 pages), hand-made `<div class="breadcrumb">`
-(10: scheduled-task pages, Ask, AI Executions, Event Log, webhook log, event type pages), "Back to …" buttons
+(12: scheduled-task pages, Ask, AI Executions, Event Log, webhook log, event type pages), "Back to …" buttons
 (integrations, alerts & health, AI pages, users/new, groups/[id], entry-types/[id], API clients) or nothing (most
 admin pages, secrets, environment). The eyebrow above the H1 reads "Settings", "Workspace", "Workspace Settings",
 "Settings · Integrations", "Automation", "Events", "Publishing", "Workspaces" or (admin) always "Admin". Trails point
@@ -1542,12 +1542,25 @@ resources) don't use `Breadcrumb.astro`, so the component can go.
   unique, every href resolves to a page file.
 
 ## Checklist
-- [ ] Plan (this section)
-- [ ] `navTree.ts` + trail builder; layouts render the trail (desktop + phone, light + dark)
-- [ ] Admin pages: crumbs, old breadcrumbs/back links out; sidebar reads the map
-- [ ] Settings / automation / publishing pages: crumbs, old breadcrumbs/back links/eyebrows out; hub cards read the map
-- [ ] Retire `Breadcrumb.astro`
-- [ ] Node test
-- [ ] Docs: manual (navigation) + what's new
-- [ ] Verify: `npm test`, biome on touched files, `astro check` vs baseline, live check as super admin and workspace
+- [x] Plan (this section)
+- [x] `navTree.ts` + trail builder; layouts render the trail (desktop + phone, light + dark)
+- [x] Admin pages: crumbs, old breadcrumbs/back links out; sidebar reads the map
+- [x] Settings / automation / publishing pages: crumbs, old breadcrumbs/back links/eyebrows out; hub cards read the map
+- [x] Retire `Breadcrumb.astro`
+- [x] Node test
+- [x] Docs: manual (navigation) + what's new
+- [x] Verify: `npm test`, biome on touched files, `astro check` vs baseline, live check as super admin and workspace
       admin (every in-scope page, links, no 404s, no console errors), screenshots at desktop and 390px
+
+**Review (2026-10-06):** built as designed. 67 pages declare a crumb (66 nodes have one page each; Automation and
+Publishing link to the hub tab). H1s come from the map unless a detail page passes its own; two changed:
+"Workspace Members" → "Members", "Workspace Invites" → "Invitations". Hub card titles now match their destination's
+H1 ("Manage Entry Types" → "Entry Types", "Scheduler" → "Scheduled Tasks", "Site Clients" → "API Clients", …;
+"Notifications" kept its name). Ask stays under Settings although it's also a top-level sidebar link. Removed: 16
+`<Breadcrumb>`, 12 hand-made trails + their CSS, 13 Back links (incl. error-state ones); the event webhook page's
+"Back" beside Connect became "Cancel". One live find, fixed: Astro's scoped selectors made the phone "‹" lose to the
+desktop "›" rule. Verified: `npm test` 439 pass (73 new); biome clean on new files, no new findings on touched ones;
+`astro check` 51 errors (baseline 51); `mkdocs build --strict` clean (with a generated `openapi.json`). Live on
+SQLite + `astro dev` + headless Chromium: super admin 69 pages (all static nodes + 11 detail pages), workspace admin
+48; every trail matches the map, every trail link (18) answers 200, no old breadcrumbs or eyebrows, no console
+errors; 390px shows only the parent with no horizontal scroll, light and dark.
