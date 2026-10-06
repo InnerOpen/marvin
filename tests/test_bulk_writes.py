@@ -136,6 +136,54 @@ def test_bind_tool_without_bulk_write_has_no_check():
     assert check is None
 
 
+# ── ask_first: a per-call ask about what a call touches, not how much ───────
+
+
+def _ask_spec(flag: bool, calls: list):
+    ask = bulk_writes.AskFirst(preview={"summary": "Archive 1 entry"}, refusal=json.dumps({"error": "cannot pause"}))
+
+    def handler(ctx, args):
+        calls.append(args)
+        return json.dumps({"ok": True})
+
+    return SimpleNamespace(handler=handler, bulk_write=None, ask_first=lambda ctx, args: ask if flag else None)
+
+
+def test_bind_ask_first_on_a_parkable_run_pends_with_its_preview():
+    calls: list = []
+    run, check = bulk_writes.bind(_ask_spec(True, calls), ctx=None, can_park=True)
+    assert check({}) == {"summary": "Archive 1 entry"} and calls == []
+    _, check = bulk_writes.bind(_ask_spec(False, calls), ctx=None, can_park=True)
+    assert check({}) is None
+
+
+def test_bind_ask_first_without_a_thread_answers_with_its_refusal():
+    calls: list = []
+    run, check = bulk_writes.bind(_ask_spec(True, calls), ctx=None, can_park=False)
+    assert check is None and json.loads(run({})) == {"error": "cannot pause"} and calls == []
+
+
+def test_ask_first_check_that_raises_lets_the_handler_report():
+    calls: list = []
+
+    def boom(ctx, args):
+        raise ValueError("bad")
+
+    spec = SimpleNamespace(handler=lambda ctx, args: calls.append(args) or "{}", bulk_write=None, ask_first=boom)
+    run, check = bulk_writes.bind(spec, ctx=None, can_park=True)
+    assert check({}) is None
+    bulk_writes.unattended(spec, None)({})
+    assert len(calls) == 1
+
+
+def test_unattended_refuses_ask_first_calls_but_leaves_bulk_sizing_alone():
+    calls: list = []
+    assert json.loads(bulk_writes.unattended(_ask_spec(True, calls), None)({})) == {"error": "cannot pause"} and calls == []
+    # MarvinMCP's invoke never applied the bulk gate; unattended doesn't add it
+    bulk = _spec(_write(19, 25), calls)
+    assert json.loads(bulk_writes.unattended(bulk, None)({})) == {"ok": True} and len(calls) == 1
+
+
 # ── Every bulk-write action tool opts in ─────────────────────────────────────
 
 

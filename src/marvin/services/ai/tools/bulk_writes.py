@@ -12,6 +12,12 @@ says, a call whose size crosses the thresholds below is not run unasked:
 
 A tool opts in by passing `bulk_write=` to `register_tool`: a function that sizes one call without
 writing anything. `bind` turns a spec into the agent's (run, approval_check) pair.
+
+The same gate serves tools whose ask is about *what* a call touches rather than how much: such a tool
+passes `ask_first=`, a function that looks at one call and returns an `AskFirst` (the card's preview and
+the refusal for runs that can't park) when the user must say yes — `archive_entries` on a published
+entry, which takes it off the site. MarvinMCP's direct invoke has nobody to ask, so `unattended` refuses
+those calls there.
 """
 
 from __future__ import annotations
@@ -109,30 +115,89 @@ def size_call(spec, ctx, args: dict) -> BulkWrite | None:
         return None
 
 
+@dataclass(frozen=True)
+class AskFirst:
+    """One call an `ask_first` tool wants the user to approve."""
+
+    preview: dict  # the approval card: `summary` plus the targets (same keys as `approval_preview`)
+    refusal: str  # the tool result where the run can't park: why, and what to do instead
+
+
+# A gate looks at one call: None → run it; (preview, refusal) → it needs the user's go-ahead.
+Gate = Callable[[dict], tuple[dict, str] | None]
+
+
+def _bulk_gate(spec, ctx) -> Gate | None:
+    if getattr(spec, "bulk_write", None) is None:
+        return None
+
+    def gate(args: dict) -> tuple[dict, str] | None:
+        write = size_call(spec, ctx, args)
+        return (approval_preview(write), refusal(write)) if needs_approval(write) else None
+
+    return gate
+
+
+def _ask_first_gate(spec, ctx) -> Gate | None:
+    ask = getattr(spec, "ask_first", None)
+    if ask is None:
+        return None
+
+    def gate(args: dict) -> tuple[dict, str] | None:
+        try:
+            flagged = ask(ctx, args)
+        except Exception:  # noqa: BLE001 — a check failure is not a reason to block; the handler reports bad input
+            return None
+        return (flagged.preview, flagged.refusal) if flagged is not None else None
+
+    return gate
+
+
+def _first_hit(gates: list[Gate], args: dict) -> tuple[dict, str] | None:
+    for gate in gates:
+        hit = gate(args)
+        if hit is not None:
+            return hit
+    return None
+
+
 def bind(spec, ctx, *, can_park: bool) -> tuple[Callable[[dict], str], Callable[[dict], dict | None] | None]:
     """The agent's (run, approval_check) for a registry tool.
 
-    No `bulk_write` → the plain handler, no check. On a run that can park, the loop asks
-    `approval_check` before each call and pends the big ones (the handler runs only once approved).
-    Otherwise the handler itself is guarded: a big call answers with `refusal` and writes nothing.
+    No `bulk_write` / `ask_first` → the plain handler, no check. On a run that can park, the loop asks
+    `approval_check` before each call and pends the flagged ones (the handler runs only once approved).
+    Otherwise the handler itself is guarded: a flagged call answers with its refusal and writes nothing.
     """
+    gates = [g for g in (_bulk_gate(spec, ctx), _ask_first_gate(spec, ctx)) if g is not None]
 
     def run(args: dict) -> str:
         return spec.handler(ctx, args)
 
-    if getattr(spec, "bulk_write", None) is None:
+    if not gates:
         return run, None
 
     if can_park:
 
         def approval_check(args: dict) -> dict | None:
-            write = size_call(spec, ctx, args)
-            return approval_preview(write) if needs_approval(write) else None
+            hit = _first_hit(gates, args)
+            return hit[0] if hit is not None else None
 
         return run, approval_check
 
     def guarded(args: dict) -> str:
-        write = size_call(spec, ctx, args)
-        return refusal(write) if needs_approval(write) else spec.handler(ctx, args)
+        hit = _first_hit(gates, args)
+        return hit[1] if hit is not None else spec.handler(ctx, args)
 
     return guarded, None
+
+
+def unattended(spec, ctx) -> Callable[[dict], str]:
+    """The handler for a caller nobody can be asked on behalf of (MarvinMCP's direct invoke): a call an
+    `ask_first` tool flags answers with its refusal. Bulk sizing is not applied here (unchanged)."""
+    gate = _ask_first_gate(spec, ctx)
+
+    def run(args: dict) -> str:
+        hit = gate(args) if gate is not None else None
+        return hit[1] if hit is not None else spec.handler(ctx, args)
+
+    return run

@@ -141,7 +141,7 @@ class AIOperationsController(BaseUserController):
         import json
 
         from marvin.services.ai.factory import get_workspace_ai_provider
-        from marvin.services.ai.tools import ToolContext, get_tool
+        from marvin.services.ai.tools import ToolContext, bulk_writes, get_tool
 
         try:
             spec = get_tool(name)
@@ -169,8 +169,10 @@ class AIOperationsController(BaseUserController):
         )
         # A handler raising is not fatal (mirrors the agent loop, which surfaces tool errors to
         # the model): roll back any poisoned transaction and return a structured error.
+        # Nobody can be asked from here, so a call an ask-first tool flags (archiving a published entry)
+        # answers with its refusal instead of running.
         try:
-            raw = spec.handler(ctx, body.args or {})
+            raw = bulk_writes.unattended(spec, ctx)(body.args or {})
         except Exception as e:
             self.session.rollback()
             self.logger.warning("AI tool '%s' handler failed: %s", name, e)

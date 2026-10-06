@@ -68,6 +68,9 @@ class ToolSpec:
     # Bulk-write tools: size one call without writing (`bulk_writes.BulkWrite`), so a big call asks
     # the user first instead of running — see tools/bulk_writes.py. None = never bulk.
     bulk_write: Callable[[ToolContext, dict], Any] | None = None
+    # Ask-first tools: look at one call without writing and return a `bulk_writes.AskFirst` when *this*
+    # call needs the user's go-ahead (archive_entries on a published entry), else None.
+    ask_first: Callable[[ToolContext, dict], Any] | None = None
 
     def info(self) -> dict:
         return {
@@ -92,6 +95,7 @@ def register_tool(
     sources: tuple[str, ...] = INVOCATION_SOURCES,
     read_only: bool = True,
     bulk_write: Callable[[ToolContext, dict], Any] | None = None,
+    ask_first: Callable[[ToolContext, dict], Any] | None = None,
 ):
     """Decorator: register the decorated ``handler(ctx, args) -> str`` as a :class:`ToolSpec`."""
 
@@ -105,6 +109,7 @@ def register_tool(
             sources=sources,
             read_only=read_only,
             bulk_write=bulk_write,
+            ask_first=ask_first,
         )
         return handler
 
