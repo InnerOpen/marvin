@@ -140,8 +140,8 @@ route:
 # --- Site-wide plugins ---------------------------------------------------------------------------
 # One pip install into an emptyDir on PYTHONPATH, in the backend and in each backup CronJob (the r2
 # target comes from marvin-storage-s3); the app discovers them through the `marvin.integrations` and
-# `marvin.storage_providers` entry-point groups. The SDK tarball only satisfies pip; the chart removes it
-# after the install, so the image's pinned SDK is the one imported.
+# `marvin.storage_providers` entry-point groups. The SDK tarball only satisfies pip; the install keeps
+# only what the image doesn't already have, so the image's SDK and dependencies are the ones imported.
 # NOTE: pinned to branch tarballs (SDK default branch is `develop`, plugins `main`) — swap to tags
 # for reproducible builds. Re-downloaded on every pod start and every backup run, so the backend and
 # the backup jobs need GitHub (and PyPI, for boto3) egress.

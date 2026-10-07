@@ -123,8 +123,8 @@ route:
 
 # --- Site-wide plugins — same set as production -------------------------------------------------
 # One pip install into an emptyDir on PYTHONPATH, in the backend and in each backup CronJob (the r2
-# target comes from marvin-storage-s3). The SDK tarball only satisfies pip; the chart removes it after
-# the install, so the image's pinned SDK is the one imported.
+# target comes from marvin-storage-s3). The SDK tarball only satisfies pip; the install keeps
+# only what the image doesn't already have, so the image's SDK and dependencies are the ones imported.
 plugins:
   packages:
     - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz

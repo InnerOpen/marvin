@@ -291,27 +291,65 @@ The API pod's update strategy: the split backend's own when set, else the shared
 Site-wide plugins (plugins.packages): one pip install into a shared emptyDir that goes on PYTHONPATH,
 in every pod that runs Marvin code (the backend, split or combined, and each backup CronJob). Each
 helper renders nothing while the list is empty, so a release without plugins renders as before.
-The image pins marvin-integration-sdk; pip still needs a copy to satisfy the plugins' requirement,
-but it is removed after the install, so the PYTHONPATH copy never shadows the image's.
+
+PYTHONPATH comes ahead of the image's site-packages, so anything the image already has must not be
+left in /plugins: a vendor SDK's dependencies (pydantic, httpx, anyio, ...) would replace Marvin's
+own. The install runs in the backend image itself (plugins.image empty) so it can see them: pip is
+constrained to the image's exact versions (a plugin that needs other versions fails the install
+instead of shadowing them), then every distribution the image already has is removed from /plugins.
+marvin-integration-sdk is the one left unpinned: a plugin may list it (a tarball) only to satisfy
+pip, and the image's pinned copy is the one imported.
 */}}
 {{- define "marvin.plugins.initContainer" -}}
 {{- if .Values.plugins.packages }}
 - name: install-plugins
-  image: {{ .Values.plugins.image | quote }}
+  image: {{ .Values.plugins.image | default (include "marvin.backendImage" .) | quote }}
   {{- with .Values.securityContext }}
   securityContext:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   command: ["sh", "-c"]
   args:
-    - >-
-      set -eu;
-      pip install --no-cache-dir --disable-pip-version-check --target=/plugins
+    - |
+      set -eu
+      unset PYTHONPATH
+      img=/app/.venv/bin/python; [ -x "$img" ] || img=python3
+      pip_python=/usr/local/bin/python3; [ -x "$pip_python" ] || pip_python=python3
+      "$img" - > /plugins/.image-pins.txt <<'PY'
+      import importlib.metadata as m, re
+      skip = {"marvin", "marvin-integration-sdk"}
+      for d in m.distributions():
+          name = re.sub(r"[-_.]+", "-", d.metadata["Name"]).lower()
+          if name not in skip:
+              print(f"{name}=={d.version}")
+      PY
+      "$pip_python" -m pip install --no-cache-dir --disable-pip-version-check --target=/plugins \
+        -c /plugins/.image-pins.txt \
       {{- range .Values.plugins.packages }}
-      {{ . | squote }}
-      {{- end }};
-      rm -rf /plugins/marvin_integration_sdk /plugins/marvin_integration_sdk-*.dist-info;
-      echo "--- installed into /plugins ---";
+        {{ . | squote }} \
+      {{- end }}
+        ;
+      rm -rf /plugins/.image-pins.txt /plugins/bin
+      "$img" - <<'PY'
+      import importlib.metadata as m, pathlib, re, shutil
+      norm = lambda n: re.sub(r"[-_.]+", "-", n).lower()
+      image = {norm(d.metadata["Name"]) for d in m.distributions()}
+      root = pathlib.Path("/plugins").resolve()
+      for d in list(m.distributions(path=[str(root)])):
+          name, version = d.metadata["Name"], d.version
+          if norm(name) not in image:
+              continue
+          for f in d.files or []:
+              p = pathlib.Path(d.locate_file(f)).resolve()
+              if p.is_relative_to(root) and p.is_file():
+                  p.unlink()
+          shutil.rmtree(d._path, ignore_errors=True)
+          print(f"using the image's {name} (dropped the plugin install's {version})")
+      for p in sorted(root.rglob("*"), key=lambda p: len(p.parts), reverse=True):
+          if p.is_dir() and not any(p.iterdir()):
+              p.rmdir()
+      PY
+      echo "--- installed into /plugins ---"
       ls -1 /plugins
   {{- with .Values.plugins.resources }}
   resources:

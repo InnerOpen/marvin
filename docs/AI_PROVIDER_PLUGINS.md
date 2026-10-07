@@ -95,11 +95,12 @@ plugins:
     - https://github.com/InnerOpen/marvin-ai-openai/archive/refs/heads/main.tar.gz
 ```
 
-The init container installs the plugin and its dependencies into `/plugins`, which goes on
-`PYTHONPATH` **ahead of** the image's site-packages. The chart removes the SDK copy afterwards, but
-not the vendor SDK's dependencies: `openai` brings `pydantic`, `pydantic-core`, `httpx` and `anyio`,
-which then replace the image's versions. Check them against Marvin's lock before installing a vendor
-plugin in production, until the chart drops packages the image already has.
+The init container installs the plugin into `/plugins`, which goes on `PYTHONPATH` **ahead of** the
+image's site-packages. It runs in the backend image, constrained to the versions the image already
+has, and then drops every package the image has: `openai`, `pydantic`, `httpx`, `anyio` and the SDK
+come from the image, and only `marvin_ai_openai` stays in `/plugins`. A plugin that needs versions the
+image doesn't have fails the install (the rollout stops, old pods keep serving) instead of replacing
+Marvin's own.
 
 **Admin → Plugins** lists the package with kind *AI provider*, its capabilities and how many
 workspaces use it; `GET /api/ai/provider-types` (what AI Settings reads) lists every provider, built in

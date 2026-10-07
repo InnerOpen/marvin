@@ -434,8 +434,10 @@ initContainers: []
 # Site-wide plugins (integrations, storage providers / backup targets; AI providers next). Each entry
 # is a pip requirement (a tarball URL needs no git in the init image). They are installed at pod start
 # into a shared emptyDir on PYTHONPATH, in every pod that runs Marvin code: the backend (split or
-# combined) and each backup CronJob. List the plugins' marvin-integration-sdk requirement too so pip
-# can resolve it; that copy is removed after the install, so the SDK the image pins is the one loaded.
+# combined) and each backup CronJob. The install runs in the backend image, pinned to the versions the
+# image already has, and then drops every package the image has, so /plugins holds only what is new and
+# never shadows Marvin's own dependencies (a plugin that needs other versions fails the install). List
+# the plugins' marvin-integration-sdk requirement too so pip can resolve it; the image's copy is used.
 # Empty = nothing rendered. Re-downloaded on every pod start, so those pods need egress to the index.
 #
 # plugins:
@@ -444,7 +446,8 @@ initContainers: []
 #     - https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
 plugins:
   packages: []
-  image: python:3.12-slim
+  # Empty = the backend image, so the install can pin to and drop what the image already has.
+  image: ""
   resources: {}
 
 # Extra volumes

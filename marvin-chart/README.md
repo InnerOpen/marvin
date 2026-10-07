@@ -297,10 +297,13 @@ plugins:
     - https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
 ```
 
-The SDK is listed so pip can resolve the plugins' requirement; the init container deletes that copy
-after the install, because the image pins `marvin-integration-sdk` and a `PYTHONPATH` copy would
-shadow it. `plugins.image` (default `python:3.12-slim`) and `plugins.resources` tune the init
-container.
+The SDK is listed so pip can resolve the plugins' requirement. The init container runs in the backend
+image: pip is constrained to the exact versions the image already has, and afterwards every package the
+image has (the SDK included) is removed from `/plugins`. `PYTHONPATH` comes before site-packages, so
+this is what keeps a plugin's dependencies (a vendor SDK's `pydantic`, `httpx`, ...) from replacing
+Marvin's own; a plugin that needs different versions fails the install instead, and the rollout stops
+with the old pods still serving. The init log lists what was dropped. `plugins.image` (empty = the
+backend image) and `plugins.resources` tune the init container.
 
 ### By hand: an init container plus PYTHONPATH
 
