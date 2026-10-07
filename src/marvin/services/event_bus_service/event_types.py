@@ -616,14 +616,14 @@ class EventUserSignupData(EventDocumentDataBase):
 
 
 class EventPasswordResetData(EventDocumentDataBase):
-    """Data payload for a password reset request event."""
+    """Data payload for a password reset request event: who asked, never the reset link. The link is a live
+    credential, so PasswordResetService emails it to the user directly; this event fans out to listeners and is
+    stored in the Event Log."""
 
     document_type: EventDocumentTypeBase = EventDocumentType.user
     operation: EventOperationBase = EventOperation.info
     email: str
     """The email address of the user requesting a password reset. Resolves as email_address convenience alias."""
-    reset_url: str
-    """The password reset URL. Resolves as button_link convenience alias."""
     username: str | None = None
     """The username of the user requesting the reset."""
 
@@ -952,11 +952,12 @@ class EventMemberData(EventDocumentDataBase):
 
 
 class EventInvitationData(EventDocumentDataBase):
-    """Data payload for invitation events."""
+    """Data payload for invitation events. Never the invitation token or link: anyone holding one joins the workspace,
+    and every member can read an event's payload. The invitation email is sent directly with the link."""
 
     document_type: EventDocumentTypeBase = EventDocumentType.invitation
-    invitation_token: UUID4 | str
-    """The unique token of the invitation."""
+    invitation_id: UUID4 | None = None
+    """The invitation's id (also the event's entity_id)."""
     workspace_id: UUID4
     """The workspace the invitation is for."""
     workspace_name: str | None = None
@@ -965,8 +966,6 @@ class EventInvitationData(EventDocumentDataBase):
     """The name of the user who created the invitation."""
     invitee_email: str | None = None
     """The email address of the invited user (if applicable)."""
-    invitation_url: str | None = None
-    """The URL the invitee clicks to accept the invitation."""
     uses_left: int | None = None
     """The number of remaining uses for the invitation."""
 

@@ -34,7 +34,7 @@ class EmailTemplateController(BaseUserController):
     Controller for managing workspace email templates.
 
     Provides CRUD operations for email templates that can customize
-    invitation, password reset, and notification emails per workspace.
+    invitation, welcome and notification emails per workspace (never the password reset email: the platform's own).
     """
 
     @cached_property
@@ -163,7 +163,7 @@ class EmailTemplateController(BaseUserController):
 
     @router.get("/system-emails", response_model=list[SystemEmailRead], summary="List Marvin's Replaceable System Emails")
     def list_system_emails(self, group_id: UUID4) -> list[SystemEmailRead]:
-        """Marvin's own emails a workspace template can replace (welcome, password reset, invitation): the event each
+        """Marvin's own emails a workspace template can replace (welcome, invitation): the event each
         is sent on, its variables (from the event catalog), whether it sends now and which workspace templates replace
         it. The email template page offers "Replaces Marvin's … email" from this, so it never has to list platform
         events. Workspace OWNER/ADMIN."""
@@ -185,6 +185,11 @@ class EmailTemplateController(BaseUserController):
             event_type = mapping["event_type"]
             entry = get_catalog_entry(event_type)
             sends, replaced_by = connections.system_email(session, group_id, event_type)
+            # The link the sender adds (it's never in the event: every member reads an event's payload).
+            link_variable = mapping.get("link_variable")
+            link = (
+                [SystemEmailVariable(slug=link_variable[0], description=link_variable[1], example="https://...", type="url")] if link_variable else []
+            )
             out.append(
                 SystemEmailRead(
                     template_type=template_type,
@@ -197,8 +202,11 @@ class EmailTemplateController(BaseUserController):
                     system_sends=sends,
                     replaced_by=replaced_by,
                     variables=[
-                        SystemEmailVariable(slug=v.slug, description=v.description, example=v.example, type=v.type)
-                        for v in (entry.variables if entry else [])
+                        *(
+                            SystemEmailVariable(slug=v.slug, description=v.description, example=v.example, type=v.type)
+                            for v in (entry.variables if entry else [])
+                        ),
+                        *link,
                     ],
                 )
             )
@@ -232,6 +240,14 @@ class EmailTemplateController(BaseUserController):
             Created email template
         """
         self._check_admin_access(group_id)
+
+        # The password-reset email carries a live credential for an account the workspace doesn't own: it's always the
+        # platform's own (services/email/system_email_events.py), so a workspace template of its type would never send.
+        if data.template_type == "password_reset":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="The password reset email is the platform's own; a workspace template can't replace it.",
+            )
 
         # Ensure group_id matches
         if data.group_id and str(data.group_id) != str(group_id):

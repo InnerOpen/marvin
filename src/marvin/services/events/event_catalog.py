@@ -132,7 +132,6 @@ CATALOG: list[CatalogEntry] = [
         sent_by=["Creating an invitation link (Members settings, API)"],
         variables=COMMON_VARS
         + [
-            EventVariable("invitation_url", "Invitation link", "https://...", type="url"),
             EventVariable("inviter_name", "Who created the invitation", "Jane Smith", type="name"),
         ],
     ),
@@ -144,7 +143,6 @@ CATALOG: list[CatalogEntry] = [
         sent_by=["Emailing an invitation (Members settings, API)"],
         variables=COMMON_VARS
         + [
-            EventVariable("invitation_url", "Link for the recipient to accept the invite", "https://...", type="url"),
             EventVariable("inviter_name", "Name of the person who sent the invite", "Jane Smith", type="name"),
             EventVariable("recipient_email", "Email address of the invited user", "user@example.com", type="email"),
         ],
@@ -253,7 +251,6 @@ CATALOG: list[CatalogEntry] = [
         sent_by=["Asking for a password reset link"],
         variables=[
             EventVariable("username", "Username requesting the reset", "jsmith", type="username"),
-            EventVariable("reset_url", "Password reset link", "https://...", type="url"),
             EventVariable("expiry_hours", "Hours until the link expires", "24", type="count"),
         ],
     ),

@@ -800,7 +800,8 @@ def test_a_workspace_email_subscription_never_gets_a_platform_backup_event(db_se
             workspace_id=None,
         )
         assert EmailEventListener(None).get_subscribers(event) == []
-        assert EmailEventListener(gid).get_subscribers(event)  # the workspace's own scope still finds it
+        # Nor under the workspace's own scope: a platform event reaches no workspace subscription at all.
+        assert EmailEventListener(gid).get_subscribers(event) == []
     finally:
         db_session.execute(sa.delete(EmailEventSubscriptionModel.__table__).where(EmailEventSubscriptionModel.__table__.c.group_id == gid))
         db_session.execute(sa.delete(EmailTemplateModel.__table__).where(EmailTemplateModel.__table__.c.id == tid))

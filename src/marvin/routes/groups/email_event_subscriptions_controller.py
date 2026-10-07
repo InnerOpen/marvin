@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 
 from marvin.routes._base.base_controllers import BaseUserController
-from marvin.routes._base.checks import require_workspace_admin
+from marvin.routes._base.checks import refuse_platform_events, require_workspace_admin
 from marvin.routes._base.controller import controller
 from marvin.schemas.group.email_event_subscription import (
     EmailEventSubscriptionCreate,
@@ -40,6 +40,27 @@ class EmailEventSubscriptionsController(BaseUserController):
         if found is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email template not found")
 
+    def _replaces_marvins_email(self, data: EmailEventSubscriptionCreate) -> bool:
+        """The connection of this workspace's own template of a system email's type to that email's event (the
+        "Replaces Marvin's welcome email" switch): it changes what Marvin's email says, never who gets it
+        (system_email_route), so it may name a platform event (user_signup)."""
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+        from marvin.services.email.system_email_events import get_template_type_for_event
+
+        template_type = get_template_type_for_event(data.event_type)
+        if template_type is None:
+            return False
+        return (
+            self.session.query(EmailTemplateModel.id)
+            .filter(
+                EmailTemplateModel.id == data.template_id,
+                EmailTemplateModel.group_id == self.group_id,
+                EmailTemplateModel.template_type == template_type,
+            )
+            .first()
+            is not None
+        )
+
     @router.get("", response_model=list[EmailEventSubscriptionRead])
     def get_all(self) -> list[EmailEventSubscriptionRead]:
         """List all email event subscriptions for the current workspace."""
@@ -51,6 +72,8 @@ class EmailEventSubscriptionsController(BaseUserController):
         """Create a new email event subscription."""
         require_workspace_admin(self.user, self.group_id)
         self._require_usable_template(data.template_id)
+        if not self._replaces_marvins_email(data):
+            refuse_platform_events([data.event_type])
         save_data = data.model_copy(update={"group_id": self.group_id})
         return self.repo.create(save_data)
 

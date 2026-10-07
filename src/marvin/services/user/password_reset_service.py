@@ -107,15 +107,20 @@ class PasswordResetService(BaseService):
 
     def send_reset_email(self, email: str, accept_language: str | None = None) -> bool:  # Return bool for success
         """
-        Generates a password reset token and dispatches a user_password_reset_requested
-        event so the EmailEventListener can send the reset email via the configured template.
+        Generates a password reset token and emails the reset link to the user, then dispatches a
+        user_password_reset_requested event saying who asked (never the link).
+
+        The link is a live credential for the account, so it goes straight to the account's own address, in the
+        platform's own password-reset template, through the platform's own sender. Never through the event bus —
+        whose events fan out to webhooks, integrations and email subscriptions and are stored in the Event Log — nor a
+        workspace's template or SMTP profile: the user's primary workspace's admins must not be able to read it.
 
         Args:
             email (str): The user's email address.
-            accept_language (str | None, optional): Unused — kept for API compatibility.
+            accept_language (str | None, optional): The preferred language for the email.
 
         Returns:
-            bool: True if the event was dispatched successfully, False if user not found/LDAP.
+            bool: True if the email was sent, False if the user wasn't found / is an LDAP user, or SMTP declined it.
         """
         # Generate the password reset token (also checks user existence / LDAP).
         token_entry_schema = self.generate_reset_token(email)
@@ -125,56 +130,39 @@ class PasswordResetService(BaseService):
             return False
 
         reset_url = f"{self.settings.BASE_URL}/reset-password/?token={token_entry_schema.token}"
-
-        # Fetch the user to get their group_id for event routing
         user = self.db.users.get_one(email, key="email", any_case=True)
-        group_id = getattr(user, "group_id", None) if user else None
+        username = getattr(user, "username", None) or ""
 
-        if group_id is None:
-            # No group context — fall back to direct email send
-            from marvin.services.email.email_service import EmailService
-
-            try:
-                success = EmailService(locale=accept_language).send_forgot_password(email, reset_url)
-                if success:
-                    self.logger.info(f"Password reset email sent (direct) for: {email}")
-                return success
-            except Exception as e:
-                self.logger.exception(f"Failed to send password reset email to {email}: {e}")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to send password reset email due to a server error.",
-                ) from e
+        from marvin.services.email.email_service import EmailService
 
         try:
-            from marvin.services.event_bus_service.event_bus_service import EventBusService
-            from marvin.services.event_bus_service.event_types import (
-                EventOperation,
-                EventPasswordResetData,
-                EventTypes,
-            )
-
-            event_bus = EventBusService(bg_tasks=None)
-            event_bus.dispatch(
-                integration_id="password_reset",
-                group_id=group_id,
-                event_type=EventTypes.user_password_reset_requested,
-                document_data=EventPasswordResetData(
-                    operation=EventOperation.info,
-                    email=email,
-                    reset_url=reset_url,
-                    username=getattr(user, "username", None),
-                ),
-                message=f"Password reset requested for {email}",
-            )
-            self.logger.info(f"Password reset event dispatched for: {email}")
-            return True
+            # No group_id: the platform's password_reset template (or the built-in one) and its default sender.
+            success = EmailService(locale=accept_language).send_forgot_password(user.email, reset_url, username=username)
         except Exception as e:
-            self.logger.exception(f"Failed to dispatch password reset event for {email}: {e}")
+            self.logger.exception(f"Failed to send password reset email to {email}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to send password reset email due to a server error.",
             ) from e
+        if success:
+            self.logger.info(f"Password reset email sent for: {email}")
+
+        group_id = getattr(user, "group_id", None)
+        if group_id is not None:
+            from marvin.services.event_bus_service.event_bus_service import EventBusService
+            from marvin.services.event_bus_service.event_types import EventOperation, EventPasswordResetData, EventTypes
+
+            try:
+                EventBusService(bg_tasks=None).dispatch(
+                    integration_id="password_reset",
+                    group_id=group_id,
+                    event_type=EventTypes.user_password_reset_requested,
+                    document_data=EventPasswordResetData(operation=EventOperation.info, email=user.email, username=username or None),
+                    message=f"Password reset requested for {email}",
+                )
+            except Exception as e:  # the email went out; a failed audit record mustn't turn that into an error
+                self.logger.exception(f"Failed to dispatch password reset event for {email}: {e}")
+        return success
 
     def reset_password(self, token: str, new_password: str, new_password_confirm: str) -> bool:  # Return bool for success
         """
@@ -200,14 +188,14 @@ class PasswordResetService(BaseService):
         token_entry_db = self.db.tokens_pw_reset.get_one(token, key="token")
 
         if token_entry_db is None:
-            self.logger.warning(f"Password reset attempt with invalid or expired token: {token}")
+            self.logger.warning("Password reset attempt with an invalid or expired token")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired password reset token.")
 
         # Fetch the user associated with the token
         # `token_entry_db.user_id` should be available from the schema/model used by the repo.
         user_to_update = self.db.users.get_one(token_entry_db.user_id)  # Assuming user_id is on token_entry_db
         if not user_to_update:  # Should not happen if token is valid and DB is consistent
-            self.logger.error(f"User not found for valid password reset token. User ID: {token_entry_db.user_id}, Token: {token}")
+            self.logger.error(f"User not found for valid password reset token. User ID: {token_entry_db.user_id}")
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User associated with token not found.")
 
         if new_password != new_password_confirm:
@@ -234,6 +222,6 @@ class PasswordResetService(BaseService):
         # Delete the used password reset token from the database
         # `delete` method on repo needs value and key. `token_entry_db.token` is the value.
         self.db.tokens_pw_reset.delete(token_entry_db.token, match_key="token")
-        self.logger.info(f"Password successfully reset for user {user_to_update.username}. Token {token} deleted.")
+        self.logger.info(f"Password successfully reset for user {user_to_update.username}. Reset token deleted.")
 
         return True

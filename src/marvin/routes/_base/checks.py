@@ -8,6 +8,8 @@ permissions to perform certain operations. If a check fails, it raises
 an appropriate FastAPI HTTPException.
 """
 
+from collections.abc import Iterable
+
 from fastapi import HTTPException, status  # For standard HTTP exceptions
 from pydantic import UUID4
 
@@ -170,6 +172,21 @@ def require_workspace_admin(user: PrivateUser, group_id: UUID4) -> None:
     role = user.get_workspace_role(group_id)
     if role is None or not workspace_role_can_manage_settings(role):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ADMIN or OWNER role required.")
+
+
+def refuse_platform_events(event_types: Iterable[str] | None) -> None:
+    """Raise 422 if a workspace subscription (webhook, email, integration action) names a platform-scope event —
+    a sign-up, a password reset, a workspace or personal-token change (services/events/event_catalog.py). Those are
+    the platform's, not the workspace's they're stored under: the event bus never delivers them to a workspace's
+    subscriptions (event_bus_listener._platform_event), and the workspace's event pickers don't offer them."""
+    from marvin.services.events.event_catalog import is_platform_event
+
+    platform = sorted({e for e in event_types or () if is_platform_event(e)})
+    if platform:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Platform events can't be subscribed to from a workspace: {', '.join(platform)}.",
+        )
 
 
 def _bypasses_workspace_roles(user: PrivateUser) -> bool:

@@ -123,11 +123,10 @@ class RegistrationController(BasePublicController):
                     event_type=EventTypes.invitation_accepted,
                     document_data=EventInvitationData(
                         operation=EventOperation.update,
-                        invitation_token=data.group_token,
+                        invitation_id=invitation.id if invitation else None,
                         workspace_id=newly_registered_user.group_id,
                         workspace_name=group.name if group else "",
                         invitee_email=newly_registered_user.email,
-                        invitation_url=f"{settings.BASE_URL}/register?token={data.group_token}",
                         uses_left=token_obj.uses_left if token_obj else None,
                     ),
                     message=f"Invitation accepted by {newly_registered_user.username}",

@@ -211,35 +211,49 @@ class EmailService(BaseService):
         group_id: str | None = None,
         workspace_name: str = "",
         inviter_name: str = "",
+        variables: dict | None = None,
     ) -> bool:
         """
         Sends a group invitation email to a prospective user.
 
-        The email contains a unique URL for accepting the invitation and registering.
-        Looks for a database template first, falls back to filesystem/hardcoded template.
+        The email contains a unique URL for accepting the invitation and registering. The link is a live credential,
+        so it's sent from here — never through the event bus, whose events every member can read. The template is
+        Marvin's own invitation email, or the workspace's template that replaces it (services/email/
+        system_email_events.py `system_email_route`, the rule the email settings and event pages show), always to
+        `recipient_address`; with neither, the built-in one.
 
         Args:
             recipient_address (str): The email address of the person being invited.
             invitation_url (str): The URL the recipient will click to accept the invitation.
             group_id (str | None): Workspace ID for workspace-specific templates.
+            variables (dict | None): More template variables (the invitation_sent event's payload fields).
 
         Returns:
             bool: True if the email was sent successfully, False otherwise.
         """
-        # Try to load template from database
-        db_template = self._get_db_template("invitation", group_id)
+        from marvin.db.db_setup import session_context
+        from marvin.db.models.groups.email_templates import EmailTemplateModel
+        from marvin.services.email.system_email_events import SYSTEM_TEMPLATE_EVENT_MAP, system_email_route
+        from marvin.services.events.event_variables import enrich_variables
 
-        if db_template:
-            return self._send_db_template(
-                recipient_address,
-                db_template,
+        with session_context() as session:
+            route = system_email_route(session, group_id, SYSTEM_TEMPLATE_EVENT_MAP["invitation"]["event_type"]) or []
+            db_templates = [t for t in (session.get(EmailTemplateModel, r.template_id) for r in route) if t is not None]
+
+        if db_templates:
+            template_variables = enrich_variables(
                 {
+                    **(variables or {}),
+                    "email_address": recipient_address,
                     "invitation_url": invitation_url,
                     "button_link": invitation_url,
                     "workspace_name": workspace_name,
                     "inviter_name": inviter_name,
                 },
+                group_id,
             )
+            results = [self._send_db_template(recipient_address, t, template_variables) for t in db_templates]
+            return all(results)
 
         # Fallback to hardcoded template
         invitation_template = EmailTemplate(

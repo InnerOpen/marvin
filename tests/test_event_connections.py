@@ -416,14 +416,19 @@ def test_integration_reactions_match_the_listener(db_session, world):
 
 
 def _emails_sent(gid, event_type):
-    """What EmailEventListener would send: its subscribers, minus what publish_to_subscribers skips."""
+    """What EmailEventListener would send: its subscribers, minus what publish_to_subscribers skips — plus, for Marvin's
+    own email that carries a live link (the invitation), what its sender sends (EmailService.send_invitation)."""
     from marvin.db.db_setup import session_context
     from marvin.db.models.groups.email_templates import EmailTemplateModel
+    from marvin.services.email.system_email_events import SENT_DIRECTLY, get_template_type_for_event, system_email_route
     from marvin.services.event_bus_service.event_bus_listener import EmailEventListener
 
     out = set()
     with session_context() as session:
-        for sub in EmailEventListener(gid).get_subscribers(_event(event_type)):
+        subs = list(EmailEventListener(gid).get_subscribers(_event(event_type)))
+        if get_template_type_for_event(event_type) in SENT_DIRECTLY:
+            subs += system_email_route(session, gid, event_type) or []
+        for sub in subs:
             tmpl = session.get(EmailTemplateModel, sub.template_id)
             if tmpl is None or not tmpl.enabled or (tmpl.group_id is not None and str(tmpl.group_id) != str(sub.group_id or gid)):
                 continue
@@ -491,13 +496,11 @@ def test_system_email_is_listed_and_replaced_like_the_listener_does(db_session, 
         assert system.id in _listed_stopped(db_session, world.a, "invitation_sent", "email")
 
 
-@pytest.mark.parametrize(
-    ("template_type", "event_type"),
-    [("welcome", "user_signup"), ("password_reset", "user_password_reset_requested"), ("invitation", "invitation_sent")],
-)
+@pytest.mark.parametrize(("template_type", "event_type"), [("welcome", "user_signup"), ("invitation", "invitation_sent")])
 def test_system_emails_send_with_no_subscription(db_session, world, template_type, event_type):
-    """Marvin's own welcome, password-reset and invitation emails aren't subscriptions: they send with nothing
-    connected, platform event or not, although the workspace side no longer offers platform types."""
+    """Marvin's own welcome and invitation emails aren't subscriptions: they send with nothing connected, platform
+    event or not, although the workspace side no longer offers platform types. (The password-reset email is the
+    platform's alone, sent by PasswordResetService: tests/test_event_secrets.py.)"""
     with _system_template(db_session, template_type) as system:
         system.enabled = True
         db_session.commit()

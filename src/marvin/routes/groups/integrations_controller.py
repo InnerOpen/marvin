@@ -23,7 +23,7 @@ from marvin.core.root_logger import get_logger
 from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
 from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.routes._base import BaseUserController, controller
-from marvin.routes._base.checks import require_workspace_admin
+from marvin.routes._base.checks import refuse_platform_events, require_workspace_admin
 from marvin.schemas.group.integration import (
     AlertRouting,
     AlertRoutingUpdate,
@@ -279,6 +279,7 @@ class IntegrationsController(BaseUserController):
     def create_subscription(self, data: IntegrationEventSubscriptionCreate):
         """Wire an integration action to an event type."""
         require_workspace_admin(self.user, self.group_id)
+        refuse_platform_events([data.event_type])
         integ = self.session.get(IntegrationModel, data.integration_id)
         if not integ or integ.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Integration not found.")

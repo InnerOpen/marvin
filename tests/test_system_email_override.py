@@ -1,4 +1,5 @@
-"""A workspace template can replace Marvin's own welcome, password-reset and invitation emails.
+"""A workspace template can replace Marvin's own welcome and invitation emails (not the password-reset email: the
+platform's alone, tests/test_event_secrets.py).
 
 The email template page offers that as "Replaces Marvin's … email", with the variables of the event it's sent on,
 from `GET /api/platform/workspaces/{id}/email-templates/system-emails` — not by listing platform events in
@@ -16,7 +17,7 @@ from tests import test_event_connections as evc
 
 world = evc.world  # the shared two-workspace fixture
 
-TYPES = [("welcome", "user_signup"), ("password_reset", "user_password_reset_requested"), ("invitation", "invitation_sent")]
+TYPES = [("welcome", "user_signup"), ("invitation", "invitation_sent")]
 
 
 def _url(world) -> str:
@@ -35,7 +36,11 @@ def test_each_system_email_lists_its_events_catalog_variables(world):
     for template_type, event_type in TYPES:
         row, entry = rows[template_type], get_catalog_entry(event_type)
         assert (row["eventType"], row["eventName"]) == (event_type, entry.name)
-        assert row["variables"] == [{"slug": v.slug, "description": v.description, "example": v.example, "type": v.type} for v in entry.variables]
+        # The event's variables, and the link its sender adds (the invitation's: never in the event itself).
+        link = SYSTEM_TEMPLATE_EVENT_MAP[template_type].get("link_variable")
+        assert row["variables"] == [{"slug": v.slug, "description": v.description, "example": v.example, "type": v.type} for v in entry.variables] + (
+            [{"slug": link[0], "description": link[1], "example": "https://...", "type": "url"}] if link else []
+        )
         assert row["label"].endswith("email") and row["recipientType"] == "event_field" and row["recipientField"] == "email_address"
 
 

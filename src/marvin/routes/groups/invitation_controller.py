@@ -6,9 +6,12 @@ It provides endpoints for creating and listing group invitation tokens,
 and for sending email invitations containing these tokens.
 """
 
+import contextlib
+import uuid
 from typing import Annotated  # For type hinting with FastAPI Header
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status  # Core FastAPI components
+from fastapi.encoders import jsonable_encoder
 
 # Marvin core, schemas, services, and base controller
 from marvin.core.security import url_safe_token  # For generating secure tokens
@@ -24,6 +27,7 @@ from marvin.schemas.group.invite_token import (  # Pydantic schemas for invite t
 )
 from marvin.schemas.mapper import cast  # Utility for casting between schema types
 from marvin.schemas.response.pagination import PaginationQuery  # For pagination parameters
+from marvin.services.email.email_service import EmailService
 from marvin.services.event_bus_service.event_types import EventInvitationData, EventOperation, EventTypes
 
 # APIRouter for group invitations, prefixed accordingly.
@@ -105,12 +109,11 @@ class GroupInvitationsController(BaseUserController):
             event_type=EventTypes.invitation_created,
             document_data=EventInvitationData(
                 operation=EventOperation.create,
-                invitation_token=created_token.token,
+                invitation_id=created_token.id,
                 workspace_id=self.group_id,
                 workspace_name=self.group.name if self.group else "",
                 inviter_name=self.user.full_name or self.user.username or "",
                 uses_left=created_token.uses_left,
-                invitation_url=f"{self.settings.BASE_URL}/register?token={created_token.token}",
             ),
             message=f"Invitation token created with {created_token.uses_left} uses",
             entity_id=created_token.id,
@@ -156,40 +159,59 @@ class GroupInvitationsController(BaseUserController):
 
         if not token or token.uses_left <= 0:
             # If the token does not exist or has no uses left, raise an error
-            self.logger.error(f"Invalid or expired token: {invite_data.token}")
+            self.logger.error(f"Invalid or expired invitation token for {invite_data.email}")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The provided invitation token is invalid or has expired.")
 
         # Construct the full registration URL including the token
         registration_url = f"{self.settings.BASE_URL}/register?token={invite_data.token}"
+        workspace_name = self.group.name if self.group else ""
+        inviter_name = self.user.full_name or self.user.username or ""
+        # What the event says — and the email's template variables besides the link. Never the token or the link:
+        # every member reads an event's payload, and webhooks, integrations and the Event Log all get it.
+        invitation = EventInvitationData(
+            operation=EventOperation.info,
+            invitation_id=token.id,
+            workspace_id=self.group_id,
+            workspace_name=workspace_name,
+            inviter_name=inviter_name,
+            invitee_email=invite_data.email,
+            uses_left=token.uses_left,
+        )
 
         email_sent_successfully = False
         error_message: str | None = None
 
         try:
-            # Dispatch invitation_sent event — the EmailEventListener sends the email
+            # Sent from here, with the link: the template is Marvin's invitation email or the workspace's replacement.
+            email_sent_successfully = EmailService(locale=accept_language, group_id=str(self.group_id)).send_invitation(
+                recipient_address=invite_data.email,
+                invitation_url=registration_url,
+                group_id=str(self.group_id),
+                workspace_name=workspace_name,
+                inviter_name=inviter_name,
+                variables={
+                    **jsonable_encoder(invitation, exclude_none=True, by_alias=False),
+                    "event_type": EventTypes.invitation_sent.name,
+                    "workspace_id": str(self.group_id),
+                },
+            )
+            if not email_sent_successfully:
+                error_message = "The invitation email could not be sent."
+        except Exception as e:
+            self.logger.error(f"Error sending the invitation email to {invite_data.email}: {e}")
+            error_message = str(e)
+
+        if email_sent_successfully:
             self.event_bus.dispatch(
                 integration_id="invitation_management",
                 group_id=self.group_id,
                 event_type=EventTypes.invitation_sent,
-                document_data=EventInvitationData(
-                    operation=EventOperation.info,
-                    invitation_token=invite_data.token,
-                    workspace_id=self.group_id,
-                    workspace_name=self.group.name if self.group else "",
-                    inviter_name=self.user.full_name or self.user.username or "",
-                    invitee_email=invite_data.email,
-                    invitation_url=registration_url,
-                    uses_left=token.uses_left,
-                ),
+                document_data=invitation,
                 message=f"Invitation sent to {invite_data.email}",
                 entity_id=token.id,
                 entity_type="invitation",
             )
-            email_sent_successfully = True
-            self.logger.info(f"Invitation event dispatched for {invite_data.email} with token {invite_data.token}")
-        except Exception as e:
-            self.logger.error(f"Error dispatching invitation event for {invite_data.email}: {e}")
-            error_message = str(e)
+            self.logger.info(f"Invitation email sent to {invite_data.email}")
 
         return EmailInitationResponse(success=email_sent_successfully, error=error_message)
 
@@ -210,8 +232,11 @@ class GroupInvitationsController(BaseUserController):
         """
         self.checks.can_manage_members(self.group_id)
 
-        # Try to find the token by ID first, then by token string
-        token = self.repos.group_invite_tokens.get_one(token_id)
+        # Try to find the token by ID first (what the members page sends), then by token string. The repository's
+        # primary key is the token string, so the id lookup names its key.
+        token = None
+        with contextlib.suppress(ValueError):
+            token = self.repos.group_invite_tokens.get_one(uuid.UUID(token_id), "id")
         if not token:
             # Try by token string
             token = self.repos.group_invite_tokens.get_one(token_id, "token")
@@ -227,7 +252,7 @@ class GroupInvitationsController(BaseUserController):
             event_type=EventTypes.invitation_revoked,
             document_data=EventInvitationData(
                 operation=EventOperation.delete,
-                invitation_token=token.token,
+                invitation_id=token.id,
                 workspace_id=self.group_id,
                 workspace_name=self.group.name if self.group else "",
                 inviter_name=self.user.full_name or self.user.username or "",
@@ -240,4 +265,4 @@ class GroupInvitationsController(BaseUserController):
 
         # Delete the token
         self.repos.group_invite_tokens.delete(token.token, match_key="token")
-        self.logger.info(f"Invite token {token.token} deleted by user {self.user.username}")
+        self.logger.info(f"Invite token {token.id} deleted by user {self.user.username}")

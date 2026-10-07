@@ -17,7 +17,7 @@ from pydantic import UUID4  # For UUID type validation
 
 # Marvin base controllers, schemas, services, and utilities
 from marvin.routes._base.base_controllers import BaseUserController
-from marvin.routes._base.checks import require_workspace_admin
+from marvin.routes._base.checks import refuse_platform_events, require_workspace_admin
 from marvin.routes._base.controller import controller
 from marvin.routes._base.mixins import HttpRepo
 from marvin.schemas.group.webhook import (
@@ -177,6 +177,7 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         # or modify a dict representation.
         # Assuming the goal is to ensure group_id is set:
         _validate_webhook_mode(data)
+        refuse_platform_events(data.subscribed_events)
         save_data_dict = data.model_dump()
         save_data_dict["group_id"] = self.group_id
         create_payload = WebhookCreate(**save_data_dict)
@@ -294,6 +295,7 @@ class WebhookReadController(BaseUserController):  # Consider renaming to Webhook
         """
         require_workspace_admin(self.user, self.group_id)
         _validate_webhook_mode(data)
+        refuse_platform_events(data.subscribed_events)
         save_data = cast(data, WebhookSave, group_id=self.group_id)
         updated = self.mixins.update_one(item_id=item_id, data=save_data)
         self._announce(EventOperation.update, updated)

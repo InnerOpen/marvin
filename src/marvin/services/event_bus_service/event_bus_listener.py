@@ -49,6 +49,16 @@ from .event_types import (  # Core event system types
 from .publisher import PublisherLike, WebhookPublisher  # Publisher implementations
 
 
+def _platform_event(event: Event) -> bool:
+    """A platform-scope event (services/events/event_catalog.py): a sign-up, a password reset, a workspace or personal
+    token change… It's stored under the workspace it touched, but it isn't the workspace's: no subscription a
+    workspace admin can make — webhook, integration action, workflow, email — hears it. Checked here, as the event is
+    sent, so a subscription made before the routes refused platform events is covered too."""
+    from marvin.services.events.event_catalog import is_platform_event
+
+    return is_platform_event(event.event_type.name)
+
+
 class EventListenerBase(ABC):
     """
     Abstract base class for event listeners.
@@ -256,6 +266,9 @@ class WebhookEventListener(EventListenerBase):
             scheduled = self.get_scheduled_webhooks(webhook_event_data.webhook_start_dt, webhook_event_data.webhook_end_dt)
             self.logger.debug(f"webhook_task: {len(scheduled)} scheduled webhook(s) in window")
             return scheduled
+
+        if _platform_event(event):
+            return []
 
         # Event-driven: find webhooks subscribed to this event type
         from marvin.db.models.groups.webhook_event_subscriptions import WebhookEventSubscriptionModel
@@ -1103,6 +1116,8 @@ class AutomationReactionListener(EventListenerBase):
 
         if getattr(event, "reaction_depth", 0) >= MAX_REACTION_DEPTH:
             return []  # loop-guard: a chain has gone deep enough — stop reacting
+        if _platform_event(event):
+            return []  # none is triggerable today; a workflow is a workspace's, so it never may be
         name = event.event_type.name
         if name in TRIGGERABLE_EVENT_TYPES or name == "incoming_webhook" or name in self._AUTOMATION_EVENT_NAMES:
             return ["automation"]
@@ -1199,21 +1214,21 @@ class EmailEventListener(EventListenerBase):
         super().__init__(group_id, ConsolePublisher())
 
     def get_subscribers(self, event: Event) -> list[Any]:
-        from marvin.db.models.groups.email_templates import EmailTemplateModel
-        from marvin.services.email.system_email_events import (
-            SYSTEM_TEMPLATE_EVENT_MAP,
-            VirtualEmailSubscription,
-            get_template_type_for_event,
-        )
+        from marvin.services.email.system_email_events import SENT_DIRECTLY, get_template_type_for_event, system_email_route
 
         if event.event_type == EventTypes.webhook_task:
             return []
+
+        name = event.event_type.name
+        # A platform event (a sign-up, a password reset…) is the platform's, not the workspace it's stored under:
+        # none of the workspace's subscriptions hears it — only Marvin's own email for it (the welcome email).
+        platform = _platform_event(event)
 
         with self.ensure_repos(self.group_id) as repos:
             # A platform event dispatched with no workspace (backup_failed) has no workspace subscribers: the
             # repository only scopes by group when it has one, and would otherwise match every workspace's.
             workspace_subs = (
-                repos.email_event_subscriptions.multi_query({"event_type": event.event_type.name, "enabled": True}) if self.group_id else []
+                repos.email_event_subscriptions.multi_query({"event_type": name, "enabled": True}) if self.group_id and not platform else []
             )
             # A connection's "working again" notice also goes to every email route that delivered its alert.
             from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
@@ -1224,55 +1239,18 @@ class EmailEventListener(EventListenerBase):
                 known = {sub.id for sub in workspace_subs}
                 workspace_subs = [*workspace_subs, *(row for row in delivered if row.id not in known)]
 
-            # Check for system template mapping for this event
-            system_template_type = get_template_type_for_event(event.event_type.name)
-            if not system_template_type:
+            # Marvin's own email for the event (invitation, welcome): a connected workspace template of its type
+            # replaces it — and then only those send; with none, the enabled system template sends instead of every
+            # subscription. One that carries a live link (the invitation) is sent by the code that mints the link,
+            # not from here.
+            route = system_email_route(repos.session, self.group_id, name)
+            if route is None:
                 return workspace_subs
-
-            system_mapping = SYSTEM_TEMPLATE_EVENT_MAP[system_template_type]
-
-            # Find workspace templates of this type
-            ws_templates_of_type = (
-                repos.session.query(EmailTemplateModel)
-                .filter(
-                    EmailTemplateModel.template_type == system_template_type,
-                    EmailTemplateModel.group_id == self.group_id,
-                    EmailTemplateModel.enabled == True,  # noqa: E712
-                )
-                .all()
-            )
-            ws_template_ids = {t.id for t in ws_templates_of_type}
-
-            # Find subscriptions that explicitly connect a workspace template of this type
-            connected_subs = [sub for sub in workspace_subs if sub.template_id in ws_template_ids]
-
-            if connected_subs:
-                # Explicit connection via Events page — use only those
-                self.logger.info(f"EmailEventListener: {len(connected_subs)} explicitly connected workspace template(s) for '{system_template_type}'")
-                return connected_subs
-
-            # No explicit connection — fall through to system template
-            system_template = (
-                repos.session.query(EmailTemplateModel)
-                .filter(
-                    EmailTemplateModel.group_id.is_(None),
-                    EmailTemplateModel.template_type == system_template_type,
-                )
-                .first()
-            )
-
-            if system_template and system_template.enabled:
-                return [
-                    VirtualEmailSubscription(
-                        template_id=system_template.id,
-                        event_type=event.event_type.name,
-                        recipient_type=system_mapping["recipient_type"],
-                        recipient_field=system_mapping.get("recipient_field"),
-                        recipient_email=system_mapping.get("recipient_email"),
-                    )
-                ]
-
-            return workspace_subs
+            template_type = get_template_type_for_event(name)
+            if template_type in SENT_DIRECTLY:
+                return []
+            self.logger.info(f"EmailEventListener: Marvin's '{template_type}' email for {name} ({len(route)} template(s))")
+            return route
 
     def publish_to_subscribers(self, event: Event, subscribers: list[Any]) -> None:
         from marvin.db.models.groups.email_templates import EmailTemplateModel
@@ -1407,7 +1385,7 @@ class IntegrationEventListener(EventListenerBase):
         super().__init__(group_id, cast(Any, None))  # runs provider actions directly; no publisher
 
     def get_subscribers(self, event: Event) -> list[dict]:
-        if event.event_type == EventTypes.webhook_task:
+        if event.event_type == EventTypes.webhook_task or _platform_event(event):
             return []
 
         from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel

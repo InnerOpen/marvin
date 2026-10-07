@@ -68,9 +68,11 @@ for (const sub of allSubscriptions) {
 // System event map — same keys as backend SYSTEM_TEMPLATE_EVENT_MAP
 const SYSTEM_EVENT_MAP: Record<string, string> = {
   invitation: "invitation_sent",
-  password_reset: "user_password_reset_requested",
   welcome: "user_signup",
 };
+// The platform's own emails: a workspace can't replace them. The password-reset link is a credential for an account
+// the workspace doesn't own, so it always goes out in the platform's template (the API refuses a workspace copy).
+const PLATFORM_ONLY_TYPES = new Set(["password_reset"]);
 
 // Group templates by type to compute effective state
 const templatesByType: Record<string, any[]> = {};
@@ -85,6 +87,7 @@ function isSuperseded(template: any): boolean {
   const isSystem = !((template as any).groupId ?? (template as any).group_id);
   if (!isSystem) return false;
   const type = (template as any).templateType ?? (template as any).template_type;
+  if (PLATFORM_ONLY_TYPES.has(type)) return false;
   const siblings = templatesByType[type] || [];
   return siblings.some((t) => {
     const tIsWorkspace = !!((t as any).groupId ?? (t as any).group_id);
@@ -188,7 +191,9 @@ function isSuperseded(template: any): boolean {
                     )}
                   </div>
                   {canManage && <div class="template-actions">
-                    {isSystemTpl ? (
+                    {isSystemTpl && PLATFORM_ONLY_TYPES.has((template as any).templateType ?? (template as any).template_type) ? (
+                      <span class="badge badge-system" title="Sent in the platform's own template: a workspace can't replace it">Platform</span>
+                    ) : isSystemTpl ? (
                       <button
                         class="button secondary small customize-btn"
                         data-template-id={template.id}
@@ -264,7 +269,6 @@ function isSuperseded(template: any): boolean {
             <label for="template-type-select">Template Type</label>
             <select id="template-type" class="input">
               <option value="invitation">Workspace Invitation — invitation</option>
-              <option value="password_reset">Password Reset — password_reset</option>
               <option value="welcome">New User Welcome — welcome</option>
               <option value="custom">Custom — custom</option>
             </select>

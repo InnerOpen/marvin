@@ -94,20 +94,25 @@ def _workflow_runs(f: _Facts) -> bool:
 
 def _runs(facts: list[_Facts], group_id) -> list[bool]:
     """For one event type in one workspace: whether the event bus runs each reaction, decided the way each
-    listener decides (event_bus_listener.py). `facts` must hold every reaction row of that type and workspace,
+    listener decides (event_bus_listener.py) — Marvin's own email that carries a live link (the invitation) is sent
+    by the code that mints it, by the same rule. `facts` must hold every reaction row of that type and workspace,
     so the email rule below can see the others."""
     from marvin.services.email.system_email_events import get_template_type_for_event
+    from marvin.services.events.event_catalog import is_platform_event
 
     if not facts:
         return []
     event_type = facts[0].event_type
     system_type = get_template_type_for_event(event_type)
+    # A platform event reaches none of the workspace's subscriptions (event_bus_listener._platform_event); only
+    # Marvin's own email for it (or the workspace template that replaces it) sends.
+    workspace_hears = not is_platform_event(event_type)
 
     def deliverable(f: _Facts) -> bool:  # EmailEventListener.publish_to_subscribers: a usable, enabled template
         return bool(f.own_enabled and f.parent_enabled) and (f.template_group is None or _same(f.template_group, group_id))
 
-    # EmailEventListener.get_subscribers: for an event with a system template (invitation, password reset,
-    # welcome), enabled subscriptions to this workspace's own enabled template of that type replace it — and
+    # EmailEventListener.get_subscribers: for an event with a system template (invitation, welcome),
+    # enabled subscriptions to this workspace's own enabled template of that type replace it — and
     # only those send; with none, the enabled system template sends instead of every subscription.
     connected = (
         [
@@ -126,17 +131,17 @@ def _runs(facts: list[_Facts], group_id) -> list[bool]:
         if f.event_type == _WEBHOOK_TASK and f.kind != "workflow":
             out.append(False)
         elif f.kind == "workflow":
-            out.append(_workflow_runs(f))
+            out.append(workspace_hears and _workflow_runs(f))
         elif f.kind == "integration_action":  # IntegrationEventListener: enabled subscription, enabled integration
-            out.append(bool(f.own_enabled and f.parent_enabled))
+            out.append(workspace_hears and bool(f.own_enabled and f.parent_enabled))
         elif f.kind == "webhook":  # WebhookEventListener: enabled event-driven webhook (the query keeps only those)
-            out.append(bool(f.own_enabled))
+            out.append(workspace_hears and bool(f.own_enabled))
         elif f.kind == "system_email":
             out.append(f is system and system_sends)
         elif connected:
             out.append(f in connected)
         else:
-            out.append(not system_sends and deliverable(f))
+            out.append(workspace_hears and not system_sends and deliverable(f))
     return out
 
 
@@ -347,7 +352,7 @@ def builtin(event_type: str) -> list[EventReaction]:
 
 
 def system_email(session: Session, group_id, event_type: str) -> tuple[bool, list]:
-    """For an event with a system email (invitation, password reset, welcome): whether Marvin's own email sends in
+    """For an event with a system email (invitation, welcome): whether Marvin's own email sends in
     the workspace, and the workspace templates of its type that replace it — `_runs`, so the email template page
     and the event page always agree."""
     from marvin.services.email.system_email_events import get_template_type_for_event
