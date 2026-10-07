@@ -141,6 +141,15 @@ class WorkspaceController(BaseUserController):
             "filename": f"marvin-backup-key-{slug}.txt",
         }
 
+    def _backup_prefixes(self) -> tuple[str, ...]:
+        """Filename prefixes of this workspace's backup zips: its slug, and any it had before a rename."""
+        from marvin.services.group.workspace_rename import former_slugs
+
+        workspace = self.repos.groups.get_one(self.group_id)
+        if not workspace or not workspace.slug:
+            return ()
+        return tuple(f"{slug}-backup-" for slug in [workspace.slug, *former_slugs(self.repos.session, self.group_id)])
+
     @router.get("/backups", summary="List Workspace Backups")
     def list_backups(self) -> list:
         """List all backup zips for the current workspace, newest first.
@@ -149,8 +158,7 @@ class WorkspaceController(BaseUserController):
             List of {filename, size, created_at} dicts
         """
         require_workspace_admin(self.user, self.group_id)
-        workspace = self.repos.groups.get_one(self.group_id)
-        slug = workspace.slug if workspace else None
+        prefixes = self._backup_prefixes()
 
         backup_dir = self.directories.BACKUP_DIR
         if not backup_dir.exists():
@@ -158,8 +166,8 @@ class WorkspaceController(BaseUserController):
 
         zips = sorted(backup_dir.glob("*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
 
-        if slug:
-            zips = [p for p in zips if p.name.startswith(f"{slug}-")]
+        if prefixes:
+            zips = [p for p in zips if p.name.startswith(prefixes)]
 
         return [_backup_meta(p) for p in zips]
 
@@ -182,9 +190,8 @@ class WorkspaceController(BaseUserController):
         if not filename.endswith(".zip") or "/" in filename or "\\" in filename or ".." in filename:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
 
-        workspace = self.repos.groups.get_one(self.group_id)
-        slug = workspace.slug if workspace else None
-        if slug and not filename.startswith(f"{slug}-"):
+        prefixes = self._backup_prefixes()
+        if prefixes and not filename.startswith(prefixes):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
         zip_path = self.directories.BACKUP_DIR / filename

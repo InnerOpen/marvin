@@ -50,6 +50,8 @@ class GroupAdminUpdate(GroupCreate):
     """The unique identifier of the group to update."""
     name: str  # Overrides name to not have Annotated constraints here, or could re-apply if needed
     """The new name for the group."""
+    slug: str | None = None
+    """Optional: a new URL slug (slugified). Omitted, a name change derives the slug from the new name."""
     preferences: GroupPreferencesUpdate | None = None
     """Optional: New preference settings for the group. If None, preferences are not updated."""
 
@@ -85,6 +87,8 @@ class GroupRead(GroupUpdate):  # Extends GroupUpdate, which might be unusual if 
     """The unique identifier of the group."""
     slug: str | None = None
     """The URL-friendly slug of the group."""
+    is_platform: bool = False
+    """True on the platform (admin's) workspace — platform alerts and shared services run from it."""
     users: list[UserSummary] | None = None
     """
     DEPRECATED: Legacy users with group_id = this workspace.
@@ -133,6 +137,8 @@ class GroupSummary(GroupCreate):  # Extends GroupCreate, which only has 'name'.
     """The name of the group."""
     slug: str
     """The URL-friendly slug of the group."""
+    is_platform: bool = False
+    """True on the platform (admin's) workspace."""
     preferences: GroupPreferencesRead | None = None
     """Optional group preference settings."""
 

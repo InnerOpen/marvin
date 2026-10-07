@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from .mcp_servers import WorkspaceMcpServerModel
     from .reports import ReportModel
     from .secrets import WorkspaceSecret
+    from .slug_aliases import GroupSlugAlias
     from .smtp_profiles import WorkspaceSMTPProfileModel
     from .variables import WorkspaceVariable
     from .webhooks import GroupWebhooksModel
@@ -53,10 +54,28 @@ class Groups(SqlAlchemyBase, BaseMixins):
     """
 
     __tablename__ = "groups"
+    # At most one platform workspace: a partial unique index over the true rows only. Postgres and
+    # SQLite (3.8+) both enforce it natively, so the guarantee doesn't depend on the code path.
+    __table_args__ = (
+        sa.Index(
+            "uq_groups_is_platform",
+            "is_platform",
+            unique=True,
+            postgresql_where=sa.text("is_platform"),
+            sqlite_where=sa.text("is_platform"),
+        ),
+    )
 
     id: Mapped[GUID] = mapped_column(GUID, primary_key=True, default=GUID.generate, doc="Unique identifier for the group.")
     name: Mapped[str] = mapped_column(sa.String, index=True, nullable=False, unique=True, doc="Human-readable name of the group, must be unique.")
     slug: Mapped[str | None] = mapped_column(sa.String, index=True, unique=True, doc="URL-friendly slug for the group, must be unique if set.")
+
+    # The platform (admin's) workspace: platform alerts and shared services run from it. Exactly one
+    # group carries the marker; find it with services.group.platform_workspace.platform_workspace(),
+    # never by name — its name and slug can be changed (the DEFAULT_GROUP setting only names it on a fresh install).
+    is_platform: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, default=False, server_default=sa.false(), doc="True on the one platform (admin's) workspace."
+    )
 
     # Per-workspace Fernet key that wraps secret values inside export bundles, stored encrypted with
     # the instance secret. Generated on first backup, downloadable, never included in a bundle.
@@ -172,6 +191,11 @@ class Groups(SqlAlchemyBase, BaseMixins):
     # Relationship to WorkspaceIncomingWebhookModel (one-to-many) — tokened ingress endpoints.
     incoming_webhooks: Mapped[list["WorkspaceIncomingWebhookModel"]] = orm.relationship(
         "WorkspaceIncomingWebhookModel", **_common_relationship_args, doc="Incoming (ingress) webhooks for this workspace."
+    )
+
+    # Slugs it had before a rename, so old Publishing API URLs and the like keep resolving to it.
+    slug_aliases: Mapped[list["GroupSlugAlias"]] = orm.relationship(
+        "GroupSlugAlias", **_common_relationship_args, doc="Former slugs of this workspace."
     )
 
     model_config = ConfigDict(

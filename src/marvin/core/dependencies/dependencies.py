@@ -643,11 +643,11 @@ async def get_publishing_context(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Get the group and verify workspace slug matches
-    # Query the database model directly to get slug field
-    from marvin.db.models.groups import Groups
+    # Get the group and verify workspace slug matches. A renamed workspace's former slug still
+    # resolves to it, so a site configured with the old slug keeps working.
+    from marvin.services.group.workspace_rename import find_group_by_slug
 
-    group_model = session.query(Groups).filter(Groups.slug == workspace_slug).first()
+    group_model = find_group_by_slug(session, workspace_slug)
 
     if not group_model:
         # Return 404 instead of 403 to not leak workspace existence

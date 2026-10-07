@@ -649,7 +649,11 @@ class AppSettings(BaseSettings):
             self.DEFAULT_PASSWORD = secrets.token_urlsafe(16)
 
     DEFAULT_GROUP: str = "Default"
-    """Default group for the initial admin user, if created."""
+    """Name of the platform (admin's) workspace, used only when a fresh install creates it (slug derived
+    from it). Choose it at install time (chart value ``config.platformWorkspaceName``). On an existing
+    install it is informational: the marked workspace keeps its name until a super admin renames it
+    (Admin → Workspaces). Never look the workspace up by this name — use
+    ``services.group.platform_workspace.platform_workspace()``."""
 
     _DEFAULT_INTEGRATION_ID: str = "generic"
     """# Default identifier for integrations if not specified when creating an API token."""

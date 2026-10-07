@@ -143,6 +143,14 @@ spec:
               name: {{ include "marvin.fullname" . }}
               key: environmentLabel
         {{- end }}
+        {{- if .Values.config.platformWorkspaceName }}
+        # Name of the platform (admin's) workspace on a fresh install only. See config.platformWorkspaceName.
+        - name: DEFAULT_GROUP
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: platformWorkspaceName
+        {{- end }}
         # Secrets from Secret
         - name: SMTP_HOST
           valueFrom:

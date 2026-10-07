@@ -18,6 +18,7 @@ from sqlalchemy.exc import IntegrityError  # For handling database constraint vi
 
 from marvin.db.models.groups import Groups as GroupsModel  # Aliased for clarity
 from marvin.schemas.group import GroupCreate, GroupRead, GroupUpdate
+from marvin.services.group.workspace_rename import find_group_by_slug, slug_is_alias_of_another
 
 from .repository_generic import RepositoryGeneric
 
@@ -64,6 +65,13 @@ class RepositoryGroup(RepositoryGeneric[GroupRead, GroupsModel]):
         while True:
             data_dict["name"] = current_name  # Use current (potentially modified) name
             data_dict["slug"] = slugify(current_name)  # Generate slug from current name
+            if slug_is_alias_of_another(self.session, data_dict["slug"]):
+                # A renamed workspace's old slug: taking it would hijack that workspace's old links.
+                attempts += 1
+                if attempts >= max_attempts:
+                    raise ValueError(f"Can't find a free slug for '{original_name}'.")
+                current_name = f"{original_name} ({attempts})"
+                continue
 
             try:
                 # Attempt to create the group using the generic superclass method
@@ -178,7 +186,8 @@ class RepositoryGroup(RepositoryGeneric[GroupRead, GroupsModel]):
         Retrieves a group by its slug or ID.
 
         It first attempts to treat `slug_or_id` as a UUID. If that fails
-        (or if it's not a UUID type), it then tries to match by slug.
+        (or if it's not a UUID type), it then tries to match by slug, including slugs the group
+        had before a rename.
 
         Args:
             slug_or_id (str | PyUUID | UUID4): The slug (string) or ID (UUID) of the group.
@@ -199,8 +208,10 @@ class RepositoryGroup(RepositoryGeneric[GroupRead, GroupsModel]):
             except ValueError:
                 # Conversion to UUID failed, so it's likely a slug
                 pass
-            # If not found by ID (or wasn't a valid UUID string), try by slug
-            return self.get_one(slug_or_id, key="slug")
+            # If not found by ID (or wasn't a valid UUID string), try by slug — current, then former
+            # (a renamed workspace keeps answering to its old slug, see services.group.workspace_rename).
+            group = find_group_by_slug(self.session, slug_or_id)
+            return self.schema.model_validate(group) if group else None
 
         return None  # Should not be reached if type hints are correct
 

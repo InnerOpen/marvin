@@ -18,12 +18,13 @@ from typing import Any
 from alembic import command, config, script
 from alembic.config import Config
 from alembic.runtime import migration
-from sqlalchemy import engine, orm, text
+from sqlalchemy import engine, orm, text, update
 
 from marvin.core import root_logger
 from marvin.core.config import AppPlugins, get_app_plugins, get_app_settings
 from marvin.db.db_setup import session_context
 from marvin.db.fixes.fix_migration_data import fix_migration_data
+from marvin.db.models.groups import Groups
 from marvin.repos.all_repositories import get_repositories
 from marvin.repos.repository_factory import AllRepositories
 from marvin.repos.seed.init_users import default_user_init
@@ -31,6 +32,7 @@ from marvin.repos.seed.workspace_data_seeder import WorkspaceDataSeeder
 from marvin.repos.seed.workspace_seed_loader import WorkspaceSeedLoader
 from marvin.schemas.group.group import GroupCreate, GroupRead
 from marvin.services.group.group_service import GroupService
+from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, log_name_hint, platform_workspace
 from marvin.services.seeders.seeder_service import SeederService
 
 PROJECT_DIR = Path(__file__).parent.parent
@@ -79,8 +81,8 @@ def init_db(session: orm.Session) -> None:
 
     instance_repos = get_repositories(session)
 
-    default_group = default_group_init(instance_repos, settings.DEFAULT_GROUP)
-    group_repos = get_repositories(session, group_id=default_group.id)
+    platform_group = platform_workspace_init(instance_repos, settings.DEFAULT_GROUP)
+    group_repos = get_repositories(session, group_id=platform_group.id)
     default_user_init(group_repos)
 
     # Seed system-level entry types (globally available to all workspaces)
@@ -116,19 +118,29 @@ def init_db(session: orm.Session) -> None:
             workspace_seeder.seed_from_directory(seed_dir)
 
 
-def default_group_init(repos: AllRepositories, name: str) -> GroupRead:
+def platform_workspace_init(repos: AllRepositories, name: str) -> GroupRead:
     """
-    Creates the default group if it doesn't already exist.
+    The platform (admin's) workspace, created and marked if the database has none.
+
+    ``name`` (``settings.DEFAULT_GROUP``) is used only here, when a fresh install creates it; an
+    existing platform workspace keeps whatever name it has.
 
     Args:
         repos (AllRepositories): The repository accessor for database operations.
-        name (str): The name for the default group.
+        name (str): The name to give a newly created platform workspace.
 
     Returns:
-        GroupRead: The created or existing default group.
+        GroupRead: The existing or newly created platform workspace.
     """
-    logger.info("Generating Default Group")
-    return GroupService.create_group(repos, GroupCreate(name=name))
+    try:
+        return GroupRead.model_validate(platform_workspace(repos.session))
+    except PlatformWorkspaceMissing:
+        pass
+    logger.info(f"Creating the platform workspace '{name}'")
+    group = GroupService.create_group(repos, GroupCreate(name=name))
+    repos.session.execute(update(Groups).where(Groups.id == group.id).values(is_platform=True))
+    repos.session.commit()
+    return GroupRead.model_validate(platform_workspace(repos.session))
 
 
 def safe_try(func: Callable) -> None:
@@ -353,6 +365,7 @@ def main() -> None:
         else:
             logger.info("Main Database contains no users initializing...")
             init_db(session)
+        log_name_hint(session, settings.DEFAULT_GROUP)
 
         if settings.PLUGIN_ENABLED:
             init_plugin_db(session, plugins)

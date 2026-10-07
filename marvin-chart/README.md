@@ -83,6 +83,7 @@ image:
 config:
   production: false          # Enable production mode
   environmentLabel: ""       # e.g. DEV / STAGING: UI badge + "[DEV] " tab titles; empty = nothing shown
+  platformWorkspaceName: ""  # name of the admin's workspace on a fresh install; empty = "Default"
   allowSignup: true          # Allow user signups
   logLevel: DEBUG            # Logging level (DEBUG, INFO, WARNING, ERROR)
   dbEngine: sqlite           # Database engine
@@ -97,6 +98,12 @@ and admin headers and the login page show it as a badge, and every tab title sta
 becomes the API's `ENVIRONMENT_LABEL` (upper-cased, at most 12 characters). Left empty — the default,
 and what production uses — neither the ConfigMap key nor the env var is rendered. `values-dev.yaml`
 sets `DEV`.
+
+`config.platformWorkspaceName` names the platform (admin's) workspace — the one platform alerts and
+shared services run from — when a fresh install creates it; its slug is derived from the name. Empty
+(the default) means `Default`. It becomes the API's `DEFAULT_GROUP`. On an existing install it is only
+informational: the workspace keeps its name (the API logs a hint at startup when they differ), and a
+super admin renames it — name and slug — in Admin → Workspaces.
 
 #### Resource Limits
 

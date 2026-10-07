@@ -19,7 +19,6 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, Session, mapped_column
 from sqlalchemy.types import Enum as SqlAlchemyEnum  # Explicit import for sqlalchemy Enum type
 
-from marvin.core.config import get_app_settings
 from marvin.db.models._model_utils.auto_init import auto_init
 from marvin.db.models._model_utils.datetime import NaiveDateTime
 from marvin.db.models._model_utils.guid import GUID
@@ -307,7 +306,7 @@ class Users(SqlAlchemyBase, BaseMixins):
             full_name (str): The user's full name.
             password (str): The user's plaintext password (will be hashed by the service layer before saving).
             group (str | None, optional): The name of the group to assign the user to.
-                                         Defaults to the system's default group name.
+                                         Defaults to the platform workspace.
             **kwargs: Additional attributes for the user, processed by `auto_init`
                       (e.g., `username`, `email`, `admin`).
 
@@ -317,19 +316,21 @@ class Users(SqlAlchemyBase, BaseMixins):
         # `auto_init` will process kwargs first. Values explicitly set here will override
         # those from kwargs if they share the same name, or complement them.
 
-        if group is None:
-            settings = get_app_settings()
-            group_name = settings.DEFAULT_GROUP  # Use a different variable name
-        else:
-            group_name = group
-
         from marvin.db.models.groups import Groups  # Local import to avoid circularity
 
         # Query for the group. auto_init does not handle this specific lookup logic.
-        self.group = session.execute(select(Groups).filter(Groups.name == group_name)).scalars().one_or_none()
+        if group is None:
+            # No group named: the platform (admin's) workspace — by its marker, whatever it's called.
+            from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
 
-        if self.group is None:
-            raise ValueError(f"Group '{group_name}' does not exist; cannot create user.")
+            try:
+                self.group = platform_workspace(session)
+            except PlatformWorkspaceMissing as e:
+                raise ValueError("No group given and no platform workspace exists; cannot create user.") from e
+        else:
+            self.group = session.execute(select(Groups).filter(Groups.name == group)).scalars().one_or_none()
+            if self.group is None:
+                raise ValueError(f"Group '{group}' does not exist; cannot create user.")
 
         # Password should be set after auto_init if it's also in kwargs,
         # or ensure it's not processed by auto_init if handled exclusively here.

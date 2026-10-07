@@ -31,6 +31,9 @@ data:
   {{- with .Values.config.environmentLabel }}
   environmentLabel: {{ . | quote }}
   {{- end }}
+  {{- with .Values.config.platformWorkspaceName }}
+  platformWorkspaceName: {{ . | quote }}
+  {{- end }}
   frontendPort: {{ .Values.config.frontendPort | quote }}
   schedulerInterval: {{ .Values.config.schedulerInterval | quote }}
   webhookRetryAttempts: {{ .Values.config.webhookRetryAttempts | quote }}

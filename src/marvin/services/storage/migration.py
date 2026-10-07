@@ -386,12 +386,12 @@ def _migrate_library_file(session_factory: Callable, pack_id: Any, file: dict, t
 def _group_id(session: Session, workspace: str | None) -> Any:
     if not workspace:
         return None
-    from marvin.db.models.groups import Groups
+    from marvin.services.group.workspace_rename import find_group_by_slug
 
-    gid = session.query(Groups.id).filter(Groups.slug == workspace).scalar()
-    if gid is None:
+    group = find_group_by_slug(session, workspace)  # current slug, or one it had before a rename
+    if group is None:
         raise MigrationError(f"no workspace with slug {workspace!r}")
-    return gid
+    return group.id
 
 
 def migrate(

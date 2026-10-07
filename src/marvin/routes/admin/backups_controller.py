@@ -92,8 +92,16 @@ class AdminBackupsController(BaseAdminController):
         if not backup_dir.exists():
             return []
 
-        pattern = f"{workspace_slug}-backup-*.zip" if workspace_slug else "*.zip"
-        zips = sorted(backup_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+        slugs = [workspace_slug] if workspace_slug else []
+        if workspace_slug:  # a renamed workspace's backups still carry its old slug
+            from marvin.services.group.workspace_rename import find_group_by_slug, former_slugs
+
+            group = find_group_by_slug(self.repos.session, workspace_slug)
+            if group is not None:
+                slugs = list(dict.fromkeys([group.slug or workspace_slug, *former_slugs(self.repos.session, group.id)]))
+        patterns = [f"{slug}-backup-*.zip" for slug in slugs] or ["*.zip"]
+        found = {p for pattern in patterns for p in backup_dir.glob(pattern)}
+        zips = sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
 
         result = []
         for p in zips:

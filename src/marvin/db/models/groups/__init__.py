@@ -18,6 +18,7 @@ from .mcp_servers import *
 from .preferences import *
 from .reports import *
 from .secrets import *
+from .slug_aliases import *
 from .smtp_profiles import *
 from .variables import *
 from .webhook_event_subscriptions import *

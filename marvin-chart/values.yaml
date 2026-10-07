@@ -211,6 +211,12 @@ config:
   # Maps to the API's ENVIRONMENT_LABEL. Unrelated to `production` (container runtime mode).
   environmentLabel: ""
 
+  # Name of the platform (admin's) workspace — where platform alerts and shared services run. Used only
+  # when a FRESH install creates it (its slug is derived from the name). Empty = the built-in "Default".
+  # On an existing install it changes nothing: rename the workspace in Admin → Workspaces instead.
+  # Maps to the API's DEFAULT_GROUP.
+  platformWorkspaceName: ""
+
   # Application settings
   allowSignup: true
   logLevel: DEBUG

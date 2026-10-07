@@ -168,6 +168,13 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
       name: {{ include "marvin.fullname" . }}
       key: environmentLabel
 {{- end }}
+{{- if .Values.config.platformWorkspaceName }}
+- name: DEFAULT_GROUP
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: platformWorkspaceName
+{{- end }}
 - name: SMTP_HOST
   valueFrom:
     secretKeyRef:

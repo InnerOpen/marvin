@@ -307,7 +307,6 @@ class UserCreate(_MarvinModel):
                 "username": "NewUser",
                 "fullName": "New User Name",
                 "email": "newuser@example.com",
-                "group": settings.DEFAULT_GROUP,  # Example uses default group name from settings
                 "password": "aSecurePassword123",
                 "admin": False,  # Example of boolean value
             }

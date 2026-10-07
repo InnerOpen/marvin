@@ -44,7 +44,13 @@ class AdminAboutController(BaseAdminController):
         Returns:
             AdminAboutInfo: A Pydantic model containing various application details.
         """
+        from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
+
         settings = self.settings  # Access application settings via base controller property
+        try:
+            platform_name = platform_workspace(self.session).name
+        except PlatformWorkspaceMissing:  # uninitialised database: the name it will be created with
+            platform_name = settings.DEFAULT_GROUP
 
         # Construct and return the AdminAboutInfo response model
         return AdminAboutInfo(
@@ -57,7 +63,7 @@ class AdminAboutController(BaseAdminController):
             api_docs=settings.API_DOCS,
             db_type=settings.DB_ENGINE,
             db_url=settings.DB_URL_PUBLIC,  # Public (masked) database URL
-            default_group=settings.DEFAULT_GROUP,
+            default_group=platform_name,
             allow_signup=settings.ALLOW_SIGNUP,
             build_id=settings.GIT_COMMIT_HASH,  # Git commit hash for the build
             enable_oidc=settings.OIDC_AUTH_ENABLED,

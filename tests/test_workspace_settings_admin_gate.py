@@ -100,7 +100,7 @@ GATED = [
     ("GET", f"{WORKSPACE}/export/pretty", None),
     ("POST", f"{WORKSPACE}/backups", None),
     ("GET", f"{WORKSPACE}/backups", None),
-    ("GET", WORKSPACE + "/backups/{slug}-missing.zip", None),
+    ("GET", WORKSPACE + "/backups/{slug}-backup-missing.zip", None),
     # platform email: test sends and template edits
     ("POST", f"{EMAIL}/test", {"email": "a@example.com"}),
     ("PATCH", f"{EMAIL}/templates/{NOPE}", {}),
