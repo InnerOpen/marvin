@@ -213,12 +213,13 @@ def _record(session: Session, results: dict[str, dict]) -> None:
 def _platform_workspace(session: Session):
     """The workspace whose integration connections platform alerts may use, or None.
 
-    The ONE place that decides it: today the workspace named ``settings.DEFAULT_GROUP`` (seeded at install).
-    Swap this for the shared platform-workspace resolver when there is one."""
-    from marvin.core.config import get_app_settings
-    from marvin.db.models.groups import Groups
+    The platform workspace, found by its marker whatever it is called (services/group/platform_workspace)."""
+    from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
 
-    return session.query(Groups).filter(Groups.name == get_app_settings().DEFAULT_GROUP).first()
+    try:
+        return platform_workspace(session)
+    except PlatformWorkspaceMissing:
+        return None
 
 
 @dataclass

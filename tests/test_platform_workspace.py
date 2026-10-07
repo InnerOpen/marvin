@@ -225,7 +225,7 @@ def test_default_group_is_never_used_to_look_the_workspace_up():
     uses = {
         str(path.relative_to(src))
         for path in src.rglob("*.py")
-        if "alembic" not in path.parts and "settings.DEFAULT_GROUP" in path.read_text(encoding="utf-8").replace("``settings.DEFAULT_GROUP``", "")
+        if "alembic" not in path.parts and ".DEFAULT_GROUP" in path.read_text(encoding="utf-8").replace("``settings.DEFAULT_GROUP``", "")
     }
     assert uses == {"db/init_db.py", "routes/admin/about_controller.py"}
 

@@ -2559,8 +2559,8 @@ Approved by Jared 2026-10-07: "Default (or whatever we name it) is Admins Worksp
 - [x] Can't be deleted; marker not settable through the API. "Admin" shield badge (super admins only) in the
       switcher and the admin list; explanation line on its admin page.
 - [ ] Production keeps "Default"/`default` — Jared renames it himself later (Admin → Workspaces → Manage).
-- [ ] feat/platform-alert-routes: resolve integration connections for platform alerts with
-      `platform_workspace(session)`.
+- [x] Platform alerts (merged from feat/platform-alert-routes) find their integration connections through
+      `platform_workspace(session)` (`services/platform_alerts._platform_workspace` delegates to it).
 - [ ] Release the SDK types (MarvinSDK `feat/platform-workspace-types`: `GroupRead.isPlatform`, `slug` on the
       admin update, `GET /api/admin/groups/platform`); the frontend reads `isPlatform` with a local cast until then.
 - [ ] Separate bug, not fixed here: the workspace **Settings → General** rename (`PATCH /api/groups/{id}/preferences`)

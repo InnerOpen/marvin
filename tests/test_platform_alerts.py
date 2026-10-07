@@ -284,18 +284,20 @@ def test_targets_are_the_platform_workspace_message_actions(db_session, world):
 
 
 def test_the_platform_workspace_is_found_in_one_place(db_session):
-    """Without the test's stand-in, ``_platform_workspace`` is the workspace named DEFAULT_GROUP."""
-    from marvin.core.config import get_app_settings
+    """Without the test's stand-in, ``_platform_workspace`` is the marked platform workspace, whatever its name."""
     from marvin.db.models.groups import Groups
+    from marvin.services.group.platform_workspace import PlatformWorkspaceMissing, platform_workspace
 
-    name = get_app_settings().DEFAULT_GROUP
     created = None
-    if db_session.query(Groups).filter(Groups.name == name).first() is None:
-        created = Groups(session=db_session, name=name, slug=f"default-{uuid.uuid4().hex[:6]}")
+    try:
+        marked = platform_workspace(db_session)
+    except PlatformWorkspaceMissing:
+        name = f"Not-Default-{uuid.uuid4().hex[:6]}"
+        marked = created = Groups(session=db_session, name=name, slug=name.lower(), is_platform=True)
         db_session.add(created)
         db_session.commit()
     try:
-        assert alerts._platform_workspace(db_session).name == name
+        assert alerts._platform_workspace(db_session).id == marked.id
     finally:
         if created is not None:
             db_session.delete(created)
