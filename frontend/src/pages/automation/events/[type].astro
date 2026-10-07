@@ -624,14 +624,25 @@ const openTemplates = emailTemplates.filter((t: any) => {
   });
 
   // ── Markdown parser — inline, block-level, no external dependency ────────
+  // The template body is text: raw HTML in it is shown escaped, not rendered, and a link becomes an <a>
+  // only for an http(s) or mailto URL, or a {{ variable }} (anything else, e.g. javascript:, stays text).
+  function _esc(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function _mdLink(_match, text, url) {
+    return /^(https?:|mailto:)/i.test(url) || /^\x00V\d+\x00$/.test(url) ? `<a href="${url}">${text}</a>` : text;
+  }
+
   function _mdInline(s) {
-    return s
+    return _esc(s)
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(/__(.+?)__/g, '<strong>$1</strong>')
       .replace(/\*(.+?)\*/g, '<em>$1</em>')
       .replace(/_(.+?)_/g, '<em>$1</em>')
       .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, _mdLink);
   }
 
   function _mdParse(md) {
@@ -643,7 +654,7 @@ const openTemplates = emailTemplates.filter((t: any) => {
       if (line.startsWith('```')) {
         const code = []; i++;
         while (i < lines.length && !lines[i].startsWith('```')) code.push(lines[i++]);
-        out.push('<pre><code>' + code.join('\n') + '</code></pre>'); i++; continue;
+        out.push('<pre><code>' + _esc(code.join('\n')) + '</code></pre>'); i++; continue;
       }
       const hm = line.match(/^(#{1,3})\s+(.*)/);
       if (hm) { out.push(`<h${hm[1].length}>${_mdInline(hm[2])}</h${hm[1].length}>`); i++; continue; }
@@ -674,7 +685,7 @@ const openTemplates = emailTemplates.filter((t: any) => {
     const vars = [];
     const safe = md.replace(/\{\{[^}]+\}\}/g, m => { vars.push(m); return `\x00V${vars.length - 1}\x00`; });
     let html = _mdParse(safe);
-    vars.forEach((v, i) => { html = html.replaceAll(`\x00V${i}\x00`, v); });
+    vars.forEach((v, i) => { html = html.replaceAll(`\x00V${i}\x00`, _esc(v)); });
     return html;
   }
 
@@ -705,7 +716,7 @@ const openTemplates = emailTemplates.filter((t: any) => {
   const emEventFieldRadio = document.getElementById('em-event-field-radio');
   const emNoEmailFields = document.getElementById('em-no-email-fields');
   if (emailVars.length > 0) {
-    if (emEventField) emEventField.innerHTML = emailVars.map(v => `<option value="${v.slug}">${v.slug}</option>`).join('');
+    if (emEventField) emEventField.replaceChildren(...emailVars.map(v => new Option(v.slug, v.slug)));
   } else {
     if (emEventFieldRadio) emEventFieldRadio.disabled = true;
     if (emNoEmailFields) emNoEmailFields.style.display = 'inline';
@@ -754,14 +765,22 @@ const openTemplates = emailTemplates.filter((t: any) => {
   const varsEl = document.getElementById('em-template-vars');
   if (varsEl && eventVariables?.length) {
     const chips = eventVariables.filter(v => v.type !== 'uuid');
-    varsEl.innerHTML = `
-      <div class="em-vars-header">
-        <span class="em-vars-title">Variables</span>
-        <span class="em-vars-hint">Click to insert at cursor</span>
-      </div>
-      <div class="em-vars-chips">
-        ${chips.map(v => `<button type="button" class="em-var-chip" data-slug="{{${v.slug}}}" title="${(v.description||v.slug) + ' — click to insert'}"><code>{{${v.slug}}}</code></button>`).join('')}
-      </div>`;
+    const node = (tag, className, ...children) => {
+      const n = document.createElement(tag);
+      if (className) n.className = className;
+      n.append(...children);
+      return n;
+    };
+    varsEl.replaceChildren(
+      node('div', 'em-vars-header', node('span', 'em-vars-title', 'Variables'), node('span', 'em-vars-hint', 'Click to insert at cursor')),
+      node('div', 'em-vars-chips', ...chips.map(v => {
+        const chip = node('button', 'em-var-chip', node('code', '', `{{${v.slug}}}`));
+        chip.type = 'button';
+        chip.dataset.slug = `{{${v.slug}}}`;
+        chip.title = `${v.description || v.slug} — click to insert`;
+        return chip;
+      })),
+    );
     // Track last focused editable field in the modal
     let emLastFocused = document.getElementById('em-md-body');
     ['em-subject', 'em-md-body'].forEach(id => {
