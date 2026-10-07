@@ -31,6 +31,7 @@ from marvin.services.event_bus_service.event_bus_listener import (
     IndexingReactionListener,
     IntegrationEventListener,
     MediaEmbedReactionListener,
+    PlatformAlertListener,
     ScheduledTaskListener,
     SiteRebuildReactionListener,
     SmartCollectionReactionListener,
@@ -163,6 +164,7 @@ class EventBusService(BaseService):
             WebhookEventListener(group_id),  # Handles custom webhook integrations for the group.
             IntegrationEventListener(group_id),  # Runs integration actions wired to events.
             EmailEventListener(group_id),  # Fires email templates on matching events.
+            PlatformAlertListener(group_id),  # Sends platform alerts past the bell (Admin → Platform alerts).
         ]
 
     def _publish_event(self, event: Event, group_id: UUID4) -> None:

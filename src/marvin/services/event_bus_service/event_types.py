@@ -416,6 +416,8 @@ class EventTypes(EventTypeBase):
     """Event dispatched when a platform admin changes where new asset uploads are stored."""
     storage_public_domain_changed = auto()
     """Event dispatched when a platform admin changes the public domain a workspace's remote assets are served from."""
+    platform_settings_changed = auto()
+    """Event dispatched when a platform admin changes a platform-wide setting (e.g. where platform alerts go)."""
 
     # ==========================================================================
     # Notification Events
@@ -989,6 +991,19 @@ class EventStoragePublicDomainChangedData(EventDocumentDataBase):
     """The previous domain, None for the platform default (STORAGE_REMOTE_PUBLIC_URL)."""
     url: str | None = None
     """The new domain, None for the platform default."""
+    changed_by_name: str | None = None
+    """The full name of the admin who changed it."""
+
+
+class EventPlatformSettingsChangedData(EventDocumentDataBase):
+    """Data payload for `platform_settings_changed`: which platform setting a super admin changed, and how.
+    Never a value that could be a credential (an alert route's arguments are named, not shown)."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    setting: str
+    """The platform setting's key, e.g. `platform_alerts`."""
+    changes: list[str] = []
+    """What changed, one line each, e.g. `Backup recovered: off`."""
     changed_by_name: str | None = None
     """The full name of the admin who changed it."""
 

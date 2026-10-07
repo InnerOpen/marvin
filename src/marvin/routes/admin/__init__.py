@@ -2,6 +2,7 @@ from marvin.routes._base.routers import AdminAPIRouter
 
 from . import (
     about_controller,
+    alerts_controller,
     backup_health_controller,
     backups_controller,
     character_packs_controller,
@@ -21,6 +22,7 @@ from . import (
 router = AdminAPIRouter(prefix="/admin")
 
 router.include_router(about_controller.router, tags=["Admin: About"])
+router.include_router(alerts_controller.router, tags=["Admin: Platform Alerts"])
 router.include_router(backup_health_controller.router, tags=["Admin: Backup Health"])
 router.include_router(backups_controller.router, tags=["Admin: Backups"])
 router.include_router(character_packs_controller.router, tags=["Admin: Character Library"])

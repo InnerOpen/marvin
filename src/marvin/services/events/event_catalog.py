@@ -1650,6 +1650,18 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("changed_by_name", "Name of the admin who changed it", "Jane Smith", type="name"),
         ],
     ),
+    CatalogEntry(
+        event_type="platform_settings_changed",
+        name="Platform Settings Changed",
+        description="A platform admin changed a platform-wide setting, such as where platform alerts are sent.",
+        category="System",
+        sent_by=["A platform admin saving Admin → Platform alerts"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("setting", "The platform setting that changed", "platform_alerts", type="string"),
+            EventVariable("changed_by_name", "Name of the admin who changed it", "Jane Smith", type="name"),
+        ],
+    ),
     # ── System: Backups ───────────────────────────────────────────────────────
     CatalogEntry(
         event_type="backup_started",
@@ -1956,6 +1968,7 @@ _PLATFORM_SCOPE: frozenset[str] = frozenset(
         "backup_failed",
         "storage_provider_changed",
         "storage_public_domain_changed",
+        "platform_settings_changed",
     }
 )
 for _e in CATALOG:

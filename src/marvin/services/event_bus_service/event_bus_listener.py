@@ -1520,6 +1520,30 @@ class IntegrationEventListener(EventListenerBase):
         return {k: render(v) for k, v in (args or {}).items()}
 
 
+class PlatformAlertListener(EventListenerBase):
+    """Sends platform events past the bell — email, chat — as Admin → Platform alerts says
+    (services/platform_alerts.py). Once per dispatched event, whatever workspace it's stored under; any
+    event type that can't alert costs one set lookup."""
+
+    def __init__(self, group_id: UUID4) -> None:
+        super().__init__(group_id, cast(Any, None))  # sends directly; no publisher
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        from marvin.services import platform_alerts
+
+        if event.event_type.name not in platform_alerts.ALERT_EVENT_TYPES:
+            return []
+        with self.ensure_session() as session:
+            settings = platform_alerts.load(session)
+        return ["platform_alerts"] if settings.enabled_kind(event.event_type.name, platform_alerts.event_data(event)) else []
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        from marvin.services import platform_alerts
+
+        with self.ensure_session() as session:
+            platform_alerts.deliver(session, event)
+
+
 BUILTIN_REACTIONS: tuple[type[BuiltinReaction], ...] = (
     ScheduledTaskListener,
     IndexingReactionListener,

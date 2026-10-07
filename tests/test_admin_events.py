@@ -47,6 +47,7 @@ EXPECTED_PLATFORM = {
     "backup_failed",
     "storage_provider_changed",
     "storage_public_domain_changed",
+    "platform_settings_changed",
 }
 
 # title -> (event_type, whose, workspace, minutes ago)
