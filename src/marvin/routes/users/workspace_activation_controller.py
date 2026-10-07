@@ -122,11 +122,10 @@ class WorkspaceActivationController(BaseUserController):
         For SUPER_ADMIN: Returns all workspaces in the system.
         For regular users: Returns only workspaces they're members of.
 
-        The platform workspace comes first whatever it is named, then the rest by name.
-
         Returns:
             List of workspaces with membership details.
         """
+        # The platform workspace comes first whatever it is named, then the rest by name (_platform_first).
         current_workspace_id = self.user.active_group_id or self.user.group_id
 
         # SUPER_ADMIN sees all workspaces
