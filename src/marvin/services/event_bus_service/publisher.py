@@ -8,6 +8,7 @@ to external services or URLs. It includes:
 - `WebhookPublisher`: Publishes events to specified URLs via HTTP requests (e.g., POST, GET).
 """
 
+import re
 import time
 from datetime import UTC, datetime
 from typing import Any, Protocol  # For defining structural subtyping (interfaces)
@@ -144,6 +145,27 @@ def _announce_delivery_failure(
         get_logger().error(f"Failed to announce webhook delivery failure: {e}")
 
 
+# What the console never prints: a string under a key that names a credential, and a `token=` query value in a URL.
+# Marvin's own events carry no credential (their payloads say who and what, never a token or a link that holds one);
+# this is for what they relay from outside — an incoming webhook's request body — and for whatever comes next.
+_CREDENTIAL_KEY_PARTS = ("token", "secret", "password", "apikey", "authorization", "credential", "cookie")
+_TOKEN_IN_URL = re.compile(r"(?i)([?&](?:token|access_token|key|api_key|signature)=)[^&\s\"']+")
+_MASK = "[redacted]"
+
+
+def _masked(value: Any, key: str = "") -> Any:
+    """`value` with every credential-looking string replaced (counts and flags under such keys are kept)."""
+    if isinstance(value, dict):
+        return {k: _masked(v, str(k)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_masked(v, key) for v in value]
+    if isinstance(value, str):
+        if any(part in key.lower().replace("_", "").replace("-", "") for part in _CREDENTIAL_KEY_PARTS):
+            return _MASK
+        return _TOKEN_IN_URL.sub(rf"\1{_MASK}", value)
+    return value
+
+
 class ConsolePublisher:
     """
     Publishes events to console/logs for debugging.
@@ -173,9 +195,9 @@ class ConsolePublisher:
         self.logger.info(f"   Integration: {event.integration_id}")
         self.logger.info(f"   Message: {event.message.title}")
         if event.message.body and event.message.body != "generic":
-            self.logger.info(f"   Body: {event.message.body}")
+            self.logger.info(f"   Body: {_masked(event.message.body)}")
         if event.document_data:
-            data_dict = jsonable_encoder(event.document_data)
+            data_dict = _masked(jsonable_encoder(event.document_data))
             self.logger.info(f"   Document Type: {data_dict.get('documentType') or 'unknown'}")
             self.logger.info(f"   Operation: {data_dict.get('operation', 'unknown')}")
             for key, value in data_dict.items():

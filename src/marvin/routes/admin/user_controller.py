@@ -233,4 +233,4 @@ class AdminUserManagementRoutes(BaseAdminController):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,  # Or 404 if user not found
                 detail=ErrorResponse.respond(message=f"Error generating password reset token for {email_data.email}."),
             )
-        return PasswordResetToken(token=token_model_instance.token)
+        return token_model_instance  # already a PasswordResetToken (email + token)

@@ -201,7 +201,7 @@ class RegistrationService:
             self.logger.info(f"Processing registration with group token for user: {self.registration.email}")
             group_invite_token_entry = self.repos.group_invite_tokens.get_one(self.registration.group_token, key="token")  # Use key="token"
             if not group_invite_token_entry or group_invite_token_entry.uses_left == 0:  # Check if token is valid and has uses left
-                self.logger.warning(f"Invalid or expired group token used: {self.registration.group_token}")
+                self.logger.warning("Invalid or expired group token used")
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired group invitation token.")
 
             target_group = self.repos.groups.get_one(group_invite_token_entry.group_id)
@@ -248,13 +248,13 @@ class RegistrationService:
         if group_invite_token_entry and new_user:  # Ensure user creation was successful
             # Check if token is unlimited (-1) - if so, don't decrement
             if group_invite_token_entry.uses_left == -1:
-                self.logger.info(f"Unlimited invitation token used: {group_invite_token_entry.token} (uses_left stays at -1)")
+                self.logger.info(f"Unlimited invitation token used: {group_invite_token_entry.id} (uses_left stays at -1)")
                 # No action needed - unlimited tokens are never decremented or deleted
             else:
                 # Decrement limited tokens
                 group_invite_token_entry.uses_left -= 1
                 if group_invite_token_entry.uses_left <= 0:
-                    self.logger.info(f"Deleting used group invitation token: {group_invite_token_entry.token}")
+                    self.logger.info(f"Deleting used group invitation token: {group_invite_token_entry.id}")
                     self.repos.group_invite_tokens.delete(group_invite_token_entry.token, match_key="token")
                 else:
                     self.logger.info(

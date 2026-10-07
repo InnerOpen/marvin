@@ -324,3 +324,40 @@ def test_a_members_workspace_responses_carry_no_webhooks(db_session, world):
         assert res.status_code == 200, res.text
         assert "webhooks" not in res.text and "hooks.example" not in res.text
     assert "webhooks" not in app.openapi()["components"]["schemas"]["GroupRead"]["properties"]
+
+
+# ── smaller fixes ────────────────────────────────────────────────────────────
+
+
+def test_the_admin_reset_token_endpoint_returns_the_token(db_session, world, monkeypatch):
+    from marvin.db.models.users.roles import PlatformRole
+
+    admin = get_repositories(db_session, group_id=None).users.get_one(world.ids["admin"], "id", any_case=False)
+    admin.platform_role = PlatformRole.SUPER_ADMIN
+    app.dependency_overrides[get_current_user] = lambda: admin
+    res = TestClient(app).post("/api/admin/users/password-reset-token", json={"email": world.email["owner"]})
+    assert res.status_code == 201, res.text
+    assert res.json()["email"] == world.email["owner"] and res.json()["token"]
+
+
+def test_the_console_listener_logs_no_credential(world):
+    from marvin.services.event_bus_service.event_types import Event, EventBusMessage, EventIncomingWebhookData, EventOperation
+    from marvin.services.event_bus_service.publisher import ConsolePublisher
+
+    event = Event(
+        message=EventBusMessage.from_type(EventTypes.incoming_webhook, body="x"),
+        event_type=EventTypes.incoming_webhook,
+        integration_id="t",
+        document_data=EventIncomingWebhookData(
+            operation=EventOperation.info,
+            webhook_id=uuid.uuid4(),
+            webhook_slug="s",
+            webhook_name="n",
+            payload={"apiToken": "tok-SHOULD-NOT-APPEAR", "nested": {"password": "pw-SHOULD-NOT-APPEAR"}, "plain": "visible"},
+            workspace_id=world.a,
+        ),
+        workspace_id=world.a,
+    )
+    ConsolePublisher().publish(event, ["console"])
+    text = "\n".join(world.logs.lines)
+    assert "visible" in text and "SHOULD-NOT-APPEAR" not in text

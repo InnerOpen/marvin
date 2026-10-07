@@ -148,15 +148,15 @@ class GroupInvitationsController(BaseUserController):
             # Attempt to send the invitation email
             email_sent_successfully = email_service.send_invitation(recipient_address=invite_data.email, invitation_url=registration_url)
             if email_sent_successfully:
-                self.logger.info(f"Invitation email sent to {invite_data.email} with token {invite_data.token}")
+                self.logger.info(f"Invitation email sent to {invite_data.email}")
             else:
                 # If service returns False without an exception
                 error_message = "Email service reported failure to send invitation without raising an exception."
-                self.logger.warning(f"Failed to send invitation email to {invite_data.email} (service returned false). Token: {invite_data.token}")
+                self.logger.warning(f"Failed to send invitation email to {invite_data.email} (service returned false).")
 
         except Exception as e:
             # Log the exception and capture the error message
-            self.logger.error(f"Error sending invitation email to {invite_data.email} with token {invite_data.token}: {e}")
+            self.logger.error(f"Error sending invitation email to {invite_data.email}: {e}")
             error_message = str(e)
 
         return EmailInitationResponse(success=email_sent_successfully, error=error_message)
