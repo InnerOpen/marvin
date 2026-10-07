@@ -249,6 +249,7 @@ if (!authToken) {
 
 <script>
   import { isPublicFromForm } from '@/lib/collectionForm';
+  import { bindMetadataPreview } from '@/lib/metadataPreview';
   import { createSdkClient } from '@/lib/sdk';
 
   const sdk = createSdkClient();
@@ -354,63 +355,9 @@ if (!authToken) {
   }
 
   // Metadata preview update
-  const metadataEditor = document.getElementById('metadata') as HTMLTextAreaElement;
-  const metadataPreviewContainer = metadataEditor?.closest('.form-group')?.querySelector('.metadata-preview');
-
+  const metadataEditor = document.getElementById('metadata') as HTMLTextAreaElement | null;
   if (metadataEditor) {
-    metadataEditor.addEventListener('input', () => {
-      const value = metadataEditor.value.trim();
-
-      if (!value) {
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.remove();
-        }
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(value);
-        const entries = Object.entries(parsed);
-
-        if (entries.length === 0) {
-          if (metadataPreviewContainer) {
-            metadataPreviewContainer.remove();
-          }
-          return;
-        }
-
-        let previewHTML = `
-          <div class="metadata-preview">
-            <p class="metadata-preview-title">Current Metadata:</p>
-            <dl class="metadata-preview-list">
-        `;
-
-        entries.forEach(([key, value]) => {
-          const displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
-          previewHTML += `
-            <div class="metadata-preview-item">
-              <dt>${key}</dt>
-              <dd>${displayValue}</dd>
-            </div>
-          `;
-        });
-
-        previewHTML += `</dl></div>`;
-
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.outerHTML = previewHTML;
-        } else {
-          const helpText = metadataEditor.closest('.form-group')?.querySelector('.form-help');
-          if (helpText) {
-            helpText.insertAdjacentHTML('afterend', previewHTML);
-          }
-        }
-      } catch (error) {
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.remove();
-        }
-      }
-    });
+    bindMetadataPreview(metadataEditor, '.form-group', () => metadataEditor.closest('.form-group')?.querySelector('.form-help'));
   }
 
   // --- Entry attachment card management ---

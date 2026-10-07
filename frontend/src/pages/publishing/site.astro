@@ -483,6 +483,8 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
 </AppLayout>
 
 <script>
+  import { bindMetadataPreview } from '@/lib/metadataPreview';
+
   // HttpOnly cookie is automatically sent with credentials: 'include'
   const form = document.getElementById('site-form') as HTMLFormElement;
   if (form) {
@@ -602,65 +604,9 @@ const metadataEditorValue = Object.keys(metaForDisplay).length > 0 ? JSON.string
   }
 
   // Metadata preview update
-  const metadataEditor = document.getElementById('metadata-editor') as HTMLTextAreaElement;
-  const metadataPreviewContainer = metadataEditor?.closest('.form-grid')?.querySelector('.metadata-preview');
-
+  const metadataEditor = document.getElementById('metadata-editor') as HTMLTextAreaElement | null;
   if (metadataEditor) {
-    metadataEditor.addEventListener('input', () => {
-      const value = metadataEditor.value.trim();
-
-      if (!value) {
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.remove();
-        }
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(value);
-        const entries = Object.entries(parsed);
-
-        if (entries.length === 0) {
-          if (metadataPreviewContainer) {
-            metadataPreviewContainer.remove();
-          }
-          return;
-        }
-
-        let previewHTML = `
-          <div class="metadata-preview">
-            <p class="metadata-preview-title">Current Metadata:</p>
-            <dl class="metadata-preview-list">
-        `;
-
-        entries.forEach(([key, value]) => {
-          const displayValue = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
-          previewHTML += `
-            <div class="metadata-preview-item">
-              <dt>${key}</dt>
-              <dd>${displayValue}</dd>
-            </div>
-          `;
-        });
-
-        previewHTML += `</dl></div>`;
-
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.outerHTML = previewHTML;
-        } else {
-          const label = metadataEditor.closest('label');
-          const smallElement = label?.querySelector('small');
-          if (smallElement) {
-            smallElement.insertAdjacentHTML('afterend', previewHTML);
-          }
-        }
-      } catch (error) {
-        // Invalid JSON - remove preview
-        if (metadataPreviewContainer) {
-          metadataPreviewContainer.remove();
-        }
-      }
-    });
+    bindMetadataPreview(metadataEditor, '.form-grid', () => metadataEditor.closest('label')?.querySelector('small'));
   }
 </script>
 
