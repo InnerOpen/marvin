@@ -1,13 +1,13 @@
 ---
 import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
+import ActivityToaster from "@/components/ActivityToaster.astro";
 import EnvironmentBadge from "@/components/EnvironmentBadge.astro";
 import NavDrawerToggle from "@/components/NavDrawerToggle.astro";
-import RuntimeConfig from "@/components/RuntimeConfig.astro";
-import UpdateBanner from "@/components/UpdateBanner.astro";
-import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
-import ActivityToaster from "@/components/ActivityToaster.astro";
 import NavTrail from "@/components/NavTrail.astro";
+import RuntimeConfig from "@/components/RuntimeConfig.astro";
+import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
+import UpdateBanner from "@/components/UpdateBanner.astro";
 import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
 import { navHref, navNode, navTitle, navTrail } from "@/lib/navTree";
 
@@ -83,6 +83,7 @@ const adminNavGroups: AdminNavGroup[] = [
       item("admin.scheduled-tasks", "⏱"),
       item("admin.backups", "💾"),
       item("admin.backup-health", "🩺"),
+      item("admin.alerts", "🔔"),
       item("admin.maintenance", "🔧"),
     ],
   },

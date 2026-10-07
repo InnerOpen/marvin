@@ -67,6 +67,8 @@ const NODES: NavNode[] = [
   { id: "admin.backups", label: "Backups", href: "/admin/backups", parent: "admin" },
   // The installation backup targets (CronJobs) as their runs report them; Backups above is workspace bundles.
   { id: "admin.backup-health", label: "Backup Health", href: "/admin/backup-health", parent: "admin" },
+  // Which platform events also go out by email or a chat integration.
+  { id: "admin.alerts", label: "Platform Alerts", href: "/admin/alerts", parent: "admin" },
   { id: "admin.maintenance", label: "Maintenance", href: "/admin/maintenance", parent: "admin" },
 
   // Workspace pages with no parent: the dashboard (the sidebar's Workspace → Settings) and creating a workspace.

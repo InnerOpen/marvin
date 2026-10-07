@@ -1,0 +1,370 @@
+---
+// Admin → Platform alerts: which platform events (backups, storage, security) reach people outside
+// Marvin, and how. Email to super admins is built in; any message-capable integration action on a
+// connection in the platform workspace can be added as a route. Server strings render through Astro's
+// escaping ({...}); the script builds route rows with textContent only.
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import { deliveryBadge } from "@/lib/admin/platformAlerts";
+import { getPlatformAlerts, type PlatformAlerts } from "@/lib/api/admin/platformAlerts";
+import { getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
+
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+
+let data: PlatformAlerts | null = null;
+let error: string | null = null;
+try {
+  data = await getPlatformAlerts(authToken);
+} catch (e) {
+  console.error("[admin/alerts] Failed to load:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const email = data?.email;
+const emailBadge = deliveryBadge(email?.lastDelivery);
+const workspace = data?.platformWorkspace ?? null;
+const INTEGRATIONS_PATH = "/workspace/settings/integrations";
+---
+
+<AdminLayout crumb="admin.alerts">
+  <div class="toolbar">
+    <div>
+      <h2>Platform Alerts</h2>
+      <p>
+        Platform events always show in a super admin's bell and on <a href="/admin/events">Events</a>. Choose which of them
+        also go out by email or through a chat integration, so a failed backup reaches someone who isn't looking at Marvin.
+        See <a href="/admin/backup-health">Backup health</a> for what the backup alerts mean.
+      </p>
+    </div>
+  </div>
+
+  {error && <div class="pa-error" role="alert">Could not load platform alerts: {error}</div>}
+
+  {data && email && (
+    <form id="pa-form" class="page" novalidate>
+      <section class="card">
+        <h3>Which events alert</h3>
+        <p class="lead">Each one is sent once, when it happens — a failing backup alerts once per incident, not on every retry.</p>
+        <div class="kinds">
+          {data.types.map((k) => (
+            <label class="kind">
+              <input type="checkbox" name="kind" value={k.key} checked={k.enabled} data-testid={`kind-${k.key}`} />
+              <span>
+                <strong>{k.label}</strong> <code class="small muted">{k.eventType}</code>
+                <span class="muted small block">{k.description}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </section>
+
+      <section class="card" data-testid="email-channel">
+        <div class="channel-head">
+          <h3>Email</h3>
+          <label class="switch"><input type="checkbox" id="pa-email-enabled" checked={email.enabled} /> On</label>
+        </div>
+        {email.smtpReady ? (
+          <p class="lead">Built in. Sent with the platform SMTP settings (<a href="/admin/email-settings">Email settings</a>).</p>
+        ) : (
+          <p class="notice warn" role="status" data-testid="smtp-missing">
+            <strong>SMTP isn't configured,</strong> so email alerts are recorded as not sent. Set the platform SMTP
+            settings (<a href="/admin/email-settings">Email settings</a>) to start sending them.
+          </p>
+        )}
+        <fieldset class="recipients">
+          <legend>Send to</legend>
+          <label class="radio">
+            <input type="radio" name="pa-recipients" value="all" checked={email.recipients === null} />
+            Every super admin{" "}
+            <span class="muted small">
+              ({email.superAdminEmails.length ? email.superAdminEmails.join(", ") : "none has an email address"})
+            </span>
+          </label>
+          <label class="radio">
+            <input type="radio" name="pa-recipients" value="list" checked={email.recipients !== null} />
+            These addresses
+          </label>
+          <textarea id="pa-recipients-text" rows="3" placeholder="ops@example.com, one per line or comma-separated" aria-label="Email addresses">{(email.recipients ?? []).join("\n")}</textarea>
+        </fieldset>
+        <div class="channel-foot">
+          <span class:list={["pill", emailBadge.tone]} id="pa-email-status">{emailBadge.label}</span>
+          <span class="muted small" id="pa-email-detail">{emailBadge.detail}</span>
+          <button type="button" class="button secondary small-btn" data-test-channel="email">Send test</button>
+        </div>
+      </section>
+
+      <section class="card" data-testid="integration-routes">
+        <h3>Integrations</h3>
+        {!data.integrationsAvailable ? (
+          <p class="lead">The integrations framework isn't installed on this server, so only email can carry platform alerts.</p>
+        ) : workspace === null ? (
+          <p class="notice warn" role="status">
+            There's no platform workspace, so platform alerts can't go through an integration. Email still works.
+          </p>
+        ) : (
+          <>
+            <p class="lead">
+              Integrations are connected per workspace; platform alerts use the connections in the{" "}
+              <strong>{workspace.name}</strong> workspace. Any action that can send a message — Slack's <em>Send message</em>,
+              Apprise's <em>Send notification</em>, or another plugin's — can be a route.
+            </p>
+            {data.targets.length === 0 && (
+              <div class="notice" role="status" data-testid="no-targets">
+                <p>
+                  Connect Slack (or another messaging integration) in the <strong>{workspace.name}</strong> workspace to
+                  send platform alerts there.
+                </p>
+                {/* The form itself sits outside #pa-form: forms can't nest. */}
+                <button type="submit" form="pa-activate" class="button secondary" data-testid="open-platform-integrations">
+                  Open {workspace.name}'s Integrations
+                </button>
+              </div>
+            )}
+          </>
+        )}
+        <ul id="pa-routes" class="routes" aria-label="Integration routes"></ul>
+        {data.targets.length > 0 && (
+          <div class="add-route">
+            <label for="pa-add-target" class="small muted">Add a route</label>
+            <select id="pa-add-target">
+              {data.targets.map((t) => (
+                <option value={`${t.integrationId}:${t.action}`}>
+                  {t.integrationName} → {t.actionLabel} ({t.providerName}){t.connectionEnabled ? "" : " — connection off"}
+                </option>
+              ))}
+            </select>
+            <button type="button" class="button secondary" id="pa-add">Add</button>
+          </div>
+        )}
+      </section>
+
+      <div class="form-actions">
+        <button type="submit" class="button" id="pa-save">Save</button>
+        <span id="pa-status" class="muted small" role="status"></span>
+      </div>
+    </form>
+  )}
+
+  {workspace && (
+    <form id="pa-activate" method="POST" action="/api/workspace/activate" hidden>
+      <input type="hidden" name="workspace_id" value={workspace.id} />
+      <input type="hidden" name="next" value={INTEGRATIONS_PATH} />
+    </form>
+  )}
+
+  <script is:inline type="application/json" id="pa-data" set:html={JSON.stringify(data ?? null).replace(/</g, "\\u003c")} />
+</AdminLayout>
+
+<script>
+  import {
+    buildUpdate,
+    deliveryBadge,
+    draftFrom,
+    missingInputs,
+    type RouteDraft,
+    targetKey,
+  } from "@/lib/admin/platformAlerts";
+  import {
+    type PlatformAlertDelivery,
+    type PlatformAlerts,
+    type PlatformAlertTarget,
+    testPlatformAlert,
+    updatePlatformAlerts,
+  } from "@/lib/api/admin/platformAlerts";
+
+  const raw = document.getElementById("pa-data")?.textContent;
+  let state: PlatformAlerts | null = raw ? JSON.parse(raw) : null;
+  const form = document.getElementById("pa-form") as HTMLFormElement | null;
+  const list = document.getElementById("pa-routes") as HTMLUListElement | null;
+  const statusEl = document.getElementById("pa-status");
+
+  if (state && form && list) {
+    let routes: RouteDraft[] = state.routes.map(draftFrom);
+    const targets = () => new Map<string, PlatformAlertTarget>((state?.targets ?? []).map((t) => [targetKey(t), t]));
+
+    const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
+      const node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    };
+
+    const setStatus = (pill: HTMLElement, detail: HTMLElement, d: PlatformAlertDelivery | null | undefined) => {
+      const b = deliveryBadge(d);
+      pill.className = `pill ${b.tone}`;
+      pill.textContent = b.label;
+      detail.textContent = b.detail;
+    };
+
+    function render() {
+      if (!list || !state) return;
+      list.replaceChildren();
+      const byKey = targets();
+      routes.forEach((route, index) => {
+        const saved = route.id ? state?.routes.find((r) => r.id === route.id) : undefined;
+        const target = byKey.get(targetKey(route));
+        const li = el("li", "route");
+        li.dataset.testid = "route";
+
+        const head = el("div", "route-head");
+        const title = el("strong", "", saved?.label ?? (target ? `${target.integrationName} → ${target.actionLabel}` : route.action));
+        const toggle = el("label", "switch");
+        const box = el("input");
+        box.type = "checkbox";
+        box.checked = route.enabled;
+        box.addEventListener("change", () => (route.enabled = box.checked));
+        toggle.append(box, " On");
+        const remove = el("button", "button secondary small-btn", "Remove");
+        remove.type = "button";
+        remove.addEventListener("click", () => {
+          routes.splice(index, 1);
+          render();
+        });
+        head.append(title, toggle, remove);
+        li.append(head);
+
+        if (saved?.problem) li.append(el("p", "notice warn small", saved.problem));
+
+        for (const input of target?.inputs ?? []) {
+          const field = el("label", "field");
+          field.append(el("span", "small", input.label + (input.required ? " (required)" : "")));
+          const box = el("input");
+          box.type = "text";
+          box.value = String(route.args[input.key] ?? "");
+          box.required = input.required;
+          box.placeholder = input.description || "";
+          box.addEventListener("input", () => (route.args[input.key] = box.value));
+          field.append(box);
+          li.append(field);
+        }
+        if (target && target.inputs.length === 0) {
+          li.append(el("p", "muted small", "No settings: the connection decides where its messages go."));
+        }
+
+        const foot = el("div", "channel-foot");
+        const pill = el("span", "pill");
+        const detail = el("span", "muted small");
+        setStatus(pill, detail, saved?.lastDelivery);
+        const test = el("button", "button secondary small-btn", "Send test");
+        test.type = "button";
+        if (route.id) test.dataset.testChannel = route.id;
+        else {
+          test.disabled = true;
+          test.title = "Save first";
+        }
+        foot.append(pill, detail, test);
+        li.append(foot);
+        list.append(li);
+      });
+      if (routes.length === 0) list.append(el("li", "muted small", "No integration routes."));
+    }
+
+    render();
+
+    document.getElementById("pa-add")?.addEventListener("click", () => {
+      const select = document.getElementById("pa-add-target") as HTMLSelectElement | null;
+      const target = select ? targets().get(select.value) : undefined;
+      if (!target) return;
+      routes.push({ integrationId: target.integrationId, action: target.action, args: {}, enabled: true });
+      render();
+    });
+
+    form.addEventListener("click", async (e) => {
+      const button = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-test-channel]");
+      if (!button) return;
+      const channel = button.dataset.testChannel!;
+      button.disabled = true;
+      try {
+        const res = await testPlatformAlert(channel);
+        const holder = button.parentElement; // the channel's footer: its status pill and detail
+        const pill = holder?.querySelector<HTMLElement>(".pill");
+        const detail = holder?.querySelector<HTMLElement>(".muted.small");
+        if (pill && detail) setStatus(pill, detail, res.delivery);
+        if (state) {
+          if (channel === "email") state.email.lastDelivery = res.delivery;
+          else {
+            const r = state.routes.find((x) => x.id === channel);
+            if (r) r.lastDelivery = res.delivery;
+          }
+        }
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Test failed: ${err instanceof Error ? err.message : String(err)}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!state || !statusEl) return;
+      const byKey = targets();
+      const missing = routes.flatMap((r) => missingInputs(byKey.get(targetKey(r)), r.args).map((m) => `${byKey.get(targetKey(r))?.integrationName}: ${m}`));
+      if (missing.length) {
+        statusEl.textContent = `Fill in: ${missing.join(", ")}`;
+        return;
+      }
+      const types = Object.fromEntries(
+        [...form.querySelectorAll<HTMLInputElement>('input[name="kind"]')].map((box) => [box.value, box.checked]),
+      );
+      const update = buildUpdate({
+        types,
+        emailEnabled: (document.getElementById("pa-email-enabled") as HTMLInputElement).checked,
+        everySuperAdmin: (form.querySelector<HTMLInputElement>('input[name="pa-recipients"]:checked')?.value ?? "all") === "all",
+        recipientsText: (document.getElementById("pa-recipients-text") as HTMLTextAreaElement).value,
+        routes,
+      });
+      const save = document.getElementById("pa-save") as HTMLButtonElement;
+      save.disabled = true;
+      statusEl.textContent = "Saving…";
+      try {
+        state = await updatePlatformAlerts(update);
+        routes = state.routes.map(draftFrom);
+        render();
+        statusEl.textContent = "Saved.";
+      } catch (err) {
+        statusEl.textContent = `Not saved: ${err instanceof Error ? err.message : String(err)}`;
+      } finally {
+        save.disabled = false;
+      }
+    });
+  }
+</script>
+
+<style is:global>
+  /* Global, but only under #pa-form: the route rows are built by the script, which scoped styles can't reach. */
+  #pa-form.page { display: grid; gap: 20px; max-width: 900px; }
+  #pa-form .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+  #pa-form .card h3 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+  #pa-form .lead { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+  #pa-form .kinds { display: grid; gap: 10px; }
+  #pa-form .kind { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+  #pa-form .kind input { margin-top: 3px; }
+  #pa-form .block { display: block; }
+  #pa-form .muted { color: var(--muted); }
+  #pa-form .small { font-size: 12px; }
+  #pa-form .channel-head, #pa-form .route-head { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+  #pa-form .route-head strong { flex: 1; }
+  #pa-form .switch { font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+  #pa-form .recipients { border: 0; padding: 0; margin: 0 0 12px; display: grid; gap: 6px; font-size: 14px; }
+  #pa-form .recipients legend { font-weight: 600; margin-bottom: 4px; }
+  #pa-form .recipients textarea { width: 100%; font: inherit; font-size: 13px; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); }
+  #pa-form .channel-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+  #pa-form .channel-foot .muted.small { flex: 1; min-width: 160px; overflow-wrap: anywhere; }
+  #pa-form .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+  #pa-form .pill.ok { color: var(--good); }
+  #pa-form .pill.warn { color: var(--warn); }
+  #pa-form .pill.err { background: var(--color-error-bg); color: var(--color-error); }
+  #pa-form .notice { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius); background: var(--panel-2); font-size: 14px; }
+  #pa-form .notice p { margin: 0 0 8px; }
+  #pa-form .notice.warn { border-left: 3px solid var(--warn); }
+  #pa-form .routes { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 12px; }
+  #pa-form .route { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 8px; }
+  #pa-form .field { display: grid; gap: 4px; }
+  #pa-form .field input { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); }
+  #pa-form .add-route { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #pa-form .add-route select { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); max-width: 100%; }
+  #pa-form .small-btn { padding: 4px 10px; font-size: 12px; }
+  #pa-form .form-actions { display: flex; align-items: center; gap: 12px; }
+  .pa-error { padding: 12px 16px; border: 1px solid var(--color-error); border-radius: var(--radius); color: var(--color-error); background: var(--color-error-bg); }
+</style>

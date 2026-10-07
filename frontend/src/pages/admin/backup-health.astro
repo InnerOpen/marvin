@@ -53,7 +53,8 @@ const problems = health ? health.targets.filter((t) => t.state !== "ok" && t.sta
         Installation backups — the database, the <code>.secret</code> and uploaded files — one CronJob per target
         (<code>backup.targets[]</code>). Each run reports here when it ends, failed ones included. A target with no
         successful run in its window (hourly: 2 h, daily: 26 h) is <strong>overdue</strong>. Failures and overdue
-        targets send <code>backup_failed</code> (Admin → Events, and the activity bell).
+        targets send <code>backup_failed</code> (Admin → Events, and the activity bell); to get them by email or Slack
+        too, see <a href="/admin/alerts">Platform alerts</a>.
         Workspace bundles are on <a href="/admin/backups">Backups</a>; bucket settings on <a href="/admin/storage">Storage</a>.
       </p>
     </div>

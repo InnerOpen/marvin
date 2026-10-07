@@ -29,8 +29,11 @@ export const POST: APIRoute = async ({ request, cookies, redirect }) => {
     // Activate the workspace via backend API
     await activateWorkspace(workspaceId, authToken);
 
-    // Redirect to dashboard to refresh with new workspace data
-    return redirect("/", 303);
+    // Back to the dashboard, or to `next` when the caller names a page of this app (a same-origin path
+    // only: "/x", never "//host" or a full URL, so this can't be used as an open redirect).
+    const next = formData.get("next");
+    const safeNext = typeof next === "string" && /^\/(?![/\\])/.test(next) ? next : "/";
+    return redirect(safeNext, 303);
   } catch (error) {
     console.error("[workspace/activate] Error:", error);
 
