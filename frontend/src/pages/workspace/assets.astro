@@ -162,8 +162,8 @@ const sortedCategoryGroups = categoryOrder
                         <>
                         <a href={`/workspace/assets/${asset.id}`} class="button secondary small">Edit</a>
                         <form method="POST" action={`/api/assets/${asset.id}/delete`} style="display:inline;">
-                          <button type="submit" class="button secondary small danger" onclick="return confirm('Delete this asset?')">
-                            Delete
+                          <button type="submit" class="button secondary small" title="Move to the Trash (restore it from there)">
+                            Move to Trash
                           </button>
                         </form>
                         </>
@@ -242,8 +242,8 @@ const sortedCategoryGroups = categoryOrder
                             <>
                             <a href={`/workspace/assets/${asset.id}`} class="button secondary small">Edit</a>
                             <form method="POST" action={`/api/assets/${asset.id}/delete`} style="display:inline;">
-                              <button type="submit" class="button secondary small danger" onclick="return confirm('Delete this asset?')">
-                                Delete
+                              <button type="submit" class="button secondary small" title="Move to the Trash (restore it from there)">
+                                Move to Trash
                               </button>
                             </form>
                             </>

@@ -1,9 +1,11 @@
 ---
 import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
+import ItemTrashBanner from "@/components/ItemTrashBanner.astro";
 import SuggestionBanner from "@/components/SuggestionBanner.astro";
 import TagChips from "@/components/TagChips.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { listCollections } from "@/lib/api/collections";
 import { listTags, type TagRead } from "@/lib/api/tags";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { EDITORS_ONLY } from "@/lib/workspaceRole";
@@ -12,7 +14,7 @@ import { createSdkClient } from "@/lib/sdk";
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
 // Everyone reads; changing, deleting or applying a suggestion to an asset is EDITOR+.
-const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let asset: PlatformAsset | null = null;
 let allTags: TagRead[] = [];
@@ -31,6 +33,14 @@ if (!id) {
     console.error("[Asset] Failed to load:", error);
   }
 }
+
+// An asset in the Trash is read-only: whoever may change it can Restore it or delete it forever, nothing else.
+const inTrash = Boolean((asset as any)?.trashedAt);
+const canEdit = access.canEdit && !inTrash;
+const trashCollectionId =
+  inTrash && authToken
+    ? ((await listCollections(authToken).catch(() => [])).find((c: any) => c.isSystem && c.slug === "trash")?.id ?? null)
+    : null;
 
 // asset.tags is a slug list; resolve to {id, name} via the workspace vocabulary for the chips.
 const tagBySlug = new Map((allTags || []).map((t) => [t.slug, t]));
@@ -76,15 +86,16 @@ const showAiPanel = aiEnabled && isImage;
         </div>
         <div style="display:flex;gap:0.75rem;">
           {canEdit && (
-            <button type="button" id="delete-button" class="button secondary">
-              Delete
+            <button type="button" id="delete-button" class="button secondary" title="Move this asset to the Trash. You can restore it from there.">
+              Move to Trash
             </button>
           )}
           <a class="button secondary" href="/workspace/assets">Back</a>
         </div>
       </div>
 
-      {canEdit ? (
+      {inTrash && <ItemTrashBanner kind="asset" id={id!} canChange={access.canEdit} trashCollectionId={trashCollectionId} />}
+      {inTrash ? null : canEdit ? (
         <SuggestionBanner suggestion={(asset as any)?.suggestionJson} entity={asset} apiBase="/api/assets" entityId={id!} />
       ) : (
         <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>
@@ -505,24 +516,20 @@ const showAiPanel = aiEnabled && isImage;
     });
   }
 
-  // Handle delete via SDK
+  // Move to Trash (reversible: the file stays in storage until the Trash is emptied).
   deleteButton?.addEventListener('click', async () => {
-    if (!confirm('Delete this asset? This cannot be undone.')) {
-      return;
-    }
-
     deleteButton.disabled = true;
-    deleteButton.textContent = 'Deleting...';
+    deleteButton.textContent = 'Moving…';
 
     try {
       const assetId = window.location.pathname.split('/').pop()!;
       await sdk.assets.delete(assetId);
       window.location.href = '/workspace/assets';
     } catch (error: any) {
-      const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to delete asset';
+      const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to move the asset to the Trash';
       alert(message);
       deleteButton.disabled = false;
-      deleteButton.textContent = 'Delete';
+      deleteButton.textContent = 'Move to Trash';
     }
   });
 

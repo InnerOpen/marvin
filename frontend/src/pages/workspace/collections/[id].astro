@@ -10,7 +10,9 @@ import {
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
 import TrashView from "@/components/TrashView.astro";
 import { listEntryTypes } from "@/lib/api/entryTypes";
-import { getTrashSummary, type TrashAutoEmpty } from "@/lib/api/trash";
+import type { AssetRead } from "@/lib/api/assets";
+import type { ResourceRead } from "@/lib/api/resources";
+import { getTrashCounts, listTrashedAssets, listTrashedResources, type TrashAutoEmpty } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
@@ -28,6 +30,8 @@ let error: string | null = null;
 // The Trash (system collection `trash`): restore / delete forever / empty instead of a plain list.
 let isTrash = false;
 let trashAutoEmpty: TrashAutoEmpty | null = null;
+let trashedAssets: AssetRead[] = [];
+let trashedResources: ResourceRead[] = [];
 
 if (!authToken) {
   error = "Authentication required";
@@ -42,7 +46,14 @@ if (!authToken) {
       entries = ents;
       typeMap = new Map(types.map((t) => [t.id, t.name]));
       isTrash = Boolean(collection.isSystem) && collection.slug === "trash";
-      if (isTrash) trashAutoEmpty = await getTrashSummary(authToken).catch(() => null);
+      if (isTrash) {
+        // One Trash, three tabs: the collection lists the entries; trashed assets and resources come from /trash.
+        [trashAutoEmpty, trashedAssets, trashedResources] = await Promise.all([
+          getTrashCounts(authToken).catch(() => null),
+          listTrashedAssets(authToken).catch(() => []),
+          listTrashedResources(authToken).catch(() => []),
+        ]);
+      }
     } else {
       // Asset/resource smart collections: fetch the uniform member list.
       members = await getCollectionMembers(id, authToken);
@@ -121,8 +132,11 @@ function fmtDate(d?: string | null): string {
       {isTrash ? (
         <TrashView
           entries={entries}
+          assets={trashedAssets}
+          resources={trashedResources}
           typeMap={typeMap}
           mayChange={access.canEditEntry}
+          mayChangeItems={canEdit}
           canEmpty={access.canManage}
           canConfigure={access.canManage}
           autoEmpty={trashAutoEmpty}

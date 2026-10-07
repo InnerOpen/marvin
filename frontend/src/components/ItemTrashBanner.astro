@@ -1,0 +1,102 @@
+---
+/**
+ * "This is in the Trash" for an asset or resource page: it is off the site and out of every list until
+ * restored; whoever may change it (EDITOR+) can Restore it or delete it forever (an asset's file too). The
+ * page hides its edit controls meanwhile. Backend: services/trash.py.
+ */
+import type { TrashKind } from "@/lib/api/trash";
+
+interface Props {
+  kind: TrashKind;
+  id: string;
+  /** EDITOR and above: may restore it or delete it forever. */
+  canChange: boolean;
+  /** The Trash system collection, for the link and where Delete forever lands. */
+  trashCollectionId: string | null;
+}
+
+const { kind, id, canChange, trashCollectionId } = Astro.props;
+const trashHref = trashCollectionId ? `/workspace/collections/${trashCollectionId}#${kind}s` : null;
+---
+
+<div class="trash-banner" role="status" data-trash-kind={kind} data-trash-id={id} data-trash-href={trashHref ?? `/workspace/${kind}s`}>
+  <span>
+    <strong>This {kind} is in the Trash.</strong> It is off the site and out of every list{kind === "asset" ? ", though its file is kept" : ""}.
+    Restore it to use it again.
+    {trashHref && <a href={trashHref}>Open the Trash</a>}
+  </span>
+  {canChange && (
+    <span class="trash-banner-actions">
+      <button type="button" class="button" data-trash-restore>Restore</button>
+      <button type="button" class="button secondary danger" data-trash-forever>Delete forever</button>
+    </span>
+  )}
+</div>
+
+<script>
+  import { deleteItemForever, restoreItemFromTrash, type TrashKind } from '@/lib/api/trash';
+  import { deleteForeverPrompt } from '@/lib/trash';
+  import { isForbidden } from '@/lib/workspaceRole';
+
+  document.querySelectorAll<HTMLElement>('.trash-banner[data-trash-kind]').forEach((banner) => {
+    const kind = banner.dataset.trashKind as TrashKind;
+    const id = banner.dataset.trashId!;
+    const fail = (error: any, fallback: string) =>
+      alert(isForbidden(error) ? "You don't have permission to do this." : error?.message || fallback);
+
+    const restore = banner.querySelector<HTMLButtonElement>('[data-trash-restore]');
+    restore?.addEventListener('click', async () => {
+      restore.disabled = true;
+      try {
+        await restoreItemFromTrash(kind, id);
+        window.location.reload();
+      } catch (error) {
+        fail(error, `Failed to restore the ${kind}`);
+        restore.disabled = false;
+      }
+    });
+
+    const forever = banner.querySelector<HTMLButtonElement>('[data-trash-forever]');
+    forever?.addEventListener('click', async () => {
+      if (!confirm(deleteForeverPrompt(kind))) return;
+      forever.disabled = true;
+      try {
+        await deleteItemForever(kind, id);
+        window.location.href = banner.dataset.trashHref!;
+      } catch (error) {
+        fail(error, `Failed to delete the ${kind}`);
+        forever.disabled = false;
+      }
+    });
+  });
+</script>
+
+<style>
+  .trash-banner {
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+    background: rgb(234 88 12 / 0.08);
+    border: 1px solid var(--warn);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .trash-banner a {
+    margin-left: 0.35rem;
+  }
+  .trash-banner-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .button.danger {
+    color: var(--color-error);
+    border-color: var(--color-error);
+    background: transparent;
+  }
+  .button.danger:hover:not(:disabled) {
+    background: var(--color-error-bg);
+  }
+</style>

@@ -1,28 +1,37 @@
 ---
 /**
- * The Trash collection's page body: deleted entries, each restorable or deletable forever, plus bulk
- * Restore and Empty trash (workspace ADMIN/OWNER — the backend enforces it too). Restore sends an entry
- * back to the status it had; a published one comes back as a draft (services/entries/trash.py).
+ * The Trash collection's page body — one Trash, three tabs: deleted entries, assets and resources, each
+ * restorable or deletable forever, plus bulk Restore per tab and one Empty trash for all three (workspace
+ * ADMIN/OWNER — the backend enforces it too). Restore sends an entry back to the status it had (a published
+ * one as a draft; services/entries/trash.py); an asset or resource comes back as it was (services/trash.py).
+ * A trashed asset's file stays in storage until it is deleted forever.
  */
+import type { AssetRead } from "@/lib/api/assets";
 import type { EntryRead } from "@/lib/api/entries";
+import type { ResourceRead } from "@/lib/api/resources";
 import type { TrashAutoEmpty } from "@/lib/api/trash";
-import { autoEmptyNote, restoresTo, trashedAt } from "@/lib/trash";
+import { autoEmptyNote, restoresTo, type TrashTab, trashedAt } from "@/lib/trash";
 
 interface Props {
   entries: EntryRead[];
+  assets: AssetRead[];
+  resources: ResourceRead[];
   typeMap: Map<string, string>;
   /** Per entry: may the caller restore it / delete it forever (the entry page's own rule). */
   mayChange: (entry: EntryRead) => boolean;
+  /** EDITOR and above: may restore / delete forever assets and resources (their pages' own rule). */
+  mayChangeItems: boolean;
   /** Workspace ADMIN/OWNER: may empty the whole Trash. */
   canEmpty: boolean;
-  /** Workspace ADMIN/OWNER: may change how long the Trash keeps entries (Settings → General). */
+  /** Workspace ADMIN/OWNER: may change how long the Trash keeps items (Settings → General). */
   canConfigure: boolean;
   autoEmpty: TrashAutoEmpty | null;
 }
 
-const { entries, typeMap, mayChange, canEmpty, canConfigure, autoEmpty } = Astro.props;
+const { entries, assets, resources, typeMap, mayChange, mayChangeItems, canEmpty, canConfigure, autoEmpty } = Astro.props;
 const label = (status: string) => status.replace("_", " ");
 const metaOf = (entry: EntryRead) => (entry.metadataJson ?? null) as Record<string, unknown> | null;
+const trashedOn = (item: unknown) => ((item as { trashedAt?: string | null }).trashedAt ?? null) as string | null;
 
 function fmtDate(d?: string | null): string {
   if (!d) return "";
@@ -32,6 +41,67 @@ function fmtDate(d?: string | null): string {
     return "";
   }
 }
+
+interface Row {
+  id: string;
+  title: string;
+  href: string;
+  sub: string[];
+  allowed: boolean;
+}
+interface Tab {
+  key: TrashTab;
+  kind: "entry" | "asset" | "resource";
+  label: string;
+  rows: Row[];
+  empty: string;
+}
+const tabs: Tab[] = [
+  {
+    key: "entries",
+    kind: "entry",
+    label: "Entries",
+    empty: "Deleted entries land here. You can restore them until the Trash is emptied.",
+    rows: entries.map((entry) => {
+      const meta = metaOf(entry);
+      const when = trashedAt(meta);
+      return {
+        id: entry.id,
+        title: entry.title || "Untitled",
+        href: `/workspace/entries/${entry.id}`,
+        sub: [typeMap.get(entry.entryTypeId) ?? "", `Restores to ${label(restoresTo(meta))}`, when ? `Trashed ${fmtDate(when)}` : ""],
+        allowed: mayChange(entry),
+      };
+    }),
+  },
+  {
+    key: "assets",
+    kind: "asset",
+    label: "Assets",
+    empty: "Deleted assets land here, files kept, until the Trash is emptied.",
+    rows: assets.map((asset) => ({
+      id: asset.id,
+      title: asset.name || asset.originalFilename || "Untitled",
+      href: `/workspace/assets/${asset.id}`,
+      sub: [asset.assetType ?? "", asset.originalFilename ?? "", trashedOn(asset) ? `Trashed ${fmtDate(trashedOn(asset))}` : ""],
+      allowed: mayChangeItems,
+    })),
+  },
+  {
+    key: "resources",
+    kind: "resource",
+    label: "Resources",
+    empty: "Deleted resources land here. You can restore them until the Trash is emptied.",
+    rows: resources.map((resource) => ({
+      id: resource.id,
+      title: resource.name || "Untitled",
+      href: `/workspace/resources/${resource.id}`,
+      sub: [resource.resourceType ?? "", trashedOn(resource) ? `Trashed ${fmtDate(trashedOn(resource))}` : ""],
+      allowed: mayChangeItems,
+    })),
+  },
+];
+const total = tabs.reduce((n, tab) => n + tab.rows.length, 0);
 ---
 
 <div class="trash">
@@ -42,116 +112,169 @@ function fmtDate(d?: string | null): string {
     </p>
   )}
 
-  <div class="trash-actions">
-    <label class="select-all"><input type="checkbox" id="trash-select-all" disabled={entries.length === 0} /> Select all</label>
-    <button type="button" class="button secondary" id="trash-restore-selected" disabled>Restore selected</button>
+  <div class="trash-top">
+    <div class="trash-tabs" role="tablist" aria-label="What is in the Trash">
+      {tabs.map((tab, i) => (
+        <button
+          type="button"
+          role="tab"
+          class="trash-tab"
+          id={`trash-tab-${tab.key}`}
+          data-tab={tab.key}
+          aria-controls={`trash-panel-${tab.key}`}
+          aria-selected={i === 0 ? "true" : "false"}
+        >
+          {tab.label} <span class="trash-count">{tab.rows.length}</span>
+        </button>
+      ))}
+    </div>
     {canEmpty && (
-      <button type="button" class="button secondary danger" id="trash-empty" data-count={entries.length} disabled={entries.length === 0}>
+      <button type="button" class="button secondary danger" id="trash-empty" data-count={total} disabled={total === 0}>
         Empty trash
       </button>
     )}
   </div>
 
-  {entries.length === 0 ? (
-    <div class="empty-state">
-      <div class="empty-icon">🗑️</div>
-      <h3>The Trash is empty</h3>
-      <p>Deleted entries land here. You can restore them until the Trash is emptied.</p>
-    </div>
-  ) : (
-    <ul class="trash-list">
-      {entries.map((entry) => {
-        const allowed = mayChange(entry);
-        const meta = metaOf(entry);
-        return (
-          <li class="trash-row" data-id={entry.id}>
-            <input type="checkbox" class="trash-pick" value={entry.id} disabled={!allowed} aria-label={`Select ${entry.title}`} />
-            <a class="trash-main" href={`/workspace/entries/${entry.id}`}>
-              <span class="trash-title">{entry.title || "Untitled"}</span>
-              <span class="trash-sub">
-                {typeMap.get(entry.entryTypeId) && <span>{typeMap.get(entry.entryTypeId)}</span>}
-                <span>Restores to {label(restoresTo(meta))}</span>
-                {trashedAt(meta) && <span>Trashed {fmtDate(trashedAt(meta))}</span>}
-              </span>
-            </a>
-            {allowed && (
-              <span class="trash-row-actions">
-                <button type="button" class="button secondary small" data-restore={entry.id}>Restore</button>
-                <button type="button" class="button secondary small danger" data-forever={entry.id}>Delete forever</button>
-              </span>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  )}
+  {tabs.map((tab, i) => (
+    <section
+      class="trash-panel"
+      id={`trash-panel-${tab.key}`}
+      role="tabpanel"
+      aria-labelledby={`trash-tab-${tab.key}`}
+      data-panel={tab.key}
+      data-kind={tab.kind}
+      hidden={i !== 0}
+    >
+      <div class="trash-actions">
+        <label class="select-all"><input type="checkbox" class="trash-select-all" disabled={tab.rows.length === 0} /> Select all</label>
+        <button type="button" class="button secondary trash-restore-selected" disabled>Restore selected</button>
+      </div>
+
+      {tab.rows.length === 0 ? (
+        <div class="empty-state">
+          <div class="empty-icon">🗑️</div>
+          <h3>No {tab.label.toLowerCase()} in the Trash</h3>
+          <p>{tab.empty}</p>
+        </div>
+      ) : (
+        <ul class="trash-list">
+          {tab.rows.map((row) => (
+            <li class="trash-row" data-id={row.id}>
+              <input type="checkbox" class="trash-pick" value={row.id} disabled={!row.allowed} aria-label={`Select ${row.title}`} />
+              <a class="trash-main" href={row.href}>
+                <span class="trash-title">{row.title}</span>
+                <span class="trash-sub">{row.sub.filter(Boolean).map((part) => <span>{part}</span>)}</span>
+              </a>
+              {row.allowed && (
+                <span class="trash-row-actions">
+                  <button type="button" class="button secondary small" data-restore={row.id}>Restore</button>
+                  <button type="button" class="button secondary small danger" data-forever={row.id}>Delete forever</button>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  ))}
 </div>
 
 <script>
-  import { deleteForever, emptyTrash, restoreFromTrash } from '@/lib/api/trash';
-  import { emptyTrashPrompt } from '@/lib/trash';
+  import {
+    deleteForever,
+    deleteItemForever,
+    emptyTrash,
+    restoreFromTrash,
+    restoreItemFromTrash,
+    type TrashKind,
+  } from '@/lib/api/trash';
+  import { deleteForeverPrompt, emptyTrashPrompt, restoreFailedMessage, type TrashTab } from '@/lib/trash';
   import { isForbidden } from '@/lib/workspaceRole';
 
   const fail = (error: any, fallback: string) =>
     alert(isForbidden(error) ? "You don't have permission to do this." : error?.message || fallback);
 
-  const picks = () => Array.from(document.querySelectorAll<HTMLInputElement>('.trash-pick:not(:disabled)'));
-  const restoreSelected = document.getElementById('trash-restore-selected') as HTMLButtonElement | null;
-  const selectAll = document.getElementById('trash-select-all') as HTMLInputElement | null;
-  const syncSelection = () => {
-    const chosen = picks().filter((p) => p.checked).length;
-    if (restoreSelected) {
-      restoreSelected.disabled = chosen === 0;
-      restoreSelected.textContent = chosen ? `Restore selected (${chosen})` : 'Restore selected';
-    }
+  type Kind = 'entry' | TrashKind;
+  const restore = (kind: Kind, id: string) => (kind === 'entry' ? restoreFromTrash(id) : restoreItemFromTrash(kind, id));
+  const removeForever = (kind: Kind, id: string) => (kind === 'entry' ? deleteForever(id) : deleteItemForever(kind, id));
+
+  // Tabs: the one chosen is kept in the URL hash, so a reload after Restore lands back on it.
+  const tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.trash-tab'));
+  const panels = Array.from(document.querySelectorAll<HTMLElement>('.trash-panel'));
+  const show = (key: string) => {
+    if (!panels.some((p) => p.dataset.panel === key)) return;
+    tabButtons.forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === key)));
+    panels.forEach((p) => (p.hidden = p.dataset.panel !== key));
   };
-  document.querySelectorAll('.trash-pick').forEach((p) => p.addEventListener('change', syncSelection));
-  selectAll?.addEventListener('change', () => {
-    picks().forEach((p) => (p.checked = selectAll.checked));
-    syncSelection();
-  });
-
-  restoreSelected?.addEventListener('click', async () => {
-    const ids = picks().filter((p) => p.checked).map((p) => p.value);
-    restoreSelected.disabled = true;
-    const failed: string[] = [];
-    for (const id of ids) {
-      try {
-        await restoreFromTrash(id);
-      } catch {
-        failed.push(id);
-      }
-    }
-    if (failed.length) alert(`${failed.length} of ${ids.length} entries could not be restored.`);
-    window.location.reload();
-  });
-
-  document.querySelectorAll<HTMLButtonElement>('[data-restore]').forEach((button) =>
-    button.addEventListener('click', async () => {
-      button.disabled = true;
-      try {
-        await restoreFromTrash(button.dataset.restore!);
-        window.location.reload();
-      } catch (error) {
-        fail(error, 'Failed to restore the entry');
-        button.disabled = false;
-      }
+  tabButtons.forEach((button) =>
+    button.addEventListener('click', () => {
+      show(button.dataset.tab!);
+      history.replaceState(null, '', `#${button.dataset.tab}`);
     }),
   );
+  show(location.hash.slice(1));
 
-  document.querySelectorAll<HTMLButtonElement>('[data-forever]').forEach((button) =>
-    button.addEventListener('click', async () => {
-      if (!confirm("Delete this entry forever? This can't be undone.")) return;
-      button.disabled = true;
-      try {
-        await deleteForever(button.dataset.forever!);
-        window.location.reload();
-      } catch (error) {
-        fail(error, 'Failed to delete the entry');
-        button.disabled = false;
+  panels.forEach((panel) => {
+    const kind = panel.dataset.kind as Kind;
+    const tab = panel.dataset.panel as TrashTab;
+    const picks = () => Array.from(panel.querySelectorAll<HTMLInputElement>('.trash-pick:not(:disabled)'));
+    const restoreSelected = panel.querySelector<HTMLButtonElement>('.trash-restore-selected');
+    const selectAll = panel.querySelector<HTMLInputElement>('.trash-select-all');
+    const syncSelection = () => {
+      const chosen = picks().filter((p) => p.checked).length;
+      if (restoreSelected) {
+        restoreSelected.disabled = chosen === 0;
+        restoreSelected.textContent = chosen ? `Restore selected (${chosen})` : 'Restore selected';
       }
-    }),
-  );
+    };
+    panel.querySelectorAll('.trash-pick').forEach((p) => p.addEventListener('change', syncSelection));
+    selectAll?.addEventListener('change', () => {
+      picks().forEach((p) => (p.checked = selectAll.checked));
+      syncSelection();
+    });
+
+    restoreSelected?.addEventListener('click', async () => {
+      const ids = picks().filter((p) => p.checked).map((p) => p.value);
+      restoreSelected.disabled = true;
+      const failed: string[] = [];
+      for (const id of ids) {
+        try {
+          await restore(kind, id);
+        } catch {
+          failed.push(id);
+        }
+      }
+      if (failed.length) alert(restoreFailedMessage(failed.length, ids.length, tab));
+      window.location.reload();
+    });
+
+    panel.querySelectorAll<HTMLButtonElement>('[data-restore]').forEach((button) =>
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        try {
+          await restore(kind, button.dataset.restore!);
+          window.location.reload();
+        } catch (error) {
+          fail(error, `Failed to restore the ${kind}`);
+          button.disabled = false;
+        }
+      }),
+    );
+
+    panel.querySelectorAll<HTMLButtonElement>('[data-forever]').forEach((button) =>
+      button.addEventListener('click', async () => {
+        if (!confirm(deleteForeverPrompt(kind))) return;
+        button.disabled = true;
+        try {
+          await removeForever(kind, button.dataset.forever!);
+          window.location.reload();
+        } catch (error) {
+          fail(error, `Failed to delete the ${kind}`);
+          button.disabled = false;
+        }
+      }),
+    );
+  });
 
   const emptyButton = document.getElementById('trash-empty') as HTMLButtonElement | null;
   emptyButton?.addEventListener('click', async () => {
@@ -176,6 +299,47 @@ function fmtDate(d?: string | null): string {
   .trash-note a {
     margin-left: 0.35rem;
     color: var(--accent);
+  }
+  .trash-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.6rem;
+    margin-top: 1rem;
+    border-bottom: 1px solid var(--line);
+  }
+  .trash-tabs {
+    display: flex;
+    gap: 0.25rem;
+  }
+  .trash-tab {
+    padding: 0.5rem 0.85rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: none;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.9rem;
+    cursor: pointer;
+    margin-bottom: -1px;
+  }
+  .trash-tab[aria-selected="true"] {
+    color: var(--ink);
+    border-bottom-color: var(--accent);
+    font-weight: 600;
+  }
+  .trash-count {
+    display: inline-block;
+    min-width: 1.4em;
+    padding: 0 0.35em;
+    border-radius: 999px;
+    background: var(--line);
+    font-size: 0.75rem;
+    text-align: center;
+  }
+  .trash-top #trash-empty {
+    margin-bottom: 0.4rem;
   }
   .trash-actions {
     display: flex;

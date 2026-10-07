@@ -123,11 +123,11 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
                     {canEdit && (
                     <button
                       type="button"
-                      class="button secondary small danger delete-resource-btn"
+                      class="button secondary small delete-resource-btn"
                       data-resource-id={resource.id}
                       data-resource-name={resource.name}
                     >
-                      Delete
+                      Move to Trash
                     </button>
                     )}
                   </div>
@@ -182,11 +182,11 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
                         {canEdit && (
                         <button
                           type="button"
-                          class="button secondary small danger delete-resource-btn"
+                          class="button secondary small delete-resource-btn"
                           data-resource-id={resource.id}
                           data-resource-name={resource.name}
                         >
-                          Delete
+                          Move to Trash
                         </button>
                         )}
                       </div>
@@ -238,21 +238,18 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
       const resourceId = btn.dataset.resourceId!;
       const resourceName = btn.dataset.resourceName!;
 
-      if (!confirm(`Delete "${resourceName}"? This cannot be undone.`)) {
-        return;
-      }
-
+      // Move to Trash: reversible, so no confirm (restore it from the Trash).
       btn.disabled = true;
-      btn.textContent = 'Deleting...';
+      btn.textContent = 'Moving…';
 
       try {
         await sdk.resources.delete(resourceId);
         btn.closest('tr')?.remove();
       } catch (error: any) {
-        const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to delete resource';
+        const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || `Failed to move "${resourceName}" to the Trash`;
         alert(message);
         btn.disabled = false;
-        btn.textContent = 'Delete';
+        btn.textContent = 'Move to Trash';
       }
     });
   });

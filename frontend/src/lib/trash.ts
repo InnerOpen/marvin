@@ -13,13 +13,27 @@ export function autoEmptyLabel(days: number): string {
 
 /** The line the Trash view shows under its title. */
 export function autoEmptyNote(effectiveDays: number): string {
-  if (!effectiveDays) return "Entries in the Trash are kept until you empty the Trash.";
-  return `Entries in the Trash are deleted forever after ${autoEmptyLabel(effectiveDays)}.`;
+  if (!effectiveDays) return "Items in the Trash are kept until you empty the Trash.";
+  return `Items in the Trash are deleted forever after ${autoEmptyLabel(effectiveDays)}.`;
 }
 
-/** The Empty trash confirmation. */
+/** The Empty trash confirmation — everything in the Trash: entries, assets and resources. */
 export function emptyTrashPrompt(count: number): string {
-  return `Permanently delete ${count} ${count === 1 ? "entry" : "entries"}? This can't be undone.`;
+  return `Permanently delete ${count} ${count === 1 ? "item" : "items"}? Files are removed from storage. This can't be undone.`;
+}
+
+/** The kinds of thing the Trash holds, as its tabs name them. */
+export type TrashTab = "entries" | "assets" | "resources";
+
+/** "Delete forever" confirmation for one item. */
+export function deleteForeverPrompt(kind: "entry" | "asset" | "resource"): string {
+  if (kind === "asset") return "Delete this asset forever? Its file is removed from storage. This can't be undone.";
+  return `Delete this ${kind} forever? This can't be undone.`;
+}
+
+/** The bulk-restore failure line: "2 of 5 assets could not be restored." */
+export function restoreFailedMessage(failed: number, total: number, tab: TrashTab): string {
+  return `${failed} of ${total} ${tab} could not be restored.`;
 }
 
 /** Where a trashed entry goes back to on Restore (mirrors restore_status in services/entries/entry_service.py). */

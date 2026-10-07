@@ -4,19 +4,40 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { autoEmptyLabel, autoEmptyNote, emptyTrashPrompt, restoresTo, trashedAt } from "./trash.ts";
+import {
+  autoEmptyLabel,
+  autoEmptyNote,
+  deleteForeverPrompt,
+  emptyTrashPrompt,
+  restoreFailedMessage,
+  restoresTo,
+  trashedAt,
+} from "./trash.ts";
 
 describe("auto-empty wording", () => {
   test("never vs a number of days", () => {
     assert.equal(autoEmptyLabel(0), "Never");
     assert.equal(autoEmptyLabel(30), "30 days");
-    assert.equal(autoEmptyNote(30), "Entries in the Trash are deleted forever after 30 days.");
-    assert.equal(autoEmptyNote(0), "Entries in the Trash are kept until you empty the Trash.");
+    assert.equal(autoEmptyNote(30), "Items in the Trash are deleted forever after 30 days.");
+    assert.equal(autoEmptyNote(0), "Items in the Trash are kept until you empty the Trash.");
   });
 
-  test("the Empty trash confirmation counts what goes", () => {
-    assert.equal(emptyTrashPrompt(1), "Permanently delete 1 entry? This can't be undone.");
-    assert.equal(emptyTrashPrompt(12), "Permanently delete 12 entries? This can't be undone.");
+  test("the Empty trash confirmation counts everything that goes and says files go too", () => {
+    assert.equal(emptyTrashPrompt(1), "Permanently delete 1 item? Files are removed from storage. This can't be undone.");
+    assert.equal(
+      emptyTrashPrompt(12),
+      "Permanently delete 12 items? Files are removed from storage. This can't be undone.",
+    );
+  });
+
+  test("delete forever says an asset's file goes", () => {
+    assert.equal(deleteForeverPrompt("entry"), "Delete this entry forever? This can't be undone.");
+    assert.equal(deleteForeverPrompt("resource"), "Delete this resource forever? This can't be undone.");
+    assert.match(deleteForeverPrompt("asset"), /file is removed from storage/);
+  });
+
+  test("bulk restore failures name the tab", () => {
+    assert.equal(restoreFailedMessage(2, 5, "assets"), "2 of 5 assets could not be restored.");
   });
 });
 
