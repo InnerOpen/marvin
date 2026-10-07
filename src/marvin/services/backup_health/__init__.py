@@ -16,7 +16,10 @@ The backend can't see Kubernetes, so the backup CronJobs report to it through th
 one ``missed`` row per incident — the marker, so the next check doesn't repeat it; the incident ends with
 the next successful run — then every row the backend hasn't announced yet is dispatched: a job's run →
 ``backup_completed`` (ok) or ``backup_failed`` (failed, partial); a ``missed`` row → ``backup_failed``
-(reason ``overdue``).
+(reason ``overdue``). Failed runs alert once per incident, too (the run of non-ok rows since the last ok
+one): the CronJob retries a failing run (``backoffLimit: 2``), so one bad hour records up to three failed
+runs, and only the first is sent. The ok run that ends an incident is sent as ``backup_completed`` with
+reason ``recovered``.
 Runs older than ``RUN_RETENTION`` are deleted, so a target removed from the chart drops off the page.
 """
 
@@ -204,8 +207,9 @@ def _event_data(run: BackupRunModel, reason: str, last_success: datetime | None 
 def _dispatch(event_bus, run: BackupRunModel, reason: str, last_success: datetime | None = None) -> None:
     from marvin.services.event_bus_service.event_types import EventTypes
 
-    if reason == "completed":
-        event_type, message = EventTypes.backup_completed, f"Backup {run.target_name}: ok"
+    if reason in ("completed", "recovered"):
+        # "recovered" is what the activity bell keys on to show the end of an incident (lib/activity/toast.ts).
+        event_type, message = EventTypes.backup_completed, f"Backup {run.target_name}: {'recovered' if reason == 'recovered' else 'ok'}"
     else:  # the error itself travels as error_message (the bell shows it under the message)
         event_type, message = EventTypes.backup_failed, f"Backup {run.target_name}: {'overdue' if reason == 'overdue' else run.status}"
     # A platform event: no workspace. Only the super-admin Events page and bell show it.
@@ -236,19 +240,46 @@ def _last_success_before(session: Session, run: BackupRunModel) -> datetime | No
     return _utc(started)
 
 
+def _incident_before(session: Session, run: BackupRunModel) -> set[str]:
+    """The statuses of the target's rows between its last ok run and ``run``: the incident ``run``
+    continues or ends (empty when none is open)."""
+    q = session.query(BackupRunModel.status).filter(
+        BackupRunModel.target_name == run.target_name,
+        BackupRunModel.status != STATUS_OK,
+        BackupRunModel.started_at < run.started_at,
+    )
+    last_ok = _last_success_before(session, run)
+    if last_ok is not None:
+        q = q.filter(BackupRunModel.started_at > _naive(last_ok))
+    return {status for (status,) in q.distinct()}
+
+
+def _reason(session: Session, run: BackupRunModel) -> str | None:
+    """Why ``run`` is announced, or None when it isn't: a failed or partial run after another one in the
+    same incident (the CronJob's retries) says nothing new. An ok run ending an incident is ``recovered``;
+    a ``missed`` marker is already one per incident (``detect_overdue``)."""
+    if run.status == STATUS_MISSED:
+        return "overdue"
+    incident = _incident_before(session, run)
+    if run.status == STATUS_OK:
+        return "recovered" if incident else "completed"
+    if incident & {STATUS_FAILED, STATUS_PARTIAL}:
+        return None
+    return run.status
+
+
 def announce_runs(session: Session, event_bus, now: datetime) -> int:
-    """Dispatch the event for each run not announced yet, oldest first: a job's run → backup_completed or
-    backup_failed; a ``missed`` marker → backup_failed (reason overdue). A row is marked only after its
+    """Dispatch the event for each run not announced yet, oldest first: a job's run → backup_completed
+    (completed, or recovered when it ends an incident) or backup_failed (the incident's first failed or
+    partial run only); a ``missed`` marker → backup_failed (reason overdue). A row is marked only after its
     dispatch, and no write is pending while dispatching (the event log writes on its own connection,
     which SQLite would otherwise refuse as locked)."""
     pending = session.query(BackupRunModel).filter(BackupRunModel.notified_at.is_(None)).order_by(BackupRunModel.started_at).all()
     announced = 0
     for run in pending:
-        if _utc(run.started_at) >= now - ANNOUNCE_WITHIN:
-            if run.status == STATUS_MISSED:
-                reason, last_success = "overdue", _last_success_before(session, run)
-            else:
-                reason, last_success = ("completed" if run.status == STATUS_OK else run.status), None
+        reason = _reason(session, run) if _utc(run.started_at) >= now - ANNOUNCE_WITHIN else None
+        if reason is not None:
+            last_success = _last_success_before(session, run) if reason == "overdue" else None
             try:
                 _dispatch(event_bus, run, reason, last_success)
                 announced += 1

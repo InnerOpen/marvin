@@ -609,7 +609,7 @@ def test_a_target_without_a_schedule_is_never_overdue(db_session, runs):
 def test_announce_runs_sends_completed_and_failed_once(db_session, runs):
     ok = runs(at=NOW - timedelta(hours=1), notified=False, db_bytes=7_400_000)
     bad = runs(status="partial", at=NOW - timedelta(minutes=5), notified=False, error_summary="assets: " + hc.KEY_NO_ACCESS)
-    runs(status="failed", at=NOW - timedelta(days=3), notified=False)  # from before the backend was up: not announced
+    runs(name="old", status="failed", at=NOW - timedelta(days=3), notified=False)  # from before the backend was up: not announced
     bus = _Bus()
     assert backup_health.announce_runs(db_session, bus, NOW) == 2
     kinds = [(e["event_type"].name, e["document_data"].reason) for e in bus.events]
@@ -618,6 +618,50 @@ def test_announce_runs_sends_completed_and_failed_once(db_session, runs):
     assert first["group_id"] is None and first["entity_id"] == ok.id and first["document_data"].backup_size == "7.4 MB"
     assert bus.events[1]["document_data"].error_message == "assets: " + hc.KEY_NO_ACCESS and bad.notified_at is not None
     assert backup_health.announce_runs(db_session, _Bus(), NOW) == 0  # all marked
+
+
+def test_failed_runs_alert_once_per_incident_and_recovery_once(db_session, runs):
+    """backoffLimit: 2 retries a failing run, so one bad hour records three failed runs: one alert. The ok
+    run that ends the incident says recovered; the next failure is a new incident."""
+    runs(at=NOW - timedelta(hours=2))  # the last ok run, already announced
+    for minutes, status in ((60, "failed"), (58, "failed"), (55, "partial")):
+        runs(status=status, at=NOW - timedelta(minutes=minutes), notified=False, error_summary="database: " + hc.KEY_INVALID)
+    bus = _Bus()
+    assert backup_health.announce_runs(db_session, bus, NOW) == 1
+    (event,) = bus.events
+    assert (event["event_type"].name, event["document_data"].reason) == ("backup_failed", "failed")
+    assert event["message"] == "Backup r2: failed"
+    assert db_session.query(BackupRunModel).filter(BackupRunModel.notified_at.is_(None)).count() == 0  # retries marked, not sent
+
+    # Still failing an hour later: the same incident, no second alert.
+    runs(status="failed", at=NOW + timedelta(minutes=5), notified=False)
+    assert backup_health.announce_runs(db_session, bus, NOW + timedelta(minutes=10)) == 0
+
+    # Recovery: said once; the next ok run is an ordinary completed.
+    runs(at=NOW + timedelta(hours=1, minutes=5), notified=False)
+    runs(at=NOW + timedelta(hours=2, minutes=5), notified=False)
+    assert backup_health.announce_runs(db_session, bus, NOW + timedelta(hours=2, minutes=10)) == 2
+    sent = [(e["event_type"].name, e["document_data"].reason, e["message"]) for e in bus.events[1:]]
+    assert sent == [("backup_completed", "recovered", "Backup r2: recovered"), ("backup_completed", "completed", "Backup r2: ok")]
+
+    # Failing again is a new incident: a new alert.
+    runs(status="failed", at=NOW + timedelta(hours=3, minutes=5), notified=False)
+    assert backup_health.announce_runs(db_session, bus, NOW + timedelta(hours=3, minutes=10)) == 1
+    assert (bus.events[-1]["event_type"].name, bus.events[-1]["document_data"].reason) == ("backup_failed", "failed")
+
+
+def test_incidents_are_per_target_and_overdue_counts_toward_recovery(db_session, runs):
+    runs(name="r2", status="failed", at=NOW - timedelta(minutes=30), notified=True)  # r2's incident is open
+    runs(name="nas", status="failed", at=NOW - timedelta(minutes=20), notified=False, target_type="local")
+    runs(name="quiet", status="missed", at=NOW - timedelta(hours=1), notified=True)  # only an overdue marker
+    runs(name="quiet", status="failed", at=NOW - timedelta(minutes=15), notified=False)
+    runs(name="quiet", at=NOW - timedelta(minutes=10), notified=False)
+    bus = _Bus()
+    assert backup_health.announce_runs(db_session, bus, NOW) == 3
+    sent = [(e["document_data"].target_name, e["document_data"].reason) for e in bus.events]
+    # nas has nothing to do with r2's incident; quiet's overdue marker was announced on its own, so its
+    # first failed run still alerts (it carries the error), and its ok run ends the incident.
+    assert sent == [("nas", "failed"), ("quiet", "failed"), ("quiet", "recovered")]
 
 
 def test_overdue_is_reported_once_per_incident_and_clears(db_session, runs):

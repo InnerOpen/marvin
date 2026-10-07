@@ -98,7 +98,7 @@ _BACKUP_VARS = [
     EventVariable("target_name", "The backup target's name", "r2", type="name"),
     EventVariable("target_type", "The target's type: local, or a storage plugin's (s3)", "s3", type="string"),
     EventVariable("status", "The run's status: ok, partial, failed or missed", "failed", type="string"),
-    EventVariable("reason", "Why it was sent: completed, failed, partial or overdue", "failed", type="string"),
+    EventVariable("reason", "Why it was sent: completed, recovered, failed, partial or overdue", "failed", type="string"),
     EventVariable("location", "Where the target writes (bucket and host, or a directory)", "s3://marvin-backups (r2)", type="string"),
     EventVariable("backup_size", "Size of the database backup", "7.4 MB", type="size"),
     EventVariable("duration", "How long the run took", "8.7s", type="duration"),
@@ -1663,7 +1663,10 @@ CATALOG: list[CatalogEntry] = [
         name="Backup Completed",
         description="A backup target's run finished: the database, the config archive and the asset mirror were all saved.",
         category="System",
-        sent_by=["The backup health check, for each run a backup CronJob recorded (Admin → Backup health)"],
+        sent_by=[
+            "The backup health check, for each successful run a backup CronJob recorded (Admin → Backup health); "
+            "reason recovered on the first one after a failed, partial or overdue incident"
+        ],
         variables=COMMON_VARS + _BACKUP_VARS,
     ),
     CatalogEntry(
@@ -1675,7 +1678,7 @@ CATALOG: list[CatalogEntry] = [
         ),
         category="System",
         sent_by=[
-            "The backup health check, for each failed or partial run a backup CronJob recorded",
+            "The backup health check, for the first failed or partial run a backup CronJob recorded in an incident (not its retries)",
             "The backup health check, once per incident, when a target has no successful run within its window",
         ],
         variables=COMMON_VARS

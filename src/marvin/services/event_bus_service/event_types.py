@@ -1008,7 +1008,9 @@ class EventBackupData(EventDocumentDataBase):
     status: str
     """The run's status: ok, partial, failed, or missed (no successful run in time)."""
     reason: str
-    """Why the event was sent: completed, failed, partial (the database was saved, another step failed) or overdue."""
+    """Why the event was sent: completed, recovered (the first ok run after failed, partial or overdue
+    ones), failed, partial (the database was saved, another step failed) or overdue. Failed and partial
+    are sent once per incident, not for each retry."""
     run_id: UUID4 | None = None
     location: str | None = None
     """Where the target writes, e.g. `s3://marvin-backups (….r2.cloudflarestorage.com)`; never a credential."""
