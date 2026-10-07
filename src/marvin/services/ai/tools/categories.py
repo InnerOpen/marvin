@@ -62,6 +62,7 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "add_embed": "entries_author",  # staged as a suggestion, like a staged revise
     "archive_entries": "entries_archive",
     "trash_entries": "entries_trash",
+    "restore_entries": "entries_trash",  # the Trash's Restore: whoever may trash may take back out
     "attach_tag": "links",
     "detach_tag": "links",
     "attach_asset": "links",

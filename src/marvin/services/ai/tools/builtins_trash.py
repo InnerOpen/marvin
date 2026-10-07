@@ -3,8 +3,8 @@
 Deleting an entry in Marvin moves it to the Trash (services/entries/trash.py): it leaves the site, every
 listing and search, sits in the Trash collection, and comes back with Restore until someone empties the
 Trash. `trash_entries` is that same Delete for an agent — so "delete the test signups" does what the user
-said, and stays reversible. Emptying the Trash and deleting forever stay a person's action: no tool here
-does either.
+said, and stays reversible — and `restore_entries` is the Trash's Restore. Emptying the Trash and deleting
+forever stay a person's action: no tool here does either.
 
 It mirrors `archive_entries` (builtins_archive.py) step for step: EntryService.trash, the path the entry
 page's Move to Trash takes, so `entry_updated` / `entry_unpublished` / `entry_trashed`, smart collections,
@@ -180,3 +180,87 @@ def trash_entries(ctx: ToolContext, args: dict) -> str:
             **({"trashLink": f"[Open the Trash]({ui_link(f'/workspace/collections/{trash[0]}')})"} if trash else {}),
         }
     )
+
+
+def _restore_plan(ctx: ToolContext, args: dict) -> tuple[dict | None, str | None]:
+    """({restore, skipped, notTrashed}, None), or (None, error) for a call that can't run at all."""
+    from marvin.db.models.platform.entries import Entries
+    from marvin.routes._base.checks import require_can_edit_entry
+    from marvin.services.entries.entry_service import restore_status
+
+    refs = _refs(args)
+    if not refs:
+        return None, "name at least one entry (slug or id) in `entries`"
+    if len(refs) > MAX_TRASH_BATCH:
+        return None, f"at most {MAX_TRASH_BATCH} entries per call ({len(refs)} given) — restore them in smaller batches"
+    if ctx.user is None:
+        return None, "restoring needs a signed-in caller"
+
+    plan: dict = {"restore": [], "skipped": [], "notTrashed": []}
+    seen: set = set()
+    for ref in refs:
+        eid = resolve_entity_id(ctx.session, ctx.group_id, "entry", ref)
+        entry = ctx.session.get(Entries, eid) if isinstance(eid, _uuid.UUID) else None
+        if entry is None or entry.group_id != ctx.group_id:
+            plan["skipped"].append({"entry": ref, "reason": "not found in this workspace"})
+            continue
+        if entry.id in seen:
+            continue
+        seen.add(entry.id)
+        if entry.status != TRASHED:
+            plan["notTrashed"].append({**_row(entry), "status": entry.status})
+            continue
+        try:  # the entry page's rule for the status it goes back to (e.g. an AUTHOR restoring to Approved)
+            require_can_edit_entry(ctx.user, ctx.group_id, entry, restore_status(entry))
+        except HTTPException as e:
+            plan["skipped"].append({**_row(entry), "entry": ref, "reason": str(e.detail)})
+            continue
+        plan["restore"].append(entry)
+    return plan, None
+
+
+@register_tool(
+    name="restore_entries",
+    description=(
+        "Take entries out of the Trash — the Trash's Restore. Use this when the user asks to restore, undelete, bring "
+        "back or undo deleting entries. Each entry goes back to the status it had before it was trashed, except that "
+        "a previously published entry comes back as a draft (restoring never puts anything on the site; tell the user "
+        "to publish it again if they want it live). Up to 50 entries per call by slug, id or exact title. Entries not "
+        "in the Trash are reported as such; entries you may not change are skipped and reported."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "entries": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+                "maxItems": MAX_TRASH_BATCH,
+                "description": "the trashed entries to restore, by slug or id",
+            },
+        },
+        "required": ["entries"],
+    },
+    min_role=ROLE_EDITOR,
+    read_only=False,
+)
+def restore_entries(ctx: ToolContext, args: dict) -> str:
+    from marvin.services.entries import EntryService
+    from marvin.services.ui_links import entry_edit_url
+
+    plan, err = _restore_plan(ctx, args)
+    if err:
+        return json.dumps({"error": err})
+
+    svc = EntryService(ctx.session, ctx.group_id, actor_id=getattr(ctx.user, "id", None))
+    restored, skipped = [], list(plan["skipped"])
+    for entry in plan["restore"]:
+        row = _row(entry)
+        try:
+            done = svc.restore_from_trash(entry.id)
+        except Exception as e:  # noqa: BLE001 — one entry failing must not lose the others' results
+            ctx.session.rollback()
+            skipped.append({**row, "reason": str(getattr(e, "detail", e))})
+            continue
+        restored.append({**row, "status": getattr(done, "status", None), "editUrl": entry_edit_url(entry.id)})
+    return json.dumps({"restored": restored, "skipped": skipped, "notTrashed": plan["notTrashed"]})

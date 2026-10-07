@@ -457,6 +457,31 @@ def test_trash_entries_finds_an_entry_by_its_exact_title_when_only_one_has_it(ws
     assert [s["entry"] for s in out["skipped"]] == ["Same Title"]  # ambiguous: never guesses
 
 
+def _restore_tool(ws, refs, ctx=None) -> dict:
+    from marvin.services.ai.tools.builtins_trash import restore_entries
+
+    return json.loads(restore_entries(ctx or _ctx(ws), {"entries": refs}))
+
+
+def test_restore_entries_takes_entries_out_of_the_trash_like_the_trash_view(ws):
+    live, draft, untouched = ws.entry("was-live", "published"), ws.entry("was-draft"), ws.entry("never-trashed")
+    _svc(ws).trash(live)
+    _svc(ws).trash(draft)
+    _SpyBus.events = []
+    out = _restore_tool(ws, [live, draft, untouched, "no-such-entry"])
+    assert {r["id"]: r["status"] for r in out["restored"]} == {str(live): "draft", str(draft): "draft"}  # never back on the site
+    assert [n["id"] for n in out["notTrashed"]] == [str(untouched)]
+    assert [s["reason"] for s in out["skipped"]] == ["not found in this workspace"]
+    assert _row(ws, live).status == "draft" and _row(ws, draft).status == "draft"
+    assert _names(draft) == ["entry_updated", "entry_restored"]
+
+
+def test_restore_entries_shares_the_trash_matrix_row():
+    from marvin.services.ai.tools.categories import CATEGORY_BY_TOOL
+
+    assert CATEGORY_BY_TOOL["restore_entries"] == CATEGORY_BY_TOOL["trash_entries"] == "entries_trash"
+
+
 def test_trash_entries_asks_first_for_a_published_entry(ws):
     live, draft = ws.entry("spring-sale", "published"), ws.entry("d")
     ask = get_tool("trash_entries").ask_first

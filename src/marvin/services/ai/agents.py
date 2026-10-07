@@ -90,8 +90,8 @@ TAGGING_RULE = (
 # or empties; archiving retires an entry that is kept. There is no AI hard delete and no AI "empty the Trash".
 TRASH_RULE = (
     "Deleting or removing entries: call trash_entries — what Delete does in Marvin — and tell the user the entries are "
-    "in the Trash, where they can restore them, and that only a person can empty it. Never use revise_entry or "
-    "compose_entry to 'delete' or blank an entry."
+    "in the Trash, where they can restore them, and that only a person can empty it. To bring trashed entries back, "
+    "call restore_entries. Never use revise_entry or compose_entry to 'delete' or blank an entry."
 )
 ARCHIVE_RULE = "Retiring or archiving entries (kept, but out of the active pipeline): call archive_entries."
 REMOVING_RULE = (
