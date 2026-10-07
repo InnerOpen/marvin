@@ -6,18 +6,21 @@
 // sent; the run's ran/failed) updates in place — keyed per workspace / per run (see planToasts in toast.ts).
 //
 // Polls GET /api/platform/events/feed (the audit log, oldest first) every few seconds while the tab
-// is visible. Everything shown is already in the event log; this only surfaces it as it happens.
+// is visible; for a super admin (`platformFeed`) also GET /api/admin/events/feed, the platform events
+// with no workspace (a failed or overdue installation backup). Everything shown is already in the event log; this only surfaces it as it happens.
 // The bell cycles All → Failures only → Off, remembered per browser. Muting changes nothing in Marvin.
 interface Props {
   /** The signed-in user — their own content edits aren't echoed back to them. */
   userId?: string | null;
   /** Whether the Ask page is switched on: an agent waiting for approval links there, else opens the bubble. */
   askPage?: boolean;
+  /** A super admin: also show platform events (backup failures) from the admin feed. */
+  platformFeed?: boolean;
 }
-const { userId = null, askPage = true } = Astro.props;
+const { userId = null, askPage = true, platformFeed = false } = Astro.props;
 ---
 
-<button type="button" class="button secondary activity-bell" id="activity-bell" data-user-id={userId ?? ""} data-ask-page={askPage ? "1" : "0"} aria-live="polite">
+<button type="button" class="button secondary activity-bell" id="activity-bell" data-user-id={userId ?? ""} data-ask-page={askPage ? "1" : "0"} data-platform-feed={platformFeed ? "1" : "0"} aria-live="polite">
   <span aria-hidden="true" data-icon>🔔</span><span class="sr-only" data-label>Activity: all</span>
 </button>
 <div class="activity-stack" id="activity-stack" role="log" aria-live="polite" aria-label="Recent activity"></div>
@@ -123,6 +126,8 @@ const { userId = null, askPage = true } = Astro.props;
       skip: (e) => (e.messageBody || "").startsWith("Auto-indexed"),
     },
     form_submission_received: { tone: "info", label: "Form submission", href: entryHref },
+    // Platform feed (super admins): an installation backup target failed, saved only part, or went quiet.
+    backup_failed: { tone: "err", label: "Backup failed", href: () => "/admin/backup-health" },
     // The scheduled publish held an entry back (once per reason, not every run) — sticky until dismissed.
     entry_scheduled_publish_blocked: { tone: "warn", label: "Scheduled publish waiting", href: entryHref },
     entry_published: { tone: "info", label: "Published", href: entryHref, othersOnly: true },
@@ -167,6 +172,7 @@ const { userId = null, askPage = true } = Astro.props;
   window.addEventListener("resize", placeStack);
   const me = bell.dataset.userId || null;
   const askPageOn = bell.dataset.askPage !== "0";
+  const platformOn = bell.dataset.platformFeed === "1";
 
   function readMode(): Mode {
     try {
@@ -368,25 +374,33 @@ const { userId = null, askPage = true } = Astro.props;
   }
 
   const seen = new Set<string>();
-  let since: string | null = null;
+  // Each feed keeps its own cursor: the workspace's, and (super admins) the platform's.
+  const feeds = [{ path: "/api/platform/events/feed", since: null as string | null }];
+  if (platformOn) feeds.push({ path: "/api/admin/events/feed", since: null });
   let timer: number | undefined;
   let stopped = false;
 
+  async function pollFeed(feed: (typeof feeds)[number]) {
+    const q = feed.since ? `?since=${encodeURIComponent(feed.since)}` : "";
+    const got = await fetchApi<Feed>(`${feed.path}${q}`);
+    feed.since = got.now;
+    const fresh = got.events.filter((e) => !seen.has(e.eventId));
+    for (const e of fresh) seen.add(e.eventId);
+    land(fresh);
+  }
+
   async function poll() {
     if (stopped || document.hidden) return;
-    try {
-      const q = since ? `?since=${encodeURIComponent(since)}` : "";
-      const feed = await fetchApi<Feed>(`/api/platform/events/feed${q}`);
-      since = feed.now;
-      const fresh = feed.events.filter((e) => !seen.has(e.eventId));
-      for (const e of fresh) seen.add(e.eventId);
-      land(fresh);
-      if (seen.size > SEEN_CAP) {
-        for (const id of [...seen].slice(0, seen.size - SEEN_CAP)) seen.delete(id);
+    for (const feed of feeds) {
+      try {
+        await pollFeed(feed);
+      } catch (err) {
+        // Signed out — stop asking. Anything else (a deploy, a blip) is retried on the next tick.
+        if ((err as { status?: number })?.status === 401) stopped = true;
       }
-    } catch (err) {
-      // Signed out — stop asking. Anything else (a deploy, a blip) is retried on the next tick.
-      if ((err as { status?: number })?.status === 401) stopped = true;
+    }
+    if (seen.size > SEEN_CAP) {
+      for (const id of [...seen].slice(0, seen.size - SEEN_CAP)) seen.delete(id);
     }
   }
 

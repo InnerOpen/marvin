@@ -1,0 +1,273 @@
+---
+// Admin → Backup health: the installation backup targets (one CronJob each, chart backup.targets[]) as
+// their runs report them. The backend can't see Kubernetes; every run records itself when it ends.
+// Every server string is rendered through Astro's escaping ({...}); the script only sets textContent.
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import {
+  formatBytes,
+  formatDuration,
+  formatInterval,
+  formatRetention,
+  formatSchedule,
+  relativeTime,
+  stateBadge,
+} from "@/lib/admin/backupHealth";
+import { type BackupHealth, type BackupRun, getBackupHealth } from "@/lib/api/admin/backupHealth";
+import { getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
+
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+const only = Astro.url.searchParams.get("target") || undefined;
+
+let health: BackupHealth | null = null;
+let error: string | null = null;
+try {
+  health = await getBackupHealth({ target: only, limit: 50 }, authToken);
+} catch (e) {
+  console.error("[admin/backup-health] Failed to load:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const now = health?.now ?? new Date().toISOString();
+const utc = (iso: string | null | undefined) => (iso ? `${iso.slice(0, 16).replace("T", " ")} UTC` : "—");
+const assets = (r: BackupRun) =>
+  (r.assetsUploaded === null && r.assetsUnchanged === null) ||
+  (r.status !== "ok" && !r.assetsUploaded && !r.assetsUnchanged)
+    ? "—"
+    : `${r.assetsUploaded ?? 0} new (${formatBytes(r.assetsUploadedBytes ?? 0)}), ${r.assetsUnchanged ?? 0} unchanged`;
+const database = (r: BackupRun) =>
+  r.dbKey
+    ? r.dbGzBytes
+      ? `${formatBytes(r.dbBytes)} → ${formatBytes(r.dbGzBytes)} gz`
+      : formatBytes(r.dbBytes)
+    : "not saved";
+const problems = health ? health.targets.filter((t) => t.state !== "ok" && t.state !== "unknown").length : 0;
+---
+
+<AdminLayout crumb="admin.backup-health">
+  <div class="toolbar">
+    <div>
+      <h2>Backup Health</h2>
+      <p>
+        Installation backups — the database, the <code>.secret</code> and uploaded files — one CronJob per target
+        (<code>backup.targets[]</code>). Each run reports here when it ends, failed ones included. A target with no
+        successful run in its window (hourly: 2 h, daily: 26 h) is <strong>overdue</strong>. Failures and overdue
+        targets send <code>backup_failed</code> (Admin → Events, and the activity bell).
+        Workspace bundles are on <a href="/admin/backups">Backups</a>; bucket settings on <a href="/admin/storage">Storage</a>.
+      </p>
+    </div>
+  </div>
+
+  {error && <div class="alert error" role="alert">Could not load backup health: {error}</div>}
+
+  {health && (
+    <div class="page">
+      {health.targets.length === 0 ? (
+        <section class="card empty" data-testid="no-targets">
+          <h3>No backup run has reported yet</h3>
+          <p>
+            A target appears here after its first run records itself (the chart's <code>backup.targets[]</code>, from
+            this release on). To run one now: <code>oc create job --from=cronjob/marvin-backup-&lt;name&gt; marvin-backup-now</code>.
+          </p>
+        </section>
+      ) : (
+        <>
+          {problems > 0 && (
+            <div class="alert error" role="alert" data-testid="backup-problems">
+              <strong>{problems === 1 ? "1 backup target needs attention." : `${problems} backup targets need attention.`}</strong>
+              {" "}Check the target's error below; after a key change, update the Secret the CronJob reads and run a test (see the "Off-site backup" runbook).
+            </div>
+          )}
+          <div class="targets">
+            {health.targets.map((t) => {
+              const badge = stateBadge(t.state);
+              const last = t.lastRun;
+              return (
+                <section class:list={["card", "target", badge.tone]} data-target={t.name}>
+                  <header class="target-head">
+                    <div>
+                      <h3>{t.name}</h3>
+                      <span class="type"><code>{t.type}</code></span>
+                    </div>
+                    <span class:list={["badge", badge.tone]} data-testid="target-state">{badge.label}</span>
+                  </header>
+
+                  {t.overdue && (
+                    <p class="overdue-note" role="status">
+                      No successful run since{" "}
+                      {t.lastSuccess ? <time datetime={t.lastSuccess.startedAt} data-local>{utc(t.lastSuccess.startedAt)}</time> : "the target was first seen"}
+                      {" "}— it was due by <time datetime={t.dueBy ?? ""} data-local>{utc(t.dueBy)}</time>.
+                      {t.overdueSince && <span> Reported <time datetime={t.overdueSince} data-local>{utc(t.overdueSince)}</time>.</span>}
+                    </p>
+                  )}
+
+                  <dl class="facts">
+                    <dt>Schedule</dt>
+                    <dd>
+                      <code>{formatSchedule(t.schedule, t.timeZone)}</code> <span class="muted">{formatInterval(t.intervalSeconds)}</span>
+                      {t.scheduleError && <div class="muted small">{t.scheduleError}</div>}
+                    </dd>
+                    <dt>Retention</dt>
+                    <dd>{formatRetention(t)}</dd>
+                    <dt>Writes to</dt>
+                    <dd><code>{t.location ?? "—"}</code></dd>
+                    <dt>Last run</dt>
+                    <dd>
+                      {last ? (
+                        <>
+                          <span class:list={["pill-status", stateBadge(last.status).tone]}>{stateBadge(last.status).label}</span>{" "}
+                          <time datetime={last.startedAt} data-local>{utc(last.startedAt)}</time>{" "}
+                          <span class="muted">({relativeTime(last.startedAt, now)}, {formatDuration(last.durationSeconds)})</span>
+                          <div class="small">Database {database(last)} · assets {assets(last)} · pruned {last.pruned ?? 0}</div>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </dd>
+                    <dt>Last success</dt>
+                    <dd>
+                      {t.lastSuccess ? (
+                        <>
+                          <time datetime={t.lastSuccess.startedAt} data-local>{utc(t.lastSuccess.startedAt)}</time>{" "}
+                          <span class="muted">({relativeTime(t.lastSuccess.startedAt, now)})</span>
+                        </>
+                      ) : (
+                        <span class="err-text">never</span>
+                      )}
+                    </dd>
+                    <dt>Next run</dt>
+                    <dd>
+                      {t.nextRunAt ? (
+                        <>
+                          <time datetime={t.nextRunAt} data-local>{utc(t.nextRunAt)}</time>{" "}
+                          <span class="muted">({relativeTime(t.nextRunAt, now)})</span>
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                      {t.dueBy && !t.overdue && (
+                        <div class="muted small">Overdue if no successful run starts by <time datetime={t.dueBy} data-local>{utc(t.dueBy)}</time></div>
+                      )}
+                    </dd>
+                    {last && last.status !== "ok" && last.errorSummary && (
+                      <>
+                        <dt>Last error</dt>
+                        <dd class="error-text" data-testid="last-error">{last.errorSummary}</dd>
+                      </>
+                    )}
+                  </dl>
+                  <details class="howto">
+                    <summary>Test this target's credentials</summary>
+                    <p>
+                      The backend doesn't hold the target's keys, so its next run is the test (it reports here). To check now,
+                      run the engine's <code>test</code> (list, put, get and delete one small object) as a one-off Job:
+                    </p>
+                    <pre><code>{`oc create job --from=cronjob/marvin-backup-${t.name} marvin-backup-${t.name}-test --dry-run=client -o json \\
+  | jq '.spec.template.spec.containers[0].args = ["test", "--target", "${t.type}", "--name", "${t.name}"]' \\
+  | oc apply -f -
+oc logs -f job/marvin-backup-${t.name}-test -c backup; oc delete job marvin-backup-${t.name}-test`}</code></pre>
+                  </details>
+                </section>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {health.runs.length > 0 && (
+        <section class="card" data-testid="recent-runs">
+          <div class="runs-head">
+            <h3>Recent runs{only && <span> — {only}</span>}</h3>
+            <nav class="filter" aria-label="Filter runs by target">
+              <a href="/admin/backup-health" aria-current={!only ? "page" : undefined}>All</a>
+              {health.targets.map((t) => (
+                <a href={`/admin/backup-health?target=${encodeURIComponent(t.name)}`} aria-current={only === t.name ? "page" : undefined}>{t.name}</a>
+              ))}
+            </nav>
+          </div>
+          <div class="table-scroll">
+            <table class="table runs">
+              <thead>
+                <tr>
+                  <th>Started</th><th>Target</th><th>Status</th><th class="num">Duration</th><th>Database</th><th>Assets</th><th class="num">Pruned</th><th>Pod</th><th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {health.runs.map((r) => (
+                  <tr class:list={[stateBadge(r.status).tone]}>
+                    <td class="nowrap"><time datetime={r.startedAt} data-local>{utc(r.startedAt)}</time></td>
+                    <td>{r.targetName}</td>
+                    <td><span class:list={["pill-status", stateBadge(r.status).tone]}>{stateBadge(r.status).label}</span></td>
+                    <td class="num nowrap">{r.status === "missed" ? "—" : formatDuration(r.durationSeconds)}</td>
+                    <td class="nowrap">{r.status === "missed" ? "—" : database(r)}</td>
+                    <td>{r.status === "missed" ? "—" : assets(r)}</td>
+                    <td class="num">{r.pruned ?? "—"}</td>
+                    <td class="pod"><code class="small" title={r.host ?? undefined}>{r.host ?? (r.status === "missed" ? "Marvin" : "—")}</code></td>
+                    <td class="error-cell">{r.errorSummary ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+    </div>
+  )}
+</AdminLayout>
+
+<script>
+  // Times arrive in UTC; show them in the viewer's zone (the UTC text stays as the tooltip).
+  const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
+  for (const el of document.querySelectorAll<HTMLTimeElement>("time[data-local]")) {
+    const when = new Date(el.dateTime);
+    if (Number.isNaN(when.getTime())) continue;
+    el.title = el.textContent ?? "";
+    el.textContent = fmt.format(when);
+  }
+</script>
+
+<style>
+  .page { display: grid; gap: 20px; max-width: 1100px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+  .card h3 { margin: 0; font-size: 17px; font-weight: 600; }
+  .card.empty p { color: var(--muted); font-size: 14px; margin: 8px 0 0; }
+  .targets { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); }
+  .target.err { border-color: var(--color-error); }
+  .target.warn { border-color: var(--warn); }
+  .target-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+  .target-head > div { display: flex; align-items: baseline; gap: 10px; }
+  .type code { font-size: 12px; color: var(--muted); }
+  .badge { padding: 3px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; background: var(--panel-2); color: var(--muted); }
+  .badge.ok { color: var(--good); }
+  .badge.warn { color: var(--warn); }
+  .badge.err { background: var(--color-error-bg); color: var(--color-error); }
+  .pill-status { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; background: var(--panel-2); color: var(--muted); }
+  .pill-status.ok { color: var(--good); }
+  .pill-status.warn { color: var(--warn); }
+  .pill-status.err { background: var(--color-error-bg); color: var(--color-error); }
+  .overdue-note { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius); background: var(--color-error-bg); color: var(--color-error); font-size: 14px; }
+  .facts { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; margin: 0; font-size: 14px; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .err-text, .error-text { color: var(--color-error); }
+  .howto { margin-top: 14px; font-size: 13px; }
+  .howto summary { cursor: pointer; color: var(--muted); }
+  .howto p { color: var(--muted); }
+  .howto pre { overflow-x: auto; background: var(--panel-2); padding: 10px; border-radius: var(--radius); font-size: 12px; }
+  .runs-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .filter { display: flex; gap: 6px; flex-wrap: wrap; font-size: 13px; }
+  .filter a { padding: 2px 10px; border-radius: 999px; border: 1px solid var(--line); text-decoration: none; color: inherit; }
+  .filter a[aria-current="page"] { background: var(--panel-2); font-weight: 600; }
+  .table-scroll { overflow-x: auto; }
+  .table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .table th, .table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .table th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .table .num { text-align: right; }
+  .nowrap { white-space: nowrap; }
+  .pod code { display: inline-block; max-width: 16ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+  .error-cell { color: var(--color-error); min-width: 160px; overflow-wrap: anywhere; }
+  .alert.error { padding: 12px 16px; border: 1px solid var(--color-error); border-radius: var(--radius); color: var(--color-error); background: var(--color-error-bg); }
+</style>

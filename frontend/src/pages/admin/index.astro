@@ -4,6 +4,7 @@ import { BACKUP_STALE_DAYS, formatAge, summarizeBackups, summarizeTasks } from "
 import { listAdminEvents } from "@/lib/api/admin/events";
 import { listPlugins } from "@/lib/api/admin/plugins";
 import { listAllTasks } from "@/lib/api/admin/scheduledTasks";
+import { getBackupHealth } from "@/lib/api/admin/backupHealth";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getApiUrl } from "@/lib/api/config";
 import { requireAdmin } from "@/lib/auth";
@@ -51,7 +52,7 @@ async function checkReadiness(): Promise<boolean | null> {
 const EVENTS_WINDOW_DAYS = 7;
 const eventsSince = new Date(Date.now() - EVENTS_WINDOW_DAYS * 86_400_000).toISOString();
 
-const [about, ready, stats, backups, tasks, plugins, recentEvents] = await Promise.all([
+const [about, ready, stats, backups, tasks, plugins, recentEvents, backupHealth] = await Promise.all([
   attempt("about", () => fetchApi<AboutInfo>("/api/admin/about", {}, authToken)),
   checkReadiness(),
   attempt("statistics", () => fetchApi<Statistics>("/api/admin/about/statistics", {}, authToken)),
@@ -61,7 +62,10 @@ const [about, ready, stats, backups, tasks, plugins, recentEvents] = await Promi
   attempt("events", () =>
     listAdminEvents(new URLSearchParams({ per_page: "1", start_date: eventsSince }).toString(), authToken),
   ),
+  attempt("backup health", () => getBackupHealth({ limit: 1 }, authToken)),
 ]);
+const backupTargets = backupHealth?.targets ?? [];
+const backupProblems = backupTargets.filter((t) => t.state !== "ok" && t.state !== "unknown");
 const latestEvent = recentEvents?.items[0] ?? null;
 
 // The release check reports failures as text ("error fetching version"), so only a version-looking
@@ -128,6 +132,20 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
             <li>{backupSummary.state === "none" ? "No backup has been taken" : `Older than ${BACKUP_STALE_DAYS} days`}</li>
           )}
           {backups && <li>{plural(backups.length, "backup")} on disk</li>}
+        </ul>
+      </a>
+
+      <a href="/admin/backup-health" class:list={["status-card", { warn: backupProblems.length > 0 }]} data-testid="backup-health-card">
+        <h3>Installation backups</h3>
+        <div class="status-value">
+          {backupHealth === null ? NO_DATA : backupTargets.length === 0 ? "No runs yet" : backupProblems.length ? `${backupProblems.length} need attention` : "All OK"}
+        </div>
+        <ul class="status-details">
+          {backupTargets.map((t) => (
+            <li class:list={[{ failing: t.state !== "ok" && t.state !== "unknown" }]}>
+              {t.name}: {t.state}{t.lastRun ? `, ${formatAge(t.lastRun.startedAt)}` : ""}
+            </li>
+          ))}
         </ul>
       </a>
 

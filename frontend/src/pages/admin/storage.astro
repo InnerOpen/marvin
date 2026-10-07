@@ -102,6 +102,78 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
         </table>
       </section>
 
+      <section class="settings-section" data-testid="provider-settings">
+        <h3>Provider settings</h3>
+        <p>
+          What each provider is using, as this backend reads it from its environment (the chart): read-only here.
+          Secrets read <code>****</code>; key ids show their last four characters, to tell which key is in use.{" "}
+          <strong>Test connection</strong> lists, writes, reads back and deletes a tiny object under
+          <code>_marvin-healthcheck/</code>, and says which step failed and why.
+        </p>
+        {storage.providers.filter((p) => p.source).map((p) => (
+          <div class="provider-card" data-provider={p.slug}>
+            <div class="provider-head">
+              <strong>{p.name}</strong> <code>{p.slug}</code>
+              {!p.available && <span class="muted"> — unavailable: {p.error}</span>}
+              <button type="button" class="button secondary test-btn" data-slug={p.slug}>Test connection</button>
+            </div>
+            {p.settings.length > 0 ? (
+              <dl class="settings-list">
+                {p.settings.map((s) => (
+                  <>
+                    <dt title={s.help || undefined}>{s.label} <code class="env">{s.env}</code></dt>
+                    <dd>
+                      {s.value === null ? <span class="muted">not set</span> : <code class:list={[{ secret: s.secret }]}>{s.value}</code>}
+                      {s.value !== null && !s.isSet && <span class="muted"> (default)</span>}
+                    </dd>
+                  </>
+                ))}
+              </dl>
+            ) : (
+              <p class="muted">No settings.</p>
+            )}
+            <div class="test-result" role="status" aria-live="polite" hidden></div>
+          </div>
+        ))}
+      </section>
+
+      <section class="settings-section" data-testid="backup-targets">
+        <h3>Backup targets</h3>
+        <p>
+          The backup CronJobs (<code>backup.targets[]</code>) have their own environment, which this backend doesn't
+          see: what's below is what each target's latest run reported (no keys). Their health, schedule and recent
+          runs are on <a href="/admin/backup-health">Backup health</a>. To test a target's key, run
+          <code>python -m marvin.scripts.backup test</code> as a Job (the "Off-site backup" runbook).
+        </p>
+        {storage.backupTargets.length === 0 ? (
+          <p class="muted">No backup run has reported yet.</p>
+        ) : (
+          <div class="table-scroll">
+            <table class="table">
+              <thead>
+                <tr><th>Target</th><th>Writes to</th><th>Settings</th><th>State</th></tr>
+              </thead>
+              <tbody>
+                {storage.backupTargets.map((t) => (
+                  <tr>
+                    <td><strong>{t.name}</strong> <code>{t.type}</code></td>
+                    <td><code>{t.location ?? "—"}</code></td>
+                    <td>
+                      {t.settings.length === 0 ? "—" : (
+                        <ul class="plain">
+                          {t.settings.map((s) => <li><code class="env">{s.env}</code> <code>{s.value ?? "—"}</code></li>)}
+                        </ul>
+                      )}
+                    </td>
+                    <td><a href={`/admin/backup-health?target=${encodeURIComponent(t.name)}`} class:list={["state", t.state]}>{t.state}</a></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <section class="settings-section" data-testid="workspace-domains">
         <h3>Workspace keys and public domains</h3>
         <p>
@@ -170,7 +242,43 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
 </AdminLayout>
 
 <script>
-  import { updateStorageSettings, updateWorkspaceStorage } from "@/lib/api/admin/storage";
+  import { testStorageProvider, updateStorageSettings, updateWorkspaceStorage } from "@/lib/api/admin/storage";
+
+  // Test connection: one line per step (list, put, get, delete), built with textContent only.
+  for (const button of document.querySelectorAll<HTMLButtonElement>(".test-btn")) {
+    const card = button.closest<HTMLElement>(".provider-card");
+    const out = card?.querySelector<HTMLElement>(".test-result");
+    const slug = button.dataset.slug;
+    if (!out || !slug) continue;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      out.hidden = false;
+      out.className = "test-result";
+      out.textContent = "Testing…";
+      try {
+        const result = await testStorageProvider(slug);
+        out.textContent = "";
+        out.classList.add(result.ok ? "ok" : "fail");
+        const head = document.createElement("strong");
+        head.textContent = result.ok ? "Connection OK" : "Connection failed";
+        out.append(head);
+        if (result.location) out.append(` — ${result.location}`);
+        const list = document.createElement("ul");
+        for (const step of result.steps) {
+          const li = document.createElement("li");
+          li.className = step.ok ? "ok" : "fail";
+          li.textContent = `${step.ok ? "✓" : "✗"} ${step.name} — ${step.ok ? "ok" : (step.error ?? "failed")}${step.code ? ` (${step.code})` : ""} · ${step.ms < 1 ? "<1" : Math.round(step.ms)} ms`;
+          list.append(li);
+        }
+        out.append(list);
+      } catch (err) {
+        out.classList.add("fail");
+        out.textContent = `Error: ${err instanceof Error ? err.message : "test failed"}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
 
   for (const row of document.querySelectorAll<HTMLTableRowElement>("tr[data-workspace-id]")) {
     const input = row.querySelector<HTMLInputElement>(".domain-input");
@@ -308,6 +416,83 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
   }
   .row-actions {
     white-space: nowrap;
+  }
+  .provider-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .provider-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .provider-head .test-btn {
+    margin-left: auto;
+  }
+  .settings-list {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 6px 16px;
+    margin: 0;
+    font-size: 13px;
+  }
+  .settings-list dt {
+    color: var(--muted);
+  }
+  .settings-list dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  code.env {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  code.secret {
+    letter-spacing: 0.05em;
+  }
+  .test-result {
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    background: var(--panel-2);
+    font-size: 13px;
+  }
+  .test-result.ok {
+    border-left: 3px solid var(--good);
+  }
+  .test-result.fail {
+    border-left: 3px solid var(--color-error);
+  }
+  /* Built by the script, so without this component's scope attribute. */
+  .test-result :global(ul) {
+    margin: 6px 0 0;
+    padding-left: 0;
+    list-style: none;
+  }
+  .test-result :global(li.fail) {
+    color: var(--color-error);
+  }
+  ul.plain {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 12px;
+  }
+  .state.ok {
+    color: var(--good);
+  }
+  .state.failed,
+  .state.overdue {
+    color: var(--color-error);
+    font-weight: 600;
+  }
+  .state.partial {
+    color: var(--warn);
   }
   .alert.error {
     padding: 12px 16px;

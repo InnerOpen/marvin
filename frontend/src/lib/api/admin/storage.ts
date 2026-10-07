@@ -6,6 +6,18 @@
 
 import { fetchApi } from "../client";
 
+/** One setting as it is in effect (read-only: from the environment). Secrets read `****`, key ids `…ab12`. */
+export interface StorageSettingValue {
+  env: string;
+  label: string;
+  /** The effective value (the default when unset), masked when secret; null when unset with no default. */
+  value: string | null;
+  /** Set in the environment (false: the default, or nothing). */
+  isSet: boolean;
+  secret: boolean;
+  help: string;
+}
+
 export interface StorageProviderOption {
   slug: string;
   name: string;
@@ -17,6 +29,39 @@ export interface StorageProviderOption {
   assets: number;
   bytes: number;
   libraryFiles: number;
+  /** Its effective settings as the backend reads them. */
+  settings: StorageSettingValue[];
+}
+
+/** A backup target as its latest run recorded it (the backend has no CronJob env): never a key. */
+export interface StorageBackupTarget {
+  name: string;
+  type: string;
+  location: string | null;
+  settings: StorageSettingValue[];
+  /** ok, partial, failed, overdue or unknown — details on Admin → Backup health. */
+  state: string;
+  lastRunAt: string | null;
+}
+
+export interface StorageCheckStep {
+  /** list, put, get, delete (or settings, when the provider can't be built). */
+  name: string;
+  ok: boolean;
+  ms: number;
+  /** What went wrong, in plain words. */
+  error: string | null;
+  /** The service's error code (InvalidAccessKeyId, AccessDenied, NoSuchBucket…). */
+  code: string | null;
+}
+
+export interface StorageCheckResult {
+  provider: string;
+  ok: boolean;
+  key: string;
+  location: string | null;
+  checkedAt: string;
+  steps: StorageCheckStep[];
 }
 
 export interface StorageWorkspaceUsage {
@@ -51,6 +96,8 @@ export interface StorageSettings {
   workspaceSettings: StorageWorkspaceSettings[];
   /** STORAGE_REMOTE_PUBLIC_URL: the domain remote files use when their workspace has none of its own. */
   remotePublicBaseUrl: string | null;
+  /** Backup targets that have recorded a run. */
+  backupTargets: StorageBackupTarget[];
 }
 
 const PATH = "/api/admin/storage";
@@ -83,6 +130,15 @@ export async function updateWorkspaceStorage(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ assetPublicBaseUrl }),
     },
+    authToken,
+  );
+}
+
+/** Test connection (super admin): list, put, get and delete a tiny object through the provider. */
+export async function testStorageProvider(slug: string, authToken?: string): Promise<StorageCheckResult> {
+  return fetchApi<StorageCheckResult>(
+    `${PATH}/providers/${encodeURIComponent(slug)}/test`,
+    { method: "POST" },
     authToken,
   );
 }

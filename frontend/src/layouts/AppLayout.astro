@@ -224,7 +224,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
             </div>
           </div>
           <div class="topbar-actions">
-            {authToken && <ActivityToaster userId={currentUserId} askPage={askLinkShown} />}
+            {authToken && <ActivityToaster userId={currentUserId} askPage={askLinkShown} platformFeed={isSuperAdmin} />}
             <a class="button secondary" href="/workspace/entries?status=needs_review,approved">Review Queue</a>
             <form method="POST" action="/api/auth/logout" style="display:inline;">
               <button type="submit" class="button secondary">Logout</button>
