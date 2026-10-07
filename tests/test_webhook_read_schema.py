@@ -3,7 +3,7 @@
 WebhookCreate blocks localhost/private URLs when a webhook is *created* in production — SSRF
 protection at delivery time. That validator is inherited all the way down to WebhookRead, so once a
 row held such a URL (created in dev, or before the rule), *reading* it in production raised a
-ValidationError. GroupRead embeds `list[WebhookRead]`, so a single localhost webhook 500'd the whole
+ValidationError. GroupRead embedded `list[WebhookRead]` then, so a single localhost webhook 500'd the whole
 group read — which took out GET /api/admin/groups and every page that loads groups. Reads must be
 total over persisted data; the SSRF block is write-only.
 """
@@ -70,18 +70,3 @@ def test_write_allows_public_url_in_production(production_mode):
     webhook = WebhookCreate(name="x", url="https://hooks.example.com/x")
 
     assert "hooks.example.com" in str(webhook.url)
-
-
-def test_group_read_serializes_a_localhost_webhook_in_production(production_mode):
-    """The actual failure path: GroupRead embeds list[WebhookRead] and used to 500 here."""
-    from marvin.schemas.group.group import GroupRead
-
-    group = GroupRead(
-        id=uuid.uuid4(),
-        name="Test Workspace",
-        slug="test-workspace",
-        webhooks=[WebhookRead(**_read_payload(url="http://localhost:8083/hook"))],
-    )
-
-    # mode="json" is what the API actually serializes with — it renders HttpUrl as a string.
-    assert group.model_dump(mode="json")["webhooks"][0]["url"].startswith("http://localhost:8083")

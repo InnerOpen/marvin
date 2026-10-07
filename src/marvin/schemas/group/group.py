@@ -22,10 +22,9 @@ from marvin.db.models.users import Users  # For specifying nested loading for us
 from marvin.schemas._marvin import _MarvinModel  # Base Pydantic model
 from marvin.schemas.response.pagination import PaginationBase  # Base for pagination responses
 
-# Schemas from related domains (user, group preferences, webhooks)
+# Schemas from related domains (user, group preferences)
 from ..user import UserSummary  # Summary schema for users within a group
 from .preferences import GroupPreferencesRead, GroupPreferencesUpdate  # Schemas for group preferences
-from .webhook import WebhookCreate, WebhookRead  # Schemas for group webhooks
 
 
 class GroupCreate(_MarvinModel):
@@ -59,20 +58,14 @@ class GroupAdminUpdate(GroupCreate):
 class GroupUpdate(GroupCreate):  # This seems like a user-facing update schema
     """
     Schema for regular users to update a group they manage (details depend on permissions).
-    Allows updating the name and associated webhooks. Inherits `name` from `GroupCreate`.
+    Allows updating the name. Inherits `name` from `GroupCreate`. Webhooks are managed on their own
+    (/api/groups/webhooks, workspace admins only).
     """
 
     id: UUID4
     """The unique identifier of the group to update."""
     name: str  # Overrides name
     """The new name for the group."""
-    webhooks: list[WebhookCreate] = []  # TODO: Should this be WebhookUpdate or a list of IDs/full objects?
-    """
-    A list of webhook configurations to associate with the group.
-    This implies replacing all existing webhooks with this new list.
-    Using `WebhookCreate` here suggests creating new webhooks during group update,
-    which might be complex. Often, webhook management is separate.
-    """
 
 
 class GroupRead(GroupUpdate):  # Extends GroupUpdate, which might be unusual if GroupUpdate is for input.
@@ -80,7 +73,9 @@ class GroupRead(GroupUpdate):  # Extends GroupUpdate, which might be unusual if 
     """
     Schema for representing a group when read from the system, including detailed information.
     This typically serves as a response model for GET requests.
-    Inherits `id`, `name`, and `webhooks` (as `WebhookRead`) from `GroupUpdate`.
+    Inherits `id` and `name` from `GroupUpdate`. No webhooks: their URLs, headers and payloads are credentials, and
+    every member reads their workspace through this schema (/api/self/workspaces); workspace admins read them from
+    /api/groups/webhooks.
     """
 
     id: UUID4
@@ -96,8 +91,6 @@ class GroupRead(GroupUpdate):  # Extends GroupUpdate, which might be unusual if 
     """
     preferences: GroupPreferencesRead | None = None
     """Optional group preference settings."""
-    webhooks: list[WebhookRead] = []  # Overrides webhooks to use WebhookRead for output
-    """List of webhooks configured for this group."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -107,7 +100,6 @@ class GroupRead(GroupUpdate):  # Extends GroupUpdate, which might be unusual if 
         Provides SQLAlchemy loader options for optimizing queries for `GroupRead`.
 
         Configures eager loading for:
-        - `webhooks` relationship (joined load).
         - `preferences` relationship (joined load).
         - `users` relationship (selectin load), and within users:
             - `group` back-reference (joined load).
@@ -118,7 +110,6 @@ class GroupRead(GroupUpdate):  # Extends GroupUpdate, which might be unusual if 
             list[LoaderOption]: A list of SQLAlchemy loader options.
         """
         return [
-            joinedload(Groups.webhooks),  # Eager load associated webhooks
             joinedload(Groups.preferences),  # Eager load associated preferences
             selectinload(Groups.users).joinedload(Users.group),  # Eager load users (legacy), and their group (back-ref)
             selectinload(Groups.users).joinedload(Users.tokens),  # Eager load users (legacy), and their API tokens

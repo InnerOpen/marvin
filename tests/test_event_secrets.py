@@ -1,6 +1,6 @@
 """No live credential travels on the event bus, and workspace subscriptions never see platform events.
 
-The audit that prompted this found these leaks:
+The audit that prompted this found three leaks:
 
 * `user_password_reset_requested` carried the live reset URL and was dispatched under the user's workspace, where
   every listener ran: a workspace ADMIN could subscribe a webhook, an email (to any address) or an integration to it,
@@ -8,10 +8,12 @@ The audit that prompted this found these leaks:
   The URL was also stored in the Event Log and in webhook execution logs.
 * `invitation_*` events stored the live invitation token and URL, and any member (VIEWER included) reads full
   `event_data` from `GET /api/platform/events/{event_id}`.
+* `GroupRead.webhooks` (URL, headers, custom payload) went to every member from `/api/self/workspaces`.
 
 Now the reset and invitation emails are sent directly by the code that mints the link (the reset email always from
 the platform's own template and sender); the events say who and when, nothing more; the webhook, integration, workflow
-and email listeners skip platform events (existing subscriptions included) and the subscription routes refuse them.
+and email listeners skip platform events (existing subscriptions included) and the subscription routes refuse them;
+GroupRead carries no webhooks.
 """
 
 import logging
@@ -309,3 +311,16 @@ def test_a_workspace_invitation_template_still_replaces_marvins(db_session, worl
     assert admin.post("/api/groups/invitations/email", json={"email": invitee, "token": token}).json()["success"] is True
     (mail,) = world.sent
     assert mail.to == invitee and mail.subject == f"Join evsec-{world.tag}" and f"token={token}" in mail.html
+
+
+# ── 3. GroupRead.webhooks ────────────────────────────────────────────────────
+
+
+def test_a_members_workspace_responses_carry_no_webhooks(db_session, world):
+    evc.webhook(db_session, world.a, "Secret hook", ["entry_published"])
+    viewer = world.client("viewer")
+    for path in ("/api/self/workspaces", "/api/self/workspaces/current"):
+        res = viewer.get(path)
+        assert res.status_code == 200, res.text
+        assert "webhooks" not in res.text and "hooks.example" not in res.text
+    assert "webhooks" not in app.openapi()["components"]["schemas"]["GroupRead"]["properties"]
