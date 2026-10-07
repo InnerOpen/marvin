@@ -5,19 +5,24 @@ import assert from "node:assert/strict";
 import { describe, mock, test } from "node:test";
 
 import {
+  adminLink,
+  adminScope,
   approvalTarget,
   changeHref,
   changesLabel,
   dismissTimer,
   formatDuration,
+  isBackupRecovery,
   keyedToasts,
   moreLabel,
+  PLATFORM_FEED_PATH,
   planToasts,
   QUEUED_GRACE_S,
-  refineKind,
   RESUME_MIN_MS,
   RUNNING_CAP_MS,
+  refineKind,
   summarizeChanges,
+  toastGroup,
   toastKey,
   toastView,
 } from "./toast.ts";
@@ -168,7 +173,12 @@ const started = (runId = "r1", extra = {}) => ({
   workflowName: "Tag all",
   ...extra,
 });
-const ran = (runId = "r1") => ({ eventType: "automation_ran", messageTitle: "Automation Ran", messageBody: "Automation 'tag-all' ran", runId });
+const ran = (runId = "r1") => ({
+  eventType: "automation_ran",
+  messageTitle: "Automation Ran",
+  messageBody: "Automation 'tag-all' ran",
+  runId,
+});
 const failed = (runId = "r1") => ({ eventType: "automation_failed", messageTitle: "Automation Failed", runId });
 const queued = (extra = {}) => ({
   eventType: "site_rebuild_queued",
@@ -178,7 +188,12 @@ const queued = (extra = {}) => ({
   maxWaitSeconds: 600,
   ...extra,
 });
-const sent = (extra = {}) => ({ eventType: "webhook_triggered", messageTitle: "Webhook Triggered", workspaceId: WS, ...extra });
+const sent = (extra = {}) => ({
+  eventType: "webhook_triggered",
+  messageTitle: "Webhook Triggered",
+  workspaceId: WS,
+  ...extra,
+});
 
 const OK = { tone: "ok", label: "Workflow" };
 const ERR = { tone: "err", label: "Workflow failed" };
@@ -398,5 +413,53 @@ describe("refineKind", () => {
   test("an unhandled failure stays red, and other events are untouched", () => {
     assert.equal(refineKind({ eventType: "automation_failed", messageTitle: "x", handled: false }, failed), failed);
     assert.equal(refineKind({ eventType: "site_build_failed", messageTitle: "x", handled: true }, failed), failed);
+  });
+});
+
+describe("admin alerts", () => {
+  test("only the platform feed's items are admin alerts", () => {
+    assert.equal(PLATFORM_FEED_PATH, "/api/admin/events/feed");
+    assert.equal(toastGroup(PLATFORM_FEED_PATH), "admin");
+    assert.equal(toastGroup("/api/platform/events/feed"), "workspace");
+    assert.equal(toastGroup("/api/admin/events"), "workspace");
+  });
+
+  test("each links to the admin page for its subject", () => {
+    assert.deepEqual(adminLink("backup_failed"), { href: "/admin/backup-health", text: "Open Backup health →" });
+    assert.deepEqual(adminLink("backup_completed"), { href: "/admin/backup-health", text: "Open Backup health →" });
+    assert.deepEqual(adminLink("storage_provider_changed"), { href: "/admin/storage", text: "Open Storage →" });
+    assert.deepEqual(adminLink("workspace_created"), {
+      href: "/admin/events?type=workspace_created",
+      text: "Open Events →",
+    });
+    assert.equal(adminLink("odd type&x=1").href, "/admin/events?type=odd%20type%26x%3D1");
+  });
+
+  test("the scope says whether it concerns every workspace or one", () => {
+    assert.equal(adminScope({ workspaceId: null }), "Platform — all workspaces");
+    assert.equal(adminScope({}), "Platform — all workspaces");
+    assert.equal(adminScope({ workspaceId: "w1" }), "Platform — one workspace");
+  });
+
+  test("only the backup_completed that ends an incident is a recovery", () => {
+    assert.ok(isBackupRecovery({ eventType: "backup_completed", messageBody: "Backup r2: recovered" }));
+    assert.ok(!isBackupRecovery({ eventType: "backup_completed", messageBody: "Backup r2: ok" }));
+    assert.ok(!isBackupRecovery({ eventType: "backup_completed", messageBody: null }));
+    assert.ok(!isBackupRecovery({ eventType: "backup_failed", messageBody: "Backup r2: recovered" }));
+  });
+
+  test("a backup that went quiet is overdue, a failed one stays failed", () => {
+    const failed = { tone: "err", label: "Backup failed" };
+    assert.deepEqual(
+      refineKind({ eventType: "backup_failed", messageTitle: "x", messageBody: "Backup r2: overdue" }, failed),
+      {
+        tone: "err",
+        label: "Backup overdue",
+      },
+    );
+    assert.equal(
+      refineKind({ eventType: "backup_failed", messageTitle: "x", messageBody: "Backup r2: failed" }, failed),
+      failed,
+    );
   });
 });

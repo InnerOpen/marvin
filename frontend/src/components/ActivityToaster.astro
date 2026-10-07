@@ -8,6 +8,8 @@
 // Polls GET /api/platform/events/feed (the audit log, oldest first) every few seconds while the tab
 // is visible; for a super admin (`platformFeed`) also GET /api/admin/events/feed, the platform events
 // with no workspace (a failed or overdue installation backup). Everything shown is already in the event log; this only surfaces it as it happens.
+// Platform events are admin alerts: their own "Admin" group above workspace activity, an ADMIN badge, the
+// scope ("Platform — all workspaces") and a link to the admin page that deals with them.
 // The bell cycles All → Failures only → Off, remembered per browser. Muting changes nothing in Marvin.
 interface Props {
   /** The signed-in user — their own content edits aren't echoed back to them. */
@@ -23,24 +25,39 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
 <button type="button" class="button secondary activity-bell" id="activity-bell" data-user-id={userId ?? ""} data-ask-page={askPage ? "1" : "0"} data-platform-feed={platformFeed ? "1" : "0"} aria-live="polite">
   <span aria-hidden="true" data-icon>🔔</span><span class="sr-only" data-label>Activity: all</span>
 </button>
-<div class="activity-stack" id="activity-stack" role="log" aria-live="polite" aria-label="Recent activity"></div>
+<div class="activity-stack" id="activity-stack" role="log" aria-live="polite" aria-label="Recent activity" data-empty>
+  <section class="activity-group admin" data-group="admin" aria-label="Admin alerts" hidden>
+    <div class="activity-group-label"><span aria-hidden="true">🛡</span> Admin</div>
+    <div class="activity-list" data-list="admin"></div>
+  </section>
+  <section class="activity-group" data-group="workspace" aria-label="Workspace activity" hidden>
+    <div class="activity-group-label">Workspace</div>
+    <div class="activity-list" data-list="workspace"></div>
+  </section>
+</div>
 
 <script>
   import {
+    adminLink,
+    adminScope,
     approvalTarget,
     type ChangeList,
     changesLabel,
     type DismissTimer,
     dismissTimer,
+    isBackupRecovery,
     keyedToasts,
     moreLabel,
     OPEN_BUBBLE_EVENT,
+    PLATFORM_FEED_PATH,
     planToasts,
     type RebuildChange,
     STICKY_TONES,
     summarizeChanges,
     type Tone,
+    type ToastGroup,
     refineKind,
+    toastGroup,
     toastView,
   } from "@/lib/activity/toast";
   import { fetchApi } from "@/lib/api/client";
@@ -83,7 +100,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
 
   const POLL_MS = 5000;
   const TOAST_MS = 6000;
-  const MAX_TOASTS = 5;
+  const MAX_TOASTS: Record<ToastGroup, number> = { admin: 3, workspace: 5 };
   const SEEN_CAP = 500; // the feed overlaps polls on purpose; remember enough ids to dedupe
   const MODE_KEY = "marvin.activity";
   const MODES: Mode[] = ["all", "failures", "off"];
@@ -126,8 +143,6 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
       skip: (e) => (e.messageBody || "").startsWith("Auto-indexed"),
     },
     form_submission_received: { tone: "info", label: "Form submission", href: entryHref },
-    // Platform feed (super admins): an installation backup target failed, saved only part, or went quiet.
-    backup_failed: { tone: "err", label: "Backup failed", href: () => "/admin/backup-health" },
     // The scheduled publish held an entry back (once per reason, not every run) — sticky until dismissed.
     entry_scheduled_publish_blocked: { tone: "warn", label: "Scheduled publish waiting", href: entryHref },
     entry_published: { tone: "info", label: "Published", href: entryHref, othersOnly: true },
@@ -150,8 +165,36 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     },
   };
 
+  // Admin alerts: the platform feed's events (super admins only), each linked to its admin page.
+  const adminHref = (e: FeedEvent) => adminLink(e.eventType).href;
+  const ADMIN_KINDS: Record<string, Kind> = {
+    // An installation backup target failed, saved only part, or went quiet (once per incident) — sticky.
+    backup_failed: { tone: "err", label: "Backup failed", href: adminHref },
+    // Every ok run sends backup_completed; only the one ending an incident is worth a toast.
+    backup_completed: { tone: "ok", label: "Backup recovered", href: adminHref, skip: (e) => !isBackupRecovery(e) },
+    storage_provider_changed: { tone: "info", label: "Storage changed", href: adminHref, othersOnly: true },
+    storage_public_domain_changed: { tone: "info", label: "Asset domain changed", href: adminHref, othersOnly: true },
+  };
+
   const bell = document.getElementById("activity-bell") as HTMLButtonElement;
   const stack = document.getElementById("activity-stack") as HTMLElement;
+  const groups = {
+    admin: stack.querySelector<HTMLElement>('[data-group="admin"]')!,
+    workspace: stack.querySelector<HTMLElement>('[data-group="workspace"]')!,
+  };
+  const lists = {
+    admin: stack.querySelector<HTMLElement>('[data-list="admin"]')!,
+    workspace: stack.querySelector<HTMLElement>('[data-list="workspace"]')!,
+  };
+  // A group shows only while it holds a toast (the admin one never does without the platform feed); the
+  // "Workspace" heading only when the admin group is there to tell it from.
+  function syncGroups() {
+    for (const g of ["admin", "workspace"] as const) groups[g].hidden = !lists[g].children.length;
+    stack.toggleAttribute("data-empty", groups.admin.hidden && groups.workspace.hidden);
+    stack.toggleAttribute("data-both", !groups.admin.hidden && !groups.workspace.hidden);
+  }
+  const groupWatch = new MutationObserver(syncGroups);
+  for (const list of Object.values(lists)) groupWatch.observe(list, { childList: true });
   // Rendered next to the bell, inside the top bar — whose backdrop-filter makes it the containing
   // block for position: fixed, pinning the stack to the bar instead of the window. Lift it out.
   document.body.appendChild(stack);
@@ -264,14 +307,16 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
   const pending = keyedToasts<Toast>((t) => dismiss(t.el));
 
   /** Build a toast for `e`; with `replace`, it takes that toast's place (an in-place update). */
-  function show(e: FeedEvent, kind: Kind, opts: { replace?: Toast; key?: string } = {}): Toast {
+  function show(e: FeedEvent, kind: Kind, opts: { replace?: Toast; key?: string; group?: ToastGroup } = {}): Toast {
+    const group = opts.group ?? "workspace";
+    const admin = group === "admin";
     const view = toastView(e, kind, Boolean(opts.replace));
     const changes = summarizeChanges(e.changes, e.requestCount);
     // A toast with its own links inside can't itself be a link.
     const link = kind.href && !changes ? kind.href(e) : null;
     const action = !link && kind.onClick ? kind.onClick(e) : null;
     const el = document.createElement(link ? "a" : "div");
-    el.className = `activity-toast ${view.tone}${opts.replace ? " updated" : ""}${action ? " actionable" : ""}`;
+    el.className = `activity-toast ${view.tone}${admin ? " admin" : ""}${opts.replace ? " updated" : ""}${action ? " actionable" : ""}`;
     if (link) (el as HTMLAnchorElement).href = link;
     if (action) {
       // A div, not a button: the toast holds its own close button.
@@ -294,16 +339,37 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     const head = document.createElement("div");
     head.className = "activity-head";
     const label = document.createElement("strong");
-    label.textContent = view.label;
+    if (admin) {
+      // "🛡 ADMIN · Backup failed": a platform event, not this workspace's.
+      const badge = document.createElement("span");
+      badge.className = "activity-admin-badge";
+      const shield = document.createElement("span");
+      shield.setAttribute("aria-hidden", "true");
+      shield.textContent = "🛡";
+      badge.append(shield, " ADMIN");
+      const sep = document.createElement("span");
+      sep.className = "activity-sep";
+      sep.setAttribute("aria-hidden", "true");
+      sep.textContent = " · ";
+      label.append(badge, sep, view.label);
+    } else label.textContent = view.label;
     const time = document.createElement("time");
     time.dateTime = e.occurredAt;
     time.textContent = new Date(e.occurredAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
     head.append(label, time);
+    el.append(head);
+
+    if (admin) {
+      const scope = document.createElement("div");
+      scope.className = "activity-scope";
+      scope.textContent = adminScope(e);
+      el.append(scope);
+    }
 
     const body = document.createElement("div");
     body.className = "activity-body";
     body.textContent = view.text;
-    el.append(head, body);
+    el.append(body);
 
     if (view.note) {
       const note = document.createElement("div");
@@ -317,6 +383,14 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
       detail.className = "activity-detail";
       detail.textContent = e.detail;
       el.append(detail);
+    }
+
+    if (admin && link) {
+      // The whole toast is the link; this says where it goes.
+      const cta = document.createElement("span");
+      cta.className = "activity-cta";
+      cta.textContent = adminLink(e.eventType).text;
+      el.append(cta);
     }
 
     // Failures stay until dismissed — they're the ones you'd act on; a pending toast stays until what
@@ -353,22 +427,24 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
       opts.replace.countdown?.cancel();
       opts.replace.el.replaceWith(el);
     } else {
-      if (!stack.children.length) placeStack(); // the page may have scrolled since the last toast
-      stack.prepend(el);
-      while (stack.children.length > MAX_TOASTS) stack.lastElementChild?.remove();
+      if (stack.hasAttribute("data-empty")) placeStack(); // the page may have scrolled since the last toast
+      const list = lists[group];
+      list.prepend(el);
+      while (list.children.length > MAX_TOASTS[group]) list.lastElementChild?.remove();
     }
     if (opts.key && view.lifetime === "pending") pending.open(opts.key, toast, view.capMs ?? TOAST_MS);
     return toast;
   }
 
   // A poll's new events, oldest first: a start whose end is in the same poll shows only the end.
-  function land(events: FeedEvent[]) {
+  function land(events: FeedEvent[], group: ToastGroup) {
+    const kinds = group === "admin" ? ADMIN_KINDS : KINDS;
     for (const { event: e, key, action } of planToasts(events, pending.has)) {
-      const base = KINDS[e.eventType];
+      const base = kinds[e.eventType];
       const kind = base && refineKind(e, base);
       const visible = shouldShow(e, kind);
       const prior = action === "update" && key ? pending.take(key) : undefined;
-      if (visible) show(e, kind, { replace: prior, key: key ?? undefined });
+      if (visible) show(e, kind, { replace: prior, key: key ?? undefined, group });
       else if (prior) dismiss(prior.el); // muted since it opened — don't leave it waiting
     }
   }
@@ -376,7 +452,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
   const seen = new Set<string>();
   // Each feed keeps its own cursor: the workspace's, and (super admins) the platform's.
   const feeds = [{ path: "/api/platform/events/feed", since: null as string | null }];
-  if (platformOn) feeds.push({ path: "/api/admin/events/feed", since: null });
+  if (platformOn) feeds.push({ path: PLATFORM_FEED_PATH, since: null });
   let timer: number | undefined;
   let stopped = false;
 
@@ -386,7 +462,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     feed.since = got.now;
     const fresh = got.events.filter((e) => !seen.has(e.eventId));
     for (const e of fresh) seen.add(e.eventId);
-    land(fresh);
+    land(fresh, toastGroup(feed.path));
   }
 
   async function poll() {
@@ -440,7 +516,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     position: fixed; z-index: 1100;
     top: max(var(--bell-bottom, 62px) + 10px, env(safe-area-inset-top, 0px) + 16px);
     right: var(--stack-right); width: var(--stack-w);
-    display: flex; flex-direction: column; gap: 8px;
+    display: flex; flex-direction: column; gap: 12px; /* between the groups */
     pointer-events: none;
   }
   /* The bubble's tail, drawn over the newest toast's top edge and pointing up at the bell. */
@@ -450,7 +526,25 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     width: 12px; height: 12px; transform: rotate(45deg);
     background: var(--panel, var(--bg)); border-top: 1px solid var(--line); border-left: 1px solid var(--line);
   }
-  .activity-stack:empty::before, .activity-stack[data-detached]::before { display: none; }
+  .activity-stack[data-empty]::before, .activity-stack[data-detached]::before { display: none; }
+
+  /* Admin alerts get their own group above workspace activity, in the admin accent: the theme's
+     secondary colour (violet by default, as the staging badge). Text in it is lightened on dark panels. */
+  .activity-stack { --admin: var(--theme-secondary, #7c3aed); --admin-ink: var(--admin); }
+  :global([data-theme="dark"]) .activity-stack { --admin-ink: color-mix(in srgb, var(--admin) 60%, #fff); }
+  .activity-group, .activity-list { display: flex; flex-direction: column; gap: 8px; }
+  .activity-group[hidden] { display: none; }
+  .activity-group-label {
+    padding: 3px 10px; border-radius: 8px; background: var(--panel, var(--bg)); border: 1px solid var(--line);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.08); color: var(--muted);
+    font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .activity-group.admin .activity-group-label {
+    color: var(--admin-ink); border-color: color-mix(in srgb, var(--admin) 45%, var(--line));
+    background: color-mix(in srgb, var(--admin) 8%, var(--panel, var(--bg)));
+  }
+  /* "Workspace" only labels its group when the admin group is there too. */
+  .activity-stack:not([data-both]) .activity-group[data-group="workspace"] .activity-group-label { display: none; }
   .activity-stack :global(.activity-toast) {
     position: relative; display: block; pointer-events: auto;
     padding: 10px 32px 10px 12px; border-radius: 10px;
@@ -464,6 +558,21 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
   .activity-stack :global(.activity-toast.warn) { border-left-color: #d97706; }
   .activity-stack :global(.activity-toast.actionable) { cursor: pointer; }
   .activity-stack :global(.activity-toast.err) { border-left-color: #dc2626; }
+  .activity-stack :global(.activity-toast.admin) {
+    background: color-mix(in srgb, var(--admin) 7%, var(--panel, var(--bg)));
+    border-top-color: color-mix(in srgb, var(--admin) 40%, var(--line));
+    border-right-color: color-mix(in srgb, var(--admin) 40%, var(--line));
+    border-bottom-color: color-mix(in srgb, var(--admin) 40%, var(--line));
+  }
+  .activity-stack :global(.activity-admin-badge) {
+    display: inline-block; padding: 0 6px; margin-right: 1px; border-radius: 999px;
+    background: var(--admin); color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.08em; line-height: 16px;
+    vertical-align: 1px;
+  }
+  .activity-stack :global(.activity-sep) { color: var(--muted); }
+  .activity-stack :global(.activity-scope) { color: var(--admin-ink); font-size: 11px; font-weight: 600; margin-bottom: 2px; }
+  .activity-stack :global(.activity-cta) { display: inline-block; margin-top: 6px; color: var(--admin-ink); font-size: 12px; font-weight: 600; }
+  .activity-stack :global(a.activity-toast:hover .activity-cta) { text-decoration: underline; }
   .activity-stack :global(.activity-toast.leaving) { opacity: 0; transform: translateY(-6px); }
   .activity-stack :global(a.activity-toast:hover) { border-color: var(--muted); }
   .activity-stack :global(.activity-head) { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 2px; }

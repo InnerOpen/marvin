@@ -126,12 +126,16 @@ export type ProgressEvent = {
 };
 
 /**
- * The toast kind for one event: its type's kind, softened where the event says so — a failed run the
- * integration's error policy handled (sent to review, retry scheduled, …) is a warning, not an error.
+ * The toast kind for one event: its type's kind, refined where the event says so — a failed run the
+ * integration's error policy handled (sent to review, retry scheduled, …) is a warning, not an error; a
+ * backup that went quiet is "overdue", not "failed".
  */
 export function refineKind<K extends { tone: Tone; label: string }>(e: ProgressEvent, kind: K): K {
   if (e.eventType === "automation_failed" && e.handled)
     return { ...kind, tone: "warn", label: "Workflow failed — handled" };
+  // backup_failed also means a target went quiet: no successful run within its window.
+  if (e.eventType === "backup_failed" && /: overdue$/.test(e.messageBody ?? ""))
+    return { ...kind, label: "Backup overdue" };
   return kind;
 }
 
@@ -298,3 +302,36 @@ export function approvalTarget(
 
 /** The event the bubble listens for to open itself, on a thread when one is given (components/Marvin.astro). */
 export const OPEN_BUBBLE_EVENT = "marvin:open";
+
+// ── Admin alerts: platform events in a super admin's bell, kept apart from workspace activity ──────
+
+/** The feed a super admin's bell also polls: platform-scope events (a failed backup), not a workspace's. */
+export const PLATFORM_FEED_PATH = "/api/admin/events/feed";
+
+/** Which group of the bell an item lands in: platform events are admin alerts, the rest workspace activity. */
+export type ToastGroup = "admin" | "workspace";
+
+/** An item's group, from the feed it came from — only GET /api/admin/events/feed carries platform events. */
+export function toastGroup(feedPath: string): ToastGroup {
+  return feedPath === PLATFORM_FEED_PATH ? "admin" : "workspace";
+}
+
+/** Where an admin alert links to, and what the link says: the admin page for its subject. */
+export function adminLink(eventType: string): { href: string; text: string } {
+  if (eventType.startsWith("backup_")) return { href: "/admin/backup-health", text: "Open Backup health →" };
+  if (eventType.startsWith("storage_")) return { href: "/admin/storage", text: "Open Storage →" };
+  return { href: `/admin/events?type=${encodeURIComponent(eventType)}`, text: "Open Events →" };
+}
+
+/** What an admin alert concerns: the whole installation, or the one workspace it names. */
+export function adminScope(e: { workspaceId?: string | null }): string {
+  return e.workspaceId ? "Platform — one workspace" : "Platform — all workspaces";
+}
+
+/**
+ * A backup_completed that ends an incident (failed, partial or overdue runs before it). The backend sends
+ * backup_completed for every ok run; only this one is news (services/backup_health `_dispatch`).
+ */
+export function isBackupRecovery(e: { eventType: string; messageBody?: string | null }): boolean {
+  return e.eventType === "backup_completed" && /: recovered$/.test(e.messageBody ?? "");
+}
