@@ -242,6 +242,17 @@ def test_get_platform_and_is_platform_in_reads(super_admin, platform, others):
     assert listed[str(platform.id)] is True and listed[str(others.a.id)] is False
 
 
+def test_switcher_lists_the_platform_workspace_first_whatever_its_name(super_admin, platform, others):
+    res = super_admin.client.put(
+        f"/api/admin/groups/{platform.id}", json={"id": str(platform.id), "name": f"zzz last by name {uuid.uuid4().hex[:6]}", "slug": ""}
+    )
+    assert res.status_code == 200, res.text
+    listed = [w["workspace"] for w in super_admin.client.get("/api/self/workspaces").json()]
+    assert listed[0]["id"] == str(platform.id)
+    rest = [w["name"].casefold() for w in listed[1:]]
+    assert rest == sorted(rest)
+
+
 def test_rename_name_and_slug_keeps_the_current_workspace_and_old_slug(super_admin, db_session, platform):
     old_slug = platform.slug
     client = super_admin.client
