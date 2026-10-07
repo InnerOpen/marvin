@@ -16,7 +16,8 @@ succeed / retry, with ``then`` once retries run out). This module is the core si
     connection + code, counted and sampled, announced (``integration_attention_needed``) when it opens
     and once per reminder window, and resolved (``integration_attention_resolved``) by a passing
     check, a successful action, or an admin. The resolved notice goes back through the channels that
-    delivered the alert (``channels`` on the row), whatever the routing says by then.
+    delivered the alert (``channels`` on the row: the workspace's notification channels, and any event
+    subscriptions), whatever the settings say by then.
   * :func:`connection_failed` / :func:`connection_succeeded` are the connection-scope hooks for
     callers outside workflows (event subscriptions, capabilities, the scheduled integration task):
     notify only — no review, no retry.
@@ -1079,19 +1080,26 @@ def _reminder_hours(session, group_id) -> int:
 
 
 def alert_channels(session, group_id) -> dict:
-    """The subscription rows an alert goes out through right now (the routing panel writes them)."""
+    """Where an alert goes out right now: the workspace's notification channels that take integration alerts
+    (``notify``: ``email`` and route ids, Settings → Automation → Notifications), and any event subscription
+    rows for ``integration_attention_needed`` set up on the Events page."""
     from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
     from marvin.db.models.groups.integration_event_subscriptions import IntegrationEventSubscriptionModel
+    from marvin.services.workspace_alerts import INTEGRATION_ATTENTION, channels_for
 
     def ids(model) -> list[str]:
         return [str(i) for (i,) in session.query(model.id).filter_by(group_id=group_id, event_type=NEEDED, enabled=True).all()]
 
-    return {"email": ids(EmailEventSubscriptionModel), "integration": ids(IntegrationEventSubscriptionModel)}
+    return {
+        "email": ids(EmailEventSubscriptionModel),
+        "integration": ids(IntegrationEventSubscriptionModel),
+        "notify": channels_for(session, group_id, INTEGRATION_ATTENTION),
+    }
 
 
 def _merge_channels(old: dict | None, new: dict) -> dict:
     old = old or {}
-    return {kind: sorted({*(old.get(kind) or []), *(new.get(kind) or [])}) for kind in ("email", "integration")}
+    return {kind: sorted({*(old.get(kind) or []), *(new.get(kind) or [])}) for kind in ("email", "integration", "notify")}
 
 
 def resolved_channel_rows(session, group_id, event, model, kind: str) -> list:

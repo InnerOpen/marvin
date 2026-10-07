@@ -9,6 +9,7 @@ from . import (
     email_event_subscriptions_controller,
     email_template_controller,
     invitation_controller,
+    notifications_controller,
     preferences_controller,
     secrets_controller,
     smtp_controller,
@@ -34,3 +35,4 @@ router.include_router(email_template_controller.router, tags=["Groups: Email Tem
 router.include_router(email_event_subscriptions_controller.router, tags=["Groups: Email Event Subscriptions"])
 router.include_router(ai_settings_controller.router, tags=["Groups: AI Workflow Settings"])
 router.include_router(audit_settings_controller.router, tags=["Groups: Audit Settings"])
+router.include_router(notifications_controller.router, tags=["Groups: Notifications"])

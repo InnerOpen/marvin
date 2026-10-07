@@ -559,9 +559,11 @@ class ScheduledTaskListener(BuiltinReaction):
                 # minutes is 720 runs a day) otherwise buries its own real events under identical
                 # "nothing happened" rows. Liveness is not lost: last_run_at/last_status below are
                 # updated either way. A run someone triggered by hand always logs, because they asked
-                # and deserve an answer; a failure always logs (_handle_task_failure).
+                # and deserve an answer; so does the first success after a failure (the workspace's
+                # notifications send "working again" on it); a failure always logs (_handle_task_failure).
                 by_hand = event.integration_id != "scheduled_tasks"
-                worth_recording = output is not None or by_hand
+                recovered = (task.failure_count or 0) > 0  # the run that ends a failure streak is news
+                worth_recording = output is not None or by_hand or recovered
                 if worth_recording:
                     repos.scheduled_task_executions.log_execution(
                         task_id=task.id,
@@ -974,7 +976,7 @@ class SiteRebuildReactionListener(BuiltinReaction):
     EMPTY_BODY = "generic"
     # Workspace settings no site renders: a settings change touching only these queues no rebuild. A field
     # counts by its first dotted segment, so "agents" covers every "agents.<slug>[.<field>]" an agent edit names.
-    UNSEEN_SETTINGS = frozenset({"audit_overrides", "agents", "trash_auto_empty_days"})
+    UNSEEN_SETTINGS = frozenset({"audit_overrides", "agents", "trash_auto_empty_days", "notifications"})
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher
@@ -1285,10 +1287,6 @@ class EmailEventListener(EventListenerBase):
                         )
 
     def _resolve_recipients(self, sub: Any, variables: dict, session) -> list[str]:
-        from marvin.db.models.users import Users
-        from marvin.db.models.users.roles import WorkspaceRole
-        from marvin.db.models.users.workspace_members import WorkspaceMembers
-
         match sub.recipient_type:
             case "event_field":
                 field = sub.recipient_field
@@ -1307,16 +1305,9 @@ class EmailEventListener(EventListenerBase):
                     return []
                 return [a.strip() for a in sub.recipient_email.split(",") if a.strip()]
             case "admins":
-                stmt = (
-                    select(Users.email)
-                    .join(WorkspaceMembers, WorkspaceMembers.user_id == Users.id)
-                    .where(
-                        WorkspaceMembers.group_id == self.group_id,
-                        WorkspaceMembers.workspace_role.in_([WorkspaceRole.OWNER, WorkspaceRole.ADMIN]),
-                    )
-                )
-                rows = session.execute(stmt).scalars().all()
-                return [r for r in rows if r]
+                from marvin.services.workspace_alerts import admin_emails
+
+                return admin_emails(session, self.group_id)
             case _:
                 return []
 
@@ -1527,6 +1518,26 @@ class PlatformAlertListener(EventListenerBase):
 
         with self.ensure_session() as session:
             platform_alerts.deliver(session, event)
+
+
+class WorkspaceAlertListener(EventListenerBase):
+    """Sends the workspace's own failures past the bell — email, chat — as Settings → Automation →
+    Notifications says (services/workspace_alerts.py): once per incident, and a note when it works again.
+    Never a platform event or one without a workspace; any other event type costs one set lookup."""
+
+    def __init__(self, group_id: UUID4) -> None:
+        super().__init__(group_id, cast(Any, None))  # sends directly; no publisher
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        from marvin.services import workspace_alerts
+
+        return ["workspace_notifications"] if workspace_alerts.wants(self.group_id, event) else []
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        from marvin.services import workspace_alerts
+
+        with self.ensure_session() as session:
+            workspace_alerts.deliver(session, self.group_id, event)
 
 
 BUILTIN_REACTIONS: tuple[type[BuiltinReaction], ...] = (

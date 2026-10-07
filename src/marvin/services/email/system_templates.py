@@ -77,8 +77,8 @@ SYSTEM_TEMPLATES: list[SystemTemplateDefinition] = [
     SystemTemplateDefinition(
         template_type="integration_alert",
         name="Integration Alert",
-        description="Sent to workspace admins when a connection needs attention, and again when it works again. "
-        "Chosen under Settings → Integrations → Integration alerts.",
+        description="For an Events-page email on integration_attention_needed / _resolved. Settings → Automation → "
+        "Notifications emails integration alerts with its own message.",
         subject="{{title}}",
         body_markdown=(
             "{{summary}}\n\n"

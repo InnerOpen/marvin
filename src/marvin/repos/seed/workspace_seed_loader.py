@@ -135,6 +135,7 @@ class WorkspaceSeedLoader:
             "email_templates": 0,
             "email_subscriptions": 0,
             "integration_subscriptions": 0,
+            "notifications": 0,
             "errors": 0,
         }
 
@@ -258,6 +259,7 @@ class WorkspaceSeedLoader:
             results["email_templates"] = self._import_email_templates(data.get("email_templates", []))
             results["email_subscriptions"] = self._import_email_subscriptions(data.get("email_subscriptions", []))
             results["integration_subscriptions"] = self._import_integration_subscriptions(data.get("integration_subscriptions", []))
+            results["notifications"] = self._import_notifications(data.get("notifications"))
             results["automations"] = self._import_automations(data.get("automations", []))
             results["scheduled_tasks"] = self._import_scheduled_tasks(data.get("scheduled_tasks", []))
             results["forms"] = self._import_forms(data.get("forms", []))
@@ -1396,6 +1398,50 @@ class WorkspaceSeedLoader:
                 self.repos.session.rollback()
                 self.logger.error(f"Failed to import email subscription: {e}")
         return count
+
+    def _import_notifications(self, data: dict[str, Any] | None) -> int:
+        """Where the workspace's alerts go. Existing settings are left alone unless overwrite; a route whose
+        connection isn't in the workspace is skipped."""
+        if not self.repos.group_id or not data:
+            return 0
+        import uuid
+
+        from marvin.db.models.groups.integrations import IntegrationModel
+        from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+        prefs = self.repos.session.query(GroupPreferencesModel).filter_by(group_id=self.repos.group_id).first()
+        if prefs is None or (prefs.notifications_json and not self._overwrite):
+            return 0
+        ids = {
+            row.slug: str(row.id)
+            for row in self.repos.session.query(IntegrationModel).filter(IntegrationModel.group_id == self.repos.group_id).all()
+        }
+        routes = []
+        for route in data.get("routes") or []:
+            integration_id = ids.get(route.get("integrationSlug"))
+            if integration_id is None:
+                self.logger.warning(f"Notification route skipped — integration '{route.get('integrationSlug')}' not found")
+                continue
+            routes.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "integration_id": integration_id,
+                    "action": route.get("action"),
+                    "args": route.get("args") or {},
+                    "enabled": route.get("enabled", True),
+                    **({"kinds": route["kinds"]} if isinstance(route.get("kinds"), list) else {}),
+                }
+            )
+        try:
+            prefs.notifications_json = {"types": data.get("types") or {}, "email": data.get("email") or {}, "routes": routes}
+            if isinstance(data.get("integrationReminderHours"), int):
+                prefs.integration_alert_reminder_hours = data["integrationReminderHours"]
+            self.repos.session.commit()
+        except Exception as e:
+            self.repos.session.rollback()
+            self.logger.error(f"Failed to import notification settings: {e}")
+            return 0
+        return 1
 
     def _import_integration_subscriptions(self, rows: list[dict[str, Any]]) -> int:
         if not self.repos.group_id or not rows:

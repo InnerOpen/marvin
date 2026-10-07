@@ -10,8 +10,8 @@ Two tables:
     history until the prune.
   * ``integration_alerts`` — one open row per integration + error code ("needs attention"), counted
     and sampled instead of one alert per item. ``open_key`` plays the same trick as ``live_key``.
-    ``channels`` records which subscription rows the alert went out through, so the "resolved"
-    notice goes back through exactly those, whatever the routing says by then.
+    ``channels`` records the notification channels and subscription rows the alert went out through, so
+    the "resolved" notice goes back through exactly those, whatever the settings say by then.
 
 Never stores secrets: the snapshot is the triggering event + earlier step outputs, which the run
 history already keeps.
@@ -121,7 +121,8 @@ class IntegrationAlertModel(SqlAlchemyBase, BaseMixins):
     notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     """When integration_attention_needed last went out (the open, or the latest reminder)."""
     channels: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
-    """Where the alert went: {"email": [subscription ids], "integration": [subscription ids]}. The bell always gets it."""
+    """Where the alert went: {"notify": [notification channels: "email", route ids], "email": [subscription ids],
+    "integration": [subscription ids]}. The bell always gets it."""
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     resolved_by: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     resolution: Mapped[str | None] = mapped_column(sa.String, nullable=True)

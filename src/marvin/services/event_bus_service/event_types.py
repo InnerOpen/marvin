@@ -1459,8 +1459,8 @@ class EventIntegrationAttentionData(EventDocumentDataBase):
     """Data payload for integration_attention_needed / integration_attention_resolved.
 
     ``summary`` is the ready-made one-line text a Slack or Apprise subscription sends (`{{summary}}`);
-    ``channels`` names the subscription rows the alert went out through, so the "resolved" notice
-    goes back through exactly those.
+    ``channels`` names the notification channels and subscription rows the alert went out through, so
+    the "resolved" notice goes back through exactly those.
     """
 
     document_type: EventDocumentTypeBase = EventDocumentType.integration
@@ -1490,7 +1490,7 @@ class EventIntegrationAttentionData(EventDocumentDataBase):
     summary: str
     """One line with the detail, for chat/notification channels."""
     channels: dict = {}
-    """{"email": [subscription ids], "integration": [subscription ids]} — where the alert went."""
+    """{"notify": [notification channels], "email": [subscription ids], "integration": [subscription ids]} — where the alert went."""
     settings_url: str | None = None
     """Where to look: the workspace's Settings → Integrations page."""
     workspace_id: UUID4

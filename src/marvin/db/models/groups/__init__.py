@@ -4,6 +4,7 @@ from .ai_executions import *
 from .ai_providers import *
 from .ai_settings import *
 from .ai_threads import *
+from .alert_incidents import *
 from .automation_executions import *
 from .automations import *
 from .email_event_subscriptions import *

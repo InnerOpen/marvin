@@ -479,7 +479,8 @@ def test_resolving_rearms_parked_retries_and_goes_back_through_the_alerts_channe
     (row,) = _retries(db_session, shop)
     assert row.status == "parked" and row.next_attempt_at is None
     (alert,) = _alerts(db_session, shop)
-    assert alert.channels == {"email": [str(route.id)], "integration": []}
+    # the Events-page subscription, and the workspace's notifications (email takes integration alerts by default)
+    assert alert.channels == {"email": [str(route.id)], "integration": [], "notify": ["email"]}
 
     route.enabled = False  # the routing changed in between — the resolved notice still goes there
     db_session.commit()
@@ -489,7 +490,7 @@ def test_resolving_rearms_parked_retries_and_goes_back_through_the_alerts_channe
     (row,) = _retries(db_session, shop)
     assert row.status == "pending" and row.next_attempt_at is not None
     resolved = next(e for e in events if e.name == "integration_attention_resolved")
-    assert resolved.data.channels == {"email": [str(route.id)], "integration": []}
+    assert resolved.data.channels == {"email": [str(route.id)], "integration": [], "notify": ["email"]}
     assert "working again" in resolved.data.summary
     delivered = errors.resolved_channel_rows(
         db_session, shop.gid, SimpleNamespace(event_type=resolved.event_type, document_data=resolved.data), EmailEventSubscriptionModel, "email"
@@ -523,43 +524,6 @@ def test_delivering_an_alert_never_opens_another(db_session, shop, events):
     finally:
         errors._delivering_alert.reset(token)
     assert _alerts(db_session, shop) == []
-
-
-# ── alert routing ───────────────────────────────────────────────────────────────
-
-
-def test_routing_writes_subscription_rows_and_disables_rather_than_deletes(db_session, shop, monkeypatch):
-    from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
-    from marvin.db.models.groups.email_templates import EmailTemplateModel
-    from marvin.db.models.groups.preferences import GroupPreferencesModel
-    from marvin.services.integrations import alert_routing
-
-    template = EmailTemplateModel(
-        session=db_session, group_id=None, name="Integration Alert", template_type="integration_alert", subject="{{title}}", body_markdown="x"
-    )
-    prefs = GroupPreferencesModel(session=db_session, group_id=shop.gid)
-    db_session.add_all([template, prefs])
-    db_session.commit()
-    monkeypatch.setattr(alert_routing, "_system_template_id", lambda session: template.id)
-    try:
-        routing = alert_routing.set_routing(db_session, shop.gid, email_admins=True, integration_ids=[], reminder_hours=6)
-        assert routing["email_admins"] is True and routing["reminder_hours"] == 6
-        (row,) = db_session.query(EmailEventSubscriptionModel).filter_by(group_id=shop.gid).all()
-        assert (row.event_type, row.recipient_type, row.enabled) == (errors.NEEDED, "admins", True)
-
-        routing = alert_routing.set_routing(db_session, shop.gid, email_admins=False, integration_ids=[], reminder_hours=0)
-        assert routing["email_admins"] is False
-        (row,) = db_session.query(EmailEventSubscriptionModel).filter_by(group_id=shop.gid).all()
-        assert row.enabled is False  # kept: an open alert's resolved notice may still need it
-        assert errors._reminder_hours(db_session, shop.gid) == 0
-
-        with pytest.raises(ValueError):
-            alert_routing.set_routing(db_session, shop.gid, email_admins=False, integration_ids=[shop.integration.id], reminder_hours=24)
-    finally:
-        db_session.rollback()
-        db_session.query(EmailEventSubscriptionModel).filter_by(group_id=shop.gid).delete()
-        db_session.query(EmailTemplateModel).filter_by(id=template.id).delete()
-        db_session.commit()
 
 
 # ── run history message ─────────────────────────────────────────────────────────

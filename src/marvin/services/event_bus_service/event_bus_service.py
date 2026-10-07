@@ -36,6 +36,7 @@ from marvin.services.event_bus_service.event_bus_listener import (
     SiteRebuildReactionListener,
     SmartCollectionReactionListener,
     WebhookEventListener,
+    WorkspaceAlertListener,
 )
 from marvin.services.events.event_catalog import INTERNAL_EVENT_TYPES  # scheduler plumbing, logged quietly
 
@@ -165,6 +166,7 @@ class EventBusService(BaseService):
             IntegrationEventListener(group_id),  # Runs integration actions wired to events.
             EmailEventListener(group_id),  # Fires email templates on matching events.
             PlatformAlertListener(group_id),  # Sends platform alerts past the bell (Admin → Platform alerts).
+            WorkspaceAlertListener(group_id),  # Sends the workspace's failures past the bell (Automation → Notifications).
         ]
 
     def _publish_event(self, event: Event, group_id: UUID4) -> None:

@@ -197,34 +197,6 @@ class IntegrationResolveResult(_MarvinModel):
     resolved: int
 
 
-class AlertRoutingTarget(_MarvinModel):
-    """A connection that can carry integration alerts (a chat or notification provider)."""
-
-    integration_id: UUID4
-    name: str
-    provider: str
-    action: str
-    enabled: bool = False
-    """Whether alerts currently go to it."""
-
-
-class AlertRouting(_MarvinModel):
-    """Where integration alerts go besides the bell (which always gets them)."""
-
-    email_admins: bool = False
-    """Email the workspace's owners and admins (the "Integration Alert" system template)."""
-    targets: list[AlertRoutingTarget] = Field(default_factory=list)
-    reminder_hours: int = 24
-    """An open alert is announced again after this many hours; 0 = never."""
-
-
-class AlertRoutingUpdate(_MarvinModel):
-    email_admins: bool = False
-    integration_ids: list[UUID4] = Field(default_factory=list)
-    """The connections alerts go to (each must be one of the routing's targets)."""
-    reminder_hours: int = Field(default=24, ge=0, le=24 * 30)
-
-
 # ---- Alerts & health page ---------------------------------------------------------------------------
 
 

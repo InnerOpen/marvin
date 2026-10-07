@@ -25,8 +25,6 @@ from marvin.db.models.groups.integrations import IntegrationModel
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import refuse_platform_events, require_workspace_admin
 from marvin.schemas.group.integration import (
-    AlertRouting,
-    AlertRoutingUpdate,
     HandledFailurePage,
     IntegrationActionResult,
     IntegrationAlertPage,
@@ -176,29 +174,6 @@ class IntegrationsController(BaseUserController):
         """Installed provider sources — built-ins and plugin packages — with load status/version."""
         require_workspace_admin(self.user, self.group_id)
         return [IntegrationPluginInfo(**asdict(r)) for r in load_reports()]
-
-    # ---- integration alert routing ------------------------------------------------
-
-    @router.get("/alert-routing", response_model=AlertRouting)
-    def get_alert_routing(self):
-        """Where integration alerts go besides the bell: admins by email, chat/notification connections."""
-        require_workspace_admin(self.user, self.group_id)
-        from marvin.services.integrations.alert_routing import get_routing
-
-        return AlertRouting(**get_routing(self.session, self.group_id))
-
-    @router.put("/alert-routing", response_model=AlertRouting)
-    def set_alert_routing(self, data: AlertRoutingUpdate):
-        require_workspace_admin(self.user, self.group_id)
-        from marvin.services.integrations.alert_routing import set_routing
-
-        try:
-            routing = set_routing(
-                self.session, self.group_id, email_admins=data.email_admins, integration_ids=data.integration_ids, reminder_hours=data.reminder_hours
-            )
-        except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
-        return AlertRouting(**routing)
 
     # ---- alerts & health page ----------------------------------------------------
 

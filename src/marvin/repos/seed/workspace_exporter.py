@@ -69,6 +69,7 @@ class WorkspaceExporter:
             "email_templates": self._export_email_templates(),
             "email_subscriptions": self._export_email_subscriptions(),
             "integration_subscriptions": self._export_integration_subscriptions(),
+            "notifications": self._export_notifications(),
         }
 
         self.logger.info(
@@ -831,6 +832,34 @@ class WorkspaceExporter:
                 }
             )
         return out
+
+    def _export_notifications(self) -> dict[str, Any] | None:
+        """Where the workspace's alerts go (Settings → Automation → Notifications). A route's connection travels
+        as its slug; None when the workspace never changed the defaults."""
+        from marvin.db.models.groups.integrations import IntegrationModel
+        from marvin.db.models.groups.preferences import GroupPreferencesModel
+
+        prefs = self.repos.session.query(GroupPreferencesModel).filter_by(group_id=self.repos.group_id).first()
+        stored = prefs.notifications_json if prefs is not None else None
+        if not stored:
+            return None
+        slugs = {str(row.id): row.slug for row in self._group_rows(IntegrationModel)}
+        routes = [
+            {
+                "integrationSlug": slugs.get(str(route.get("integration_id"))),
+                "action": route.get("action"),
+                "args": route.get("args") or {},
+                "enabled": route.get("enabled", True),
+                "kinds": route.get("kinds"),
+            }
+            for route in stored.get("routes") or []
+        ]
+        return {
+            "types": stored.get("types") or {},
+            "email": stored.get("email") or {},
+            "routes": routes,
+            "integrationReminderHours": prefs.integration_alert_reminder_hours,
+        }
 
     def _export_integration_subscriptions(self) -> list[dict[str, Any]]:
         """Integration event subscriptions. The integration FK is exported as its slug."""

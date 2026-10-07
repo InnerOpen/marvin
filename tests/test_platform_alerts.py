@@ -267,15 +267,8 @@ def test_message_args_keep_the_workspace_alert_shapes():
 
     (slack,) = alert_routing.message_actions(Slackish())
     (apprise,) = alert_routing.message_actions(Apprisish())
-    assert alert_routing._template_args(slack) == {"text": "*{{title}}*\n{{summary}}"}
-    assert alert_routing._template_args(apprise) == {"title": "{{title}}", "body": "{{summary}}"}
-
-
-def test_workspace_routing_skips_actions_that_need_more_than_the_message():
-    assert alert_routing._notify_action("test_chat") is None  # needs a channel the workspace panel can't give
-    assert alert_routing._notify_action("test_pager").key == "page"
-    assert alert_routing._notify_action("test_deploy") is None
-    assert alert_routing._notify_action("not_installed") is None
+    assert slack.args("{{title}}", "{{summary}}") == {"text": "*{{title}}*\n{{summary}}"}
+    assert apprise.args("{{title}}", "{{summary}}") == {"title": "{{title}}", "body": "{{summary}}"}
 
 
 def test_targets_are_the_platform_workspace_message_actions(db_session, world):

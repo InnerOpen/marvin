@@ -113,6 +113,19 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         "Read and written through services/events/audit_settings.py (locked types ignore it).",
     )
 
+    notifications_json: Mapped[dict | None] = mapped_column(
+        sa.JSON,
+        nullable=True,
+        doc="Where the workspace's alerts go (Settings → Automation → Notifications): {types, email, routes}. Null takes "
+        "the defaults. Read and written through services/workspace_alerts.py.",
+    )
+    notifications_status_json: Mapped[dict | None] = mapped_column(
+        sa.JSON,
+        nullable=True,
+        doc="Each notification channel's last delivery: {channel: {at, outcome, detail, event_type, test}}. Written by "
+        "delivery only, so saving the settings never races it.",
+    )
+
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:
         """
