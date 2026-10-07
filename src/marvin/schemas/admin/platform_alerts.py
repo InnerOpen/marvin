@@ -2,32 +2,20 @@
 Marvin, and how — email to super admins, or a message-capable integration action on a connection in the
 platform workspace. See services/platform_alerts.py."""
 
-from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import UUID4, Field
 
 from marvin.schemas._marvin import _MarvinModel
+from marvin.schemas.alerts import AlertActionInput, AlertDelivery, AlertKindRead, AlertTarget, AlertTestRequest
 
 
-class PlatformAlertDelivery(_MarvinModel):
+class PlatformAlertDelivery(AlertDelivery):
     """A channel's last delivery (an alert or a test)."""
 
-    at: datetime
-    outcome: Literal["sent", "failed", "skipped"]
-    detail: str
-    event_type: str | None = None
-    """The event that was sent; None for a test."""
-    test: bool = False
 
-
-class PlatformAlertKindRead(_MarvinModel):
-    key: str
-    label: str
-    description: str
-    event_type: str
-    enabled: bool
-    default: bool
+class PlatformAlertKindRead(AlertKindRead):
+    pass
 
 
 class PlatformAlertEmailRead(_MarvinModel):
@@ -41,25 +29,13 @@ class PlatformAlertEmailRead(_MarvinModel):
     last_delivery: PlatformAlertDelivery | None = None
 
 
-class PlatformAlertActionInput(_MarvinModel):
+class PlatformAlertActionInput(AlertActionInput):
     """One of an action's own inputs the admin fills (the message itself is Marvin's)."""
 
-    key: str
-    label: str
-    description: str = ""
-    required: bool = False
 
-
-class PlatformAlertTarget(_MarvinModel):
+class PlatformAlertTarget(AlertTarget):
     """A message-capable action on a connection in the platform workspace."""
 
-    integration_id: UUID4
-    integration_name: str
-    provider: str
-    provider_name: str
-    connection_enabled: bool
-    action: str
-    action_label: str
     inputs: list[PlatformAlertActionInput] = Field(default_factory=list)
 
 
@@ -115,9 +91,8 @@ class PlatformAlertsUpdate(_MarvinModel):
     routes: list[PlatformAlertRouteUpdate] = Field(default_factory=list)
 
 
-class PlatformAlertTestRequest(_MarvinModel):
-    channel: str
-    """``email``, or a saved route's id."""
+class PlatformAlertTestRequest(AlertTestRequest):
+    pass
 
 
 class PlatformAlertTestResult(_MarvinModel):

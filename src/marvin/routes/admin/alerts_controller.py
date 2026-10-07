@@ -9,7 +9,6 @@ from fastapi import APIRouter, HTTPException, status
 
 from marvin.routes._base import BaseAdminController, controller
 from marvin.schemas.admin.platform_alerts import (
-    PlatformAlertActionInput,
     PlatformAlertDelivery,
     PlatformAlertEmailRead,
     PlatformAlertKindRead,
@@ -21,39 +20,11 @@ from marvin.schemas.admin.platform_alerts import (
     PlatformAlertTestResult,
     PlatformWorkspaceRef,
 )
+from marvin.services import alerting
 from marvin.services import platform_alerts as alerts
 from marvin.services.event_bus_service.event_types import EventOperation, EventPlatformSettingsChangedData, EventTypes
 
 router = APIRouter(prefix="/alerts")
-
-
-def _delivery(raw: dict | None) -> PlatformAlertDelivery | None:
-    try:
-        return PlatformAlertDelivery.model_validate(raw) if raw else None
-    except ValueError:
-        return None
-
-
-def _target(t: alerts.Target) -> PlatformAlertTarget:
-    action = t.action
-    return PlatformAlertTarget(
-        integration_id=t.integration_id,
-        integration_name=t.integration_name,
-        provider=t.provider,
-        provider_name=t.provider_name,
-        connection_enabled=t.connection_enabled,
-        action=action.key,
-        action_label=action.label,
-        inputs=[
-            PlatformAlertActionInput(
-                key=key,
-                label=(prop or {}).get("title") or key,
-                description=(prop or {}).get("description") or "",
-                required=key in action.required,
-            )
-            for key, prop in action.inputs.items()
-        ],
-    )
 
 
 @controller(router)
@@ -70,13 +41,6 @@ class AdminPlatformAlertsController(BaseAdminController):
         routes = []
         for route in settings.routes:
             target = by_key.get((route.integration_id, route.action))
-            problem = None
-            if workspace is None:
-                problem = "There's no platform workspace to send through."
-            elif target is None:
-                problem = "The connection is gone from the platform workspace, its plugin isn't installed, or the action no longer sends messages."
-            elif not target.connection_enabled:
-                problem = f"{target.integration_name} is turned off in the platform workspace."
             routes.append(
                 PlatformAlertRouteRead(
                     id=route.id,
@@ -84,9 +48,9 @@ class AdminPlatformAlertsController(BaseAdminController):
                     action=route.action,
                     args=route.args,
                     enabled=route.enabled,
-                    label=f"{target.integration_name} → {target.action.label}" if target else f"(missing connection) → {route.action}",
-                    problem=problem,
-                    last_delivery=_delivery(last.get(route.id)),
+                    label=alerting.route_label(target, route),
+                    problem=alerting.route_problem(alerts.PLATFORM, workspace, target),
+                    last_delivery=PlatformAlertDelivery.from_status(last.get(route.id)),
                 )
             )
         return PlatformAlertsRead(
@@ -101,10 +65,10 @@ class AdminPlatformAlertsController(BaseAdminController):
                 recipients=settings.recipients,
                 super_admin_emails=alerts.super_admin_emails(self.session),
                 smtp_ready=alerts.smtp_ready(),
-                last_delivery=_delivery(last.get(alerts.EMAIL_CHANNEL)),
+                last_delivery=PlatformAlertDelivery.from_status(last.get(alerts.EMAIL_CHANNEL)),
             ),
             routes=routes,
-            targets=[_target(t) for t in available],
+            targets=[PlatformAlertTarget.from_target(t) for t in available],
             platform_workspace=PlatformWorkspaceRef(id=workspace.id, name=workspace.name, slug=getattr(workspace, "slug", None))
             if workspace
             else None,

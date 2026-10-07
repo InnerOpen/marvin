@@ -18,54 +18,41 @@ retries. A channel that fails is logged and its "last delivery" shows why; it ne
 Messages carry the event's title and summary, the scope, why it was sent and a link to the admin page —
 scrubbed like a backup error, never the event's raw payload.
 
+The settings, the channels and the message are services/alerting.py's, shared with each workspace's
+notifications; this module is the platform's scope of it (:class:`PlatformScope`) and its entry points.
+
 Stored in ``platform_settings`` under ``platform_alerts`` (what an admin chose) and
 ``platform_alerts_status`` (each channel's last delivery, written by delivery, so saving never races it).
 """
 
 from __future__ import annotations
 
-import html
-import os
-import re
-import uuid
-from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
-from typing import Any
-
 from sqlalchemy.orm import Session
 
-from marvin.core.root_logger import get_logger
+from marvin.services import alerting
+from marvin.services.alerting import (  # noqa: F401 — the platform alerts' public names
+    EMAIL_CHANNEL,
+    FAILED,
+    MAX_TEXT,
+    SENT,
+    SKIPPED,
+    AlertKind,
+    AlertMessage,
+    AlertSettings,
+    Delivery,
+    InvalidAlertSettings,
+    Route,
+    Target,
+    event_data,
+    targets,
+)
 from marvin.services.platform_settings import PlatformSettingsService
-
-logger = get_logger(__name__)
 
 SETTINGS_KEY = "platform_alerts"
 STATUS_KEY = "platform_alerts_status"
-EMAIL_CHANNEL = "email"
 SCOPE = "Platform — all workspaces"
 PAGE_PATH = "/admin/alerts"
 TEST_TITLE = "Test alert from Marvin admin"
-MAX_TEXT = 1500
-
-SENT, FAILED, SKIPPED = "sent", "failed", "skipped"
-
-
-@dataclass(frozen=True)
-class AlertKind:
-    """One kind of platform alert an admin turns on or off: an event type, narrowed by the backup
-    check's ``reason`` where one event type means several things."""
-
-    key: str
-    label: str
-    event_type: str
-    description: str
-    link_path: str
-    default: bool = True
-    reasons: frozenset[str] | None = None
-
-    def matches(self, event_type: str, data: dict) -> bool:
-        return event_type == self.event_type and (self.reasons is None or data.get("reason") in self.reasons)
-
 
 KINDS: tuple[AlertKind, ...] = (
     AlertKind(
@@ -127,89 +114,6 @@ ALERT_EVENT_TYPES: frozenset[str] = frozenset(k.event_type for k in KINDS)
 """What the listener looks at; any other event costs it nothing."""
 
 
-# --------------------------------------------------------------------------------------------------
-# Settings
-# --------------------------------------------------------------------------------------------------
-
-
-@dataclass
-class Route:
-    id: str
-    integration_id: str
-    action: str
-    args: dict
-    enabled: bool = True
-
-
-@dataclass
-class AlertSettings:
-    types: dict[str, bool]
-    """Each kind on or off (every kind is present; a kind missing from storage takes its default)."""
-    email_enabled: bool
-    recipients: list[str] | None
-    """None: every super admin with an email address, as of when the alert is sent."""
-    routes: list[Route]
-
-    def enabled_kind(self, event_type: str, data: dict) -> AlertKind | None:
-        return next((k for k in KINDS if self.types.get(k.key) and k.matches(event_type, data)), None)
-
-    def as_stored(self) -> dict:
-        return {
-            "types": dict(self.types),
-            "email": {"enabled": self.email_enabled, "recipients": self.recipients},
-            "routes": [asdict(r) for r in self.routes],
-        }
-
-
-def load(session: Session) -> AlertSettings:
-    stored = PlatformSettingsService(session).get(SETTINGS_KEY) or {}
-    types = stored.get("types") or {}
-    email = stored.get("email") or {}
-    routes = []
-    for raw in stored.get("routes") or []:
-        try:
-            routes.append(
-                Route(
-                    id=str(raw["id"]),
-                    integration_id=str(raw["integration_id"]),
-                    action=str(raw["action"]),
-                    args=dict(raw.get("args") or {}),
-                    enabled=bool(raw.get("enabled", True)),
-                )
-            )
-        except (KeyError, TypeError):
-            logger.warning(f"platform alerts: ignoring a malformed stored route: {raw!r}")
-    recipients = email.get("recipients")
-    return AlertSettings(
-        types={k.key: bool(types.get(k.key, k.default)) for k in KINDS},
-        email_enabled=bool(email.get("enabled", True)),
-        recipients=list(recipients) if isinstance(recipients, list) else None,
-        routes=routes,
-    )
-
-
-def statuses(session: Session) -> dict[str, dict]:
-    return PlatformSettingsService(session).get(STATUS_KEY) or {}
-
-
-def _record(session: Session, results: dict[str, dict]) -> None:
-    """Merge channels' last deliveries into the status row (its own key: saving settings never races it)."""
-    if not results:
-        return
-    try:
-        service = PlatformSettingsService(session)
-        current = service.get(STATUS_KEY) or {}
-        service.set(STATUS_KEY, {**current, **results})
-    except Exception:  # noqa: BLE001 — a status write must never break delivery
-        session.rollback()
-        logger.exception("platform alerts: could not record delivery status")
-
-
-# --------------------------------------------------------------------------------------------------
-# Where routes come from: the platform workspace's message-capable connections
-# --------------------------------------------------------------------------------------------------
-
-
 def _platform_workspace(session: Session):
     """The workspace whose integration connections platform alerts may use, or None.
 
@@ -220,250 +124,6 @@ def _platform_workspace(session: Session):
         return platform_workspace(session)
     except PlatformWorkspaceMissing:
         return None
-
-
-@dataclass
-class Target:
-    """A message-capable action on one connection in the platform workspace."""
-
-    integration_id: str
-    integration_name: str
-    provider: str
-    provider_name: str
-    connection_enabled: bool
-    action: Any  # alert_routing.MessageAction
-
-    @property
-    def key(self) -> tuple[str, str]:
-        return (self.integration_id, self.action.key)
-
-
-def targets(session: Session, workspace) -> list[Target]:
-    """Every message-capable action on the platform workspace's connections whose provider is installed."""
-    if workspace is None:
-        return []
-    from marvin.services.integrations import INTEGRATIONS_AVAILABLE
-
-    if not INTEGRATIONS_AVAILABLE:
-        return []
-    from marvin.db.models.groups.integrations import IntegrationModel
-    from marvin.services.integrations import get_provider
-    from marvin.services.integrations.alert_routing import message_actions
-
-    found: list[Target] = []
-    for row in session.query(IntegrationModel).filter(IntegrationModel.group_id == workspace.id).order_by(IntegrationModel.name).all():
-        try:
-            provider = get_provider(row.provider)
-        except KeyError:
-            continue  # not installed: nothing to run
-        for action in message_actions(provider):
-            found.append(
-                Target(
-                    integration_id=str(row.id),
-                    integration_name=row.name,
-                    provider=row.provider,
-                    provider_name=getattr(provider, "name", row.provider),
-                    connection_enabled=bool(row.enabled),
-                    action=action,
-                )
-            )
-    return found
-
-
-# --------------------------------------------------------------------------------------------------
-# Saving
-# --------------------------------------------------------------------------------------------------
-
-_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_ARG_TYPES = (str, int, float, bool)
-
-
-class InvalidAlertSettings(ValueError):
-    """What an admin asked for can't be saved; the message says why, for people."""
-
-
-def _clean_recipients(recipients: list[str] | None) -> list[str] | None:
-    if recipients is None:
-        return None
-    seen: dict[str, str] = {}
-    for raw in recipients:
-        addr = (raw or "").strip()
-        if not addr:
-            continue
-        if not _EMAIL.match(addr):
-            raise InvalidAlertSettings(f"'{addr}' isn't an email address.")
-        seen.setdefault(addr.lower(), addr)
-    if not seen:
-        raise InvalidAlertSettings("Add at least one email address, or send to every super admin.")
-    return list(seen.values())
-
-
-def _clean_args(target: Target, args: dict | None) -> dict:
-    """The admin's arguments for the action's own inputs (a channel…): the message fields are Marvin's;
-    every required input present; plain values only. ``{{SECRET}}`` references stay as written."""
-    action = target.action
-    args = {k: v for k, v in (args or {}).items() if v is not None and v != ""}
-    carried = {action.body_field, action.title_field} - {None}
-    unknown = sorted(set(args) - set(action.inputs) - carried)
-    if unknown:
-        raise InvalidAlertSettings(f"{target.integration_name} → {action.label} takes no '{', '.join(unknown)}'.")
-    missing = [k for k in action.required if k not in args]
-    if missing:
-        raise InvalidAlertSettings(f"{target.integration_name} → {action.label} needs {', '.join(missing)}.")
-    bad = [k for k, v in args.items() if not isinstance(v, _ARG_TYPES)]
-    if bad:
-        raise InvalidAlertSettings(f"{target.integration_name} → {action.label}: {', '.join(bad)} must be plain text.")
-    return {k: (v.strip() if isinstance(v, str) else v) for k, v in args.items() if k in action.inputs}
-
-
-def validate(session: Session, *, types: dict[str, bool], email_enabled: bool, recipients: list[str] | None, routes: list[dict]) -> AlertSettings:
-    """What the admin asked for as settings, or InvalidAlertSettings. Routes must name a message-capable
-    action on a connection in the platform workspace."""
-    unknown = sorted(set(types) - set(KINDS_BY_KEY))
-    if unknown:
-        raise InvalidAlertSettings(f"Unknown alert type: {', '.join(unknown)}.")
-    current = load(session)
-    cleaned_types = {k.key: bool(types.get(k.key, current.types[k.key])) for k in KINDS}
-
-    workspace = _platform_workspace(session)
-    if routes and workspace is None:
-        raise InvalidAlertSettings("There's no platform workspace, so alerts can't go through an integration.")
-    available = {t.key: t for t in targets(session, workspace)}
-    existing_ids = {r.id for r in current.routes}
-    cleaned: list[Route] = []
-    seen: set[tuple] = set()
-    for raw in routes:
-        key = (str(raw.get("integration_id")), str(raw.get("action")))
-        target = available.get(key)
-        if target is None:
-            raise InvalidAlertSettings(f"'{key[1]}' on connection {key[0]} can't carry alerts from the platform workspace.")
-        args = _clean_args(target, raw.get("args"))
-        same = (*key, tuple(sorted((k, str(v)) for k, v in args.items())))
-        if same in seen:  # one action may serve several routes (two channels), but not twice the same one
-            raise InvalidAlertSettings(f"{target.integration_name} → {target.action.label} is listed twice with the same settings.")
-        seen.add(same)
-        route_id = str(raw.get("id") or "")
-        if route_id not in existing_ids or route_id in {r.id for r in cleaned}:
-            route_id = str(uuid.uuid4())
-        cleaned.append(Route(id=route_id, integration_id=key[0], action=key[1], args=args, enabled=bool(raw.get("enabled", True))))
-    return AlertSettings(types=cleaned_types, email_enabled=bool(email_enabled), recipients=_clean_recipients(recipients), routes=cleaned)
-
-
-def describe_changes(session: Session, old: AlertSettings, new: AlertSettings) -> list[str]:
-    """What changed, for the audit event: kinds, email, routes by name. Never an argument's value."""
-    changes = [f"{k.label}: {'on' if new.types[k.key] else 'off'}" for k in KINDS if old.types[k.key] != new.types[k.key]]
-    if old.email_enabled != new.email_enabled:
-        changes.append(f"Email: {'on' if new.email_enabled else 'off'}")
-    if old.recipients != new.recipients:
-        changes.append("Email recipients: " + ("every super admin" if new.recipients is None else f"{len(new.recipients)} address(es)"))
-    names = {t.key: f"{t.integration_name} → {t.action.label}" for t in targets(session, _platform_workspace(session))}
-
-    def name(route: Route) -> str:
-        return names.get((route.integration_id, route.action), f"{route.integration_id} → {route.action}")
-
-    before = {r.id: r for r in old.routes}
-    after = {r.id: r for r in new.routes}
-    changes += [f"Route removed: {name(r)}" for rid, r in before.items() if rid not in after]
-    for rid, r in after.items():
-        prev = before.get(rid)
-        if prev is None:
-            changes.append(f"Route added: {name(r)}" + ("" if r.enabled else " (off)"))
-            continue
-        if prev.enabled != r.enabled:
-            changes.append(f"Route {name(r)}: {'on' if r.enabled else 'off'}")
-        if prev.args != r.args:
-            changes.append(f"Route {name(r)}: arguments changed")
-    return changes
-
-
-def save(session: Session, settings: AlertSettings) -> None:
-    PlatformSettingsService(session).set(SETTINGS_KEY, settings.as_stored())
-
-
-# --------------------------------------------------------------------------------------------------
-# The message — one builder for every channel
-# --------------------------------------------------------------------------------------------------
-
-
-def _scrub(text: str | None) -> str:
-    """No credentials: URL user info and any credential-like environment value, as backup errors are scrubbed."""
-    from marvin.services.storage.healthcheck import scrub
-
-    cleaned = scrub((text or "").strip(), os.environ) or ""
-    return cleaned if len(cleaned) <= MAX_TEXT else cleaned[: MAX_TEXT - 1] + "…"
-
-
-@dataclass
-class AlertMessage:
-    title: str
-    summary: str
-    reason: str
-    link: str
-    detail: str = ""
-    scope: str = SCOPE
-
-    @property
-    def body(self) -> str:
-        """The plain-text body a chat or notification channel gets (the title travels separately)."""
-        lines = [self.summary]
-        if self.detail:
-            lines.append(self.detail)
-        lines += [f"Scope: {self.scope}", self.reason, self.link]
-        return "\n".join(line for line in lines if line)
-
-
-def _ui_link(path: str) -> str:
-    from marvin.services.ui_links import ui_link
-
-    return ui_link(path)
-
-
-def build_message(*, title: str, summary: str, reason: str, link_path: str, detail: str | None = None) -> AlertMessage:
-    return AlertMessage(
-        title=_scrub(title)[:200],
-        summary=_scrub(summary),
-        detail=_scrub(detail),
-        reason=reason,
-        link=_ui_link(link_path),
-    )
-
-
-def message_for(kind: AlertKind, event, data: dict) -> AlertMessage:
-    """The alert for one platform event: its catalog title, its message, the backup error if there is one."""
-    message = getattr(event, "message", None)
-    title = getattr(message, "title", None) or kind.label
-    summary = getattr(message, "body", None) or kind.description
-    detail = data.get("error_message") if kind.event_type.startswith("backup_") else None
-    return build_message(
-        title=title,
-        summary=summary,
-        detail=detail,
-        reason=f"Sent because “{kind.label}” alerts are on in Admin → Platform alerts.",
-        link_path=kind.link_path,
-    )
-
-
-def trial_message(channel_label: str, by: str | None) -> AlertMessage:
-    return build_message(
-        title=TEST_TITLE,
-        summary=f"This is a test of the {channel_label} route for platform alerts. Nothing is wrong.",
-        reason="Sent from Admin → Platform alerts" + (f" by {by}." if by else "."),
-        link_path=PAGE_PATH,
-    )
-
-
-# --------------------------------------------------------------------------------------------------
-# Channels
-# --------------------------------------------------------------------------------------------------
-
-
-@dataclass
-class Delivery:
-    outcome: str
-    detail: str
-
-    def status(self, event_type: str | None, test: bool) -> dict:
-        return {"at": datetime.now(UTC).isoformat(), "outcome": self.outcome, "detail": self.detail[:500], "event_type": event_type, "test": test}
 
 
 def super_admin_emails(session: Session) -> list[str]:
@@ -480,111 +140,102 @@ def smtp_ready() -> bool:
     return bool(get_app_settings().SMTP_ENABLED)
 
 
-def _email_template(message: AlertMessage):
-    from marvin.services.email.email_service import EmailTemplate
+class PlatformScope(alerting.AlertScope):
+    """Platform alerts: stored in ``platform_settings``, routes through the platform workspace's connections,
+    email to every super admin through the platform SMTP settings."""
 
-    esc = html.escape
-    absolute = message.link.startswith(("http://", "https://"))
-    top = esc(message.summary) + (f"<br><br>{esc(message.detail)}" if message.detail else "")
-    bottom = f"Scope: {esc(message.scope)}<br>{esc(message.reason)}" + ("" if absolute else f"<br>{esc(message.link)}")
-    return EmailTemplate(
-        subject=message.title,
-        header_text=esc(message.title),
-        message_top=top,
-        message_bottom=bottom,
-        button_link=message.link if absolute else "",
-        button_text="Open in Marvin" if absolute else "",
-    )
+    name = "platform alerts"
+    kinds = KINDS
+    page = "Admin → Platform alerts"
+    page_path = PAGE_PATH
+    test_title = TEST_TITLE
+    everyone = "every super admin"
+    nobody = "no super admin has an email address"
+    email_setup = "SMTP isn't configured (Admin → Email settings)"
+    where = "the platform workspace"
+
+    def stored_settings(self, session: Session) -> dict | None:
+        return PlatformSettingsService(session).get(SETTINGS_KEY)
+
+    def store_settings(self, session: Session, stored: dict) -> None:
+        PlatformSettingsService(session).set(SETTINGS_KEY, stored)
+
+    def stored_status(self, session: Session) -> dict:
+        return PlatformSettingsService(session).get(STATUS_KEY) or {}
+
+    def store_status(self, session: Session, status: dict) -> None:
+        PlatformSettingsService(session).set(STATUS_KEY, status)
+
+    def workspace(self, session: Session):
+        return _platform_workspace(session)
+
+    def default_recipients(self, session: Session) -> list[str]:
+        return super_admin_emails(session)
+
+    def email_ready(self, session: Session) -> bool:
+        return smtp_ready()
+
+    def email_service(self):
+        from marvin.services.email.email_service import EmailService
+
+        return EmailService()  # no workspace: the platform SMTP settings
+
+    def scope_label(self, session: Session) -> str:
+        return SCOPE
+
+    def reason(self, kind: AlertKind) -> str:
+        return f"Sent because “{kind.label}” alerts are on in {self.page}."
+
+    def trial_summary(self, channel_label: str) -> str:
+        return f"This is a test of the {channel_label} route for platform alerts. Nothing is wrong."
+
+
+PLATFORM = PlatformScope()
+
+
+def load(session: Session) -> AlertSettings:
+    return alerting.load(PLATFORM, session)
+
+
+def save(session: Session, settings: AlertSettings) -> None:
+    alerting.save(PLATFORM, session, settings)
+
+
+def statuses(session: Session) -> dict[str, dict]:
+    return alerting.statuses(PLATFORM, session)
+
+
+def validate(session: Session, *, types: dict[str, bool], email_enabled: bool, recipients: list[str] | None, routes: list[dict]) -> AlertSettings:
+    """What the admin asked for as settings, or InvalidAlertSettings. Routes must name a message-capable
+    action on a connection in the platform workspace."""
+    return alerting.validate(PLATFORM, session, types=types, email_enabled=email_enabled, recipients=recipients, routes=routes)
+
+
+def describe_changes(session: Session, old: AlertSettings, new: AlertSettings) -> list[str]:
+    return alerting.describe_changes(PLATFORM, session, old, new)
+
+
+def build_message(*, title: str, summary: str, reason: str, link_path: str, detail: str | None = None) -> AlertMessage:
+    return alerting.build_message(title=title, summary=summary, reason=reason, link_path=link_path, detail=detail, scope=SCOPE)
+
+
+def message_for(kind: AlertKind, event, data: dict) -> AlertMessage:
+    """The alert for one platform event: its catalog title, its message, the backup error if there is one."""
+    message = getattr(event, "message", None)
+    title = getattr(message, "title", None) or kind.label
+    summary = getattr(message, "body", None) or kind.description
+    detail = data.get("error_message") if kind.event_type.startswith("backup_") else None
+    return build_message(title=title, summary=summary, detail=detail, reason=PLATFORM.reason(kind), link_path=kind.link_path)
 
 
 def send_email(session: Session, settings: AlertSettings, message: AlertMessage) -> Delivery:
     """Email through the platform SMTP settings, to the explicit list or every super admin."""
-    recipients = settings.recipients if settings.recipients is not None else super_admin_emails(session)
-    if not recipients:
-        return Delivery(SKIPPED, "No recipients: no super admin has an email address.")
-    if not smtp_ready():
-        return Delivery(SKIPPED, "Not sent: SMTP isn't configured (Admin → Email settings).")
-    from marvin.services.email.email_service import EmailService
-
-    service = EmailService()  # no workspace: the platform SMTP settings
-    template = _email_template(message)
-    failed: list[str] = []
-    for addr in recipients:
-        try:
-            if not service.send_email(addr, template):
-                failed.append(addr)
-        except Exception as e:  # noqa: BLE001 — one address must not stop the rest
-            logger.warning(f"platform alerts: email to {addr} failed: {e}")
-            failed.append(addr)
-    if failed:
-        return Delivery(FAILED, f"Sent to {len(recipients) - len(failed)} of {len(recipients)}; failed: {', '.join(failed)}.")
-    return Delivery(SENT, f"Sent to {len(recipients)} recipient(s).")
+    return alerting.send_email(PLATFORM, session, settings, message)
 
 
 def send_route(session: Session, route: Route, message: AlertMessage, workspace=None) -> Delivery:
     """Run the route's action on its platform-workspace connection with the message filled in."""
-    workspace = workspace if workspace is not None else _platform_workspace(session)
-    if workspace is None:
-        return Delivery(FAILED, "There's no platform workspace to send through.")
-    target = next((t for t in targets(session, workspace) if t.key == (route.integration_id, route.action)), None)
-    if target is None:
-        return Delivery(
-            FAILED, "The connection is gone from the platform workspace, its plugin isn't installed, or the action no longer sends messages."
-        )
-    if not target.connection_enabled:
-        return Delivery(FAILED, f"{target.integration_name} is turned off in the platform workspace.")
-
-    from marvin.db.models.groups.integrations import IntegrationModel
-    from marvin.services.integrations import IntegrationContext, build_http, get_provider
-    from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets
-    from marvin.services.integrations.errors import redact, secret_values
-    from marvin.services.secrets.resolver import resolve_secret
-
-    row = session.get(IntegrationModel, uuid.UUID(route.integration_id))
-    provider = get_provider(row.provider)
-    secret = None
-    resolved: dict = {}
-    try:
-        secret = resolve_secret(row.secret_ref, workspace.id) if row.secret_ref else None
-        resolved = resolve_arg_secrets(route.args, workspace.id)
-        args = {**resolved, **target.action.args(message.title, message.body)}
-        ctx = IntegrationContext(config=row.config or {}, secret=secret, logger=logger, http=build_http())
-        provider.run_action(target.action.key, args, ctx)
-    except MissingSecretError as e:
-        return Delivery(FAILED, str(e))
-    except Exception as e:  # noqa: BLE001 — a failing route is reported, never raised into the bus
-        hidden = secret_values(secret, *(v for k, v in resolved.items() if route.args.get(k) != v))
-        error = redact(str(e) or type(e).__name__, hidden)
-        logger.warning(f"platform alerts: {target.integration_name} → {target.action.key} failed: {error}")
-        return Delivery(FAILED, f"{target.integration_name} → {target.action.label} failed: {error}")
-    return Delivery(SENT, f"Sent through {target.integration_name} → {target.action.label}.")
-
-
-def _send(
-    session: Session, settings: AlertSettings, message: AlertMessage, channels: list[str] | None, *, event_type: str | None, test: bool
-) -> dict[str, dict]:
-    """Send to each enabled channel (or the ones named), each isolated; record and return their statuses."""
-    results: dict[str, dict] = {}
-    if (settings.email_enabled and channels is None) or (channels is not None and EMAIL_CHANNEL in channels):
-        try:
-            delivery = send_email(session, settings, message)
-        except Exception as e:  # noqa: BLE001
-            logger.exception("platform alerts: email channel failed")
-            delivery = Delivery(FAILED, f"Email failed: {_scrub(str(e))}")
-        results[EMAIL_CHANNEL] = delivery.status(event_type, test)
-    workspace = None
-    for route in settings.routes:
-        if (route.id not in channels) if channels is not None else not route.enabled:
-            continue  # a named channel is sent even when off (the test button); otherwise only enabled ones
-        workspace = workspace if workspace is not None else _platform_workspace(session)
-        try:
-            delivery = send_route(session, route, message, workspace)
-        except Exception as e:  # noqa: BLE001
-            logger.exception(f"platform alerts: route {route.id} failed")
-            delivery = Delivery(FAILED, f"Failed: {_scrub(str(e))}")
-        results[route.id] = delivery.status(event_type, test)
-    _record(session, results)
-    return results
+    return alerting.send_route(PLATFORM, session, route, message, workspace)
 
 
 def deliver(session: Session, event, data: dict | None = None) -> dict[str, dict]:
@@ -597,30 +248,10 @@ def deliver(session: Session, event, data: dict | None = None) -> dict[str, dict
     kind = settings.enabled_kind(event_type, data)
     if kind is None:
         return {}
-    return _send(session, settings, message_for(kind, event, data), None, event_type=event_type, test=False)
+    message = message_for(kind, event, data)
+    return alerting.send(PLATFORM, session, settings, message, settings.channels_for(kind.key), event_type=event_type, test=False)
 
 
 def send_test(session: Session, channel: str, by: str | None = None) -> dict:
     """Send the test message to one saved channel (``email`` or a route id), even when it's off."""
-    settings = load(session)
-    if channel == EMAIL_CHANNEL:
-        label = "email"
-    else:
-        route = next((r for r in settings.routes if r.id == channel), None)
-        if route is None:
-            raise LookupError("No such route; save it first.")
-        target = next((t for t in targets(session, _platform_workspace(session)) if t.key == (route.integration_id, route.action)), None)
-        label = f"{target.integration_name} → {target.action.label}" if target else "integration"
-    results = _send(session, settings, trial_message(label, by), [channel], event_type=None, test=True)
-    return results.get(channel) or Delivery(FAILED, "Nothing was sent.").status(None, True)
-
-
-def event_data(event) -> dict:
-    """The event's payload as plain data (to match a kind's reason and read a backup error)."""
-    document = getattr(event, "document_data", None)
-    if document is None:
-        return {}
-    try:
-        return document.model_dump(mode="json")
-    except Exception:  # noqa: BLE001
-        return {}
+    return alerting.send_test(PLATFORM, session, channel, by)
