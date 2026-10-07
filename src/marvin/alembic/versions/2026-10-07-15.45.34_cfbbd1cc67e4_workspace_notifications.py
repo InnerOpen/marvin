@@ -22,7 +22,7 @@ integration alerts itself. So that every workspace's integration alerts keep goi
 Downgrade drops the schema; the panel's rows are not recreated (choose the routing again on the panel).
 
 Revision ID: cfbbd1cc67e4
-Revises: 8d2f6a1c4e93
+Revises: cc5204b9dfc1
 Create Date: 2026-10-07 15:45:34.073864
 """
 
@@ -36,7 +36,7 @@ import marvin.db.migration_types as mt
 
 # revision identifiers, used by Alembic.
 revision: str = "cfbbd1cc67e4"
-down_revision: str | None = "8d2f6a1c4e93"
+down_revision: str | None = "cc5204b9dfc1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
