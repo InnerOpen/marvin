@@ -87,6 +87,17 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
         logger.critical(f"Storage is misconfigured, refusing to start: {e}")
         raise
 
+    # AI providers: core's built-ins plus installed `marvin.ai_providers` plugins (a plugin replaces the
+    # built-in of the same slug). AI_DEFAULT_PROVIDER naming a provider nothing provides stops startup,
+    # like an unknown STORAGE_PROVIDER, rather than failing every platform-mode workspace's AI call.
+    from marvin.services.ai.factory import AIConfigError, validate_ai_config
+
+    try:
+        logger.info("AI providers: " + ", ".join(validate_ai_config()))
+    except AIConfigError as e:
+        logger.critical(f"AI is misconfigured, refusing to start: {e}")
+        raise
+
     logger.info("Starting: Database initialization...")
     import marvin.db.init_db as init_db  # Local import to avoid premature DB calls if app is imported elsewhere
 

@@ -39,11 +39,13 @@ def as_user(client):
 
 @pytest.fixture(autouse=True)
 def no_installed_storage_plugins(monkeypatch):
-    """No storage plugins unless a test stands some in: a storage plugin installed in the environment
-    (e.g. marvin-storage-s3 in a dev venv) would otherwise show up in every listing."""
+    """No storage or AI provider plugins unless a test stands some in: a plugin installed in the
+    environment (e.g. marvin-storage-s3 or marvin-ai-openai in a dev venv) would otherwise show up in
+    every listing."""
     import marvin.services.plugins as plugins
 
     monkeypatch.setattr(plugins, "_storage_sources", lambda: [])
+    monkeypatch.setattr(plugins, "_ai_sources", lambda: [])
 
 
 @pytest.fixture

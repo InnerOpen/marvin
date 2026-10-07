@@ -1,17 +1,16 @@
 """
 Approximate AI provider pricing for cost estimation.
 
-Prices are per 1M tokens (input/output separately).
-Updated periodically — not real-time. Used only for estimates stored on executions.
+Prices live with the provider (``AIProvider.prices`` / ``self_hosted``, see the plugin SDK): an installed
+provider plugin ships its own table, so a new model's price is a plugin release. This table is core's
+fallback while the built-in providers are still in core — consulted when the provider has no price for
+a model. Per 1M tokens (input/output separately); used only for estimates stored on executions.
 """
 
-from dataclasses import dataclass
+from marvin_integration_sdk.ai import ModelPrice, price_for
 
-
-@dataclass
-class ModelPricing:
-    input_per_1m: float  # USD per 1M prompt tokens
-    output_per_1m: float  # USD per 1M completion tokens
+ModelPricing = ModelPrice
+"""The SDK's ModelPrice (input_per_1m, output_per_1m), under its old name."""
 
 
 # provider_type → model_id → pricing
@@ -66,23 +65,24 @@ _SELF_HOSTED = {"ollama", "custom"}
 
 
 def _pricing_for(provider_type: str, model_id: str) -> ModelPricing | None:
-    """Exact model id first, then the longest known id it extends with a "-" (dated snapshots
-    like `gpt-4o-2024-08-06`). `gpt-5.6-luna` does not fall back to `gpt-5`."""
-    table = PRICING.get(provider_type, {})
-    if model_id in table:
-        return table[model_id]
-    extended = [known for known in table if model_id.startswith(known + "-")]
-    return table[max(extended, key=len)] if extended else None
+    """Core's fallback price: exact model id first, then the longest known id it extends with a "-"
+    (dated snapshots like `gpt-4o-2024-08-06`). `gpt-5.6-luna` does not fall back to `gpt-5`."""
+    return price_for(PRICING.get(provider_type, {}), model_id)
 
 
 def estimate_cost(provider_type: str, model_id: str, prompt_tokens: int, completion_tokens: int) -> float | None:
     """Estimated USD cost for a completion; None when the model's price isn't known (shown as "—",
-    never as a misleading "Free")."""
+    never as a misleading "Free").
+
+    The provider's own price first (self-hosted → 0), then core's fallback table."""
+    from .registry import find_class
+
+    cls = find_class(provider_type)
+    if cls is not None:
+        cost = cls.estimate_cost(model_id, prompt_tokens, completion_tokens)
+        if cost is not None:
+            return cost
     if provider_type in _SELF_HOSTED:
         return 0.0
     pricing = _pricing_for(provider_type, model_id)
-    if pricing is None:
-        return None
-    cost = (prompt_tokens / 1_000_000) * pricing.input_per_1m
-    cost += (completion_tokens / 1_000_000) * pricing.output_per_1m
-    return round(cost, 8)
+    return pricing.cost(prompt_tokens, completion_tokens) if pricing else None

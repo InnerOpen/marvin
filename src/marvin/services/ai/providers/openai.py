@@ -4,15 +4,20 @@ The official API goes through the Responses API (see openai_api); a custom base 
 OpenAI-compatible server, which gets Chat Completions — most of them don't implement Responses.
 """
 
+from collections.abc import Mapping
+from typing import Any
+
 from ..base import (
     AIProvider,
     CompletionOptions,
     CompletionResult,
+    Credential,
     ImagePart,
     Message,
     ToolCall,
     ToolDefinition,
 )
+from ..pricing import PRICING
 from .openai_api import (
     NeedsResponsesAPI,
     create_chat_completion,
@@ -36,11 +41,22 @@ class OpenAIProvider(AIProvider):
     supports_structured_output = True
     supports_embeddings = True
     supports_tool_calls = True
+    credentials = (
+        Credential("api_key", "API key", secret=True, required=True),
+        Credential("base_url", "Base URL", help="Leave empty for OpenAI. Set it for an OpenAI-compatible server, which gets Chat Completions."),
+    )
+    default_model = "gpt-4o-mini"
+    suggested_models = tuple(m for m in PRICING["openai"] if "image" not in m)
+    default_embedding_model = "text-embedding-3-small"
 
     def __init__(self, api_key: str, base_url: str | None = None) -> None:
         self._api_key = api_key
         self._base_url = base_url
         self._responses = not base_url or OFFICIAL_HOST in base_url
+
+    @classmethod
+    def from_credentials(cls, values: Mapping[str, Any]) -> "OpenAIProvider":
+        return cls(api_key=values.get("api_key") or "", base_url=values.get("base_url"))
 
     def _client(self):
         try:

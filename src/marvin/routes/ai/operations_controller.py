@@ -3242,11 +3242,9 @@ class AIOperationsController(BaseUserController):
         # Platform mode: fall back to the admin-configured AppSettings model (e.g. OPENAI_MODEL),
         # so platform credentials work with env vars alone — no per-workspace model needed.
         if settings and settings.credential_mode == "platform":
-            from marvin.core.config import get_app_settings
+            from marvin.services.ai.factory import platform_model
 
-            app = get_app_settings()
-            provider_type = settings.provider or getattr(app, "AI_DEFAULT_PROVIDER", "openai")
-            return getattr(app, f"{provider_type.upper()}_MODEL", None)
+            return platform_model(settings.provider)
         return None
 
     # ── Event emission ─────────────────────────────────────────────────

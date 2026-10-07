@@ -47,7 +47,8 @@ class AIModelRead(AIModelCreate):
 class AIProviderCreate(_MarvinModel):
     name: str
     slug: str
-    provider_type: str  # openai | anthropic | google | azure | ollama | custom
+    provider_type: str
+    """An installed AI provider's slug (GET /api/ai/provider-types): openai, anthropic, google, azure, ollama, or a plugin's."""
     secret_ref: str | None = None
     base_url: str | None = None
     enabled: bool = True
@@ -116,3 +117,37 @@ class ModelPullStatus(_MarvinModel):
     done: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ── Provider types (the registry: built-ins + installed plugins) ───────────
+
+
+class AICredentialRead(_MarvinModel):
+    """One credential a provider type needs. ``api_key`` comes from a secret; ``base_url`` and any option
+    (``api_version``) from the provider row (options in its metadata)."""
+
+    key: str
+    label: str = ""
+    secret: bool = False
+    required: bool = False
+    default: str | None = None
+    help: str = ""
+
+
+class AIProviderTypeRead(_MarvinModel):
+    """An AI provider this platform can use: built into core, or an installed plugin."""
+
+    slug: str
+    name: str
+    description: str = ""
+    source: str
+    """"builtin" (core) or "plugin" (an installed ``marvin.ai_providers`` package)."""
+    package: str | None = None
+    version: str | None = None
+    capabilities: list[str] = []
+    """What it can do: "vision", "structured_output", "embeddings", "tool_calls", "model_pull"."""
+    credentials: list[AICredentialRead] = []
+    default_model: str | None = None
+    suggested_models: list[str] = []
+    """Models the AI settings' picker offers; any other id the vendor accepts still works."""
+    self_hosted: bool = False

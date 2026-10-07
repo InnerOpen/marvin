@@ -19,11 +19,20 @@ let sources: any[] = [];
 let characterCatalog: any[] = [];
 let characterLibrary: { id: string; name: string; states?: Record<string, string> }[] = [];
 let tones: TonesState | null = null;
+// The AI providers this platform has: core's built-ins and installed AI provider plugins
+// (GET /api/ai/provider-types, services/ai/registry.py). The provider list and model picker come from it.
+let providerTypes: {
+  slug: string;
+  name: string;
+  selfHosted?: boolean;
+  defaultModel?: string | null;
+  suggestedModels?: string[];
+}[] = [];
 let error: string | null = null;
 
 try {
   const sdk = createSdkClient(authToken);
-  [settings, secrets, sources, characterCatalog, characterLibrary, tones] = await Promise.all([
+  [settings, secrets, sources, characterCatalog, characterLibrary, tones, providerTypes] = await Promise.all([
     sdk.ai.settings.get(),
     // Admin-only (members read this page but can't save it): no picker options for them.
     nullIfForbidden(sdk.secrets.list()).then((list) => list ?? []),
@@ -34,6 +43,7 @@ try {
     fetchApi<any[]>("/api/groups/ai-settings/character/library", {}, authToken).catch(() => []),
     // The tones section (built-ins + the workspace's own, and the default); see services/ai/tones.py.
     getTones(authToken).catch(() => null),
+    fetchApi<typeof providerTypes>("/api/ai/provider-types", {}, authToken).catch(() => []),
   ]);
 } catch (e) {
   console.error("[ai-workflow] Error loading settings:", e);
@@ -61,6 +71,9 @@ const s = {
 
 // The bubble's canned lines (AI settings → Persona → Bubble lines; services/ai/bubble_lines.py). An empty
 // list shows, as its placeholder, the built-in lines the bubble falls back to.
+// The saved provider among the installed ones (undefined when it isn't installed any more).
+const currentType = providerTypes.find((t) => t.slug === s.provider);
+
 const bubbleState = {
   bubbleLines: settings?.bubbleLines ?? null,
   bubbleLinesSource: settings?.bubbleLinesSource ?? null,
@@ -165,22 +178,32 @@ const modCfg = s.moderationConfig ?? {};
           Add it under <a href="/workspace/settings/environment">Environment → Secrets</a>, then
           pick a provider + model and reference that secret below.
           <br />
-          <small style="color:var(--muted);">Ollama needs no key (just a Base URL); Ollama &amp; Azure use the Providers config for their endpoint.</small>
+          <small style="color:var(--muted);">A provider that needs more than a key — an endpoint or an API version, like Azure, or no key at all, like Ollama — takes it from the Providers config.</small>
         </div>
         <div class="form-row">
           <label class="form-field">
             <span class="label">Provider</span>
             <select name="provider" class="input" id="provider-select">
               <option value="" selected={!s.provider}>— select —</option>
-              <option value="openai" selected={s.provider === "openai"}>OpenAI</option>
-              <option value="anthropic" selected={s.provider === "anthropic"}>Anthropic</option>
-              <option value="ollama" selected={s.provider === "ollama"}>Ollama (self-hosted)</option>
-              <option value="other" selected={s.provider === "other"}>Other</option>
+              {providerTypes.map((t) => (
+                <option value={t.slug} selected={s.provider === t.slug} data-default-model={t.defaultModel ?? ""}>
+                  {t.name}{t.selfHosted ? " (self-hosted)" : ""}
+                </option>
+              ))}
+              {s.provider && !currentType && (
+                <option value={s.provider} selected>{s.provider}{providerTypes.length > 0 ? " (not installed)" : ""}</option>
+              )}
             </select>
           </label>
           <label class="form-field">
             <span class="label">Model</span>
-            <input type="text" name="model" class="input" value={s.model ?? ""} placeholder="e.g. gpt-4o, claude-sonnet-5" />
+            <input type="text" name="model" class="input" id="model-input" value={s.model ?? ""} list={s.provider ? `models-${s.provider}` : undefined}
+              placeholder={currentType?.defaultModel ? `e.g. ${currentType.defaultModel}` : "The model id"} />
+            {providerTypes.map((t) => (
+              <datalist id={`models-${t.slug}`}>
+                {(t.suggestedModels ?? []).map((m) => <option value={m} />)}
+              </datalist>
+            ))}
           </label>
         </div>
 
@@ -777,7 +800,19 @@ const modCfg = s.moderationConfig ?? {};
     }
   }
 
+  // The model picker suggests the chosen provider's models (its datalist) and shows its default.
+  const modelInput = document.getElementById('model-input') as HTMLInputElement | null;
+  function syncModelPicker() {
+    if (!modelInput || !providerSelect) return;
+    const slug = providerSelect.value;
+    if (slug) modelInput.setAttribute('list', `models-${slug}`);
+    else modelInput.removeAttribute('list');
+    const fallback = providerSelect.selectedOptions[0]?.dataset.defaultModel;
+    modelInput.placeholder = fallback ? `e.g. ${fallback}` : 'The model id';
+  }
+
   providerSelect?.addEventListener('change', syncOllamaVisibility);
+  providerSelect?.addEventListener('change', syncModelPicker);
   pullBtn?.addEventListener('click', startPull);
   pullName?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); startPull(); } });
   document.getElementById('ollama-refresh')?.addEventListener('click', () => { installedLoaded = false; loadInstalled(); });

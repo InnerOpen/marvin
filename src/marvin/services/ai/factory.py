@@ -3,22 +3,40 @@ AI provider factory — mirrors get_secret_backend() / get_storage_provider().
 
 get_ai_provider()              — instantiate a provider from type + credentials
 get_workspace_ai_provider()   — resolve the active provider for a workspace
+platform_model()              — the platform's default model for a provider (platform credential mode)
+
+Which class a type means comes from the registry (registry.py): core's built-ins, or the installed
+plugin that replaced one. Each provider declares the credentials it needs; this module fills them.
 """
+
+from typing import Any
 
 from pydantic import UUID4
 from sqlalchemy.orm import Session
 
 from marvin.core.config import get_app_settings
+from marvin.services.plugin_loader import settings_source
 
-from .base import AIProvider
+from . import registry
+from .base import AIConfigError, AIProvider
+
+__all__ = ["AIConfigError", "AIDisabledError", "get_ai_provider", "get_workspace_ai_provider", "platform_credentials", "platform_model"]
 
 
 class AIDisabledError(Exception):
     """Raised when AI is disabled for a workspace or not configured."""
 
 
-class AIConfigError(Exception):
-    """Raised when AI provider configuration is invalid or incomplete."""
+def build_provider(provider_type: str, values: dict[str, Any]) -> AIProvider:
+    """The provider for ``provider_type``, built from credential ``values`` (keyed by credential key).
+
+    Declared defaults fill the gaps. A missing required credential is not refused here: the vendor's
+    own error says so on the first call (and the provider's connection test reports it).
+    """
+    from marvin_integration_sdk.ai import read_credentials
+
+    cls = registry.provider_class(provider_type)
+    return cls.from_credentials(read_credentials(cls.credentials, values, require=False))
 
 
 def get_ai_provider(
@@ -27,39 +45,29 @@ def get_ai_provider(
     base_url: str | None = None,
     metadata: dict | None = None,
 ) -> AIProvider:
-    """
-    Return a configured AIProvider instance.
+    """A configured provider: ``api_key`` and ``base_url`` as given, any other credential (Azure's
+    ``api_version``) from ``metadata``. Raises ``AIConfigError`` for a type nothing provides."""
+    return build_provider(provider_type, {**(metadata or {}), "api_key": api_key, "base_url": base_url})
 
-    Lazy imports keep unused provider SDKs out of the module graph.
-    Mirrors get_secret_backend() — a simple switch on type string.
-    """
-    if provider_type == "openai":
-        from .providers.openai import OpenAIProvider
 
-        return OpenAIProvider(api_key=api_key or "", base_url=base_url)
+def platform_credentials(provider_type: str) -> dict[str, Any]:
+    """The platform's credentials for a provider: each declared credential from ``<SLUG>_<KEY>``
+    (``OPENAI_API_KEY``, ``AZURE_API_VERSION``), Marvin's settings first, then the environment."""
+    cls = registry.provider_class(provider_type)
+    source = settings_source(get_app_settings())
+    return {c.key: source.get(c.env(provider_type)) for c in cls.credentials}
 
-    if provider_type == "anthropic":
-        from .providers.anthropic import AnthropicProvider
 
-        return AnthropicProvider(api_key=api_key or "")
-
-    if provider_type == "google":
-        from .providers.google import GoogleProvider
-
-        return GoogleProvider(api_key=api_key or "")
-
-    if provider_type == "azure":
-        from .providers.azure import AzureOpenAIProvider
-
-        api_version = (metadata or {}).get("api_version", "2024-02-01")
-        return AzureOpenAIProvider(api_key=api_key or "", base_url=base_url or "", api_version=api_version)
-
-    if provider_type == "ollama":
-        from .providers.ollama import OllamaProvider
-
-        return OllamaProvider(base_url=base_url or "http://localhost:11434")
-
-    raise ValueError(f"Unknown AI provider type: {provider_type!r}")
+def platform_model(provider_type: str | None = None) -> str | None:
+    """The platform's default model for a provider (``AI_DEFAULT_PROVIDER`` when none is given):
+    ``<SLUG>_MODEL`` (``OPENAI_MODEL``), else the provider's own default."""
+    app = get_app_settings()
+    provider_type = provider_type or getattr(app, "AI_DEFAULT_PROVIDER", "openai")
+    configured = settings_source(app).get(f"{provider_type}_MODEL".upper().replace("-", "_"))
+    if configured:
+        return configured
+    cls = registry.find_class(provider_type)
+    return cls.default_model if cls else None
 
 
 def get_workspace_ai_provider(session: Session, group_id: UUID4) -> AIProvider:
@@ -80,11 +88,8 @@ def get_workspace_ai_provider(session: Session, group_id: UUID4) -> AIProvider:
         raise AIDisabledError(f"AI is disabled for workspace {group_id}")
 
     if settings.credential_mode == "platform":
-        app = get_app_settings()
-        provider_type = settings.provider or getattr(app, "AI_DEFAULT_PROVIDER", "openai")
-        api_key = getattr(app, f"{provider_type.upper()}_API_KEY", None)
-        base_url = getattr(app, f"{provider_type.upper()}_BASE_URL", None)
-        return get_ai_provider(provider_type, api_key, base_url)
+        provider_type = settings.provider or getattr(get_app_settings(), "AI_DEFAULT_PROVIDER", "openai")
+        return build_provider(provider_type, platform_credentials(provider_type))
 
     if settings.credential_mode == "workspace":
         # Preferred: a full Providers row (supports base_url, api_version, multiple providers).
@@ -110,3 +115,18 @@ def get_workspace_ai_provider(session: Session, group_id: UUID4) -> AIProvider:
         return get_ai_provider(settings.provider, api_key)
 
     raise AIDisabledError("No valid credential mode configured")
+
+
+def validate_ai_config(app=None) -> list[str]:
+    """Startup: load the AI provider plugins and check that ``AI_DEFAULT_PROVIDER`` names an installed
+    provider. Raises ``AIConfigError`` otherwise (every platform-mode workspace would fail). Returns one
+    line per provider for the startup log."""
+    app = app or get_app_settings()
+    reports = registry.load_plugins()
+    registry.provider_class(getattr(app, "AI_DEFAULT_PROVIDER", "openai") or "openai")
+    lines = []
+    for slug in sorted(registry.plugins()):
+        report = registry.report_for(slug)
+        lines.append(f"{slug} ({'built in' if report is None else f'{report.distribution} {report.version}'})")
+    lines += [f"plugin '{r.name}' failed to load: {r.error}" for r in reports if not r.ok]
+    return lines

@@ -16,15 +16,8 @@ from marvin.core.root_logger import get_logger
 
 logger = get_logger(__name__)
 
-# Sensible default embedding model per provider (overridable by callers).
-DEFAULT_EMBEDDING_MODELS: dict[str, str] = {
-    "openai": "text-embedding-3-small",
-    "azure": "text-embedding-3-small",
-    "google": "models/text-embedding-004",
-    "ollama": "nomic-embed-text",
-}
-
-
+# Platform settings that override a provider's default embedding model. Azure shares OpenAI's; any other
+# provider (a plugin's) reads <SLUG>_EMBEDDING_MODEL.
 _EMBEDDING_SETTING_KEYS: dict[str, str] = {
     "openai": "OPENAI_EMBEDDING_MODEL",
     "azure": "OPENAI_EMBEDDING_MODEL",
@@ -34,15 +27,17 @@ _EMBEDDING_SETTING_KEYS: dict[str, str] = {
 
 
 def default_embedding_model(provider_type: str) -> str | None:
-    """Resolve the embedding model — AppSettings override first, then the built-in default."""
+    """Resolve the embedding model — the platform setting first, then the provider's own default."""
     from marvin.core.config import get_app_settings
+    from marvin.services.ai.registry import find_class
+    from marvin.services.plugin_loader import settings_source
 
-    key = _EMBEDDING_SETTING_KEYS.get(provider_type)
-    if key:
-        configured = getattr(get_app_settings(), key, None)
-        if configured:
-            return configured
-    return DEFAULT_EMBEDDING_MODELS.get(provider_type)
+    key = _EMBEDDING_SETTING_KEYS.get(provider_type) or f"{provider_type}_EMBEDDING_MODEL".upper().replace("-", "_")
+    configured = settings_source(get_app_settings()).get(key)
+    if configured:
+        return configured
+    cls = find_class(provider_type)
+    return cls.default_embedding_model if cls else None
 
 
 def chunk_text(text: str, max_chars: int = 1500, overlap: int = 150) -> list[str]:

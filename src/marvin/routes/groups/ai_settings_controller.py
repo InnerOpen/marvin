@@ -164,6 +164,12 @@ class AISettingsController(BaseUserController):
             data.default_register = self._usable_default_tone(data.default_register)
 
         row = self._settings_row()
+        if data.provider and data.provider != row.provider:
+            # A newly chosen provider must be installed (built in, or an AI provider plugin); a stored one
+            # that has since gone stays saveable, so the rest of the form still works.
+            from marvin.routes.ai.provider_types_controller import require_installed_provider
+
+            require_installed_provider(data.provider)
         persona_set = bool({"assistant_name", "persona_prompt"} & data.model_fields_set)
         before_name, before_persona = row.assistant_name, row.persona_prompt
 

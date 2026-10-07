@@ -12,7 +12,7 @@ from typing import Any
 
 from marvin_integration_sdk.storage import ENTRY_POINT_GROUP, StorageConfigError, StoragePlugin
 
-from marvin.services.plugin_loader import PluginLoadReport, load_entry_points
+from marvin.services.plugin_loader import PluginLoadReport, load_entry_points, settings_source  # noqa: F401 — re-exported for callers
 
 # Plain stdlib logging (Marvin configures the root logger at startup): importing this module must not
 # build app settings or data directories, because the backup CronJob imports it too.
@@ -96,29 +96,6 @@ def get_plugin(slug: str, *, needs: str = "provider") -> StoragePlugin:
     if getattr(plugin, needs) is None:
         raise StorageConfigError(f"storage plugin {slug!r} offers no {what} (available: {', '.join(offering)})")
     return plugin
-
-
-def settings_source(settings: Any) -> Mapping[str, Any]:
-    """A read-only view for ``read_config``: Marvin's settings first, then the process environment
-    (which already holds ``.env``), so a plugin can read variables core doesn't declare."""
-    import os
-
-    class _Source(Mapping):
-        def __getitem__(self, key: str) -> Any:
-            value = getattr(settings, key, None)
-            if value is None:
-                value = os.environ.get(key)
-            if value is None:
-                raise KeyError(key)
-            return value
-
-        def __iter__(self):
-            return iter(())
-
-        def __len__(self) -> int:
-            return 0
-
-    return _Source()
 
 
 def reset() -> None:

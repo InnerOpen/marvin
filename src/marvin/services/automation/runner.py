@@ -53,11 +53,9 @@ def _resolve_model(session, group_id, settings) -> str | None:
         if model:
             return model.model_id
     if settings and settings.credential_mode == "platform":
-        from marvin.core.config import get_app_settings
+        from marvin.services.ai.factory import platform_model
 
-        app = get_app_settings()
-        provider_type = settings.provider or getattr(app, "AI_DEFAULT_PROVIDER", "openai")
-        return getattr(app, f"{provider_type.upper()}_MODEL", None)
+        return platform_model(settings.provider)
     return None
 
 

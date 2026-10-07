@@ -1,9 +1,13 @@
 """Azure OpenAI provider implementation."""
 
+from collections.abc import Mapping
+from typing import Any
+
 from ..base import (
     AIProvider,
     CompletionOptions,
     CompletionResult,
+    Credential,
     ImagePart,
     Message,
     ToolCall,
@@ -19,11 +23,21 @@ class AzureOpenAIProvider(AIProvider):
     supports_structured_output = True
     supports_embeddings = True
     supports_tool_calls = True
+    credentials = (
+        Credential("api_key", "API key", secret=True, required=True),
+        Credential("base_url", "Endpoint", required=True, help="https://<resource>.openai.azure.com"),
+        Credential("api_version", "API version", default="2024-02-01"),
+    )
+    default_embedding_model = "text-embedding-3-small"
 
     def __init__(self, api_key: str, base_url: str, api_version: str = "2024-02-01") -> None:
         self._api_key = api_key
         self._base_url = base_url
         self._api_version = api_version
+
+    @classmethod
+    def from_credentials(cls, values: Mapping[str, Any]) -> "AzureOpenAIProvider":
+        return cls(api_key=values.get("api_key") or "", base_url=values.get("base_url") or "", api_version=values.get("api_version") or "2024-02-01")
 
     def _client(self):
         try:

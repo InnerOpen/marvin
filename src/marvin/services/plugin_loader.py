@@ -1,16 +1,16 @@
 """Discover site-wide plugins from entry points, one group per plugin type.
 
 Every plugin type (integrations: ``marvin.integrations``, storage: ``marvin.storage_providers``, AI
-providers next) loads the same way: each entry point in the group is handed to that type's register
-function, which loads it (``ep.load()``, so it can see what importing the module registered) and
-returns the slugs it registered. Loading is resilient: a plugin that raises
-is logged and skipped, never crashing startup, and every entry point leaves a report (distribution,
-version, ok/error) for the admin Plugins page.
+providers: ``marvin.ai_providers``) loads the same way: each entry point in the group is handed to that
+type's register function, which loads it (``ep.load()``, so it can see what importing the module
+registered) and returns the slugs it registered. Loading is resilient: a plugin that raises is logged
+and skipped, never crashing startup, and every entry point leaves a report (distribution, version,
+ok/error) for the admin Plugins page.
 """
 
 import importlib.metadata as importlib_metadata
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,3 +57,26 @@ def load_entry_points(group: str, register: Callable[[Any], Iterable[str]], *, l
             logger.warning(f"{label} plugin '{ep.name}' failed to load: {e}")
             reports.append(PluginLoadReport(name=ep.name, source="entry_point", ok=False, distribution=dist_name, version=dist_version, error=str(e)))
     return reports
+
+
+def settings_source(settings: Any) -> Mapping[str, Any]:
+    """A read-only view of a plugin's settings by name: Marvin's settings first, then the process
+    environment (which already holds ``.env``), so a plugin can read variables core doesn't declare."""
+    import os
+
+    class _Source(Mapping):
+        def __getitem__(self, key: str) -> Any:
+            value = getattr(settings, key, None)
+            if value is None:
+                value = os.environ.get(key)
+            if value is None:
+                raise KeyError(key)
+            return value
+
+        def __iter__(self):
+            return iter(())
+
+        def __len__(self) -> int:
+            return 0
+
+    return _Source()

@@ -1,6 +1,8 @@
 """Ollama provider — calls the local Ollama REST API via httpx."""
 
 import json
+from collections.abc import Mapping
+from typing import Any
 
 import httpx
 
@@ -8,6 +10,7 @@ from ..base import (
     AIProvider,
     CompletionOptions,
     CompletionResult,
+    Credential,
     ImagePart,
     Message,
     ToolCall,
@@ -26,6 +29,13 @@ class OllamaProvider(AIProvider):
     supports_tool_calls = True
     # Ollama can download models on demand via /api/pull.
     supports_model_pull = True
+    self_hosted = True
+    credentials = (Credential("base_url", "Base URL", default="http://localhost:11434", help="Ollama's REST endpoint; no key needed."),)
+    default_embedding_model = "nomic-embed-text"
+
+    @classmethod
+    def from_credentials(cls, values: Mapping[str, Any]) -> "OllamaProvider":
+        return cls(base_url=values.get("base_url") or "http://localhost:11434")
 
     def __init__(self, base_url: str = "http://localhost:11434", api_key: str | None = None) -> None:
         # Ollama's REST API lives at {host}/api/*. We append "/api/..." to the base ourselves, so the

@@ -1,6 +1,10 @@
 """Google Gemini provider implementation."""
 
-from ..base import AIProvider, CompletionOptions, CompletionResult, ImagePart, Message
+from collections.abc import Mapping
+from typing import Any
+
+from ..base import AIProvider, CompletionOptions, CompletionResult, Credential, ImagePart, Message
+from ..pricing import PRICING
 
 
 class GoogleProvider(AIProvider):
@@ -14,8 +18,17 @@ class GoogleProvider(AIProvider):
     # this adapter's message handling is a lossy flatten (_to_parts). Wiring it correctly is a
     # dedicated task; until then the agent loop simply won't select Gemini.
 
+    credentials = (Credential("api_key", "API key", secret=True, required=True),)
+    default_model = "gemini-2.0-flash"
+    suggested_models = tuple(PRICING["google"])
+    default_embedding_model = "models/text-embedding-004"
+
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
+
+    @classmethod
+    def from_credentials(cls, values: Mapping[str, Any]) -> "GoogleProvider":
+        return cls(api_key=values.get("api_key") or "")
 
     def _client(self):
         try:

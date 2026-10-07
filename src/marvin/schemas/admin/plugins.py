@@ -7,7 +7,7 @@ from pydantic import Field
 from marvin.schemas._marvin import _MarvinModel
 
 PluginKind = Literal["integration", "storage", "ai_provider"]
-"""What a plugin extends: integration providers, storage (asset providers / backup targets); AI providers are next."""
+"""What a plugin extends: integration providers, storage (asset providers / backup targets), or AI providers (model vendors)."""
 
 
 class PluginProviderRead(_MarvinModel):
@@ -22,9 +22,10 @@ class PluginProviderRead(_MarvinModel):
     blueprints: int = 0
     """Content blueprints the provider offers workspaces on connect."""
     workspaces: int = 0
-    """Distinct workspaces with at least one connection to this provider."""
+    """Distinct workspaces with at least one connection to this provider (AI providers: workspaces with AI on that use it)."""
     provides: list[str] = Field(default_factory=list)
-    """Storage plugins: what it offers, "assets" (an asset storage provider) and/or "backups" (a backup target)."""
+    """Storage plugins: what it offers, "assets" (an asset storage provider) and/or "backups" (a backup target).
+    AI providers: its capabilities ("vision", "structured_output", "embeddings", "tool_calls", "model_pull")."""
     in_use: list[str] = Field(default_factory=list)
     """Storage plugins: what the platform uses it for — "assets" when new uploads go to it."""
 

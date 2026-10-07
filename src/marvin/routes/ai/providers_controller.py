@@ -8,6 +8,7 @@ from marvin.routes._base import MarvinCrudRoute
 from marvin.routes._base.base_controllers import BaseUserController
 from marvin.routes._base.checks import require_workspace_admin
 from marvin.routes._base.controller import controller
+from marvin.routes.ai.provider_types_controller import require_installed_provider
 from marvin.schemas.group.ai_provider import (
     AIModelCreate,
     AIModelRead,
@@ -53,6 +54,7 @@ class AIProvidersController(BaseUserController):
     @router.post("", response_model=AIProviderRead, status_code=status.HTTP_201_CREATED, summary="Create AI Provider")
     def create_provider(self, data: AIProviderCreate) -> AIProviderRead:
         _require_admin(self.user, self.group_id)
+        require_installed_provider(data.provider_type)
 
         existing = self.session.query(AIProviderModel).filter_by(group_id=self.group_id, slug=data.slug).first()
         if existing:
@@ -78,6 +80,8 @@ class AIProvidersController(BaseUserController):
     def update_provider(self, provider_id: UUID4, data: AIProviderUpdate) -> AIProviderRead:
         _require_admin(self.user, self.group_id)
         row = _get_provider_or_404(self.session, provider_id, self.group_id)
+        if data.provider_type and data.provider_type != row.provider_type:
+            require_installed_provider(data.provider_type)
 
         if data.is_default:
             self.session.query(AIProviderModel).filter_by(group_id=self.group_id, is_default=True).update({"is_default": False})

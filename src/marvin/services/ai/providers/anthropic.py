@@ -1,14 +1,19 @@
 """Anthropic provider implementation."""
 
+from collections.abc import Mapping
+from typing import Any
+
 from ..base import (
     AIProvider,
     CompletionOptions,
     CompletionResult,
+    Credential,
     ImagePart,
     Message,
     ToolCall,
     ToolDefinition,
 )
+from ..pricing import PRICING
 
 
 def _sampling(opts: CompletionOptions) -> dict:
@@ -22,9 +27,16 @@ class AnthropicProvider(AIProvider):
     supports_vision = True
     supports_structured_output = True
     supports_tool_calls = True
+    credentials = (Credential("api_key", "API key", secret=True, required=True),)
+    default_model = "claude-sonnet-5"
+    suggested_models = tuple(PRICING["anthropic"])
 
     def __init__(self, api_key: str) -> None:
         self._api_key = api_key
+
+    @classmethod
+    def from_credentials(cls, values: Mapping[str, Any]) -> "AnthropicProvider":
+        return cls(api_key=values.get("api_key") or "")
 
     def _client(self):
         try:

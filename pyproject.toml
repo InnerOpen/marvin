@@ -19,9 +19,9 @@ dependencies = [
     "isodate>=0.7.2",
     "jinja2>=3.1.6",
     "mangum>=0.19.0",
-    # The plugin contract (integrations, storage): pinned to a commit, since it isn't on PyPI. A
+    # The plugin contract (integrations, storage, AI providers): pinned to a commit, since it isn't on PyPI. A
     # direct reference, so no installer ever looks the name up on an index. Bump it with the SDK.
-    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@424927150c217fd02519ecd679c9d05b3b835c69",
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60",
     "mcp[cli]>=1.28.1",
     "numpy>=2.2.6",
     "openai>=2.46.0",

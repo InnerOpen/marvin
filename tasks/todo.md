@@ -520,6 +520,12 @@ cannot create a workflow / entry type / collection / scheduled task, and has no 
 
 # AI provider plugins — model vendors as site-wide plugins (2026-10-03, Jared: "make a backlog item")
 
+**Status (2026-10-07):** started with OpenAI (Jared 2026-10-07: "move on to the OpenAI plugin after all is
+validated"). SDK contract 0.8.0, core registry and the `marvin-ai-openai` package (openai + azure) are built and
+tested locally on `feat/ai-provider-plugins` (core), `feat/ai-provider-contract` (SDK) and `feat/ai-provider-types`
+(marvin-sdk); nothing pushed, no GitHub repo for the plugin yet. Other vendors not started. See "Review (OpenAI
+slice)" below.
+
 Why: one new model (gpt-6.1-sol) needed three core releases in a day (max_tokens renamed, tools refused while
 reasoning, no price). The Responses API switch removed the per-model rules; what is left is vendor churn
 shipping inside Marvin's release. Providers become plugins so a vendor fix is a plugin release.
@@ -532,18 +538,57 @@ shipping inside Marvin's release. Providers become plugins so a vendor fix is a 
 - **One package per vendor** (Jared, 2026-10-03).
 
 ## Plan
-- [ ] SDK: move the provider contract (`AIProvider`, `Message`, `ToolCall`, `ToolDefinition`,
+- [x] SDK: move the provider contract (`AIProvider`, `Message`, `ToolCall`, `ToolDefinition`,
       `CompletionOptions`, `CompletionResult`, `ImagePart`) into the plugin SDK; core re-exports for compatibility.
-- [ ] Core: discover providers from `marvin.ai_providers`; factory, credential modes and capability flags read
+      (SDK 0.8.0 `marvin_integration_sdk.ai`: plus `Credential` declarations with masking, `ModelPrice`/`price_for`,
+      capability flags, model defaults, `AIProviderPlugin`; conformance kit `ai.testing` over a `FakeTransport`;
+      reference `FakeAIProvider` + `ScriptedTransport` in `ai.fake`. `services/ai/base.py` re-exports.)
+- [x] Core: discover providers from `marvin.ai_providers`; factory, credential modes and capability flags read
       the registry; AI Settings' provider list and model picker come from it (nothing hard-coded).
-- [ ] Prices live with the provider (see Pricing below), not in core's `pricing.py`.
+      (`services/ai/registry.py`; `GET /api/ai/provider-types`; platform credentials from `<SLUG>_<KEY>`, platform
+      model from `<SLUG>_MODEL` then the provider's default (one helper for the three copies), embedding default
+      from the provider; choosing an uninstalled provider is a 422; startup refuses an unknown
+      `AI_DEFAULT_PROVIDER`; Admin → Plugins lists kind *AI provider*.)
+- [~] Prices live with the provider (see Pricing below), not in core's `pricing.py`. (Provider's table first, core's
+      table as the fallback while the built-ins remain; the layered lookup below is still to do.)
 - [ ] Packages, one per vendor: openai (+ azure, shares `openai_api`), anthropic,
       google (move to the `google-genai` SDK — `google-generativeai` is deprecated), ollama.
+      (openai + azure: `marvin-ai-openai` 0.1.0 at `~/code/MarvinAIOpenAI`, local only. Others not started.)
 - [ ] Baseline (decide: leaning no built-in; the chart installs openai by default). Tests use a fake provider.
+      (For now core keeps all five built-ins and a plugin replaces one by slug — no flag day. Tests use the SDK fake.)
 - [ ] Helm: tarballs in the same init container as integrations; admin page lists installed providers + versions.
+      (Admin page done. Blocker before production: the init container also installs `openai`'s dependencies —
+      `pydantic`, `pydantic-core`, `httpx`, `anyio` — into `/plugins`, ahead of the image's on `PYTHONPATH`.
+      The chart should drop packages the image already has, as it does for the SDK.)
 - Order (Jared 2026-10-06): storage plugins go first and build the shared plumbing (entry-point loader, chart
       `plugins.packages`, admin Plugins listing, SDK as a core dependency); see "Storage plugins + backup targets" below.
-- [ ] Docs: provider plugin authoring guide next to the integration one.
+- [x] Docs: provider plugin authoring guide next to the integration one (`docs/AI_PROVIDER_PLUGINS.md`; SDK README
+      section; the plugin's README).
+
+### Review (OpenAI slice, 2026-10-07)
+- **SDK** (`feat/ai-provider-contract`, 0.8.0): 123 passed, 2 skipped (the kit's capability skips on a bare
+  provider); ruff clean. The kit runs on `FakeAIProvider` and on a provider with no optional capability.
+- **Plugin** (`~/code/MarvinAIOpenAI`, `main`): 69 passed, 1 skipped (the live smoke test: no `OPENAI_API_KEY` in
+  the environment, and pass wasn't read). The conformance kit runs three ways over a fake OpenAI server
+  (`httpx.MockTransport` under the real `openai` SDK): official API (Responses), an OpenAI-compatible server (Chat
+  Completions), Azure. Core's `test_openai_api.py` and the OpenAI/Azure tool-calling tests are ported. Azure shares
+  `openai_api` (its Chat Completions shapes moved there too). One deliberate difference from core's Azure:
+  `test_connection` now fails on a bad key (core's swallowed the error in `list_models` and always said
+  "Connected"); the kit caught it.
+- **Core** (rebased on develop `58a0ae0b`): full backend suite with the exact verify command: 3582 passed, 15
+  skipped without the plugin; 3583 passed, 14 skipped with `marvin-ai-openai` installed (`uv run --no-sync`, else uv removes it) — the extra test
+  checks the plugin's prices, settings, capabilities and models equal the built-ins it replaces. Frontend: 484 node
+  tests pass; `astro check` 51 errors, none in the two pages touched (all pre-existing); biome clean on them.
+- **SDK Quality Gate**: reproduced like CI (`pip install -e .[dev]` in a clean 3.12 venv, SDK 0.8.0 on top):
+  `origin/develop` regenerates clean against marvin-sdk `main`; this branch adds `GET /api/ai/provider-types`
+  (+115 lines, additions only), committed on marvin-sdk `feat/ai-provider-types` on top of `main` (which has the
+  platform-alert types); a full regeneration from this branch matches that commit exactly.
+- **Push order**: (1) SDK `feat/ai-provider-contract` → develop (core pins its commit `39c4920`, and the pin must
+  resolve for CI); (2) marvin-sdk `feat/ai-provider-types` → main; (3) core `feat/ai-provider-plugins`; (4) create
+  `InnerOpen/marvin-ai-openai` and push the plugin (its CI fetches the SDK at `39c4920`).
+- **Open for Jared**: the plugin repo name (`InnerOpen/marvin-ai-openai` assumed); Azure stays in the same package
+  (cheap: shares `openai_api`), and `AZURE_API_VERSION` is now a platform setting; the chart's dependency
+  shadowing (above) before installing the plugin anywhere; whether the chart should install openai by default.
 
 ## Pricing — no hard-coded model list (part of the same work)
 Today `pricing.py` is a table of exact model names: a new model shows cost "—", and its runs add $0 to the

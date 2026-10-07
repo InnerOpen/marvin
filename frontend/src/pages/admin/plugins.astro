@@ -20,6 +20,15 @@ const STORAGE_SIDES: Record<string, string> = {
 };
 const sides = (list?: string[]) => (list ?? []).map((s) => STORAGE_SIDES[s] ?? s).join(", ") || "—";
 
+const AI_CAPABILITIES: Record<string, string> = {
+  vision: "Vision",
+  structured_output: "Structured output",
+  embeddings: "Embeddings",
+  tool_calls: "Tool calls",
+  model_pull: "Model downloads",
+};
+const capabilities = (list?: string[]) => (list ?? []).map((c) => AI_CAPABILITIES[c] ?? c).join(", ") || "—";
+
 let plugins: PluginRead[] = [];
 let error: string | null = null;
 try {
@@ -49,14 +58,16 @@ try {
       plugin is available to every workspace, and each workspace connects it under its own
       <strong>Settings → Integrations</strong>. Storage plugins work platform-wide instead: an admin chooses where new uploads go under
       <a href="/admin/storage">Storage</a> (<code>STORAGE_PROVIDER</code> is the default), the operator configures
-      the backup targets; built-in local disk storage needs no plugin.
+      the backup targets; built-in local disk storage needs no plugin. An AI provider plugin (a model vendor) can be
+      chosen by any workspace in its <strong>Settings → AI</strong>; one with the same name as a provider built into
+      Marvin replaces it.
     </p>
 
     {!error && plugins.length === 0 ? (
       <div class="empty-state">
         <div class="empty-icon">🧩</div>
         <p class="empty-title">No plugins installed</p>
-        <p class="empty-description">Integration and storage packages (such as <code>marvin-integration-slack</code>) appear here once installed.</p>
+        <p class="empty-description">Integration, storage and AI provider packages (such as <code>marvin-integration-slack</code>) appear here once installed.</p>
       </div>
     ) : (
       <div class="plugin-list">
@@ -101,7 +112,33 @@ try {
               </div>
             )}
 
-            {plugin.kind !== "storage" && plugin.providers.length > 0 && (
+            {plugin.kind === "ai_provider" && plugin.providers.length > 0 && (
+              <div class="table-scroll">
+                <table class="providers">
+                  <thead>
+                    <tr>
+                      <th>Provider</th>
+                      <th>Capabilities</th>
+                      <th>Workspaces using it</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plugin.providers.map((provider) => (
+                      <tr>
+                        <td class="name-col">
+                          {provider.name}
+                          <code>{provider.slug}</code>
+                        </td>
+                        <td>{capabilities(provider.provides)}</td>
+                        <td>{provider.workspaces}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {plugin.kind === "integration" && plugin.providers.length > 0 && (
               <div class="table-scroll">
                 <table class="providers">
                   <thead>
