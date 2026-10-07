@@ -451,7 +451,7 @@ const preSelectedSchema =
         const dataJsonEditor = document.getElementById('data_json_editor');
 
         if (!selectedTypeId) {
-          schemaContainer.innerHTML = '';
+          schemaContainer.replaceChildren();
           if (dataJsonGroup) dataJsonGroup.style.display = 'none';
           return;
         }
@@ -461,7 +461,7 @@ const preSelectedSchema =
         console.log('[NewEntry] Selected type:', selectedType);
 
         if (!selectedType || !selectedType.schemaJson || !selectedType.schemaJson.fields?.length) {
-          schemaContainer.innerHTML = '';
+          schemaContainer.replaceChildren();
           if (dataJsonGroup) dataJsonGroup.style.display = 'none';
           return;
         }
@@ -483,108 +483,73 @@ const preSelectedSchema =
           }
         }
 
-        // Render schema fields dynamically
+        // Render schema fields dynamically. Built with createElement: the schema's label, key, placeholder,
+        // help text and options are set by whoever edits entry types, so they go in as text and DOM
+        // properties, never as markup.
+        const el = (tag, props, ...children) => {
+          const node = Object.assign(document.createElement(tag), props);
+          node.append(...children);
+          return node;
+        };
+        const formHelp = (text) => el('p', { className: 'form-help' }, text);
+
         const schema = selectedType.schemaJson;
-        const fieldsHtml = schema.fields.map(field => {
+        const fieldGroups = schema.fields.map(field => {
           const fieldName = `dataJson.${field.key}`;
-          const required = field.required ? 'required' : '';
+          const required = !!field.required;
           const placeholder = field.placeholder || '';
           const helpText = field.helpText || '';
+          const label = el('label', { htmlFor: fieldName }, `${field.label}${field.required ? ' *' : ''}`);
+          const named = { id: fieldName, name: fieldName };
+          const group = (control, help = helpText ? formHelp(helpText) : '') =>
+            el('div', { className: 'form-group' }, label, control, help);
 
           switch (field.type) {
-            case 'text':
-              return `
-                <div class="form-group">
-                  <label for="${fieldName}">${field.label}${field.required ? ' *' : ''}</label>
-                  <input type="text" id="${fieldName}" name="${fieldName}" placeholder="${placeholder}" ${required} />
-                  ${helpText ? `<p class="form-help">${helpText}</p>` : ''}
-                </div>
-              `;
             case 'textarea':
-              return `
-                <div class="form-group">
-                  <label for="${fieldName}">${field.label}${field.required ? ' *' : ''}</label>
-                  <textarea id="${fieldName}" name="${fieldName}" rows="4" placeholder="${placeholder}" ${required}></textarea>
-                  ${helpText ? `<p class="form-help">${helpText}</p>` : ''}
-                </div>
-              `;
-            case 'number':
-              return `
-                <div class="form-group">
-                  <label for="${fieldName}">${field.label}${field.required ? ' *' : ''}</label>
-                  <input type="number" id="${fieldName}" name="${fieldName}" placeholder="${placeholder}"
-                    ${field.min !== undefined ? `min="${field.min}"` : ''}
-                    ${field.max !== undefined ? `max="${field.max}"` : ''}
-                    ${required} />
-                  ${helpText ? `<p class="form-help">${helpText}</p>` : ''}
-                </div>
-              `;
-            case 'boolean':
-              return `
-                <div class="form-group">
-                  <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <input type="checkbox" id="${fieldName}" name="${fieldName}" value="true" />
-                    <label for="${fieldName}" style="margin: 0;">${field.label}</label>
-                  </div>
-                  ${helpText ? `<p class="form-help">${helpText}</p>` : ''}
-                </div>
-              `;
+              return group(el('textarea', { ...named, rows: 4, placeholder, required }));
+            case 'number': {
+              const input = el('input', { type: 'number', ...named, placeholder, required });
+              if (field.min !== undefined) input.setAttribute('min', field.min);
+              if (field.max !== undefined) input.setAttribute('max', field.max);
+              return group(input);
+            }
+            case 'boolean': {
+              const checkLabel = el('label', { htmlFor: fieldName }, field.label);
+              checkLabel.style.margin = '0';
+              const row = el('div', {}, el('input', { type: 'checkbox', ...named, value: 'true' }), checkLabel);
+              row.style.cssText = 'display: flex; align-items: center; gap: 0.5rem;';
+              return el('div', { className: 'form-group' }, row, helpText ? formHelp(helpText) : '');
+            }
             case 'select':
-              const options = field.options || [];
-              return `
-                <div class="form-group">
-                  <label for="${fieldName}">${field.label}${field.required ? ' *' : ''}</label>
-                  <select id="${fieldName}" name="${fieldName}" ${required}>
-                    <option value="">Select...</option>
-                    ${options.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
-                  </select>
-                  ${helpText ? `<p class="form-help">${helpText}</p>` : ''}
-                </div>
-              `;
+              return group(
+                el(
+                  'select',
+                  { ...named, required },
+                  new Option('Select...', ''),
+                  ...(field.options || []).map(opt => new Option(opt, opt)),
+                ),
+              );
             case 'date':
-              return `
-                <div class="form-group">
-                  <label for="${fieldName}">${field.label}${field.required ? ' *' : ''}</label>
-                  <input type="date" id="${fieldName}" name="${fieldName}" ${required} />
-                  ${helpText ? `<p class="form-help">${helpText}</p>` : ''}
-                </div>
-              `;
+              return group(el('input', { type: 'date', ...named, required }));
             case 'datetime':
-              return `
-                <div class="form-group">
-                  <label for="${fieldName}">${field.label}${field.required ? ' *' : ''}</label>
-                  <input type="datetime-local" id="${fieldName}" name="${fieldName}" ${required} />
-                  ${helpText ? `<p class="form-help">${helpText}</p>` : ''}
-                </div>
-              `;
+              return group(el('input', { type: 'datetime-local', ...named, required }));
             case 'embed':
-              return `
-                <div class="form-group">
-                  <label for="${fieldName}">${field.label}${field.required ? ' *' : ''}</label>
-                  <input type="url" id="${fieldName}" name="${fieldName}" placeholder="${placeholder || 'https://www.youtube.com/watch?v=…'}" ${required} />
-                  <p class="form-help">A video, music or podcast link${helpText ? ` • ${helpText}` : ''}</p>
-                </div>
-              `;
+              return group(
+                el('input', { type: 'url', ...named, placeholder: placeholder || 'https://www.youtube.com/watch?v=…', required }),
+                formHelp(`A video, music or podcast link${helpText ? ` • ${helpText}` : ''}`),
+              );
             case 'markdown':
-              return `
-                <div class="form-group">
-                  <label for="${fieldName}">${field.label}${field.required ? ' *' : ''}</label>
-                  <textarea id="${fieldName}" name="${fieldName}" rows="8" placeholder="${placeholder}" ${required}></textarea>
-                  <p class="form-help">Markdown supported${helpText ? ` • ${helpText}` : ''}</p>
-                </div>
-              `;
+              return group(
+                el('textarea', { ...named, rows: 8, placeholder, required }),
+                formHelp(`Markdown supported${helpText ? ` • ${helpText}` : ''}`),
+              );
             default:
-              return `
-                <div class="form-group">
-                  <label for="${fieldName}">${field.label}${field.required ? ' *' : ''}</label>
-                  <input type="text" id="${fieldName}" name="${fieldName}" placeholder="${placeholder}" ${required} />
-                  ${helpText ? `<p class="form-help">${helpText}</p>` : ''}
-                </div>
-              `;
+              // 'text' and any unknown type
+              return group(el('input', { type: 'text', ...named, placeholder, required }));
           }
-        }).join('');
+        });
 
-        schemaContainer.innerHTML = fieldsHtml;
+        schemaContainer.replaceChildren(...fieldGroups);
       });
     }
 
@@ -611,7 +576,7 @@ const preSelectedSchema =
           let fieldsUpdated = 0;
           for (const [key, value] of Object.entries(dataJson)) {
             const fieldName = `dataJson.${key}`;
-            const field = form.querySelector(`[name="${fieldName}"]`);
+            const field = form.querySelector(`[name="${CSS.escape(fieldName)}"]`);
 
             if (field) {
               if (field.type === 'checkbox') {
