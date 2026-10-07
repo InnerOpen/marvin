@@ -310,16 +310,22 @@ try {
     preview.textContent = JSON.stringify(schema, null, 2);
 
     // Clear container
-    container.innerHTML = '';
+    container.replaceChildren();
 
     // Show empty state if no fields
     if (schema.fields.length === 0) {
-      container.innerHTML = `
-        <div class="empty-state">
-          <p class="empty-state-title">No fields defined</p>
-          <p class="empty-state-text">Add your first field to define the content structure for this entry type.</p>
-        </div>
-      `;
+      container.append(
+        el(
+          'div',
+          { className: 'empty-state' },
+          el('p', { className: 'empty-state-title' }, 'No fields defined'),
+          el(
+            'p',
+            { className: 'empty-state-text' },
+            'Add your first field to define the content structure for this entry type.',
+          ),
+        ),
+      );
       return;
     }
 
@@ -330,6 +336,42 @@ try {
     });
   }
 
+  // Build an element. `props` are DOM properties (className, type, placeholder, defaultValue…) and string
+  // children become text nodes, so a field's label, key, placeholder, help text or AI hint — strings anyone
+  // who edits entry types can set — is always text, never markup.
+  function el(tag, props, ...children) {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children);
+    return node;
+  }
+
+  const groupClass = (extraClass) => (extraClass ? `form-group ${extraClass}` : 'form-group');
+
+  // A labelled control: <div class="form-group …"><label>…</label>…controls</div>.
+  function formGroup(extraClass, label, ...controls) {
+    return el('div', { className: groupClass(extraClass) }, el('label', {}, ...[].concat(label)), ...controls);
+  }
+
+  // A checkbox row: the box first, then its label.
+  function checkboxGroup(extraClass, box, ...label) {
+    const className = groupClass(extraClass ? `checkbox-field ${extraClass}` : 'checkbox-field');
+    return el('div', { className }, box, el('label', {}, ...label));
+  }
+
+  const formHelp = (text) => el('p', { className: 'form-help' }, text);
+  const labelHint = (text) => el('span', { className: 'field-label-hint' }, text);
+
+  // The header's "Placeholder: … / Help: … / AI: …" summary items for a field.
+  function fieldMetaItems(field) {
+    return [
+      ['Placeholder', field.placeholder],
+      ['Help', field.helpText],
+      ['AI', field.aiHint],
+    ]
+      .filter(([, value]) => value)
+      .map(([name, value]) => el('span', { className: 'field-meta-item' }, `${name}: ${value}`));
+  }
+
   // Create field editor element
   function createFieldEditor(field, index) {
     const div = document.createElement('div');
@@ -338,91 +380,112 @@ try {
 
     const typeInfo = fieldTypes.find(t => t.value === field.type) || { label: field.type };
 
-    div.innerHTML = `
-      <div class="field-editor-header">
-        <div class="field-editor-title">
-          <span class="field-title-label">${field.label || 'Untitled Field'}</span>
-          <span class="field-type-badge">${typeInfo.label}${field.required ? ' *' : ''}</span>
-          ${field.placeholder || field.helpText || field.aiHint ? `
-            <span class="field-meta-inline">
-              ${field.placeholder ? `<span class="field-meta-item">Placeholder: ${field.placeholder}</span>` : ''}
-              ${field.helpText ? `<span class="field-meta-item">Help: ${field.helpText}</span>` : ''}
-              ${field.aiHint ? `<span class="field-meta-item">AI: ${field.aiHint}</span>` : ''}
-            </span>
-          ` : ''}
-        </div>
-        <div class="field-editor-actions">
-          ${index > 0 ? '<button type="button" class="button secondary btn-move-up">↑</button>' : ''}
-          ${index < schema.fields.length - 1 ? '<button type="button" class="button secondary btn-move-down">↓</button>' : ''}
-          <button type="button" class="button secondary btn-remove">Remove</button>
-        </div>
-      </div>
-      <div class="field-editor-body">
-        <div class="form-group">
-          <label>Label *</label>
-          <input type="text" class="field-label" value="${field.label || ''}" placeholder="e.g., Body, Title" required />
-          <p class="form-help">Display name in the editor</p>
-        </div>
-        <div class="form-group">
-          <label>Field Key *</label>
-          <input type="text" class="field-key" value="${field.key || ''}" placeholder="e.g., body, title" required />
-          <p class="form-help">Auto-generated from label (editable)</p>
-        </div>
-        <div class="form-group">
-          <label>Field Type *</label>
-          <select class="field-type" required>
-            ${fieldTypes.map(t => `<option value="${t.value}" ${t.value === field.type ? 'selected' : ''}>${t.label}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group checkbox-field">
-          <input type="checkbox" class="field-required" ${field.required ? 'checked' : ''} />
-          <label>Required field</label>
-        </div>
-        <div class="form-group full-width">
-          <label>Placeholder Text</label>
-          <input type="text" class="field-placeholder" value="${field.placeholder || ''}" placeholder="Optional hint text" />
-        </div>
-        <div class="form-group full-width">
-          <label>Help Text</label>
-          <textarea class="field-help-text" rows="2" placeholder="Optional description for editors">${field.helpText || ''}</textarea>
-        </div>
-        <div class="form-group full-width">
-          <label>AI Guidance <span class="field-label-hint">— shown only to AI when authoring this field</span></label>
-          <textarea class="field-ai-hint" rows="2" placeholder="e.g., 2-3 short paragraphs, first person, name the material, no marketing adjectives">${field.aiHint || ''}</textarea>
-        </div>
-        ${field.type === 'select' ? `
-          <div class="form-group full-width">
-            <label>Options (comma-separated) *</label>
-            <input type="text" class="field-options" value="${(field.options || []).join(', ')}" placeholder="e.g., draft, published" required />
-          </div>
-        ` : ''}
-        ${field.type === 'markdown' ? `
-          <div class="form-group checkbox-field full-width">
-            <input type="checkbox" class="field-auto-embed" ${field.autoEmbed === false ? '' : 'checked'} />
-            <label>Auto-embed media links <span class="field-label-hint">— a YouTube, Vimeo, Spotify… link on its own line shows as a player</span></label>
-          </div>
-        ` : ''}
-        ${field.type === 'embed' ? `
-          <div class="form-group full-width">
-            <label>Providers (comma-separated)</label>
-            <input type="text" class="field-providers" value="${(field.providers || []).join(', ').replace(/"/g, '&quot;')}" placeholder="Leave empty to accept every supported provider" />
-            <p class="form-help">${embedProviders.length
+    const title = el(
+      'div',
+      { className: 'field-editor-title' },
+      el('span', { className: 'field-title-label' }, field.label || 'Untitled Field'),
+      el('span', { className: 'field-type-badge' }, `${typeInfo.label}${field.required ? ' *' : ''}`),
+    );
+    const metaItems = fieldMetaItems(field);
+    if (metaItems.length) title.append(el('span', { className: 'field-meta-inline' }, ...metaItems));
+
+    const actionButton = (className, text) => el('button', { type: 'button', className: `button secondary ${className}` }, text);
+    const actions = el('div', { className: 'field-editor-actions' });
+    if (index > 0) actions.append(actionButton('btn-move-up', '↑'));
+    if (index < schema.fields.length - 1) actions.append(actionButton('btn-move-down', '↓'));
+    actions.append(actionButton('btn-remove', 'Remove'));
+
+    // Values go in as defaultValue / defaultChecked / defaultSelected: the same `value` / `checked` /
+    // `selected` attributes the markup used to carry, set as data.
+    const inputEl = (className, defaultValue, placeholder, extra) =>
+      el('input', { type: 'text', className, defaultValue, placeholder, ...extra });
+    const textarea = (className, defaultValue, placeholder) =>
+      el('textarea', { className, rows: 2, placeholder, defaultValue });
+    const checkbox = (className, defaultChecked) => el('input', { type: 'checkbox', className, defaultChecked });
+
+    const body = el(
+      'div',
+      { className: 'field-editor-body' },
+      formGroup(
+        '',
+        'Label *',
+        inputEl('field-label', field.label || '', 'e.g., Body, Title', { required: true }),
+        formHelp('Display name in the editor'),
+      ),
+      formGroup(
+        '',
+        'Field Key *',
+        inputEl('field-key', field.key || '', 'e.g., body, title', { required: true }),
+        formHelp('Auto-generated from label (editable)'),
+      ),
+      formGroup(
+        '',
+        'Field Type *',
+        el(
+          'select',
+          { className: 'field-type', required: true },
+          ...fieldTypes.map(t => new Option(t.label, t.value, t.value === field.type, t.value === field.type)),
+        ),
+      ),
+      checkboxGroup('', checkbox('field-required', !!field.required), 'Required field'),
+      formGroup('full-width', 'Placeholder Text', inputEl('field-placeholder', field.placeholder || '', 'Optional hint text')),
+      formGroup(
+        'full-width',
+        'Help Text',
+        textarea('field-help-text', field.helpText || '', 'Optional description for editors'),
+      ),
+      formGroup(
+        'full-width',
+        ['AI Guidance ', labelHint('— shown only to AI when authoring this field')],
+        textarea(
+          'field-ai-hint',
+          field.aiHint || '',
+          'e.g., 2-3 short paragraphs, first person, name the material, no marketing adjectives',
+        ),
+      ),
+    );
+
+    if (field.type === 'select') {
+      body.append(
+        formGroup(
+          'full-width',
+          'Options (comma-separated) *',
+          inputEl('field-options', (field.options || []).join(', '), 'e.g., draft, published', { required: true }),
+        ),
+      );
+    }
+    if (field.type === 'markdown') {
+      body.append(
+        checkboxGroup(
+          'full-width',
+          checkbox('field-auto-embed', field.autoEmbed !== false),
+          'Auto-embed media links ',
+          labelHint('— a YouTube, Vimeo, Spotify… link on its own line shows as a player'),
+        ),
+      );
+    }
+    if (field.type === 'embed') {
+      body.append(
+        formGroup(
+          'full-width',
+          'Providers (comma-separated)',
+          inputEl('field-providers', (field.providers || []).join(', '), 'Leave empty to accept every supported provider'),
+          formHelp(
+            embedProviders.length
               ? 'Available: ' + embedProviders.map(p => `${p.key} (${p.name})`).join(', ')
-              : 'Provider keys, e.g. youtube, vimeo, spotify'}</p>
-          </div>
-        ` : ''}
-        ${field.type === 'number' ? `
-          <div class="form-group">
-            <label>Min Value</label>
-            <input type="number" class="field-min" value="${field.min ?? ''}" placeholder="Optional" />
-          </div>
-          <div class="form-group">
-            <label>Max Value</label>
-            <input type="number" class="field-max" value="${field.max ?? ''}" placeholder="Optional" />
-          </div>
-        ` : ''}
-      </div>
-    `;
+              : 'Provider keys, e.g. youtube, vimeo, spotify',
+          ),
+        ),
+      );
+    }
+    if (field.type === 'number') {
+      body.append(
+        formGroup('', 'Min Value', inputEl('field-min', field.min ?? '', 'Optional', { type: 'number' })),
+        formGroup('', 'Max Value', inputEl('field-max', field.max ?? '', 'Optional', { type: 'number' })),
+      );
+    }
+
+    div.append(el('div', { className: 'field-editor-header' }, title, actions), body);
 
     // Attach event listeners
     const moveUpBtn = div.querySelector('.btn-move-up');
@@ -536,21 +599,13 @@ try {
     let metaInline = fieldEl.querySelector('.field-meta-inline');
     const titleSection = fieldEl.querySelector('.field-editor-title');
 
-    if (field.placeholder || field.helpText || field.aiHint) {
-      const metaHtml = `
-        ${field.placeholder ? `<span class="field-meta-item">Placeholder: ${field.placeholder}</span>` : ''}
-        ${field.helpText ? `<span class="field-meta-item">Help: ${field.helpText}</span>` : ''}
-        ${field.aiHint ? `<span class="field-meta-item">AI: ${field.aiHint}</span>` : ''}
-      `;
-
-      if (metaInline) {
-        metaInline.innerHTML = metaHtml;
-      } else {
-        const newMeta = document.createElement('span');
-        newMeta.className = 'field-meta-inline';
-        newMeta.innerHTML = metaHtml;
-        titleSection.appendChild(newMeta);
+    const metaItems = fieldMetaItems(field);
+    if (metaItems.length) {
+      if (!metaInline) {
+        metaInline = el('span', { className: 'field-meta-inline' });
+        titleSection.appendChild(metaInline);
       }
+      metaInline.replaceChildren(...metaItems);
     } else if (metaInline) {
       metaInline.remove();
     }
