@@ -909,11 +909,12 @@ class AIOperationsController(BaseUserController):
         self.session.commit()
         self.session.refresh(row)
         spec = spec_from_row(row)
+        self._record_agent_change([f"agents.{spec.slug}"], f"Agent created: {spec.name}")
         return self._agent_read(spec, self._agent_character(spec))
 
     @router.patch("/agents/{slug}", response_model=AgentRead, summary="Update an agent")
     def update_agent(self, slug: str, data: AgentUpdate) -> AgentRead:
-        from marvin.services.ai.agents import spec_from_row
+        from marvin.services.ai.agents import describe_policy_change, spec_from_row
         from marvin.services.ai.operations.base import ROLE_ADMIN
 
         self._require_role(ROLE_ADMIN, "ADMIN role or higher required to edit agents.")
@@ -921,11 +922,17 @@ class AIOperationsController(BaseUserController):
             return self._update_builtin_agent(slug, data)
         row = self._agent_row_or_404(slug)
         self._require_known_tone(data.default_register)
-        for k, v in data.model_dump(exclude_unset=True).items():
+        sent = data.model_dump(exclude_unset=True)
+        before = {k: getattr(row, k) for k in sent}
+        for k, v in sent.items():
             setattr(row, k, v)
         self.session.commit()
         self.session.refresh(row)
         spec = spec_from_row(row)
+        policy_change = describe_policy_change(before.get("tool_policy"), row.tool_policy) if "tool_policy" in sent else []
+        changed = [k for k in sent if (bool(policy_change) if k == "tool_policy" else before[k] != getattr(row, k))]
+        if changed:
+            self._record_agent_change([f"agents.{spec.slug}.{k}" for k in changed], self._agent_edit_message(spec.name, changed, policy_change))
         return self._agent_read(spec, self._agent_character(spec))
 
     @router.delete("/agents/{slug}/tool-policy", response_model=AgentRead, summary="Reset an agent's permission matrix to its default")
@@ -937,13 +944,56 @@ class AIOperationsController(BaseUserController):
 
         self._require_role(ROLE_ADMIN, "ADMIN role or higher required to edit agents.")
         if self._is_builtin(slug):
-            return self._save_builtin_policy(self._builtin_with_matrix(slug), None)
+            return self._save_builtin_policy(self._builtin_with_matrix(slug), None, reset=True)
         row = self._agent_row_or_404(slug)
+        before = row.tool_policy
         row.tool_policy = None
         self.session.commit()
         self.session.refresh(row)
         spec = spec_from_row(row)
+        self._record_policy_change(spec, before, None, reset=True)
         return self._agent_read(spec, self._agent_character(spec))
+
+    # ── Agent edits are workspace settings changes: the Event Log records who changed which agent ──
+
+    def _record_agent_change(self, changed_fields: list[str], message: str) -> None:
+        """Record an agent edit as `workspace_settings_changed` (`agents.<slug>[.<field>]`), the actor the user.
+        The site-rebuild listener skips it: no site renders an agent (UNSEEN_SETTINGS)."""
+        from marvin.services.event_bus_service.event_types import EventOperation, EventTypes, EventWorkspaceSettingsData
+
+        self.event_bus.dispatch(
+            integration_id="ai_agents",
+            group_id=self.group_id,
+            event_type=EventTypes.workspace_settings_changed,
+            document_data=EventWorkspaceSettingsData(
+                operation=EventOperation.update,
+                workspace_id=self.group_id,
+                changed_fields=changed_fields,
+            ),
+            message=message,
+            user_id=self.user.id,
+            entity_id=self.group_id,
+            entity_type="workspace",
+        )
+
+    def _record_policy_change(self, spec, before: dict | None, after: dict | None, *, reset: bool = False) -> None:
+        """Record a permission-matrix edit ("Agent permissions changed: Marvin — Automation: run allow"); one
+        that changes no entry records nothing."""
+        from marvin.services.ai.agents import describe_policy_change
+
+        change = describe_policy_change(before, after)
+        if change:
+            verb = "reset to default" if reset else "changed"
+            self._record_agent_change([f"agents.{spec.slug}.tool_policy"], f"Agent permissions {verb}: {spec.name} — {', '.join(change)}")
+
+    @staticmethod
+    def _agent_edit_message(name: str, changed: list[str], policy_change: list[str]) -> str:
+        """The Event Log line for a custom agent's edit, e.g. 'Agent changed: Writer — system prompt, model override;
+        permissions: Automation: run allow', or just the permissions line when only the matrix changed."""
+        if policy_change and changed == ["tool_policy"]:
+            return f"Agent permissions changed: {name} — {', '.join(policy_change)}"
+        message = f"Agent changed: {name} — {', '.join(k.replace('_', ' ') for k in changed if k != 'tool_policy')}"
+        return f"{message}; permissions: {', '.join(policy_change)}" if policy_change else message
 
     # ── A built-in agent's permission matrix: the one thing a workspace may change about it ──
     # Stored per workspace on its AI settings row (`agent_tool_policies`) and merged over the code default by
@@ -982,9 +1032,10 @@ class AIOperationsController(BaseUserController):
             )
         return self._save_builtin_policy(spec, data.tool_policy)
 
-    def _save_builtin_policy(self, spec, policy: dict | None) -> AgentRead:
+    def _save_builtin_policy(self, spec, policy: dict | None, *, reset: bool = False) -> AgentRead:
         from marvin.services.ai.agents import with_builtin_override
 
+        before = spec.tool_policy  # the effective matrix: code default with any override merged over it
         row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
         if row is None and policy:
             row = WorkspaceAISettingsModel(session=self.session, group_id=self.group_id)
@@ -993,6 +1044,7 @@ class AIOperationsController(BaseUserController):
             row.agent_tool_policies = with_builtin_override(row, spec.slug, policy)
             self.session.commit()
         spec = self._agent_or_404(spec.slug)
+        self._record_policy_change(spec, before, spec.tool_policy, reset=reset)
         return self._agent_read(spec, self._agent_character(spec))
 
     @router.delete("/agents/{slug}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an agent")
@@ -1001,9 +1053,10 @@ class AIOperationsController(BaseUserController):
 
         self._require_role(ROLE_ADMIN, "ADMIN role or higher required to delete agents.")
         row = self._agent_row_or_404(slug)
-        character = row.character
+        character, slug, name = row.character, row.slug, row.name
         self.session.delete(row)
         self.session.commit()
+        self._record_agent_change([f"agents.{slug}"], f"Agent deleted: {name}")
         if character:
             from marvin.services.ai.character import delete_character_files
 

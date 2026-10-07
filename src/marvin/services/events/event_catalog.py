@@ -309,7 +309,11 @@ CATALOG: list[CatalogEntry] = [
         name="Workspace Settings Changed",
         description="Workspace preferences or settings were modified.",
         category="Workspaces",
-        sent_by=["Saving workspace preferences", "Changing which events the Event Log records"],
+        sent_by=[
+            "Saving workspace preferences",
+            "Changing which events the Event Log records",
+            "Creating, editing or deleting an AI agent, or changing its permissions",
+        ],
         leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [

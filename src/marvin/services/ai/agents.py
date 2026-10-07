@@ -565,6 +565,18 @@ def permission_matrix(spec: AgentSpec, role: int, catalog: list[dict]) -> list[d
     return rows
 
 
+def describe_policy_change(before: dict | None, after: dict | None) -> list[str]:
+    """The matrix entries an edit changed, worded for the Event Log: ["Automation: run allow", "run_workflow
+    default"]. A category shows its label, a tool its name; "default" means the entry was removed. Sorted by
+    label; empty when nothing changed."""
+    from marvin.services.ai.tools.categories import CATEGORIES
+
+    labels = {c.id: c.label for c in CATEGORIES}
+    before, after = before or {}, after or {}
+    keys = sorted((k for k in set(before) | set(after) if before.get(k) != after.get(k)), key=lambda k: (labels.get(k, k).lower(), k))
+    return [f"{labels.get(k, k)} {after.get(k) or 'default'}" for k in keys]
+
+
 def catalog_tools() -> list[dict]:
     """Everything an agent could bind, minus run-time MCP tools (the controller adds those): registry tools + AI operations."""
     from marvin.services.ai.operations import list_operations

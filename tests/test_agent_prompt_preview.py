@@ -79,6 +79,7 @@ def ctrl(db_session, workspace, monkeypatch):
         setattr(c, name, getattr(C, name))
     c.role = ROLE_ADMIN
     c._user_role = lambda: c.role
+    c._record_agent_change = lambda *a: None  # the Event Log line an agent edit adds: see test_agent_edit_events
     c.execute_operation = lambda *a, **k: pytest.fail("a prompt preview must not run an AI operation")
     c.preview = lambda slug, **kw: C.preview_agent_prompt(c, slug, _request(**kw))
     c.preview_new = lambda **kw: C.preview_new_agent_prompt(c, AgentDefinitionPreviewRequest(**kw))

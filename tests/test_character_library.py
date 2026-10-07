@@ -147,6 +147,7 @@ def agents(db_session, workspace, storage):
     c._require_role = lambda *a: None
     _bind(C, c, "_agent_row_or_404", "_agent_or_404", "_character_store", "_agent_character", "_character_admin_row", "_save_agent_character")
     c._agent_read = C._agent_read
+    c._record_agent_change = lambda *a: None  # the Event Log line an agent edit adds: see test_agent_edit_events
     c.upload = lambda slug, *names: C.upload_agent_character(c, slug, _files(*names))
     c.use_library = lambda slug, pack: C.use_agent_library_character(c, slug, _choice(pack))
     c.assign = lambda slug, state, file: C.assign_agent_character_state(c, slug, _assign(state, file))

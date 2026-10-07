@@ -957,8 +957,9 @@ class SiteRebuildReactionListener(BuiltinReaction):
     TITLE_FIELDS = ("entry_title", "collection_name", "resource_name", "name")
     # EventBusMessage stores an empty body as the "generic" placeholder — not a description.
     EMPTY_BODY = "generic"
-    # Workspace settings no site renders: a settings change touching only these queues no rebuild.
-    UNSEEN_SETTINGS = frozenset({"audit_overrides"})
+    # Workspace settings no site renders: a settings change touching only these queues no rebuild. A field
+    # counts by its first dotted segment, so "agents" covers every "agents.<slug>[.<field>]" an agent edit names.
+    UNSEEN_SETTINGS = frozenset({"audit_overrides", "agents"})
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher
@@ -1014,7 +1015,7 @@ class SiteRebuildReactionListener(BuiltinReaction):
             return self._deleted_entry_visible(session, event)
         if event.event_type == EventTypes.workspace_settings_changed:
             changed = getattr(event.document_data, "changed_fields", None)
-            return not changed or not set(changed) <= self.UNSEEN_SETTINGS
+            return not changed or not {str(f).split(".", 1)[0] for f in changed} <= self.UNSEEN_SETTINGS
         if event.event_type in self.ALWAYS_EVENTS:
             return True
         return self._entry_visible(session, event)
