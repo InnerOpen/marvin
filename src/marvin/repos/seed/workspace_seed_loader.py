@@ -312,7 +312,7 @@ class WorkspaceSeedLoader:
         from datetime import UTC, datetime
 
         from marvin.services.assets.asset_storage_service import AssetStorageService
-        from marvin.services.storage.provider_factory import get_storage_provider
+        from marvin.services.storage.provider_factory import get_storage_provider, provider_slug
 
         storage_provider = get_storage_provider()
         zip_names = set(zip_file.namelist()) if zip_file else set()
@@ -381,7 +381,9 @@ class WorkspaceSeedLoader:
                 "file_size": asset.get("fileSize"),
                 "mime_type": asset.get("mimeType"),
                 "asset_type": asset.get("assetType"),
-                "storage_provider": asset.get("storageProvider", "local"),
+                # Bytes from the bundle were just stored on the provider uploads go to; without them the
+                # row keeps pointing where the bundle's copy lived.
+                "storage_provider": provider_slug(storage_provider) if has_binary else asset.get("storageProvider", "local"),
                 "storage_key": new_storage_key,
                 "public_url": new_public_url,
                 "alt_text": asset.get("altText"),
@@ -402,6 +404,7 @@ class WorkspaceSeedLoader:
                     if has_binary:
                         update_data = {
                             "storage_key": new_storage_key,
+                            "storage_provider": provider_slug(storage_provider),
                             "file_size": asset.get("fileSize"),
                             "public_url": None,
                             "metadata_json": asset.get("metadataJson"),

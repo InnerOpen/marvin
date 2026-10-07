@@ -45,6 +45,7 @@ EXPECTED_PLATFORM = {
     "backup_started",
     "backup_completed",
     "backup_failed",
+    "storage_provider_changed",
 }
 
 # title -> (event_type, whose, workspace, minutes ago)

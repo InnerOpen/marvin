@@ -49,9 +49,10 @@ def _storage_sources() -> list[tuple[Any, list[Any]]]:
 
 
 def _active_storage_provider() -> str:
-    from marvin.core import config
+    """Where new uploads go: the admin's choice (Admin → Storage), else STORAGE_PROVIDER."""
+    from marvin.services.storage.provider_factory import upload_target
 
-    return getattr(config.get_app_settings(), "STORAGE_PROVIDER", None) or "local"
+    return upload_target().effective
 
 
 def _storage_provider_read(plugin: Any, active: str) -> PluginProviderRead:

@@ -338,15 +338,7 @@ class AssetStorageService(BaseService):
         return filename
 
     def _get_provider_name(self) -> str:
-        """The slug new rows record as their ``storage_provider``: the provider's own slug, else a
-        guess from its class name (stand-ins in tests)."""
-        slug = getattr(self.storage, "slug", "")
-        if slug and isinstance(slug, str):
-            return slug
-        provider_class = self.storage.__class__.__name__
-        if "Local" in provider_class:
-            return "local"
-        elif "S3" in provider_class:
-            return "s3"
-        else:
-            return "unknown"
+        """The slug new rows record as their ``storage_provider``."""
+        from marvin.services.storage.provider_factory import provider_slug
+
+        return provider_slug(self.storage)

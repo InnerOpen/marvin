@@ -1,0 +1,233 @@
+---
+import AdminLayout from "@/layouts/AdminLayout.astro";
+import { getStorageSettings, type StorageSettings } from "@/lib/api/admin/storage";
+import { getAuthToken } from "@/lib/api/client";
+import { requireAdmin } from "@/lib/auth";
+
+await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
+const authToken = getAuthToken(Astro.cookies);
+
+let storage: StorageSettings | null = null;
+let error: string | null = null;
+try {
+  storage = await getStorageSettings(authToken);
+} catch (e) {
+  console.error("[admin/storage] Failed to load:", e);
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const SOURCES: Record<string, string> = { builtin: "Built in", core: "Core (until the plugin)" };
+const sourceLabel = (s: string) => SOURCES[s] ?? (s ? `Plugin: ${s}` : "Not installed");
+const size = (n: number) =>
+  n >= 1024 ** 3
+    ? `${(n / 1024 ** 3).toFixed(2)} GB`
+    : n >= 1024 ** 2
+      ? `${(n / 1024 ** 2).toFixed(1)} MB`
+      : `${(n / 1024).toFixed(1)} KB`;
+const selected = storage ? (storage.uploadProvider ?? "") : "";
+const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)?.name ?? slug;
+---
+
+<AdminLayout crumb="admin.storage">
+  <div class="toolbar">
+    <div>
+      <h2>Asset Storage</h2>
+      <p>Where new uploads are stored, and how many files live on each provider.</p>
+    </div>
+  </div>
+
+  {error && <div class="alert error">Could not load storage settings: {error}</div>}
+
+  {storage && (
+    <div class="page-container">
+      {storage.warning && (
+        <div class="alert error" role="alert" data-testid="storage-warning"><strong>Uploads are falling back.</strong> {storage.warning}</div>
+      )}
+
+      <form id="storage-form" class="settings-section">
+        <h3>New uploads go to</h3>
+        <p>
+          Switching only decides where <strong>new</strong> uploads are stored, and you can switch back at any time.
+          Existing files keep serving from the provider they were stored on; moving them is
+          <code>python -m marvin.scripts.storage_migrate --to &lt;provider&gt;</code> (see the "Assets on R2" runbook).
+        </p>
+        <fieldset class="choices">
+          <label class="choice">
+            <input type="radio" name="uploadProvider" value="" checked={selected === ""} />
+            <span>
+              <strong>Default</strong> — follow <code>STORAGE_PROVIDER</code> (<code>{storage.envDefault}</code>)
+            </span>
+          </label>
+          {storage.providers.filter((p) => p.source).map((p) => (
+            <label class:list={["choice", { disabled: !p.available }]}>
+              <input type="radio" name="uploadProvider" value={p.slug} checked={selected === p.slug} disabled={!p.available && selected !== p.slug} />
+              <span>
+                <strong>{p.name}</strong> <code>{p.slug}</code>
+                {!p.available && <span class="muted"> — unavailable: {p.error}</span>}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        <p class="now">
+          Now: new uploads go to <strong>{nameOf(storage.effectiveProvider)}</strong> (<code>{storage.effectiveProvider}</code>)
+          {storage.warning
+            ? ` — STORAGE_PROVIDER, because ${storage.uploadProvider} is unavailable.`
+            : storage.uploadProvider
+              ? " — chosen here."
+              : " — STORAGE_PROVIDER."}
+        </p>
+        <div class="form-actions">
+          <button type="submit" id="storage-save" class="button">Save</button>
+          <span id="storage-status" class="status-text" role="status"></span>
+        </div>
+      </form>
+
+      <section class="settings-section">
+        <h3>Files per provider</h3>
+        <table class="table">
+          <thead>
+            <tr><th>Provider</th><th>Source</th><th class="num">Assets</th><th class="num">Size</th><th class="num">Library files</th></tr>
+          </thead>
+          <tbody>
+            {storage.providers.map((p) => (
+              <tr>
+                <td><strong>{p.name}</strong> <code>{p.slug}</code></td>
+                <td>{sourceLabel(p.source)}</td>
+                <td class="num">{p.assets}</td>
+                <td class="num">{size(p.bytes)}</td>
+                <td class="num">{p.libraryFiles}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section class="settings-section">
+        <h3>By workspace</h3>
+        {storage.workspaces.length === 0 ? (
+          <p>No assets yet.</p>
+        ) : (
+          <table class="table">
+            <thead>
+              <tr><th>Workspace</th><th>Provider</th><th class="num">Assets</th><th class="num">Size</th></tr>
+            </thead>
+            <tbody>
+              {storage.workspaces.map((w) => (
+                <tr>
+                  <td><a href={`/admin/groups/${w.workspaceId}`}>{w.workspace}</a></td>
+                  <td><code>{w.provider}</code></td>
+                  <td class="num">{w.assets}</td>
+                  <td class="num">{size(w.bytes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+    </div>
+  )}
+</AdminLayout>
+
+<script>
+  import { updateStorageSettings } from "@/lib/api/admin/storage";
+
+  const form = document.getElementById("storage-form") as HTMLFormElement | null;
+  const saveBtn = document.getElementById("storage-save") as HTMLButtonElement | null;
+  const statusEl = document.getElementById("storage-status");
+
+  if (form && saveBtn) {
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const value = (new FormData(form).get("uploadProvider") as string | null) || null;
+      saveBtn.disabled = true;
+      if (statusEl) statusEl.textContent = "Saving…";
+      try {
+        await updateStorageSettings(value);
+        window.location.reload();
+      } catch (err) {
+        if (statusEl) statusEl.textContent = "Error: " + (err instanceof Error ? err.message : "save failed");
+        saveBtn.disabled = false;
+      }
+    });
+  }
+</script>
+
+<style>
+  .page-container {
+    max-width: 900px;
+  }
+  .settings-section {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .settings-section h3 {
+    margin: 0 0 8px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .settings-section > p {
+    margin: 0 0 16px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .choices {
+    border: 0;
+    padding: 0;
+    margin: 0 0 12px;
+    display: grid;
+    gap: 10px;
+  }
+  .choice {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    cursor: pointer;
+  }
+  .choice.disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+  }
+  .muted {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .now {
+    font-size: 14px;
+  }
+  .form-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid var(--line);
+  }
+  .status-text {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .table th,
+  .table td {
+    text-align: left;
+    padding: 8px 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  .table .num {
+    text-align: right;
+  }
+  .alert.error {
+    padding: 12px 16px;
+    border: 1px solid #c33;
+    border-radius: var(--radius);
+    color: #c33;
+    margin-bottom: 16px;
+  }
+</style>

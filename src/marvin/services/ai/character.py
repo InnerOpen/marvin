@@ -499,7 +499,9 @@ class CharacterFileStore(Protocol):
         """Store `image` as `name` (`slug` is unique to this file); {id_field: …, "url": public URL}."""
         ...
 
-    def delete(self, file_id: str) -> None: ...
+    def delete(self, file: dict) -> None:
+        """Delete a file the character's file list names (the entry carries `id_field`)."""
+        ...
 
 
 @dataclass
@@ -520,8 +522,9 @@ class WorkspaceAssetStore:
         )
         return {"assetId": str(asset.id), "url": asset.public_url}
 
-    def delete(self, file_id: str) -> None:
-        self.asset_service.delete_asset(uuid.UUID(file_id))
+    def delete(self, file: dict) -> None:
+        # The asset row knows its provider; delete_asset removes the file from it.
+        self.asset_service.delete_asset(uuid.UUID(file["assetId"]))
 
 
 def _upload_request(slug: str, name: str):
@@ -553,9 +556,9 @@ def store_character(store: CharacterFileStore, plan: CharacterPlan) -> dict:
 def delete_character_files(store: CharacterFileStore, character: dict | None, keep: Iterable[str] = ()) -> None:
     """Delete the files `character` created, except those in `keep` (still in use by its successor)."""
     kept = set(keep)
-    for file_id in character_file_ids(store, character):
-        if file_id not in kept:
-            store.delete(file_id)
+    for file in (character or {}).get("files") or []:
+        if file.get(store.id_field) and file[store.id_field] not in kept:
+            store.delete(file)
 
 
 def save_character(session: Session, row: object, attr: str, character: dict | None, store: CharacterFileStore) -> None:

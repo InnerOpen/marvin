@@ -26,7 +26,7 @@ class PluginProviderRead(_MarvinModel):
     provides: list[str] = Field(default_factory=list)
     """Storage plugins: what it offers, "assets" (an asset storage provider) and/or "backups" (a backup target)."""
     in_use: list[str] = Field(default_factory=list)
-    """Storage plugins: what the platform uses it for — "assets" when it is the active STORAGE_PROVIDER."""
+    """Storage plugins: what the platform uses it for — "assets" when new uploads go to it."""
 
 
 class PluginRead(_MarvinModel):

@@ -1611,6 +1611,20 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("quota_gb", "Total quota in GB", "10", type="size"),
         ],
     ),
+    CatalogEntry(
+        event_type="storage_provider_changed",
+        name="Storage Provider Changed",
+        description="A platform admin changed where new asset uploads are stored (existing files stay where they are).",
+        category="System",
+        sent_by=["A platform admin choosing the provider for new uploads (Admin → Storage)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("previous_provider", "The previous choice (empty: STORAGE_PROVIDER)", "local"),
+            EventVariable("provider", "The new choice (empty: STORAGE_PROVIDER)", "s3"),
+            EventVariable("effective_provider", "Where new uploads go now", "s3"),
+            EventVariable("changed_by_name", "Name of the admin who changed it", "Jane Smith", type="name"),
+        ],
+    ),
     # ── System: Backups ───────────────────────────────────────────────────────
     CatalogEntry(
         event_type="backup_started",
@@ -1882,7 +1896,7 @@ for _e in CATALOG:
 # ── Platform gate: events that belong to the platform, not to a workspace ─────────────────────────────
 # Accounts (sign-up, profile, password, token refresh), workspaces as a platform admin creates, edits and deletes
 # them (workspace_updated is only emitted by the admin workspace controller) or a user switches to them, personal
-# API tokens (user-level, unlike a workspace's API clients), the platform's own security signals and backups.
+# API tokens (user-level, unlike a workspace's API clients), the platform's own security signals, backups and storage.
 # They keep the workspace_id they were dispatched with and fire the same subscriptions; only the super-admin
 # Events page lists them. They're always audited (most are security records, and no workspace admin owns them).
 # What stays workspace scope: members and invitations, workspace_settings_changed (a workspace admin changing
@@ -1908,6 +1922,7 @@ _PLATFORM_SCOPE: frozenset[str] = frozenset(
         "backup_started",
         "backup_completed",
         "backup_failed",
+        "storage_provider_changed",
     }
 )
 for _e in CATALOG:

@@ -412,6 +412,8 @@ class EventTypes(EventTypeBase):
     """Event dispatched when storage quota reaches warning threshold."""
     storage_quota_exceeded = auto()
     """Event dispatched when storage quota is exceeded."""
+    storage_provider_changed = auto()
+    """Event dispatched when a platform admin changes where new asset uploads are stored."""
 
     # ==========================================================================
     # Notification Events
@@ -961,6 +963,20 @@ class EventInvitationData(EventDocumentDataBase):
     """The URL the invitee clicks to accept the invitation."""
     uses_left: int | None = None
     """The number of remaining uses for the invitation."""
+
+
+class EventStorageProviderChangedData(EventDocumentDataBase):
+    """Data payload for `storage_provider_changed`: where new uploads went, and go now."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    previous_provider: str | None = None
+    """The admin's previous choice, None when uploads followed STORAGE_PROVIDER."""
+    provider: str | None = None
+    """The new choice, None to follow STORAGE_PROVIDER."""
+    effective_provider: str
+    """Where new uploads go now."""
+    changed_by_name: str | None = None
+    """The full name of the admin who changed it."""
 
 
 class EventAPITokenData(EventDocumentDataBase):

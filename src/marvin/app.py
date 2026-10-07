@@ -17,10 +17,9 @@ import uvicorn  # ASGI server for running FastAPI
 from fastapi import FastAPI  # The main FastAPI class
 from fastapi.middleware.cors import CORSMiddleware  # Middleware for CORS
 from fastapi.middleware.gzip import GZipMiddleware  # Middleware for GZip compression
-from fastapi.staticfiles import StaticFiles  # Static file serving
 
 # Marvin core components
-from marvin.core.config import get_app_settings  # Access application settings
+from marvin.core.config import get_app_dirs, get_app_settings  # Access application settings and data directories
 from marvin.core.root_logger import get_logger  # Application logger
 from marvin.core.settings.static import APP_VERSION  # Static application version
 from marvin.routes import router as main_api_router  # Main API router combining all app routes
@@ -32,6 +31,7 @@ from marvin.routes.handlers import (  # Registers custom exception handlers
 # Scheduler components
 from marvin.services.scheduler import SchedulerRegistry, SchedulerService
 from marvin.services.scheduler import tasks as scheduler_tasks
+from marvin.services.storage.static import LocalAssetFiles  # The local provider's files at /assets
 
 # Initialize global settings and logger instances
 settings = get_app_settings()
@@ -96,6 +96,20 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
     except Exception as e:
         logger.exception(f"Database initialization failed: {e}")
         # Depending on severity, might want to raise or exit here.
+
+    # Where new uploads go: an admin's choice (Admin → Storage) that is no longer available falls back
+    # to STORAGE_PROVIDER rather than stopping the app (provider_factory.upload_target says why).
+    from marvin.services.storage.provider_factory import reset_upload_choice, upload_target
+
+    reset_upload_choice()
+    uploads = upload_target()
+    if uploads.error:
+        logger.critical(
+            f"Storage: new uploads should go to {uploads.chosen!r} (Admin → Storage) but it is unavailable ({uploads.error}); "
+            f"they go to {uploads.effective!r} until it is fixed or the choice is changed"
+        )
+    else:
+        logger.info(f"Storage: new uploads go to {uploads.effective!r}" + (" (admin's choice)" if uploads.chosen else " (STORAGE_PROVIDER)"))
 
     logger.info("Starting: Email template seeder...")
     try:
@@ -349,19 +363,18 @@ def include_api_routers() -> None:  # Renamed from api_routers for clarity
 include_api_routers()
 
 
-# Mount static files for local storage provider
-if settings.STORAGE_PROVIDER == "local":
-    from marvin.core.config import get_app_dirs
+# Mount the local provider's files whatever provider new uploads go to (the admin's choice or
+# STORAGE_PROVIDER): local is always built in, rows on it are served from here until they are moved,
+# and keys moved to another provider redirect there (services/storage/static.py).
+storage_root = settings.STORAGE_LOCAL_ROOT or get_app_dirs().ASSETS_DIR
+storage_root.mkdir(parents=True, exist_ok=True)
 
-    storage_root = settings.STORAGE_LOCAL_ROOT or get_app_dirs().ASSETS_DIR
-    storage_root.mkdir(parents=True, exist_ok=True)
-
-    app.mount(
-        settings.STORAGE_LOCAL_PUBLIC_URL,
-        StaticFiles(directory=str(storage_root)),
-        name="assets",
-    )
-    logger.info(f"Static file serving enabled for local storage at {storage_root} (public URL: {settings.STORAGE_LOCAL_PUBLIC_URL})")
+app.mount(
+    settings.STORAGE_LOCAL_PUBLIC_URL,
+    LocalAssetFiles(directory=str(storage_root)),
+    name="assets",
+)
+logger.info(f"Static file serving enabled for local storage at {storage_root} (public URL: {settings.STORAGE_LOCAL_PUBLIC_URL})")
 
 
 class HealthCheckAccessFilter(logging.Filter):

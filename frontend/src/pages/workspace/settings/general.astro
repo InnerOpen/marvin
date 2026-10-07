@@ -166,9 +166,9 @@ const success = urlParams.get("success") === "1";
                 name="site_logo"
                 value={preferences?.siteLogo || ''}
                 disabled={!canManage}
-                placeholder="/assets/logo.png"
+                placeholder="logo"
               />
-              <small>Path or URL to the site logo</small>
+              <small>An asset's slug (follows the asset wherever it's stored), or a path or URL</small>
             </label>
 
             <label>
@@ -178,9 +178,9 @@ const success = urlParams.get("success") === "1";
                 name="site_favicon"
                 value={preferences?.siteFavicon || ''}
                 disabled={!canManage}
-                placeholder="/assets/favicon.ico"
+                placeholder="favicon"
               />
-              <small>Path or URL to the site favicon</small>
+              <small>An asset's slug (follows the asset wherever it's stored), or a path or URL</small>
             </label>
 
             <label>

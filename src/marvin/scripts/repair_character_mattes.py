@@ -37,6 +37,8 @@ class StoredFile:
     name: str
     key: str
     asset: Assets | None = None
+    provider: str = "local"
+    """The provider the file lives in: the asset row's, or the one the library file records."""
 
 
 @dataclass
@@ -52,12 +54,12 @@ class Repair:
 
 
 def _library_files(session: Session) -> Iterator[StoredFile]:
-    from marvin.services.ai.character_library import list_packs
+    from marvin.services.ai.character_library import library_file_provider, list_packs
 
     for pack in list_packs(session):
         for f in (pack.pack or {}).get("files") or []:
             if f.get("key"):
-                yield StoredFile(owner=f"library pack {pack.slug}", name=f.get("name") or f["key"], key=f["key"])
+                yield StoredFile(owner=f"library pack {pack.slug}", name=f.get("name") or f["key"], key=f["key"], provider=library_file_provider(f))
 
 
 def _own_characters(session: Session) -> Iterator[tuple[str, dict]]:
@@ -81,7 +83,9 @@ def _asset_files(session: Session) -> Iterator[StoredFile]:
         for f in character.get("files") or []:
             asset = session.get(Assets, uuid.UUID(f["assetId"])) if f.get("assetId") else None
             if asset is not None:
-                yield StoredFile(owner=owner, name=f.get("name") or asset.original_filename, key=asset.storage_key, asset=asset)
+                yield StoredFile(
+                    owner=owner, name=f.get("name") or asset.original_filename, key=asset.storage_key, asset=asset, provider=asset.storage_provider
+                )
 
 
 def _repair(storage: BaseStorageProvider, file: StoredFile, apply: bool) -> Repair | None:
@@ -101,12 +105,21 @@ def _repair(storage: BaseStorageProvider, file: StoredFile, apply: bool) -> Repa
     return Repair(owner=file.owner, name=file.name, key=file.key, before=len(data), after=len(fixed.data))
 
 
-def repair_stored_mattes(session: Session, storage: BaseStorageProvider, apply: bool = False) -> list[Repair]:
+def repair_stored_mattes(session: Session, storage: BaseStorageProvider | None = None, apply: bool = False) -> list[Repair]:
     """Every stored character file with a solid background, cleared in place when `apply` (a dry run
-    otherwise). Files a character references but storage can't give back are reported, not fatal."""
+    otherwise). Each file is read from and written back to the provider it lives in (`storage`, when
+    given, stands in for all of them). Files a character references but storage can't give back are
+    reported, not fatal."""
+    from marvin.services.storage.provider_factory import provider_for
+
     repairs = []
     for file in [*_library_files(session), *_asset_files(session)]:
-        repair = _repair(storage, file, apply)
+        try:
+            file_storage = storage or provider_for(file.provider)
+        except Exception as e:  # its provider is gone: report it like an unreadable file
+            repairs.append(Repair(owner=file.owner, name=file.name, key=file.key, error=f"couldn't read it: {e}"))
+            continue
+        repair = _repair(file_storage, file, apply)
         if repair is None:
             continue
         repairs.append(repair)
@@ -121,10 +134,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     from marvin.db.db_setup import session_context
-    from marvin.services.storage.provider_factory import get_storage_provider
 
     with session_context() as session:
-        repairs = repair_stored_mattes(session, get_storage_provider(), apply=args.apply)
+        repairs = repair_stored_mattes(session, apply=args.apply)
     for r in repairs:
         detail = r.error or f"{r.before:,} -> {r.after:,} bytes"
         sys.stdout.write(f"{r.owner}: {r.name} ({r.key}): {detail}\n")

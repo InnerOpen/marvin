@@ -39,6 +39,7 @@ const NODES: NavNode[] = [
     href: "/admin/submission-protection",
     parent: "admin",
   },
+  { id: "admin.storage", label: "Storage", href: "/admin/storage", parent: "admin", title: "Asset Storage" },
   { id: "admin.plugins", label: "Plugins", href: "/admin/plugins", parent: "admin" },
   { id: "admin.character-library", label: "Character Library", href: "/admin/character-library", parent: "admin" },
   { id: "admin.system", label: "System", href: "/admin/system", parent: "admin", title: "Platform System" },

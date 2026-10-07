@@ -47,9 +47,9 @@ try {
       Plugins are installed by the platform operator — baked into the container image or added by the Helm
       chart's init container — not from this page, because installing a plugin runs its code. Once installed, a
       plugin is available to every workspace, and each workspace connects it under its own
-      <strong>Settings → Integrations</strong>. Storage plugins work platform-wide instead: the operator picks the
-      asset storage provider (<code>STORAGE_PROVIDER</code>) and the backup targets; built-in local disk storage
-      needs no plugin.
+      <strong>Settings → Integrations</strong>. Storage plugins work platform-wide instead: an admin chooses where new uploads go under
+      <a href="/admin/storage">Storage</a> (<code>STORAGE_PROVIDER</code> is the default), the operator configures
+      the backup targets; built-in local disk storage needs no plugin.
     </p>
 
     {!error && plugins.length === 0 ? (

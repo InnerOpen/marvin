@@ -7,8 +7,10 @@ import { getServerApiBaseUrl } from "@/lib/api/config";
 // "/assets/{key}" — which the browser resolves against the page's origin, i.e. the frontend. So the
 // frontend has to serve /assets/*. It proxies to the backend over the server-side API URL
 // (getServerApiBaseUrl → MARVIN_API_URL), which in split mode is the in-cluster backend Service, so
-// the backend never needs a public route. For S3 storage public_url is an absolute S3 URL, the
-// browser goes straight there, and this route is simply never hit.
+// the backend never needs a public route. For S3 storage public_url is an absolute URL on the bucket's
+// public domain and the browser goes straight there. An /assets/ URL stored before its file moved to
+// S3 gets a redirect from the backend (services/storage/static.py), which is passed on to the browser
+// rather than followed here, so the file never streams through the frontend.
 export const prerender = false;
 
 // Forwarded so range requests (video seeking, large images) stream as partial content instead of
@@ -46,10 +48,15 @@ export const GET: APIRoute = async ({ params, request }) => {
 
   let upstream: Response;
   try {
-    upstream = await fetch(upstreamUrl, { headers });
+    upstream = await fetch(upstreamUrl, { headers, redirect: "manual" });
   } catch (e) {
     console.error(`[assets] upstream fetch failed for ${key}:`, e);
     return new Response("Bad gateway", { status: 502 });
+  }
+
+  const location = upstream.headers.get("location");
+  if (upstream.status >= 300 && upstream.status < 400 && location) {
+    return new Response(null, { status: upstream.status, headers: { location } });
   }
 
   const outHeaders = new Headers();

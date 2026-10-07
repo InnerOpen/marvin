@@ -22,7 +22,7 @@ from marvin.services.ai.character import (
     save_character,
     store_character,
 )
-from marvin.services.ai.character_library import get_pack, library_store, list_packs, pack_usage, unique_slug, unlink_pack
+from marvin.services.ai.character_library import get_pack, library_store, list_packs, pack_usage, unique_slug, unlink_pack, with_current_urls
 
 router = APIRouter(prefix="/character-packs")
 
@@ -49,7 +49,7 @@ class AdminCharacterPacksController(BaseAdminController):
 
     def _read(self, pack: CharacterPackModel) -> dict:
         return {
-            **describe(pack.pack),
+            **describe(with_current_urls(pack.pack)),
             "id": str(pack.id),
             "slug": pack.slug,
             "name": pack.name,
