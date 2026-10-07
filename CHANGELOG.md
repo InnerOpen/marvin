@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.208 (2026-10-07)
+
+### Bug Fixes
+
+- **register**: Logged-in visitors go to the workspace (real cookie name)
+  ([`d7e67ee`](https://github.com/InnerOpen/marvin/commit/d7e67eef454dfc89474ba88629ec665252da4163))
+
+### Documentation
+
+- Postgres runbook (dev env, CNPG backups/PITR, copy tool, cutover)
+  ([`4e0a7c7`](https://github.com/InnerOpen/marvin/commit/4e0a7c7704ebc9f12b3680de32a498f2952c1b14))
+
+### Testing
+
+- The alias migration check reads one row each, no ORDER BY on JSON
+  ([`64cb622`](https://github.com/InnerOpen/marvin/commit/64cb6228504e826dfb401c015e676df0a92e95f0))
+
+
 ## v1.0.0-rc.207 (2026-10-06)
 
 ### Bug Fixes
