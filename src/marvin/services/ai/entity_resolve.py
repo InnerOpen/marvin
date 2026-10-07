@@ -14,7 +14,9 @@ def resolve_entity_id(session, group_id, entity_type: str | None, entity_id):
 
     Returns the entity's UUID (resolving a slug for entry/asset/resource within this
     workspace), or the input unchanged when it's already a UUID or can't be resolved
-    (downstream loaders then 404 exactly as before).
+    (downstream loaders then 404 exactly as before). An entry can also be named by its exact
+    title (case-insensitive) when exactly one entry in the workspace has it — a model given a
+    list of titles often passes the title back instead of the slug next to it.
     """
     if not entity_id:
         return entity_id
@@ -41,7 +43,15 @@ def resolve_entity_id(session, group_id, entity_type: str | None, entity_id):
         return entity_id
 
     row = session.query(model).filter_by(group_id=group_id, slug=str(entity_id)).first()
-    return row.id if row else entity_id
+    if row:
+        return row.id
+    if model.__name__ == "Entries":
+        from sqlalchemy import func
+
+        titled = session.query(model.id).filter(model.group_id == group_id, func.lower(model.title) == str(entity_id).strip().lower()).limit(2).all()
+        if len(titled) == 1:
+            return titled[0][0]
+    return entity_id
 
 
 def resolve_retrieved_sources(session, retrieved: list[dict]) -> list[dict]:

@@ -446,6 +446,17 @@ def test_trash_entries_trashes_drafts_through_the_human_path_and_reports_the_res
     assert [t["id"] for t in author["trashed"]] == [str(mine)]
 
 
+def test_trash_entries_finds_an_entry_by_its_exact_title_when_only_one_has_it(ws):
+    # Seen live: the model listed entries by title and passed the title back instead of the slug.
+    unique, twin_a, twin_b = ws.entry("only-one"), ws.entry("twin-a"), ws.entry("twin-b")
+    for eid in (twin_a, twin_b):
+        ws.session.get(Entries, eid).title = "Same Title"
+    ws.session.commit()
+    out = _trash_tool(ws, [_row(ws, unique).title.upper(), "Same Title"])
+    assert [t["id"] for t in out["trashed"]] == [str(unique)]
+    assert [s["entry"] for s in out["skipped"]] == ["Same Title"]  # ambiguous: never guesses
+
+
 def test_trash_entries_asks_first_for_a_published_entry(ws):
     live, draft = ws.entry("spring-sale", "published"), ws.entry("d")
     ask = get_tool("trash_entries").ask_first
