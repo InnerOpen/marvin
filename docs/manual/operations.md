@@ -41,6 +41,15 @@ The trade-off: a pod with a long run in flight takes that long to stop. Under th
 !!! warning "Chart keys the app does not read"
     `config.webhookRetryAttempts` and `config.webhookRetryDelay` land in the ConfigMap but nothing in `src/` reads them. `docs/HELM_DEPLOYMENT_GUIDE.md` and `docs/OPENSHIFT_DEPLOYMENT.md` predate this and are superseded on this point.
 
+## Platform workspace
+
+One workspace is the **platform (admin's) workspace**: platform alerts and shared services run from it. It is marked in the database (`groups.is_platform`, at most one row, enforced by the partial unique index `uq_groups_is_platform`) and code finds it by that marker — `platform_workspace(session)` in `services/group/platform_workspace.py` — never by its name or slug.
+
+- **Naming it.** A fresh install creates it under `DEFAULT_GROUP` (chart: `config.platformWorkspaceName`; empty = `Default`), its slug derived from the name. On an existing install that setting changes nothing; the API logs a hint at startup when it differs from the workspace's actual name. The upgrade that introduced the marker set it on the workspace named `DEFAULT_GROUP` (or `Default`), else on the oldest workspace.
+- **Renaming it.** **Admin → Workspaces** lists it first with an **Admin** badge; **Manage** opens its page, where a super admin changes the name and slug. API: `PUT /api/admin/groups/{id}` with `{"id": "<id>", "name": "…", "slug": "…"}` (slug optional — omitted, it is derived from the name; `GET /api/admin/groups/platform` returns the workspace and its id). A name or slug another workspace has gets 409.
+- **What a slug change keeps working.** The current workspace is stored by id, so nobody's selection changes. The old slug is kept as an alias (`group_slug_aliases`): Publishing API URLs (`/api/publish/<old-slug>/…`, e.g. a site's `MARVIN_WORKSPACE_SLUG`), switching by slug (CLI `--workspace`), `storage_migrate --workspace` and the backup lists (zips are named `<slug>-backup-…`) still find the workspace. Renaming back to an old slug drops that alias; no other workspace can take a slug that is someone's alias. Literal slugs typed into webhook URLs or bodies are not rewritten — use `{{workspace_slug}}`.
+- **It can't be deleted** (409, with or without `force`), and the marker can't be moved or removed through the API. It shows the **Admin** badge in the workspace switcher to platform super admins only; other members see it like any workspace.
+
 ## Scheduler
 
 Every API process starts the scheduler; a database lease (`services/scheduler/leader.py`, one row, conditional `UPDATE`) makes exactly one replica run each tick, on SQLite as well as Postgres. `SCHEDULER_INTERVAL_SECONDS` (default 60) is the frequent tick that delivers webhooks, fires due scheduled tasks and renews the lease, so a task can run up to one interval late. `SCHEDULER_LEASE_TTL_SECONDS` (default 150) must be at least twice the interval or the app refuses to start. Set `SCHEDULER_ENABLED=false` on pods that should only serve requests. The same tick also sends queued site rebuilds (see [Site rebuilds](#site-rebuilds)). System tasks seeded at startup (idempotently by slug, so an upgrade adds new ones): `prune_event_logs`, `prune_ai_executions`, `prune_scheduled_task_executions` and `resync_smart_collections` on a 24-hour interval, and since rc.170 `publish_scheduled_entries` and `unpublish_expired_entries` every 5 minutes, so entries' Scheduled Publish and Expiration Date work with no setup (see [Scheduled tasks](whats-new/scheduled-tasks.md)). Idle runs of the 5-minute tasks write no execution row. `DAILY_SCHEDULE_TIME` (default `23:47`, local server time) sets the scheduler's daily callback, which has no built-in jobs today.
@@ -99,7 +108,7 @@ These are per-workspace content exports kept on the data volume. For the whole i
 | `TOKEN_TIME` | `48` | session hours |
 | `ALLOW_SIGNUP` | `false` | |
 | `DEFAULT_EMAIL` / `DEFAULT_PASSWORD` | `changeme@example.com` / unset | first super admin |
-| `DEFAULT_GROUP` | `Default` | first workspace |
+| `DEFAULT_GROUP` | `Default` | name of the platform workspace on a fresh install only (see [Platform workspace](#platform-workspace)) |
 | `SEED_ON_STARTUP` | `false` | |
 | `SCHEDULER_ENABLED` / `SCHEDULER_INTERVAL_SECONDS` / `SCHEDULER_LEASE_TTL_SECONDS` | `true` / `60` / `150` | see Scheduler; the interval must be at least 10 |
 | `SITE_REBUILD_QUIET_SECONDS` | `60` | quiet period before a queued site rebuild is sent; see [Site rebuilds](#site-rebuilds) |

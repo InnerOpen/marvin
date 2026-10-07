@@ -2545,3 +2545,33 @@ through the database.
   only BACKUP_SCHEDULE / BACKUP_TIME_ZONE on the target CronJobs; SDK gate reproduced, types committed in
   MarvinSDK `feat/backup-health-types`. Live check (SQLite + astro dev + headless Chromium + local MinIO)
   with real job runs incl. a revoked key; screenshots in the job's tmp/backuphealth-shots.
+
+# Platform workspace marker (feat/platform-workspace, 2026-10-07)
+
+Approved by Jared 2026-10-07: "Default (or whatever we name it) is Admins Workspace".
+
+- [x] `groups.is_platform` + partial unique index `uq_groups_is_platform`; migration `efee4271020c` marks the
+      group named `DEFAULT_GROUP` (else "Default", else the oldest). Up/down/up tested on SQLite and Postgres 17.
+- [x] One resolver, `services/group/platform_workspace.platform_workspace(session)`; no lookup by
+      `DEFAULT_GROUP` remains (it only names a fresh install's workspace; chart `config.platformWorkspaceName`).
+- [x] Super-admin rename (name + slug) on Admin → Workspaces → the platform workspace; old slugs kept in
+      `group_slug_aliases` so Publishing API URLs, `--workspace` arguments and backup lists keep working.
+- [x] Can't be deleted; marker not settable through the API. "Admin" shield badge (super admins only) in the
+      switcher and the admin list; explanation line on its admin page.
+- [ ] Production keeps "Default"/`default` — Jared renames it himself later (Admin → Workspaces → Manage).
+- [ ] feat/platform-alert-routes: resolve integration connections for platform alerts with
+      `platform_workspace(session)`.
+- [ ] Release the SDK types (MarvinSDK `feat/platform-workspace-types`: `GroupRead.isPlatform`, `slug` on the
+      admin update, `GET /api/admin/groups/platform`); the frontend reads `isPlatform` with a local cast until then.
+- [ ] Separate bug, not fixed here: the workspace **Settings → General** rename (`PATCH /api/groups/{id}/preferences`)
+      sets name/slug on a Pydantic copy and never saves them; `frontend/src/pages/api/workspaces/[id]/update.ts`
+      sends `{name}` without the `id` `GroupAdminUpdate` requires. Route both through `rename_workspace` (or drop them).
+
+## Design note: settings cascade (not built)
+
+Idea: **Platform → platform workspace → workspaces**. A setting could be defined at the platform level, overridden
+in the platform workspace, and inherited by other workspaces — but **only by explicit opt-in**, per setting and per
+workspace (a workspace says "use the platform's SMTP profile / AI provider / alert route"), never by silent fallback.
+Reasons: a client workspace must not start sending through the admin's credentials, or showing the admin's branding,
+because it left a field empty; and an opt-in is visible and auditable on both ends. Building blocks already here:
+the marker (`is_platform`) and the resolver. Not building the framework until a second concrete setting needs it.
