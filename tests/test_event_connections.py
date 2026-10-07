@@ -55,7 +55,7 @@ def _purge(db, gid):
     from marvin.db.models.groups.integrations import IntegrationModel
     from marvin.db.models.groups.webhook_event_subscriptions import WebhookEventSubscriptionModel
     from marvin.db.models.groups.webhooks import GroupWebhooksModel
-    from marvin.db.models.platform import Collections, Entries, EntryCollections, EntryTypes
+    from marvin.db.models.platform import Assets, Collections, Entries, EntryCollections, EntryTypes, Resources
     from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
     from marvin.db.models.platform.site_rebuild_requests import SiteRebuildRequestModel
     from marvin.db.models.users.users import Users
@@ -77,6 +77,8 @@ def _purge(db, gid):
         Entries,
         EntryTypes,
         IntegrationModel,
+        Assets,
+        Resources,
     ):
         db.execute(sa.delete(model).where(model.group_id == gid))
     purge_group_dependents(db, gid)
@@ -720,10 +722,42 @@ def test_each_entry_step_sends_what_op_sends_says(db_session, world, entries, di
 
 
 def test_every_op_has_its_sends(db_session):
-    from marvin.services.automation.actions.entry import ALL_OPS, OP_SENDS
+    from marvin.services.automation.actions.entry import ALL_OPS, ITEM_OP_SENDS, OP_SENDS
 
     assert set(OP_SENDS) == set(ALL_OPS)
     assert {e for sends in OP_SENDS.values() for e in sends} <= set(CATALOG_BY_TYPE)
+    assert {op for _, op in ITEM_OP_SENDS} <= set(ALL_OPS)
+    assert {e for sends in ITEM_OP_SENDS.values() for e in sends} <= set(CATALOG_BY_TYPE)
+
+
+@pytest.mark.parametrize("kind", ["asset", "resource"])
+@pytest.mark.parametrize("op", ["trash", "restore"])
+def test_each_item_step_sends_what_item_op_sends_says(db_session, world, dispatched, kind, op):
+    """`trash` / `restore` with entity_type asset or resource (services/trash.py), from where the op starts."""
+    from datetime import UTC, datetime
+
+    from marvin.db.models.platform import Assets, Resources
+    from marvin.services.automation.actions.entry import ITEM_OP_SENDS, run_entry_action
+    from marvin.services.automation.authz import ROLE_ADMIN
+
+    common = {"group_id": world.a, "slug": f"{kind}-{uuid.uuid4().hex[:8]}", "name": "Item"}
+    if op == "restore":
+        common["trashed_at"] = datetime.now(UTC)
+    if kind == "asset":
+        extra = {"original_filename": "a.png", "filename": "a.png", "extension": "png", "file_size": 1, "mime_type": "image/png"}
+        extra |= {"asset_type": "image", "checksum": "c", "storage_provider": "local", "storage_key": f"k/{uuid.uuid4().hex}"}
+        row = _add(db_session, Assets, uploaded_by=world.ua, **common, **extra)
+    else:
+        row = _add(db_session, Resources, created_by=world.ua, resource_type="tool", **common)
+    dispatched.clear()
+    action = {"kind": "entry", "op": op, "entity_type": kind, "entity_slug": row.slug}
+    out = run_entry_action(db_session, world.a, action, {"event": {}, "steps": {}, "depth": 0}, authorizer_role=ROLE_ADMIN)
+    assert not out.get("skipped")
+    assert sorted(dispatched) == sorted(ITEM_OP_SENDS[(kind, op)])
+    # Already where the op would put it: skipped, nothing sent.
+    dispatched.clear()
+    assert run_entry_action(db_session, world.a, action, {"event": {}, "steps": {}, "depth": 0}, authorizer_role=ROLE_ADMIN)["skipped"]
+    assert dispatched == []
 
 
 def test_task_types_send_what_they_declare(db_session, world, entries, dispatched):

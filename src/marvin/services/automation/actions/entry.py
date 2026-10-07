@@ -20,6 +20,11 @@ since each matched entry is bound to `$event.entry_id` for its fan-out row. Coll
 `entry.delete` is deliberately NOT offered here, and neither is emptying the Trash: `trash` is reversible,
 permanent deletion stays a person's action. "Move every X to the Trash" is a `target` + a `trash` action;
 entries already in the Trash are skipped (a no-op, nothing emitted).
+
+`trash` and `restore` also act on an asset or a resource, with `entity_type: asset | resource` (services/trash.py:
+`asset_trashed` / `asset_restored`, `resource_trashed` / `resource_restored`). The target is `entity_slug` or
+`entity_id` (default: the triggering `$event.asset_id` / `$event.resource_id`); an asset or resource already
+where the op would put it is skipped. No other op takes an entity_type.
 """
 
 import uuid
@@ -75,6 +80,13 @@ OP_SENDS: dict[str, tuple[str, ...]] = {
     "set_metadata": ("entry_updated",),
     "set_data": ("entry_updated",),
     "request_review": ("entry_updated",),
+}
+
+# Ops that also act on an asset or a resource (`entity_type`), and what each sends there — one event, no
+# entry_updated. Checked the same way as OP_SENDS (test_event_connections).
+ITEM_TYPES = ("asset", "resource")
+ITEM_OP_SENDS: dict[tuple[str, str], tuple[str, ...]] = {
+    (kind, op): (f"{kind}_{'trashed' if op == 'trash' else 'restored'}",) for kind in ITEM_TYPES for op in ("trash", "restore")
 }
 
 
@@ -169,6 +181,10 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
         raise AutomationActionError(f"unknown entry action op '{op}' (expected: {', '.join(ALL_OPS)})")
 
     require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, ENTRY_ACTION_MIN_ROLE, f"entry action '{op}'")
+
+    entity_type = action.get("entity_type") or "entry"
+    if entity_type != "entry":
+        return _run_item_op(session, group_id, entity_type, op, action, context, user_id=user_id, dry_run=dry_run)
 
     entity_id = _resolve_target(session, group_id, action, context)
     if entity_id is None:
@@ -333,3 +349,50 @@ def request_review(session, group_id, entity_id, *, reason: str = "", metadata: 
         entry = svc.update(entity_id, {"status": REVIEW_STATUS, "metadata_json": merged}, reaction_depth=depth)
     if entry is None:
         raise AutomationActionError(f"entry {entity_id} not found in this workspace")
+
+
+def _run_item_op(session, group_id, kind: str, op: str, action: dict, context: dict, *, user_id, dry_run: bool) -> dict:
+    """`trash` / `restore` on an asset or resource (services/trash.py). Already where the op would put it →
+    skipped, nothing emitted."""
+    from marvin.services import trash
+
+    if kind not in ITEM_TYPES:
+        raise AutomationActionError(f"unknown entity_type '{kind}' (expected: entry, {', '.join(ITEM_TYPES)})")
+    if (kind, op) not in ITEM_OP_SENDS:
+        raise AutomationActionError(f"entry action op '{op}' does not take entity_type '{kind}' (only trash and restore do)")
+    if action.get("entity_query"):
+        raise AutomationActionError(f"entity_query finds entries only — target the {kind} by entity_slug or entity_id")
+    row = _resolve_item(session, group_id, kind, action, context)
+    key = f"{kind}_id"
+    if (op == "trash") == trash.is_trashed(row):
+        reason = "already in the Trash" if op == "trash" else "not in the Trash"
+        return {key: str(row.id), "op": op, "skipped": True, "reason": reason}
+    if dry_run:
+        return {"dry_run": True, "kind": "entry", "entity_type": kind, "op": op, "entity_id": str(row.id)}
+    depth = int(context.get("depth", 0)) + 1
+    move = trash.trash if op == "trash" else trash.restore
+    move(session, group_id, kind, row.id, actor_id=user_id, reaction_depth=depth)
+    return {key: str(row.id), "op": op, "trashed": op == "trash"}
+
+
+def _resolve_item(session, group_id, kind: str, action: dict, context: dict):
+    """The asset or resource an item op targets: by slug, or an id (default: the triggering one)."""
+    from marvin.services import trash
+
+    model = trash.model(kind)
+    slug = interpolate(action.get("entity_slug"), context) if action.get("entity_slug") else None
+    if slug:
+        row = session.query(model).filter(model.group_id == group_id, model.slug == str(slug)).first()
+        if row is None:
+            raise AutomationActionError(f"no {kind} with slug '{slug}' in this workspace")
+        return row
+    raw = interpolate(action.get("entity_id", f"$event.{kind}_id"), context)
+    if not raw:
+        raise AutomationActionError(f"entry action on a {kind} has no target — set entity_slug or entity_id, or trigger on an {kind} event")
+    try:
+        row = session.get(model, raw if isinstance(raw, uuid.UUID) else uuid.UUID(str(raw)))
+    except (ValueError, TypeError) as e:
+        raise AutomationActionError(f"entry action needs a valid {kind} id or slug") from e
+    if row is None or row.group_id != group_id:
+        raise AutomationActionError(f"{kind} {raw} not found in this workspace")
+    return row

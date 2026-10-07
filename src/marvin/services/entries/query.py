@@ -95,6 +95,7 @@ def build(session, group_id, spec: dict | None):
     from marvin.db.models.platform.entry_resources import EntryResources
     from marvin.db.models.platform.entry_tags import EntryTags
     from marvin.db.models.platform.entry_types import EntryTypes
+    from marvin.db.models.platform.resources import Resources
     from marvin.schemas.platform.entries import ENTRY_STATUSES
     from marvin.services.automation.selector import json_field_equals
 
@@ -143,13 +144,15 @@ def build(session, group_id, spec: dict | None):
         )
         q = q.filter(Entries.id.in_(session.query(EntryCollections.entry_id).filter(EntryCollections.collection_id.in_(coll_ids))))
 
+    # Attachments in the Trash don't count (their links stay for a restore; services/trash.py).
+    asset_links = session.query(EntryAssets.entry_id).join(Assets, Assets.id == EntryAssets.asset_id).filter(Assets.trashed_at.is_(None))
     if spec.get("has_images"):
-        image_links = session.query(EntryAssets.entry_id).join(Assets, Assets.id == EntryAssets.asset_id).filter(Assets.asset_type == "image")
-        q = q.filter(Entries.id.in_(image_links))
+        q = q.filter(Entries.id.in_(asset_links.filter(Assets.asset_type == "image")))
     elif spec.get("has_assets"):
-        q = q.filter(Entries.id.in_(session.query(EntryAssets.entry_id)))
+        q = q.filter(Entries.id.in_(asset_links))
     if spec.get("has_resources"):
-        q = q.filter(Entries.id.in_(session.query(EntryResources.entry_id)))
+        resource_links = session.query(EntryResources.entry_id).join(Resources, Resources.id == EntryResources.resource_id)
+        q = q.filter(Entries.id.in_(resource_links.filter(Resources.trashed_at.is_(None))))
 
     # An empty/None value matches NOTHING rather than dropping the filter: a template that resolved to
     # nothing must never widen the query to the whole workspace.

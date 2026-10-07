@@ -117,6 +117,7 @@ class EntryAction(_DefnBase):
         "set_data",
         "request_review",
     ]
+    entity_type: Literal["entry", "asset", "resource"] = "entry"  # trash / restore also act on an asset or resource
     entity_id: str | None = None
     entity_slug: str | None = None
     entity_query: dict[str, Any] | None = None  # find exactly one entry (target-selector vocabulary; values may be templates)

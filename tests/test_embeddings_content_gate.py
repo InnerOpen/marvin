@@ -22,10 +22,17 @@ def test_thin_asset_excluded_rich_asset_kept():
 
 
 def test_asset_descriptor_wires_the_gate():
-    # assets carry the content gate; entries are searchable only while published; resources always index
+    # assets carry the content gate; entries are searchable only while published; resources always index;
+    # an asset or resource in the Trash never does
+    from datetime import UTC, datetime
     from types import SimpleNamespace
 
-    assert REGISTRY["asset"].content_ok is _asset_content_ok
+    rich = SimpleNamespace(name="Tote", description="A waxed canvas tote", alt_text=None, trashed_at=None)
+    assert REGISTRY["asset"].content_ok(rich) is True
+    assert REGISTRY["asset"].content_ok(_asset()) is False
     assert REGISTRY["entry"].content_ok(SimpleNamespace(status="published")) is True
     assert REGISTRY["entry"].content_ok(SimpleNamespace(status="draft")) is False
     assert REGISTRY["resource"].content_ok(_asset()) is True
+    trashed = SimpleNamespace(**{**vars(rich), "trashed_at": datetime.now(UTC)})
+    assert REGISTRY["asset"].content_ok(trashed) is False
+    assert REGISTRY["resource"].content_ok(trashed) is False

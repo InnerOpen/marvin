@@ -93,6 +93,25 @@ def _serialize_resource(r, link=None) -> dict:
     }
 
 
+def _trash_fields(row) -> dict:
+    """``{inTrash, trashedAt}`` for an asset or resource in the Trash (fetched by id or slug), else nothing."""
+    when = getattr(row, "trashed_at", None)
+    return {"inTrash": True, "trashedAt": when.isoformat()} if when else {}
+
+
+def _as_uuids(values) -> list:
+    """The values that parse as UUIDs (index hits carry string ids)."""
+    import uuid as _uuid
+
+    out = []
+    for value in values:
+        try:
+            out.append(_uuid.UUID(str(value)))
+        except (ValueError, TypeError):
+            pass
+    return out
+
+
 # ── Lean refs for LIST results ────────────────────────────────────────────────
 # List tools return minimal previews (identity + what a UI needs to show/link); callers reach for
 # the get_* tool when they want the full record. Keeps list payloads out of the agent's context.
@@ -194,7 +213,7 @@ def search_content(ctx: ToolContext, args: dict) -> str:
         for eid, a in (
             ctx.session.query(EntryAssets.entry_id, Assets)
             .join(Assets, Assets.id == EntryAssets.asset_id)
-            .filter(EntryAssets.entry_id.in_(entry_uuids), Assets.asset_type == "image")
+            .filter(EntryAssets.entry_id.in_(entry_uuids), Assets.asset_type == "image", Assets.trashed_at.is_(None))
             .order_by(EntryAssets.position)
             .all()
         ):
@@ -204,7 +223,13 @@ def search_content(ctx: ToolContext, args: dict) -> str:
             urls_by_entry[str(e.id)] = _url_field(e, site_url)
             if e.status == "trashed":  # the index drops it on entry_trashed; don't show it meanwhile
                 trashed.add(str(e.id))
-    results = [r for r in results if not (r["entityType"] == "entry" and r["entityId"] in trashed)]
+    # Assets and resources in the Trash too (the index drops them on asset_trashed / resource_trashed).
+    for kind, model in (("asset", Assets), ("resource", Resources)):
+        ids = [r["entityId"] for r in results if r["entityType"] == kind and r["entityId"]]
+        if ids:
+            rows = ctx.session.query(model.id).filter(model.group_id == ctx.group_id, model.id.in_(_as_uuids(ids)), model.trashed_at.isnot(None))
+            trashed.update(str(row[0]) for row in rows)
+    results = [r for r in results if not (r["entityType"] in ("entry", "asset", "resource") and r["entityId"] in trashed)]
     for r in results:
         r["assets"] = images_by_entry.get(r["entityId"], []) if r["entityType"] == "entry" else []
         if r["entityType"] == "entry":
@@ -309,7 +334,7 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
         for eid, a in (
             ctx.session.query(EntryAssets.entry_id, Assets)
             .join(Assets, Assets.id == EntryAssets.asset_id)
-            .filter(EntryAssets.entry_id.in_(entry_ids))
+            .filter(EntryAssets.entry_id.in_(entry_ids), Assets.trashed_at.is_(None))
             .order_by(EntryAssets.position)
             .all()
         ):
@@ -317,7 +342,7 @@ def find_entries(ctx: ToolContext, args: dict) -> str:
         for eid, r in (
             ctx.session.query(EntryResources.entry_id, Resources)
             .join(Resources, Resources.id == EntryResources.resource_id)
-            .filter(EntryResources.entry_id.in_(entry_ids))
+            .filter(EntryResources.entry_id.in_(entry_ids), Resources.trashed_at.is_(None))
             .order_by(EntryResources.position)
             .all()
         ):
@@ -374,14 +399,14 @@ def get_entry(ctx: ToolContext, args: dict) -> str:
     asset_links = (
         ctx.session.query(EntryAssets, Assets)
         .join(Assets, Assets.id == EntryAssets.asset_id)
-        .filter(EntryAssets.entry_id == entry.id)
+        .filter(EntryAssets.entry_id == entry.id, Assets.trashed_at.is_(None))  # the Trash is out of sight
         .order_by(EntryAssets.position)
         .all()
     )
     resource_links = (
         ctx.session.query(EntryResources, Resources)
         .join(Resources, Resources.id == EntryResources.resource_id)
-        .filter(EntryResources.entry_id == entry.id)
+        .filter(EntryResources.entry_id == entry.id, Resources.trashed_at.is_(None))
         .order_by(EntryResources.position)
         .all()
     )
@@ -474,7 +499,7 @@ def get_resource(ctx: ToolContext, args: dict) -> str:
     resource = ctx.session.get(Resources, rid) if isinstance(rid, _uuid.UUID) else None
     if not resource or resource.group_id != ctx.group_id:
         return json.dumps({"error": f"resource '{ident}' not found"})
-    return json.dumps(_serialize_resource(resource))
+    return json.dumps({**_serialize_resource(resource), **_trash_fields(resource)})
 
 
 @register_tool(
@@ -608,14 +633,17 @@ def list_tags(ctx: ToolContext, _args: dict) -> str:
     from marvin.db.models.platform.resource_tags import ResourceTags
     from marvin.services.entries.trash import not_trashed
 
-    def _counts(junction, fk, *, entries: bool = False):
+    def _counts(junction, fk, *, entries: bool = False, item=None):
         q = ctx.session.query(junction.tag_id, func.count(getattr(junction, fk))).join(Tags, Tags.id == junction.tag_id)
         if entries:  # an entry in the Trash doesn't count as using the tag
             q = q.join(Entries, Entries.id == junction.entry_id).filter(not_trashed())
+        if item is not None:  # nor does an asset or resource in the Trash
+            q = q.join(item, item.id == getattr(junction, fk)).filter(item.trashed_at.is_(None))
         return dict(q.filter(Tags.group_id == ctx.group_id).group_by(junction.tag_id).all())
 
     rows = ctx.session.query(Tags).filter(Tags.group_id == ctx.group_id).all()
-    ec, ac, rc = _counts(EntryTags, "entry_id", entries=True), _counts(AssetTags, "asset_id"), _counts(ResourceTags, "resource_id")
+    ec = _counts(EntryTags, "entry_id", entries=True)
+    ac, rc = _counts(AssetTags, "asset_id", item=Assets), _counts(ResourceTags, "resource_id", item=Resources)
     out = [
         {
             "id": str(t.id),
@@ -651,7 +679,7 @@ def list_resources(ctx: ToolContext, args: dict) -> str:
 
     from .builtins_actions import _narrow_by_tags
 
-    q = ctx.session.query(Resources).filter(Resources.group_id == ctx.group_id)
+    q = ctx.session.query(Resources).filter(Resources.group_id == ctx.group_id, Resources.trashed_at.is_(None))
     rtype = args.get("resource_type")
     if rtype:
         q = q.filter(Resources.resource_type == rtype)
@@ -701,7 +729,7 @@ def list_assets(ctx: ToolContext, args: dict) -> str:
 
     from .builtins_actions import _narrow_by_tags
 
-    q = ctx.session.query(Assets).filter(Assets.group_id == ctx.group_id)
+    q = ctx.session.query(Assets).filter(Assets.group_id == ctx.group_id, Assets.trashed_at.is_(None))
     atype = args.get("asset_type")
     if atype:
         q = q.filter(Assets.asset_type == atype)
@@ -754,6 +782,7 @@ def get_asset(ctx: ToolContext, args: dict) -> str:
             "createdAt": a.created_at.isoformat() if getattr(a, "created_at", None) else None,
             "updatedAt": a.update_at.isoformat() if getattr(a, "update_at", None) else None,
             "uploadedBy": str(a.uploaded_by) if a.uploaded_by else None,
+            **_trash_fields(a),
         }
     )
 

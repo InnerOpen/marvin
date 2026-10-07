@@ -329,3 +329,69 @@ def test_an_edit_that_keeps_visibility_records_no_prior_visibility(db_session, s
 
     [(_, data)] = bus.dispatched
     assert (data.is_public, data.before) == (False, {})
+
+
+def test_trashing_or_restoring_an_asset_or_resource_a_site_can_see_queues_a_rebuild(db_session, site):
+    """Visible: attached to a published entry (or in a public collection, or the site logo). An asset only on a
+    draft isn't — and an item the listener can't find counts, like a deleted one."""
+    from marvin.db.models.platform import Assets, EntryAssets, EntryResources, Resources
+    from marvin.db.models.users.users import Users
+
+    uid = uuid.uuid4()
+    db_session.execute(
+        Users.__table__.insert().values(
+            id=uid, group_id=site.gid, username=f"u-{uid.hex[:8]}", email=f"{uid.hex[:8]}@t.test", full_name="U", password="x",
+            is_superuser=False, platform_role="NONE", auth_method="MARVIN",
+        )
+    )  # fmt: skip
+
+    def asset(slug):
+        a = Assets(
+            session=db_session, group_id=site.gid, slug=slug, name=slug, original_filename=f"{slug}.png", filename=slug, extension="png",
+            file_size=1, mime_type="image/png", asset_type="image", checksum="c", storage_provider="local",
+            storage_key=f"k/{uuid.uuid4().hex}", uploaded_by=uid,
+        )  # fmt: skip
+        db_session.add(a)
+        db_session.flush()
+        return a.id
+
+    on_live, on_draft = asset("on-live"), asset("on-draft")
+    material = Resources(session=db_session, group_id=site.gid, slug="canvas", name="Canvas", resource_type="material", created_by=uid)
+    db_session.add(material)
+    db_session.flush()
+    db_session.add_all(
+        [
+            EntryAssets(entry_id=site.live, asset_id=on_live, position=0),
+            EntryAssets(entry_id=site.draft, asset_id=on_draft, position=0),
+            EntryResources(entry_id=site.live, resource_id=material.id, position=0),
+        ]
+    )
+    db_session.commit()
+    try:
+
+        def item_event(event_type, field, item_id):
+            document = SimpleNamespace(**{field: item_id})
+            return SimpleNamespace(event_type=event_type, document_data=document, entity_id=item_id, message=SimpleNamespace(body=event_type.name))
+
+        _fire(site.gid, item_event(EventTypes.asset_trashed, "asset_id", on_draft))
+        assert _queued(db_session, site.gid) == 0  # only a draft shows it
+        _fire(site.gid, item_event(EventTypes.asset_trashed, "asset_id", on_live))
+        _fire(site.gid, item_event(EventTypes.asset_restored, "asset_id", on_live))
+        _fire(site.gid, item_event(EventTypes.resource_trashed, "resource_id", material.id))
+        _fire(site.gid, item_event(EventTypes.resource_restored, "resource_id", uuid.uuid4()))  # can't tell: yes
+        assert _queued(db_session, site.gid) == 4
+    finally:
+        db_session.rollback()
+        db_session.query(EntryAssets).filter(EntryAssets.asset_id.in_([on_live, on_draft])).delete()
+        db_session.query(EntryResources).filter(EntryResources.resource_id == material.id).delete()
+        db_session.query(Assets).filter(Assets.group_id == site.gid).delete()
+        db_session.query(Resources).filter(Resources.group_id == site.gid).delete()
+        db_session.query(Users).filter(Users.id == uid).delete()
+        db_session.commit()
+
+
+def test_trashing_a_published_entry_queues_a_rebuild_and_a_draft_does_not(db_session, site):
+    _fire(site.gid, _event(EventTypes.entry_trashed, site.draft))
+    assert _queued(db_session, site.gid) == 0
+    _fire(site.gid, _event(EventTypes.entry_trashed, site.draft, before={"status": "published"}))
+    assert _queued(db_session, site.gid) == 1

@@ -67,23 +67,24 @@ class CollectionsController(BaseUserController):
         # (entries / assets / resources) — one grouped query per junction (avoids N+1).
         from sqlalchemy import func
 
-        from marvin.db.models.platform import CollectionAssets, CollectionResources, Collections, EntryCollections
+        from marvin.db.models.platform import Assets, CollectionAssets, CollectionResources, Collections, EntryCollections, Resources
         from marvin.db.models.platform.entries import Entries
 
-        def _counts(junction, fk, *filters):
+        def _counts(junction, fk, *filters, model=Entries):
             q = (
                 self.session.query(junction.collection_id, func.count(getattr(junction, fk)))
                 .join(Collections, Collections.id == junction.collection_id)
                 .filter(Collections.group_id == self.group_id)
             )
             if filters:
-                q = q.join(Entries, Entries.id == junction.entry_id).filter(*filters)
+                q = q.join(model, model.id == getattr(junction, fk)).filter(*filters)
             return dict(q.group_by(junction.collection_id).all())
 
+        # An asset or resource in the Trash keeps its membership (for a restore) but isn't counted.
         by_type = {
             "entry": _counts(EntryCollections, "entry_id", trash.not_trashed()),
-            "asset": _counts(CollectionAssets, "asset_id"),
-            "resource": _counts(CollectionResources, "resource_id"),
+            "asset": _counts(CollectionAssets, "asset_id", Assets.trashed_at.is_(None), model=Assets),
+            "resource": _counts(CollectionResources, "resource_id", Resources.trashed_at.is_(None), model=Resources),
         }
         in_trash = _counts(EntryCollections, "entry_id", Entries.status == trash.TRASHED)
         for collection in collections:
@@ -149,6 +150,8 @@ class CollectionsController(BaseUserController):
 
         rules = data.smart_rules or {}
         matches = matching_items(self.session, self.group_id, rules, data.target_type)
+        if data.target_type != "entry":  # membership keeps a trashed asset/resource; the listing doesn't show it
+            matches = [m for m in matches if getattr(m, "trashed_at", None) is None]
         label_attr = "title" if data.target_type == "entry" else "name"
         items = [
             {"id": m.id, "label": getattr(m, label_attr, None) or m.slug or str(m.id), "slug": m.slug, "type": data.target_type}
@@ -259,6 +262,8 @@ class CollectionsController(BaseUserController):
         q = self.session.query(model).join(junction, model.id == fk).filter(junction.collection_id == item_id)
         if target == "entry":
             q = q.filter(trash.collection_entries_filter(collection))
+        else:  # an asset or resource in the Trash keeps its membership for a restore, out of sight
+            q = q.filter(model.trashed_at.is_(None))
         rows = q.order_by(getattr(model, label_col)).all()
         return [{"id": str(r.id), "label": getattr(r, label_col), "slug": r.slug, "type": target} for r in rows]
 

@@ -378,7 +378,7 @@ def reactions(session: Session, group_id, event_type: str) -> list[EventReaction
 
 def _step_sends(step) -> list[tuple[str, str]]:
     """(event type, what sends it) for one workflow step, when the step's kind and settings decide it."""
-    from marvin.services.automation.actions.entry import OP_SENDS
+    from marvin.services.automation.actions.entry import ITEM_OP_SENDS, OP_SENDS
     from marvin.services.automation.actions.handler import AUTOMATION_ALLOWED_HANDLERS
     from marvin.services.events.event_catalog import EMITTABLE_EVENT_TYPES, canonical_event_type
     from marvin.services.scheduled_tasks.handlers import TaskHandlerRegistry
@@ -392,7 +392,10 @@ def _step_sends(step) -> list[tuple[str, str]]:
     if kind == "handler" and step.get("task") in AUTOMATION_ALLOWED_HANDLERS and TaskHandlerRegistry.is_registered(step["task"]):
         handler = TaskHandlerRegistry.get_handler(step["task"])
         return [(e, f"{handler.name} step") for e in handler.sends]
-    if kind == "entry" and step.get("op") in OP_SENDS:
+    item_op = (step.get("entity_type"), step.get("op"))
+    if kind == "entry" and item_op in ITEM_OP_SENDS:
+        return [(e, f"Entry step: {step['op']} ({step['entity_type']})") for e in ITEM_OP_SENDS[item_op]]
+    if kind == "entry" and step.get("entity_type") in (None, "entry") and step.get("op") in OP_SENDS:
         return [(e, f"Entry step: {step['op'].replace('_', ' ')}") for e in OP_SENDS[step["op"]]]
     return []
 

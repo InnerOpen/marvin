@@ -35,7 +35,7 @@ from marvin.db.db_setup import session_context  # Context manager for DB session
 from marvin.db.models.groups.webhooks import GroupWebhooksModel  # , Method # Method enum not directly used here
 from marvin.repos.repository_factory import AllRepositories  # Central repository access
 from marvin.schemas.group.webhook import WebhookRead  # Schema for reading webhook configurations
-from marvin.services.publish_visibility import is_publishable_type  # What the publishing API serves
+from marvin.services.publish_visibility import is_publishable_type, item_visible_to_sites  # What the publishing API serves
 from marvin.services.webhooks.all_webhooks import AllWebhooks, get_webhooks  # For accessing webhook runners
 
 from .event_types import (  # Core event system types
@@ -926,8 +926,9 @@ class SiteRebuildReactionListener(BuiltinReaction):
     between workflow collections, anything done to an entry of a non-publishable type (a newsletter
     signup confirmed), and changes to a collection that isn't "Visible to sites" — unless that change
     is the visibility toggle itself. Visibility follows the publishing API (services/publish_visibility,
-    `Collections.is_public`). Off when the workspace turns off "Rebuild the site automatically"
-    (preferences.site_auto_rebuild). Best-effort: never breaks the write.
+    `Collections.is_public`). An asset or resource going into or out of the Trash counts when a site can
+    see it (publish_visibility.item_visible_to_sites). Off when the workspace turns off "Rebuild the site
+    automatically" (preferences.site_auto_rebuild). Best-effort: never breaks the write.
     """
 
     # Events that can change what a static site renders. Entry-scoped ones count only for a published
@@ -963,9 +964,16 @@ class SiteRebuildReactionListener(BuiltinReaction):
             EventTypes.workspace_settings_changed,
         }
     )
+    # An asset or resource moved into or out of the Trash: counts only when a site can see it.
+    TRASH_EVENTS = {
+        EventTypes.asset_trashed: "asset",
+        EventTypes.asset_restored: "asset",
+        EventTypes.resource_trashed: "resource",
+        EventTypes.resource_restored: "resource",
+    }
     label = "Queues a site rebuild"
     subscriber = "site_rebuild"
-    REACTS_TO = ENTRY_EVENTS | ALWAYS_EVENTS
+    REACTS_TO = ENTRY_EVENTS | ALWAYS_EVENTS | frozenset(TRASH_EVENTS)
     # Leaving 'published' is visible even though the entry no longer is.
     LEAVING_EVENTS = frozenset({EventTypes.entry_unpublished, EventTypes.entry_archived})
     COLLECTION_EVENTS = frozenset({EventTypes.collection_updated, EventTypes.collection_deleted})
@@ -1040,7 +1048,19 @@ class SiteRebuildReactionListener(BuiltinReaction):
             return not changed or not {str(f).split(".", 1)[0] for f in changed} <= self.UNSEEN_SETTINGS
         if event.event_type in self.ALWAYS_EVENTS:
             return True
+        if event.event_type in self.TRASH_EVENTS:
+            return self._item_visible(session, event)
         return self._entry_visible(session, event)
+
+    def _item_visible(self, session: Session, event: Event) -> bool:
+        kind = self.TRASH_EVENTS[event.event_type]
+        item_id = getattr(event.document_data, f"{kind}_id", None) or event.entity_id
+        if not item_id:
+            return True
+        from marvin.db.models.platform import Assets, Resources
+
+        row = session.get(Assets if kind == "asset" else Resources, item_id)
+        return row is None or item_visible_to_sites(session, kind, row)
 
     def _entry_visible(self, session: Session, event: Event) -> bool:
         entry_id = getattr(event.document_data, "entry_id", None) or event.entity_id

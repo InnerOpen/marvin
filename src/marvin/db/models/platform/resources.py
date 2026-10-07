@@ -1,5 +1,6 @@
 """Resources model - reusable objects referenced by entries."""
 
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from .. import BaseMixins, SqlAlchemyBase
 from .._model_utils.auto_init import auto_init
+from .._model_utils.datetime import NaiveDateTime
 from .._model_utils.guid import GUID
 
 if TYPE_CHECKING:
@@ -37,6 +39,11 @@ class Resources(SqlAlchemyBase, BaseMixins):
     # Pending AI-proposed changes staged for human review (write-back) — mirrors Entries.suggestion_json.
     suggestion_json: Mapped[dict | None] = mapped_column(sa.JSON(none_as_null=True), nullable=True)
     created_by: Mapped[GUID] = mapped_column(GUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=False)
+    # The Trash (services/trash.py): set while the row is in it — hidden from every listing, the publishing API and
+    # the AI until restored (both cleared) or the Trash is emptied. trashed_by: who moved it there (no FK, like an
+    # entry's metadata_json.trash record).
+    trashed_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True, index=True)
+    trashed_by: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
 
     # Relationships
     entries: Mapped[list["Entries"]] = orm.relationship(

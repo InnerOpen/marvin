@@ -107,7 +107,7 @@ class StatsController(BaseUserController):
 
         return WorkspaceStats(
             entries=_count(session, Entries, workspace_id, Entries.status != "trashed"),  # the Trash is out of sight
-            assets=_count(session, Assets, workspace_id),
+            assets=_count(session, Assets, workspace_id, Assets.trashed_at.is_(None)),
             collections=_count(session, Collections, workspace_id),
             webhooks=_count(session, GroupWebhooksModel, workspace_id),
             scheduled_tasks=_count(session, ScheduledTaskModel, workspace_id),
@@ -163,7 +163,10 @@ class StatsController(BaseUserController):
         drafts = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "draft"))
         needs_review = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "needs_review"))
 
-        suggestions = sum(_c(select(func.count(m.id)).where(m.group_id == gid, m.suggestion_json.isnot(None))) for m in (Entries, Assets, Resources))
+        suggestions = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.suggestion_json.isnot(None)))
+        suggestions += sum(
+            _c(select(func.count(m.id)).where(m.group_id == gid, m.suggestion_json.isnot(None), m.trashed_at.is_(None))) for m in (Assets, Resources)
+        )
         # …but not a suggestion waiting on an entry in the Trash.
         trashed_suggestions = select(func.count(Entries.id)).where(
             Entries.group_id == gid, Entries.suggestion_json.isnot(None), Entries.status == "trashed"

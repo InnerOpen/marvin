@@ -725,7 +725,7 @@ class AuthoringService:
                     .filter((Resources.slug == ref) | (Resources.name == ref))
                     .first()
                 )
-            if not resource or str(resource.group_id) != str(self.group_id):
+            if not resource or str(resource.group_id) != str(self.group_id) or resource.trashed_at is not None:
                 continue
             exists = self.session.query(EntryResources).filter_by(entry_id=entry_id, resource_id=resource.id).first()
             if exists is None:
@@ -757,7 +757,7 @@ class AuthoringService:
                 asset = (
                     self.session.query(Assets).filter(Assets.group_id == self.group_id).filter((Assets.slug == ref) | (Assets.name == ref)).first()
                 )
-            if not asset or str(asset.group_id) != str(self.group_id):
+            if not asset or str(asset.group_id) != str(self.group_id) or asset.trashed_at is not None:
                 continue
             if str(asset.id) in exclude or asset.id in seen:
                 continue

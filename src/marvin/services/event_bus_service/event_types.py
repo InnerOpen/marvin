@@ -241,6 +241,10 @@ class EventTypes(EventTypeBase):
     """Event dispatched when an asset is attached to an entry."""
     asset_detached_from_entry = auto()
     """Event dispatched when an asset is detached from an entry."""
+    asset_trashed = auto()
+    """Event dispatched when an asset is moved to the Trash (its file stays in storage until the Trash is emptied)."""
+    asset_restored = auto()
+    """Event dispatched when an asset is restored from the Trash."""
 
     # ==========================================================================
     # Entry Type Events (Schema Management)
@@ -324,6 +328,10 @@ class EventTypes(EventTypeBase):
     """Event dispatched when a resource is updated."""
     resource_deleted = auto()
     """Event dispatched when a resource is deleted."""
+    resource_trashed = auto()
+    """Event dispatched when a resource is moved to the Trash."""
+    resource_restored = auto()
+    """Event dispatched when a resource is restored from the Trash."""
 
     # ==========================================================================
     # Collaboration Events

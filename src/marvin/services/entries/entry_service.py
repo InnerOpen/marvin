@@ -467,7 +467,7 @@ class EntryService:
     def attach_resource(self, entry_id, resource_ref, *, role: str | None = None, reaction_depth: int = 0) -> str | None:
         """Attach a reusable resource to an entry (idempotent). Returns ``"attached"`` (newly linked,
         emits `entry_resource_attached`), ``"exists"`` (already linked — no-op, no event), or ``None``
-        (entry or resource not found in this workspace)."""
+        (entry or resource not found in this workspace, or the resource is in the Trash)."""
         import sqlalchemy as sa
 
         from marvin.db.models.platform.entry_resources import EntryResources
@@ -476,7 +476,7 @@ class EntryService:
         if not entry or entry.group_id != self.group_id:
             return None
         resource = self._resolve_resource(resource_ref)
-        if not resource:
+        if not resource or resource.trashed_at is not None:  # one in the Trash can't be attached
             return None
 
         existing = self.session.query(EntryResources).filter(EntryResources.entry_id == entry.id, EntryResources.resource_id == resource.id).first()
@@ -575,7 +575,7 @@ class EntryService:
     def attach_asset(self, entry_id, asset_ref, *, role: str | None = None, reaction_depth: int = 0) -> str | None:
         """Attach an asset to an entry (idempotent). Returns ``"attached"`` (emits
         `asset_attached_to_entry`), ``"exists"`` (already linked), or ``None`` (entry or asset not
-        found in this workspace)."""
+        found in this workspace, or the asset is in the Trash)."""
         import sqlalchemy as sa
 
         from marvin.db.models.platform.entry_assets import EntryAssets
@@ -584,7 +584,7 @@ class EntryService:
         if not entry or entry.group_id != self.group_id:
             return None
         asset = self._resolve_asset(asset_ref)
-        if not asset:
+        if not asset or asset.trashed_at is not None:  # one in the Trash can't be attached
             return None
         existing = self.session.query(EntryAssets).filter(EntryAssets.entry_id == entry.id, EntryAssets.asset_id == asset.id).first()
         if existing:

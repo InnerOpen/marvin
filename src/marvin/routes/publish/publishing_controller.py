@@ -134,6 +134,27 @@ def _is_suggested(ea: EntryAssets) -> bool:
     return bool((ea.metadata_json or {}).get("suggested"))
 
 
+def _serves_asset(ea: EntryAssets) -> bool:
+    """An entry's asset link the publishing API shows: not a pending AI suggestion, and the asset not in
+    the Trash (services/trash.py) — the link stays for a restore, the site never sees it."""
+    return bool(ea.asset) and ea.asset.trashed_at is None and not _is_suggested(ea)
+
+
+def _unless_trashed_asset(session: Session, group_id, value: str | None) -> str | None:
+    """A site-settings image (logo, favicon, share image) — or None when it names an asset in the Trash: by
+    slug or id, as the assets API resolves it, or by a URL with the asset's storage key in it."""
+    if not value:
+        return value
+    trashed = session.query(Assets.id, Assets.slug, Assets.storage_key).filter(Assets.group_id == group_id, Assets.trashed_at.isnot(None)).all()
+    hit = any(value in (slug, str(asset_id)) or (key and key in value) for asset_id, slug, key in trashed)
+    return None if hit else value
+
+
+def _serves_resource(er: EntryResources) -> bool:
+    """An entry's resource link the publishing API shows: the resource not in the Trash."""
+    return bool(er.resource) and er.resource.trashed_at is None
+
+
 def _build_published_asset(ea: EntryAssets, workspace_slug: str) -> PublishedAssetRead:
     """Build a PublishedAssetRead from an entry-asset junction row."""
     return PublishedAssetRead(
@@ -155,7 +176,7 @@ def _build_published_asset(ea: EntryAssets, workspace_slug: str) -> PublishedAss
 def _resolve_featured_asset(entry: Entries, workspace_slug: str) -> PublishedAssetRead | None:
     """Resolve the featured asset for a list item: first hero/featured, then first by position."""
     sorted_assets = sorted(
-        (ea for ea in entry.entry_assets if ea.asset and not _is_suggested(ea)),
+        (ea for ea in entry.entry_assets if _serves_asset(ea)),
         key=lambda x: x.position,
     )
     for ea in sorted_assets:
@@ -253,7 +274,7 @@ def _entry_to_read(
             ),
         )
         for er in entry.entry_resources
-        if er.resource
+        if _serves_resource(er)
     ]
 
     assets = [
@@ -264,7 +285,7 @@ def _entry_to_read(
             asset=_build_published_asset(ea, workspace_slug),
         )
         for ea in entry.entry_assets
-        if ea.asset and not _is_suggested(ea)
+        if _serves_asset(ea)
     ]
 
     return PublishedEntryRead(
@@ -322,8 +343,8 @@ def _entry_to_list_item(
         for ec in entry.entry_collections
         if ec.collection and ec.collection.is_public
     ]
-    asset_slugs = [ea.asset.slug for ea in entry.entry_assets if ea.asset and not _is_suggested(ea)]
-    resource_slugs = [er.resource.slug for er in entry.entry_resources if er.resource]
+    asset_slugs = [ea.asset.slug for ea in entry.entry_assets if _serves_asset(ea)]
+    resource_slugs = [er.resource.slug for er in entry.entry_resources if _serves_resource(er)]
 
     item_data = {
         "slug": entry.slug,
@@ -412,6 +433,8 @@ async def get_site_configuration(
     site_metadata = prefs.site_metadata_json if prefs else None
     seo_raw = (site_metadata or {}).get("seo")
     seo = SiteSeo(**seo_raw) if isinstance(seo_raw, dict) and seo_raw else None
+    if seo is not None:
+        seo.image = _unless_trashed_asset(session, group.id, seo.image)
     embeds = site_embeds(site_metadata)
 
     # Build site configuration from preferences (with sensible defaults)
@@ -420,8 +443,8 @@ async def get_site_configuration(
         tagline=prefs.site_tagline if prefs else None,
         description=prefs.site_description if prefs else None,
         canonical_url=prefs.site_canonical_url if prefs else None,
-        logo=prefs.site_logo if prefs else None,
-        favicon=prefs.site_favicon if prefs else None,
+        logo=_unless_trashed_asset(session, group.id, prefs.site_logo) if prefs else None,
+        favicon=_unless_trashed_asset(session, group.id, prefs.site_favicon) if prefs else None,
         locale=prefs.site_locale if prefs and prefs.site_locale else "en-US",
         timezone=prefs.site_timezone if prefs and prefs.site_timezone else "America/New_York",
         contact_email=prefs.site_contact_email if prefs else None,
@@ -940,7 +963,7 @@ async def list_published_assets(
     perms.require_permission(Permissions.READ_ASSETS, "assets")
 
     # Build query for assets with eager loading to prevent N+1 queries
-    query = session.query(Assets).filter(Assets.group_id == group.id).options(*_asset_eager_options())
+    query = session.query(Assets).filter(Assets.group_id == group.id, Assets.trashed_at.is_(None)).options(*_asset_eager_options())
 
     # Filter by MIME type prefix if specified
     if type:
@@ -1026,6 +1049,7 @@ async def get_published_asset(
         .filter(
             Assets.group_id == group.id,
             Assets.slug == asset_slug,
+            Assets.trashed_at.is_(None),
         )
         .options(*_asset_eager_options())
         .first()
@@ -1092,6 +1116,7 @@ async def serve_asset_file(
         .filter(
             Assets.group_id == group.id,
             Assets.slug == asset_slug,
+            Assets.trashed_at.is_(None),
         )
         .first()
     )
@@ -1137,7 +1162,7 @@ async def list_published_resources(
     perms.require_permission(Permissions.READ_RESOURCES, "resources")
 
     # Build query for resources with eager loading to prevent N+1 queries
-    query = session.query(Resources).filter(Resources.group_id == group.id).options(*_resource_eager_options())
+    query = session.query(Resources).filter(Resources.group_id == group.id, Resources.trashed_at.is_(None)).options(*_resource_eager_options())
 
     # Filter by resource type if specified
     if resource_type:
@@ -1214,6 +1239,7 @@ async def get_published_resource(
         .filter(
             Resources.group_id == group.id,
             Resources.slug == resource_slug,
+            Resources.trashed_at.is_(None),
         )
         .options(*_resource_eager_options())
         .first()
@@ -1280,6 +1306,7 @@ async def get_resource_entries(
         .filter(
             Resources.group_id == group.id,
             Resources.slug == resource_slug,
+            Resources.trashed_at.is_(None),
         )
         .first()
     )

@@ -467,19 +467,37 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
         if collection_ids:
             self._attach_collections(entry_id, collection_ids)
 
+    def _clear_links(self, junction, key: str, model, entry_id: UUID4) -> set[str]:
+        """Delete an entry's asset or resource links before a replace — except those to one in the Trash: no
+        editor sees it, so it is never in the new list, and its link must survive for a restore to put it back
+        (services/trash.py). Returns the ids kept, as strings."""
+        column = getattr(junction, key)
+        kept = {
+            str(row[0])
+            for row in self.session.query(column)
+            .join(model, model.id == column)
+            .filter(junction.entry_id == entry_id, model.trashed_at.isnot(None))
+            .all()
+        }
+        in_trash = self.session.query(model.id).filter(model.trashed_at.isnot(None))
+        self.session.query(junction).filter(junction.entry_id == entry_id, column.notin_(in_trash)).delete()
+        return kept
+
     def _replace_assets(self, entry_id: UUID4, asset_ids: list[UUID4]) -> None:
-        """Replace all assets for an entry."""
-        # Delete existing
-        self.session.query(EntryAssets).filter(EntryAssets.entry_id == entry_id).delete()
-        # Add new
+        """Replace all assets for an entry (links to trashed assets stay; see _clear_links)."""
+        from marvin.db.models.platform import Assets
+
+        kept = self._clear_links(EntryAssets, "asset_id", Assets, entry_id)
+        asset_ids = [a for a in asset_ids or [] if str(a) not in kept]
         if asset_ids:
             self._attach_assets(entry_id, asset_ids)
 
     def _replace_resources(self, entry_id: UUID4, resource_ids: list[UUID4]) -> None:
-        """Replace all resources for an entry."""
-        # Delete existing
-        self.session.query(EntryResources).filter(EntryResources.entry_id == entry_id).delete()
-        # Add new
+        """Replace all resources for an entry (links to trashed resources stay; see _clear_links)."""
+        from marvin.db.models.platform import Resources
+
+        kept = self._clear_links(EntryResources, "resource_id", Resources, entry_id)
+        resource_ids = [r for r in resource_ids or [] if str(r) not in kept]
         if resource_ids:
             self._attach_resources(entry_id, resource_ids)
 
@@ -511,15 +529,25 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
             self.session.add(junction)
         self.session.flush()
 
+    @staticmethod
+    def _without(attachments: list, key: str, kept: set[str]) -> list:
+        return [a for a in attachments or [] if str((a if isinstance(a, dict) else a.model_dump())[key]) not in kept]
+
     def _replace_asset_attachments(self, entry_id: UUID4, attachments: list) -> None:
-        """Replace all asset attachments for an entry."""
-        self.session.query(EntryAssets).filter(EntryAssets.entry_id == entry_id).delete()
+        """Replace all asset attachments for an entry (links to trashed assets stay; see _clear_links)."""
+        from marvin.db.models.platform import Assets
+
+        kept = self._clear_links(EntryAssets, "asset_id", Assets, entry_id)
+        attachments = self._without(attachments, "asset_id", kept)
         if attachments:
             self._attach_asset_attachments(entry_id, attachments)
 
     def _replace_resource_attachments(self, entry_id: UUID4, attachments: list) -> None:
-        """Replace all resource attachments for an entry."""
-        self.session.query(EntryResources).filter(EntryResources.entry_id == entry_id).delete()
+        """Replace all resource attachments for an entry (links to trashed resources stay; see _clear_links)."""
+        from marvin.db.models.platform import Resources
+
+        kept = self._clear_links(EntryResources, "resource_id", Resources, entry_id)
+        attachments = self._without(attachments, "resource_id", kept)
         if attachments:
             self._attach_resource_attachments(entry_id, attachments)
 

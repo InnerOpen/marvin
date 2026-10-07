@@ -1,5 +1,6 @@
 """Asset schemas."""
 
+from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import UUID4, AliasChoices, ConfigDict, Field, PrivateAttr, StringConstraints, field_serializer, field_validator, model_validator
@@ -143,6 +144,10 @@ class AssetRead(AssetSummary):
     """ID of user who uploaded the asset."""
     tags: list[str] = []
     """Tag slugs applied to this asset (shared vocabulary)."""
+    trashed_at: datetime | None = None
+    """When it was moved to the Trash; null when it is not in the Trash."""
+    trashed_by: UUID4 | None = None
+    """Who moved it to the Trash."""
     suggestion_json: dict | None = Field(
         default=None,
         description="Pending AI-proposed changes staged for review (write-back)",

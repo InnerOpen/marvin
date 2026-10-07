@@ -718,6 +718,34 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("resource_name", "Name of the deleted resource", "API Docs", type="name"),
         ],
     ),
+    CatalogEntry(
+        event_type="resource_trashed",
+        name="Resource Moved to Trash",
+        description="A resource was moved to the Trash. It can be restored until the Trash is emptied.",
+        category="Content",
+        trigger_group="Resources",
+        triggerable=True,
+        sent_by=["Deleting a resource (app, API, CLI)", "The trash workflow op", "The trash_entries AI tool"],
+        leads_to=["site_rebuild_queued"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("resource_name", "Name of the trashed resource", "API Docs", type="name"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="resource_restored",
+        name="Resource Restored",
+        description="A resource was restored from the Trash.",
+        category="Content",
+        trigger_group="Resources",
+        triggerable=True,
+        sent_by=["Restoring a resource from the Trash (app, API, the restore workflow op, the restore_entries AI tool)"],
+        leads_to=["site_rebuild_queued", "ai_embeddings_reindexed"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("resource_name", "Name of the restored resource", "API Docs", type="name"),
+        ],
+    ),
     # ── Assets ──────────────────────────────────────────────────────────────
     CatalogEntry(
         event_type="asset_uploaded",
@@ -759,6 +787,34 @@ CATALOG: list[CatalogEntry] = [
         variables=COMMON_VARS
         + [
             EventVariable("asset_name", "Filename of the deleted asset", "old-photo.jpg", type="name"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="asset_trashed",
+        name="Asset Moved to Trash",
+        description="An asset was moved to the Trash. Its file stays in storage until the Trash is emptied.",
+        category="Assets",
+        triggerable=True,
+        sent_by=["Deleting an asset (app, API, CLI)", "The trash workflow op", "The trash_entries AI tool"],
+        leads_to=["site_rebuild_queued"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("asset_name", "Filename of the trashed asset", "old-photo.jpg", type="name"),
+            EventVariable("uploader_name", "Who trashed it", "Jane Smith", type="name"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="asset_restored",
+        name="Asset Restored",
+        description="An asset was restored from the Trash.",
+        category="Assets",
+        triggerable=True,
+        sent_by=["Restoring an asset from the Trash (app, API, the restore workflow op, the restore_entries AI tool)"],
+        leads_to=["site_rebuild_queued", "ai_embeddings_reindexed"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("asset_name", "Filename of the restored asset", "photo.jpg", type="name"),
+            EventVariable("uploader_name", "Who restored it", "Jane Smith", type="name"),
         ],
     ),
     CatalogEntry(
@@ -1448,7 +1504,9 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         event_type="scheduled_task_completed",
         name="Scheduled Task Completed",
-        description="A scheduled task ran successfully and had something to report, or was run by hand. Routine runs with nothing to do are not announced.",
+        description=(
+            "A scheduled task ran successfully and had something to report, or was run by hand. Routine runs with nothing to do are not announced."
+        ),
         category="Automation",
         internal=True,
         sent_by=["Running a scheduled task, when it succeeds"],

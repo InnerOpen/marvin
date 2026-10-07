@@ -80,6 +80,15 @@ def _asset_content_ok(asset) -> bool:
     return bool((getattr(asset, "description", None) or "").strip() or (getattr(asset, "alt_text", None) or "").strip())
 
 
+def _not_trashed(item) -> bool:
+    """Assets and resources in the Trash are out of the index (dropped on *_trashed, back on *_restored)."""
+    return getattr(item, "trashed_at", None) is None
+
+
+def _asset_indexable(asset) -> bool:
+    return _not_trashed(asset) and _asset_content_ok(asset)
+
+
 def _entry_should_index(entry, event_type, has_index: bool) -> bool:
     """Entries: always index on publish; on a bare update only re-embed a live, already-indexed
     entry. Skips draft/inbox/archived saves and avoids double-embedding the publish transition
@@ -114,8 +123,9 @@ def _register_defaults() -> None:
             model=Resources,
             text=_resource_text,
             id_field="resource_id",
-            index_on=(EventTypes.resource_created, EventTypes.resource_updated),
-            delete_on=(EventTypes.resource_deleted,),
+            index_on=(EventTypes.resource_created, EventTypes.resource_updated, EventTypes.resource_restored),
+            delete_on=(EventTypes.resource_deleted, EventTypes.resource_trashed),
+            content_ok=_not_trashed,
         )
     )
     register_indexable(
@@ -124,9 +134,9 @@ def _register_defaults() -> None:
             model=Assets,
             text=_asset_text,
             id_field="asset_id",
-            index_on=(EventTypes.asset_uploaded, EventTypes.asset_updated),
-            delete_on=(EventTypes.asset_deleted,),
-            content_ok=_asset_content_ok,  # skip content-thin icons/logos (name+tags only)
+            index_on=(EventTypes.asset_uploaded, EventTypes.asset_updated, EventTypes.asset_restored),
+            delete_on=(EventTypes.asset_deleted, EventTypes.asset_trashed),
+            content_ok=_asset_indexable,  # skip content-thin icons/logos (name+tags only), and the Trash
         )
     )
 

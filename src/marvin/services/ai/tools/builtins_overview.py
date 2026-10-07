@@ -89,10 +89,10 @@ def workspace_overview(ctx: ToolContext, _args: dict) -> str:
             .all()
         )
     ]
-    assets = dict(s.query(Assets.asset_type, func.count(Assets.id)).filter(Assets.group_id == g).group_by(Assets.asset_type).all())
-    resources = dict(
-        s.query(Resources.resource_type, func.count(Resources.id)).filter(Resources.group_id == g).group_by(Resources.resource_type).all()
-    )
+    live_assets = s.query(Assets.asset_type, func.count(Assets.id)).filter(Assets.group_id == g, Assets.trashed_at.is_(None))  # not the Trash
+    assets = dict(live_assets.group_by(Assets.asset_type).all())
+    live_resources = s.query(Resources.resource_type, func.count(Resources.id)).filter(Resources.group_id == g, Resources.trashed_at.is_(None))
+    resources = dict(live_resources.group_by(Resources.resource_type).all())
     tags = s.query(func.count(Tags.id)).filter(Tags.group_id == g).scalar() or 0
 
     totals = {"entry": entries_total, "asset": sum(assets.values()), "resource": sum(resources.values())}

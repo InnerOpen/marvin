@@ -167,7 +167,7 @@ def _resolve_targets(ctx: ToolContext, entity_type: str, args: dict) -> tuple[li
         from marvin.db.models.platform.asset_tags import AssetTags
         from marvin.db.models.platform.assets import Assets
 
-        q = s.query(Assets.id).filter(Assets.group_id == gid)
+        q = s.query(Assets.id).filter(Assets.group_id == gid, Assets.trashed_at.is_(None))  # a filter never matches the Trash
         if filt.get("asset_types"):
             q = q.filter(Assets.asset_type.in_(list(filt["asset_types"])))
         if filt.get("mime_types"):
@@ -181,7 +181,7 @@ def _resolve_targets(ctx: ToolContext, entity_type: str, args: dict) -> tuple[li
         from marvin.db.models.platform.resource_tags import ResourceTags
         from marvin.db.models.platform.resources import Resources
 
-        q = s.query(Resources.id).filter(Resources.group_id == gid)
+        q = s.query(Resources.id).filter(Resources.group_id == gid, Resources.trashed_at.is_(None))
         if filt.get("resource_types"):
             q = q.filter(Resources.resource_type.in_(list(filt["resource_types"])))
         if filt.get("query"):

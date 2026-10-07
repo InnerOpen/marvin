@@ -203,8 +203,11 @@ def evaluate_entry(entry, entry_type, *, data_json=None, title=None, summary=Non
     override the entry's stored values so a pending update can be projected before it's applied."""
     schema = parse_schema(getattr(entry_type, "schema_json", None)) if entry_type else None
     recipe = parse_recipe(getattr(entry_type, "recipe_json", None)) if entry_type else None
-    asset_roles = [ea.role for ea in getattr(entry, "entry_assets", []) or [] if getattr(ea, "role", None)]
-    resource_types = [r.resource_type for r in getattr(entry, "resources", []) or []]
+    # Attachments in the Trash don't count toward the recipe (the site won't see them).
+    asset_roles = [
+        ea.role for ea in getattr(entry, "entry_assets", []) or [] if getattr(ea, "role", None) and getattr(ea.asset, "trashed_at", None) is None
+    ]
+    resource_types = [r.resource_type for r in getattr(entry, "resources", []) or [] if getattr(r, "trashed_at", None) is None]
     tags = list(getattr(entry, "tag_names", []) or [])
     return evaluate_completeness(
         schema=schema,

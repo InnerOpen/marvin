@@ -152,9 +152,9 @@ class ContextBuilder:
 
             asset_ids = self._session.execute(select(EntryAssets.asset_id).where(EntryAssets.entry_id == entry_id)).scalars().all()
             assets = [self._session.get(Assets, aid) for aid in asset_ids]
-            assets = [a for a in assets if a]
+            assets = [a for a in assets if a and a.trashed_at is None]  # the Trash is out of sight
         else:
-            assets = self._session.query(Assets).filter_by(group_id=self._group_id).limit(10).all()
+            assets = self._session.query(Assets).filter_by(group_id=self._group_id, trashed_at=None).limit(10).all()
 
         self._ctx.assets = [self._asset_dict(a) for a in assets]
         return self
@@ -191,9 +191,9 @@ class ContextBuilder:
 
             resource_ids = self._session.execute(select(EntryResources.resource_id).where(EntryResources.entry_id == entry_id)).scalars().all()
             resources = [self._session.get(Resources, rid) for rid in resource_ids]
-            resources = [r for r in resources if r]
+            resources = [r for r in resources if r and r.trashed_at is None]
         else:
-            resources = self._session.query(Resources).filter_by(group_id=self._group_id).limit(10).all()
+            resources = self._session.query(Resources).filter_by(group_id=self._group_id, trashed_at=None).limit(10).all()
 
         self._ctx.resources = [{"id": str(r.id), "name": r.name, "type": r.resource_type, "description": r.description or ""} for r in resources]
         return self

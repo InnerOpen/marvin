@@ -299,7 +299,8 @@ class EntryRead(_MarvinModel):
 
             assets = []
             for junction in obj.entry_assets:
-                if hasattr(junction, "asset") and junction.asset:
+                # An asset in the Trash is out of sight; its link stays for a restore (services/trash.py).
+                if hasattr(junction, "asset") and junction.asset and getattr(junction.asset, "trashed_at", None) is None:
                     asset_data = {
                         **{k: getattr(junction.asset, k, None) for k in EntryAssetRead.model_fields if hasattr(junction.asset, k)},
                         "role": junction.role,
@@ -314,7 +315,7 @@ class EntryRead(_MarvinModel):
 
             resources = []
             for junction in obj.entry_resources:
-                if hasattr(junction, "resource") and junction.resource:
+                if hasattr(junction, "resource") and junction.resource and getattr(junction.resource, "trashed_at", None) is None:
                     resource_data = {
                         **{k: getattr(junction.resource, k, None) for k in EntryResourceRead.model_fields if hasattr(junction.resource, k)},
                         "role": junction.role,

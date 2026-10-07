@@ -110,6 +110,7 @@ def _featured_image_url(entry) -> str | None:
             if getattr(ea, "asset", None) is not None
             and str(getattr(ea.asset, "mime_type", "") or "").startswith("image/")
             and not (ea.metadata_json or {}).get("suggested")
+            and getattr(ea.asset, "trashed_at", None) is None  # nor one in the Trash
         ),
         key=lambda ea: ea.position or 0,
     )

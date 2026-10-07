@@ -14,6 +14,7 @@ All routes are mounted under /api/platform/ prefix:
 - /api/platform/site/rebuild - Request a site rebuild / read its status
 - /api/platform/media-embeds - Media-embed providers and link resolution (editor previews)
 - /api/platform/event-types - What sends each event type and what reacts to it (Events hub)
+- /api/platform/trash - The Trash: trashed assets/resources, counts, Empty trash
 """
 
 from marvin.routes._base.routers import UserAPIRouter
@@ -36,6 +37,7 @@ from . import (
     site_controller,
     stats_controller,
     tags_controller,
+    trash_controller,
     workspace_controller,
     workspace_members_controller,
 )
@@ -49,6 +51,7 @@ router.include_router(tags_controller.router, tags=["Platform: Tags"])
 router.include_router(api_clients_controller.router, tags=["Platform: API Clients"])
 router.include_router(resources_controller.router, tags=["Platform: Resources"])
 router.include_router(assets_controller.router, tags=["Platform: Assets"])
+router.include_router(trash_controller.router, tags=["Platform: Trash"])
 router.include_router(forms_controller.router, tags=["Platform: Forms"])
 router.include_router(workspace_controller.router, tags=["Platform: Workspace"])
 router.include_router(workspace_members_controller.router, tags=["Platform: Workspace Members"])

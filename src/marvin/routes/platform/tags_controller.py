@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 from sqlalchemy import func
 
-from marvin.db.models.platform import AssetTags, Entries, EntryTags, ResourceTags, Tags
+from marvin.db.models.platform import Assets, AssetTags, Entries, EntryTags, Resources, ResourceTags, Tags
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import editable_entry, require_workspace_editor, require_workspace_role
@@ -33,17 +33,19 @@ class TagsController(BaseUserController):
 
         # Per-junction counts, each in one grouped query (avoids N+1). entry_count drives the
         # entries-list filter; usage_count (entries + assets + resources) is the admin total.
-        def _counts(junction, fk, *, entries: bool = False):
+        def _counts(junction, fk, *, entries: bool = False, item=None):
             q = self.session.query(junction.tag_id, func.count(getattr(junction, fk))).join(Tags, Tags.id == junction.tag_id)
             if entries:  # an entry in the Trash doesn't count as using the tag
                 from marvin.services.entries.trash import not_trashed
 
                 q = q.join(Entries, Entries.id == junction.entry_id).filter(not_trashed())
+            if item is not None:  # nor does an asset or resource in the Trash
+                q = q.join(item, item.id == getattr(junction, fk)).filter(item.trashed_at.is_(None))
             return dict(q.filter(Tags.group_id == self.group_id).group_by(junction.tag_id).all())
 
         entry_counts = _counts(EntryTags, "entry_id", entries=True)
-        asset_counts = _counts(AssetTags, "asset_id")
-        resource_counts = _counts(ResourceTags, "resource_id")
+        asset_counts = _counts(AssetTags, "asset_id", item=Assets)
+        resource_counts = _counts(ResourceTags, "resource_id", item=Resources)
         for tag in tags:
             tag.entry_count = entry_counts.get(tag.id, 0)
             tag.usage_count = tag.entry_count + asset_counts.get(tag.id, 0) + resource_counts.get(tag.id, 0)

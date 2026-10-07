@@ -1,5 +1,6 @@
 """Resource schemas."""
 
+from datetime import datetime
 from typing import Annotated, Any
 
 from pydantic import UUID4, AliasChoices, ConfigDict, Field, StringConstraints, field_validator
@@ -83,6 +84,10 @@ class ResourceRead(ResourceSummary):
     """ID of user who created the resource."""
     tags: list[str] = []
     """Tag slugs applied to this resource (shared vocabulary)."""
+    trashed_at: datetime | None = None
+    """When it was moved to the Trash; null when it is not in the Trash."""
+    trashed_by: UUID4 | None = None
+    """Who moved it to the Trash."""
     suggestion_json: dict | None = Field(
         default=None,
         description="Pending AI-proposed changes staged for review (write-back)",
