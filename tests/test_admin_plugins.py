@@ -37,6 +37,15 @@ def as_user(client):
     app.dependency_overrides.pop(get_current_user, None)
 
 
+@pytest.fixture(autouse=True)
+def no_installed_storage_plugins(monkeypatch):
+    """No storage plugins unless a test stands some in: a storage plugin installed in the environment
+    (e.g. marvin-storage-s3 in a dev venv) would otherwise show up in every listing."""
+    import marvin.services.plugins as plugins
+
+    monkeypatch.setattr(plugins, "_storage_sources", lambda: [])
+
+
 @pytest.fixture
 def workspaces(db_session):
     """Two throwaway workspaces; they and their integrations are removed afterwards."""

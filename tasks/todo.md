@@ -1884,8 +1884,9 @@ errors; 390px shows only the parent with no horizontal scroll, light and dark.
 # Storage plugins + backup targets — cloud storage leaves core (plan, 2026-10-06, Jared: "everything uses the same APIs")
 
 **Status:** all 8 slices approved by Jared (2026-10-06); slices 1–3 merged and in production since revision 28
-(`develop-f83140e`) — see "Review (slices 1–3)" below. Slice 4 built on `feat/storage-slice-4`, not pushed — see
-"Review (slice 4)".
+(`develop-f83140e`) — see "Review (slices 1–3)" below; slice 4 merged and live too ("Review (slice 4)"). Slice 5
+built: the plugin repo exists locally only (`~/code/MarvinStorageS3`, not on GitHub yet), so "installed in dev" waits
+for the repo — see "Review (slice 5)".
 Decisions below are Jared's (2026-10-06), open questions answered the same day.
 
 **Goal (Jared 2026-10-06):** keep core lean. Cloud SDKs leave core, and storage becomes a site-wide plugin type the
@@ -2067,6 +2068,7 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
       gets the `nas-nightly` local target (NAS export, `prod/` subfolder, 02:30 New York, 0/30/8)
 - [ ] **Slice 5 — `marvin-storage-s3`:** repo, provider + target, conformance kit on MinIO, ported S3 tests,
       per-provider credential docs; installed in dev
+      — built and verified locally (see "Review (slice 5)"); left: create the GitHub repo, then install it in dev
 - [ ] **Slice 6 — backup cutover, no R2 gap:** NAS export ready (Jared); **dev first:** targets `r2` (bucket
       `marvin-backups-dev`, same layout, hourly) + `nas` (nightly), old CronJob off in the same upgrade; a one-off
       run per target, `list` on both, the restore test from each (dump → scratch Postgres 17 → per-table counts
@@ -2158,6 +2160,50 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
   `marvin-backup-nas-nightly`; nothing runs until 02:30 New York. The first run creates `prod/` and copies all
   assets (~90 MB) + a dump; later runs are incremental. Optionally trigger one right after the promote
   (`oc -n marvin create job --from=cronjob/marvin-backup-nas-nightly marvin-nas-first`).
+
+## Review (slice 5, 2026-10-06)
+- **Plugin** `marvin-storage-s3` 0.1.0 at `~/code/MarvinStorageS3` (`git init`, branch `main`, not on GitHub: the
+  repo name/location `InnerOpen/marvin-storage-s3` is Jared's call). Entry point `marvin.storage_providers`:
+  `s3 = marvin_storage_s3:plugin` → `StoragePlugin(slug="s3", provider=S3StorageProvider, target=S3BackupTarget)`.
+  Depends on `marvin-integration-sdk>=0.7,<1` + `boto3>=1.36,<2`; dev resolves the SDK at core's pinned commit.
+- **Settings.** Target: `BACKUP_S3_BUCKET` (required), `BACKUP_S3_ENDPOINT` (empty = AWS), `BACKUP_S3_REGION`
+  (default `auto`), `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (masked) — the `marvin-r2-backup` Secret's keys —
+  plus optional `BACKUP_S3_ADDRESSING_STYLE` / `BACKUP_S3_CHECKSUMS`. No prefix setting: the engine already applies
+  `BACKUP_PREFIX` / `BACKUP_S3_PREFIX`. Provider: core's `STORAGE_S3_BUCKET/ENDPOINT/REGION/ACCESS_KEY/SECRET_KEY`,
+  `STORAGE_REMOTE_PUBLIC_URL`, plus `STORAGE_S3_PREFIX`, `STORAGE_S3_PRESIGN_SECONDS` (3600),
+  `STORAGE_S3_ADDRESSING_STYLE`, `STORAGE_S3_CHECKSUMS`. Defaults: checksums `when_required` (as `offsite_backup`;
+  boto3 here is 1.43), path-style with an endpoint / virtual on AWS, region `auto` refused without an endpoint.
+- **Digests.** One PUT up to 64 MiB (ETag = MD5 → `TargetObject(algorithm="md5")`, what the asset mirror
+  compares), multipart above (ETag kept, no algorithm → size only; restore checks the `sha256` metadata). SSE-KMS /
+  SSE-C ETags aren't taken for MD5 on `head` (README: use SSE-S3 for a backup bucket). Provider stores `sha256`
+  as object metadata, so `checksum("sha256")` needs no download; md5 from a single-part ETag. Asset URLs:
+  `<public base>/<prefix><key>`, else presigned; never the bare endpoint.
+- **Tests:** 116 passed / 1 skipped (moto + MinIO `cgr.dev/chainguard/minio` RELEASE.2026-09-22): the SDK kit for
+  both sides (provider plain and with prefix + public URL; target single-part and all-multipart) on both backends,
+  plus the S3 cases from `test_offsite_backup` (old-script objects readable, rollback readable, metadata
+  lower-cased, multipart digests, paging past 1000, delete batching / errors, 403 never read as missing). ruff
+  clean. CI workflow starts MinIO.
+- **Core engine against MinIO** (plugin installed in the core venv, SQLite data dir, 13 assets incl. a 70 MB
+  file): old `offsite_backup` writes history under `dev/` → `scripts.backup run --target s3` reads it: 0 assets
+  uploaded / 13 unchanged, old dump + config pruned → re-run 0 → a new asset: 1 uploaded → the old script after it:
+  0 uploaded / 14 unchanged (rollback works) → `list` identical to the old script's → `restore` (of the old
+  script's dump): `.secret` identical, 14 assets sha256-identical, DB rows equal.
+- **Read-only R2** (`marvin-backups-dev`, keys from `pass`, write calls blocked on every client): plugin `list`
+  523 objects = the old script's `Bucket.list` (same keys and sizes; assets 516, postgres 5, config 2), every
+  object single-part with md5 = the old script's ETag; `engine.open_target("s3")` resolves to the plugin and
+  `list_backups` equals the old script's `list`; `head` on the oldest/newest dump and config shows a 64-hex
+  `sha256`. Nothing written or deleted.
+- **Core discovery** (plugin installed): load report `s3` (marvin-storage-s3 0.1.0, ok), the registry logs
+  "storage plugin 's3' replaces core's built-in 's3'", `GET /api/admin/plugins` lists it as kind `storage`,
+  `provides: [assets, backups]`. No core code change was needed (registry/engine/chart already fit); OpenAPI
+  unchanged. One test fix: two `test_admin_plugins` cases stubbed only the integration sources, so an installed
+  storage plugin leaked into their listing; an autouse fixture now stubs the storage sources empty by default.
+  Backend suite with the plugin installed: 3410 passed / 12 skipped; the storage/plugin/backup tests also pass
+  without it (141).
+- **For slice 6:** the target CronJob needs `existingSecret: marvin-r2-backup` only (region defaults to `auto`;
+  the old job passed `BACKUP_S3_REGION` from values); `plugins.packages` must carry the plugin's tarball (and the
+  SDK's) in dev and production values. The plugin pulls boto3 + deps (~35 MB) into `/plugins` on each pod start,
+  shadowing the image's copies until slice 7 drops boto3 from core.
 
 ## Decisions (Jared, 2026-10-06)
 - Keep core lean: cloud SDKs out of core. Storage is its own plugin type (`marvin.storage_providers`), with the
