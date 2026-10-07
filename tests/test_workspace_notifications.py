@@ -367,7 +367,10 @@ def test_platform_events_never_reach_a_workspace(db_session, world):
         )
         assert not notes.wants(world.gid, event), name
     failed = Event(
-        message=EventBusMessage.from_type(EventTypes.automation_failed), event_type=EventTypes.automation_failed, integration_id=SOURCE, document_data=None
+        message=EventBusMessage.from_type(EventTypes.automation_failed),
+        event_type=EventTypes.automation_failed,
+        integration_id=SOURCE,
+        document_data=None,
     )
     assert not notes.wants(None, failed)  # no workspace
     assert not notes.wants(world.gid, failed.model_copy(update={"workspace_id": world.other}))  # another workspace's
@@ -496,7 +499,9 @@ def test_routes_that_cannot_work_are_refused(db_session, world, providers, route
 def test_another_workspaces_connection_cannot_be_a_route(db_session, world, providers):
     from marvin.db.models.groups.integrations import IntegrationModel
 
-    foreign = IntegrationModel(session=db_session, group_id=world.other, provider="test_note_chat", name="Theirs", slug=f"theirs-{world.marker}", config={})
+    foreign = IntegrationModel(
+        session=db_session, group_id=world.other, provider="test_note_chat", name="Theirs", slug=f"theirs-{world.marker}", config={}
+    )
     db_session.add(foreign)
     db_session.commit()
     with pytest.raises(alerting.InvalidAlertSettings, match="can't carry alerts from this workspace"):
@@ -635,8 +640,17 @@ def scratch():
         sa.Column("args", sa.JSON),
         sa.Column("enabled", sa.Boolean),
     )
-    sa.Table("group_preferences", meta, sa.Column("id", guid(), primary_key=True), sa.Column("group_id", guid()), sa.Column("notifications_json", sa.JSON))
-    sa.Table("integration_alerts", meta, sa.Column("id", guid(), primary_key=True), sa.Column("group_id", guid()), sa.Column("status", sa.String), sa.Column("channels", sa.JSON))
+    sa.Table(
+        "group_preferences", meta, sa.Column("id", guid(), primary_key=True), sa.Column("group_id", guid()), sa.Column("notifications_json", sa.JSON)
+    )
+    sa.Table(
+        "integration_alerts",
+        meta,
+        sa.Column("id", guid(), primary_key=True),
+        sa.Column("group_id", guid()),
+        sa.Column("status", sa.String),
+        sa.Column("channels", sa.JSON),
+    )
     meta.create_all(engine)
     with engine.begin() as conn:
         yield conn, meta.tables
@@ -649,7 +663,9 @@ def test_the_panels_routing_moves_to_the_notification_settings(scratch):
     email_row, slack_row, apprise_row, custom_row, custom_email = (uuid.uuid4() for _ in range(5))
     open_alert, resolved_alert = uuid.uuid4(), uuid.uuid4()
     conn.execute(t["email_templates"].insert(), [{"id": template, "group_id": None, "template_type": "integration_alert"}])
-    conn.execute(t["integrations"].insert(), [{"id": slack, "group_id": panel_ws}, {"id": apprise, "group_id": panel_ws}, {"id": hook, "group_id": quiet_ws}])
+    conn.execute(
+        t["integrations"].insert(), [{"id": slack, "group_id": panel_ws}, {"id": apprise, "group_id": panel_ws}, {"id": hook, "group_id": quiet_ws}]
+    )
     conn.execute(t["group_preferences"].insert(), [{"id": uuid.uuid4(), "group_id": g} for g in (panel_ws, quiet_ws, bare_ws)])
     needed = "integration_attention_needed"
     conn.execute(
@@ -662,16 +678,45 @@ def test_the_panels_routing_moves_to_the_notification_settings(scratch):
     conn.execute(
         t["integration_event_subscriptions"].insert(),
         [
-            {"id": slack_row, "group_id": panel_ws, "integration_id": slack, "event_type": needed, "action": "send_message", "args": {"text": "*{{title}}*\n{{summary}}"}, "enabled": True},
-            {"id": apprise_row, "group_id": panel_ws, "integration_id": apprise, "event_type": needed, "action": "notify", "args": {"title": "{{title}}", "body": "{{summary}}"}, "enabled": False},
+            {
+                "id": slack_row,
+                "group_id": panel_ws,
+                "integration_id": slack,
+                "event_type": needed,
+                "action": "send_message",
+                "args": {"text": "*{{title}}*\n{{summary}}"},
+                "enabled": True,
+            },
+            {
+                "id": apprise_row,
+                "group_id": panel_ws,
+                "integration_id": apprise,
+                "event_type": needed,
+                "action": "notify",
+                "args": {"title": "{{title}}", "body": "{{summary}}"},
+                "enabled": False,
+            },
             # set up on the Events page: not the panel's, left alone
-            {"id": custom_row, "group_id": panel_ws, "integration_id": slack, "event_type": needed, "action": "send_message", "args": {"text": "{{summary}}", "channel": "#x"}, "enabled": True},
+            {
+                "id": custom_row,
+                "group_id": panel_ws,
+                "integration_id": slack,
+                "event_type": needed,
+                "action": "send_message",
+                "args": {"text": "{{summary}}", "channel": "#x"},
+                "enabled": True,
+            },
         ],
     )
     conn.execute(
         t["integration_alerts"].insert(),
         [
-            {"id": open_alert, "group_id": panel_ws, "status": "open", "channels": {"email": [str(email_row)], "integration": [str(slack_row), str(custom_row)]}},
+            {
+                "id": open_alert,
+                "group_id": panel_ws,
+                "status": "open",
+                "channels": {"email": [str(email_row)], "integration": [str(slack_row), str(custom_row)]},
+            },
             {"id": resolved_alert, "group_id": panel_ws, "status": "resolved", "channels": {"email": [str(email_row)], "integration": []}},
         ],
     )
@@ -728,7 +773,16 @@ def test_the_settings_travel_with_a_workspace_backup(db_session, world):
     stored = {
         "types": {"ai_operation_failed": True},
         "email": {"enabled": True, "recipients": ["ops@example.test"]},
-        "routes": [{"id": "r1", "integration_id": str(source.id), "action": "post", "args": {"channel": "#ops"}, "enabled": True, "kinds": ["workflow_failed"]}],
+        "routes": [
+            {
+                "id": "r1",
+                "integration_id": str(source.id),
+                "action": "post",
+                "args": {"channel": "#ops"},
+                "enabled": True,
+                "kinds": ["workflow_failed"],
+            }
+        ],
     }
     db_session.query(GroupPreferencesModel).filter_by(group_id=world.gid).update({"notifications_json": stored})
     db_session.commit()

@@ -11,7 +11,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
-import pytest
 from pytest import fixture
 
 from marvin.services.automation.actions.base import IntegrationStepError

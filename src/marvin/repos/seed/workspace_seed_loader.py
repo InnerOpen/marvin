@@ -1413,8 +1413,7 @@ class WorkspaceSeedLoader:
         if prefs is None or (prefs.notifications_json and not self._overwrite):
             return 0
         ids = {
-            row.slug: str(row.id)
-            for row in self.repos.session.query(IntegrationModel).filter(IntegrationModel.group_id == self.repos.group_id).all()
+            row.slug: str(row.id) for row in self.repos.session.query(IntegrationModel).filter(IntegrationModel.group_id == self.repos.group_id).all()
         }
         routes = []
         for route in data.get("routes") or []:
