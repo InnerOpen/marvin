@@ -23,7 +23,7 @@ A user has one platform role, `NONE` or `SUPER_ADMIN`, and one workspace role pe
 |---|---|---|
 | `OWNER` | 5 | everything an admin can |
 | `ADMIN` | 4 | manage workspace settings, members, publishing (API clients), entry types and forms; AI tools that read or run settings; everything an editor can |
-| `EDITOR` | 3 | create, edit, approve, publish and delete any entry; manage assets, resources, collections and tags; read form submissions; AI write tools |
+| `EDITOR` | 3 | create, edit, approve, publish and delete (move to the Trash, restore, delete forever) any entry; manage assets, resources, collections and tags; read form submissions; AI write tools |
 | `AUTHOR` | 2 | create entries and edit or delete their own until approved or published (never approve, publish or schedule one), upload assets, add tags |
 | `VIEWER` | 1 | read; every content write answers 403 |
 
@@ -31,7 +31,7 @@ The content routes enforce these with the helpers in `marvin.routes._base.checks
 
 **Workspace settings are admin-only.** Integrations (including running an action, a health check or an option list), outgoing and incoming webhooks, workflows, scheduled tasks, SMTP profiles, email event subscriptions and test sends, variables and secrets, AI providers and MCP servers, export and backups, and the invitation list need OWNER or ADMIN, for reads as well as writes; other members get 403 and the admin page shows an admins-only note. Member pages still read the integration provider catalog, webhook and task-type lists, secret slugs, email templates, workspace preferences and AI settings. Scheduling a platform maintenance task type (the `admin_only` ones) needs a platform super admin. Before rc.197 several of these settings routes and every content write had no role check.
 
-**AI and MCP tools** follow the same roles: every write tool (`attach_*`, `detach_*`, `add_to_collection`, `remove_from_collection`, `import_asset`, `revise_entry`, `compose_entry`, `archive_entries`) needs EDITOR, and `list_scheduled_tasks`, `get_scheduled_task_history`, `list_workflows`, `run_workflow`, `describe_event` and `get_ai_settings` need ADMIN. An AUTHOR's AI operation on an entry they can't edit returns its output without applying or staging it (`writeback: "not_permitted"`). See [Agents and Ask](whats-new/agents-and-ask.md).
+**AI and MCP tools** follow the same roles: every write tool (`attach_*`, `detach_*`, `add_to_collection`, `remove_from_collection`, `import_asset`, `revise_entry`, `compose_entry`, `archive_entries`, `trash_entries`) needs EDITOR, and `list_scheduled_tasks`, `get_scheduled_task_history`, `list_workflows`, `run_workflow`, `describe_event` and `get_ai_settings` need ADMIN. An AUTHOR's AI operation on an entry they can't edit returns its output without applying or staging it (`writeback: "not_permitted"`). See [Agents and Ask](whats-new/agents-and-ask.md).
 
 The route dependencies are `require_workspace_owner`, `require_workspace_admin`, `require_workspace_editor`, `require_workspace_author`, `require_workspace_viewer` and `require_workspace_member`.
 

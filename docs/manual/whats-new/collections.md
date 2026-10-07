@@ -8,7 +8,7 @@ A **manual collection** is curated: you add, remove and reorder entries yourself
 
 A collection has a `target_type` of `entry` (default), `asset` or `resource`. Manual collections are entry-only; a smart collection can group any one of the three.
 
-Every workspace also gets five locked **system** collections (`inbox`, `drafts`, `needs-review`, `approved`, `archive`): smart, status-driven, non-public, and not editable. The only editorial default a new workspace receives is `featured`.
+Every workspace also gets six locked **system** collections (`inbox`, `drafts`, `needs-review`, `approved`, `archive`, `trash`): smart, status-driven, non-public, and not editable. A trashed entry belongs to the [Trash](trash.md) alone: no other collection lists or counts it, smart or manual (a manual collection keeps its membership for when it is restored). The only editorial default a new workspace receives is `featured`.
 
 **Visible to sites.** A collection's `is_public` flag (default on) decides whether the [publishing API](publishing-api.md) serves it. The create and edit forms show it as **Visible to sites**. Off, sites can't list the collection, open it, or filter entries by it (`GET /entries?collection=` ignores a private collection, as the collection endpoints do). Its entries stay published and can still appear through other collections, entry lists and their own pages. A private collection carries a **Private** pill in the collections list and on its page. System collections are always private, so their toggle is shown disabled with that explanation.
 
@@ -39,7 +39,7 @@ Every workspace also gets five locked **system** collections (`inbox`, `drafts`,
 
 ### Materialisation
 
-- `SmartCollectionReactionListener` re-evaluates an entry against every smart collection on `entry_created`, `entry_updated`, `entry_published`, `entry_unpublished`, `entry_archived` and `entry_restored`. Deletion needs no reaction; the junction cascades.
+- `SmartCollectionReactionListener` re-evaluates an entry against every smart collection on `entry_created`, `entry_updated`, `entry_published`, `entry_unpublished`, `entry_archived`, `entry_trashed` and `entry_restored`. Deletion needs no reaction; the junction cascades.
 - Tagging an entry, asset or resource re-syncs that item; asset and resource writes re-sync through their repositories.
 - Changing a collection's rules re-materialises that collection (`sync_collection`).
 - Applying a collection [blueprint](blueprints.md) materialises it immediately.

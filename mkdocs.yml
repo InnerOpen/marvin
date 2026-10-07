@@ -64,6 +64,7 @@ nav:
       - Publishing API: whats-new/publishing-api.md
       - Media embeds: whats-new/media-embeds.md
       - Collections: whats-new/collections.md
+      - Trash: whats-new/trash.md
   - Auth & tokens: auth-and-tokens.md
   - Operations: operations.md
   - Off-site backup: offsite-backup.md

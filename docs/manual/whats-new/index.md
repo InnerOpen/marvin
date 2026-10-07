@@ -59,6 +59,10 @@ Paste a YouTube, Vimeo, Spotify, SoundCloud, Apple Music, Apple Podcasts, TIDAL,
 
 Smart rules gained rolling `published_within_days` and `created_within_days` windows that fail closed; the nightly `resync_smart_collections` task evicts aged-out items (rc.82). Workspaces no longer ship a manual "Recent" collection (rc.83). Smart rules gained `where` field conditions, a visual rule builder beside the JSON, and **Run Query** to preview unsaved rules (rc.169). **Visible to sites** on the collection form makes a collection private to the publishing API (rc.186). Details: [Collections](collections.md).
 
+## Trash
+
+Deleting an entry moves it to the Trash: a sixth system collection where it can be restored (a published entry comes back as a draft) until someone empties it. Delete forever and **Empty trash** (ADMIN/OWNER) remove entries for good, and an hourly job empties entries older than the workspace's limit (platform default 30 days; Never, 7, 30 or 90 per workspace). Workflows get a **Move to Trash** entry op and agents a `trash_entries` tool; neither can delete forever. `DELETE /entries/{id}` now trashes; `?permanent=true` deletes a trashed entry. See [Trash](trash.md).
+
 ## Event Log
 
 A workspace admin chooses what the Event Log records. **Audit coverage** on the Event Log has a switch per event type, grouped by category, with a filter box and **Reset to default**. Other members see the list of types left out, which used to be a fixed list on the page. Security events (members and invitations, API clients and tokens, secrets, workspace settings and AI approvals) are always recorded, and so is each change to these settings (`workspace_settings_changed`). The routes are `GET`/`PATCH /api/groups/audit-settings` (OWNER/ADMIN) and `GET /api/groups/audit-settings/excluded` (any member). Migration `e6c2a9f4b1d3`. Details: [the manual's Event log section](../index.md).
