@@ -102,6 +102,13 @@ backup:
       # An hourly run must finish (or give up) well before the next one.
       activeDeadlineSeconds: 2700
       startingDeadlineSeconds: 900
+      # Assets on R2 (storage slice 8): the asset mirror also reads the s3 provider (bucket marvin-assets).
+      env: &assetsFromR2
+        - {name: BACKUP_ASSET_PROVIDERS, value: s3}
+        - {name: STORAGE_S3_BUCKET, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_BUCKET}}}
+        - {name: STORAGE_S3_ENDPOINT, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ENDPOINT}}}
+        - {name: STORAGE_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ACCESS_KEY}}}
+        - {name: STORAGE_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_SECRET_KEY}}}
     - name: nas-nightly
       type: local
       schedule: "30 2 * * *"
@@ -112,6 +119,7 @@ backup:
           server: 192.168.30.10
           path: /tank/backups/marvin
         subPath: prod
+      env: *assetsFromR2
 
 # Public UI route + public API route (the browser calls the API directly for login/interactive use).
 # config.publicApiUrl is pinned to the tunnel host below: the auto-derived value would be the
@@ -160,6 +168,16 @@ extraEnv:
   # large photo. 16 MiB so anything Square takes can be fetched.
   - name: INTEGRATION_HTTP_MAX_BYTES
     value: "16777216"
+  # Assets on R2 (storage slice 8): the s3 provider (Secret marvin-r2-assets, a token scoped to marvin-assets only),
+  # served from the custom domain. Where NEW uploads go is the admin choice (Admin → Storage); keys are opaque.
+  - name: STORAGE_REMOTE_PUBLIC_URL
+    value: https://assets.iwobble.com
+  - name: STORAGE_S3_CACHE_CONTROL
+    value: "public, max-age=86400"
+  - {name: STORAGE_S3_BUCKET, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_BUCKET}}}
+  - {name: STORAGE_S3_ENDPOINT, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ENDPOINT}}}
+  - {name: STORAGE_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ACCESS_KEY}}}
+  - {name: STORAGE_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_SECRET_KEY}}}
 
 # Postgres (CloudNativePG cluster `marvin-pg`, Secret `marvin-pg-app`) — production's database since the
 # cutover (docs/manual/postgres.md, "Production cutover"). NFS is the only storage class on this cluster — see the runbook's "Storage".
