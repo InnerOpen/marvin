@@ -96,6 +96,13 @@ backup:
       # An hourly run must finish (or give up) well before the next one.
       activeDeadlineSeconds: 2700
       startingDeadlineSeconds: 900
+      # Assets on R2 (storage slice 8): the mirror also reads the s3 provider (bucket marvin-assets-dev).
+      env:
+        - {name: BACKUP_ASSET_PROVIDERS, value: s3}
+        - {name: STORAGE_S3_BUCKET, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_BUCKET}}}
+        - {name: STORAGE_S3_ENDPOINT, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ENDPOINT}}}
+        - {name: STORAGE_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ACCESS_KEY}}}
+        - {name: STORAGE_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_SECRET_KEY}}}
 
 route:
   enabled: true
@@ -141,3 +148,13 @@ extraEnv:
     value: https://marvin-api-marvin-dev.apps.ocp4.iwobble.com/assets
   - name: INTEGRATION_HTTP_MAX_BYTES
     value: "16777216"
+  # Assets on R2 (storage slice 8): the s3 provider is configured (Secret marvin-r2-assets, a token scoped to
+  # marvin-assets-dev only); which provider takes NEW uploads is the admin choice (Admin → Storage).
+  - name: STORAGE_REMOTE_PUBLIC_URL
+    value: https://assets-dev.iwobble.com
+  - name: STORAGE_S3_CACHE_CONTROL
+    value: "public, max-age=86400"
+  - {name: STORAGE_S3_BUCKET, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_BUCKET}}}
+  - {name: STORAGE_S3_ENDPOINT, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ENDPOINT}}}
+  - {name: STORAGE_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ACCESS_KEY}}}
+  - {name: STORAGE_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_SECRET_KEY}}}
