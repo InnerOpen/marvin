@@ -123,6 +123,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
                   <option value="published">published</option>
                   <option value="archived">archived</option>
                   <option value="inbox">inbox</option>
+                  <option value="trashed">in the Trash</option>
                 </select>
               </label>
               <label class="tf"><span>Title contains</span><input class="input" id="wf-t-text" placeholder="any" /></label>
@@ -329,7 +330,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     integration: "Run integration",
   };
   const ENTRY_OP_LABELS: Record<string, string> = {
-    publish: "Publish", unpublish: "Unpublish", archive: "Archive", restore: "Restore from archive",
+    publish: "Publish", unpublish: "Unpublish", archive: "Archive", trash: "Move to Trash",
+    restore: "Restore (from archive or Trash)",
     add_to_collection: "Add to collection", remove_from_collection: "Remove from collection",
     set_metadata: "Set metadata", set_data: "Set fields", request_review: "Send to review",
   };

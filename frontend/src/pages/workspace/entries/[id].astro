@@ -12,6 +12,7 @@ import { createTag, listTags, type TagRead } from "@/lib/api/tags";
 import { keysHint } from "@/lib/disclosure";
 import { viewOnSite, withSubmittedValues } from "@/lib/entryForm";
 import { integrationErrors, reviewReasons } from "@/lib/reviewReasons";
+import { restoresTo } from "@/lib/trash";
 import { describeSaveError, type SaveError } from "@/lib/saveError";
 import { coerceDataJsonValue, fieldTypeMap } from "@/lib/schemaFields";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
@@ -221,7 +222,12 @@ if (!id) {
 // (judged on the stored entry, not a failed save). Setting approved/published or a scheduled
 // publish is EDITOR+ only.
 const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
-const canEditThis = entry ? access.canEditEntry(entry) : false;
+// An entry in the Trash is read-only: whoever may change it can Restore it or delete it forever, nothing else.
+const inTrash = entry?.status === "trashed";
+const mayChangeEntry = entry ? access.canEditEntry(entry) : false;
+const canEditThis = mayChangeEntry && !inTrash;
+const trashCollectionId = collections.find((c: any) => c.isSystem && c.slug === "trash")?.id ?? null;
+const restoresToLabel = inTrash ? restoresTo(entry?.metadataJson as Record<string, unknown> | null).replace("_", " ") : "";
 const canPublish = access.canEdit;
 
 // The page title, slug lock and "not live yet" note follow what's stored, not a failed save.
@@ -370,15 +376,30 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
             </div>
           )}
           {canEditThis && (
-            <button type="button" id="delete-entry-button" class="button secondary">
-              Delete
+            <button type="button" id="delete-entry-button" class="button secondary" title="Move this entry to the Trash. You can restore it from there.">
+              Move to Trash
             </button>
           )}
           <a class="button secondary" href="/workspace/entries">Back</a>
         </div>
       </div>
 
-      {!canEditThis && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
+      {inTrash && (
+        <div class="trash-banner" role="status">
+          <span>
+            <strong>This entry is in the Trash.</strong> It is off the site and out of every list. Restore it to
+            edit it again — it goes back to <strong>{restoresToLabel}</strong>.
+            {trashCollectionId && <a href={`/workspace/collections/${trashCollectionId}`}>Open the Trash</a>}
+          </span>
+          {mayChangeEntry && (
+            <span class="trash-banner-actions" data-trash-id={entry.id} data-trash-collection={trashCollectionId ?? ""}>
+              <button type="button" id="restore-entry-button" class="button">Restore</button>
+              <button type="button" id="delete-forever-button" class="button danger">Delete forever</button>
+            </span>
+          )}
+        </div>
+      )}
+      {!canEditThis && !inTrash && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
 
       {/* Always mounted (even when empty) so a staged suggestion can be rendered in place
           after an AI action, without reloading and discarding unsaved form edits. */}
@@ -998,6 +1019,22 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
 </AppLayout>
 
 <style is:global>
+  .trash-banner {
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+    background: rgb(234 88 12 / 0.08);
+    border: 1px solid var(--warn);
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+  .trash-banner a { margin-left: 0.35rem; }
+  .trash-banner-actions { display: flex; gap: 0.5rem; }
+  .trash-banner .button.danger { color: var(--color-error); border-color: var(--color-error); background: transparent; }
+  .trash-banner .button.danger:hover { background: var(--color-error-bg); }
   .error-banner {
     padding: 1.5rem;
     background: var(--color-error-bg);
@@ -2024,6 +2061,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   import { formatLocalDateTime, fromDatetimeLocalValue, hasPassed, toDatetimeLocalValue } from '@/lib/localDatetime';
   import { createSdkClient } from '@/lib/sdk';
   import { isForbidden } from '@/lib/workspaceRole';
+  import { deleteForever, moveToTrash, restoreFromTrash } from '@/lib/api/trash';
 
   const sdk = createSdkClient();
   const form = document.getElementById('entry-form') as HTMLFormElement;
@@ -2555,25 +2593,53 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     updateDataJsonFromForm();
   }
 
-  // Handle delete button
+  // Move to Trash: reversible, so no confirmation — the entries list offers Undo.
   if (deleteButton) {
     deleteButton.addEventListener('click', async () => {
-      if (!confirm('Delete this entry? This cannot be undone.')) {
-        return;
-      }
-
       deleteButton.disabled = true;
-      deleteButton.textContent = 'Deleting...';
+      deleteButton.textContent = 'Moving…';
 
       try {
         const entryId = window.location.pathname.split('/').pop()!;
-        await sdk.entries.delete(entryId);
-        window.location.href = '/workspace/entries';
+        await moveToTrash(entryId);
+        window.location.href = `/workspace/entries?trashed=${encodeURIComponent(entryId)}`;
       } catch (error: any) {
-        const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to delete entry';
+        const message = isForbidden(error) ? "You don't have permission to do this." : error?.message || error?.detail || 'Failed to move the entry to the Trash';
         alert(message);
         deleteButton.disabled = false;
-        deleteButton.textContent = 'Delete';
+        deleteButton.textContent = 'Move to Trash';
+      }
+    });
+  }
+
+  // In the Trash: Restore, or delete forever.
+  const trashActions = document.querySelector<HTMLElement>('.trash-banner-actions');
+  if (trashActions) {
+    const trashedId = trashActions.dataset.trashId!;
+    const trashCollection = trashActions.dataset.trashCollection;
+    const restoreButton = document.getElementById('restore-entry-button') as HTMLButtonElement;
+    const foreverButton = document.getElementById('delete-forever-button') as HTMLButtonElement;
+    const fail = (error: any, fallback: string) =>
+      alert(isForbidden(error) ? "You don't have permission to do this." : error?.message || fallback);
+    restoreButton.addEventListener('click', async () => {
+      restoreButton.disabled = true;
+      try {
+        await restoreFromTrash(trashedId);
+        window.location.reload();
+      } catch (error: any) {
+        fail(error, 'Failed to restore the entry');
+        restoreButton.disabled = false;
+      }
+    });
+    foreverButton.addEventListener('click', async () => {
+      if (!confirm("Delete this entry forever? This can't be undone.")) return;
+      foreverButton.disabled = true;
+      try {
+        await deleteForever(trashedId);
+        window.location.href = trashCollection ? `/workspace/collections/${trashCollection}` : '/workspace/entries';
+      } catch (error: any) {
+        fail(error, 'Failed to delete the entry');
+        foreverButton.disabled = false;
       }
     });
   }

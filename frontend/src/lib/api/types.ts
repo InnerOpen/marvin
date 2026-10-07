@@ -1,5 +1,5 @@
 // Enums
-export type EntryStatus = "inbox" | "processing" | "draft" | "needs_review" | "approved" | "published" | "archived";
+export type EntryStatus = "inbox" | "processing" | "draft" | "needs_review" | "approved" | "published" | "archived" | "trashed";
 
 export type WorkspaceRole = "OWNER" | "ADMIN" | "EDITOR" | "AUTHOR" | "VIEWER";
 

@@ -2,10 +2,12 @@
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import type { WorkspaceRole } from "@/lib/api/types";
+import { getWorkspaceTrashSettings, type TrashAutoEmpty } from "@/lib/api/trash";
 import { listWorkspaceMembers } from "@/lib/api/workspaceMembers";
 import { getWorkspacePreferences } from "@/lib/api/workspaceSettings";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
 import { requireAuth } from "@/lib/auth";
+import { AUTO_EMPTY_CHOICES, autoEmptyLabel } from "@/lib/trash";
 
 const currentUser = await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
 
@@ -15,6 +17,7 @@ let preferences = null;
 let error: string | null = null;
 let currentUserRole: WorkspaceRole | null = null;
 let isPlatformAdmin = false;
+let trashSettings: TrashAutoEmpty | null = null;
 
 try {
   workspace = await getCurrentWorkspace(authToken);
@@ -26,6 +29,7 @@ try {
     } catch (e) {
       console.error("[settings] Error loading preferences:", e);
     }
+    trashSettings = await getWorkspaceTrashSettings(workspace.id, authToken).catch(() => null);
 
     // Get current user's role and admin status
     const members = await listWorkspaceMembers(workspace.id, authToken);
@@ -245,7 +249,7 @@ const success = urlParams.get("success") === "1";
                 />
                 When an entry's Scheduled Publish time arrives, publish it only if its status is <strong>Approved</strong>.
                 Other entries keep their schedule and wait; the entry editor and the activity bell say they're waiting
-                for approval. Off: any due entry that isn't archived is published.
+                for approval. Off: any due entry that isn't archived (or in the Trash) is published.
               </span>
             </label>
 
@@ -282,6 +286,38 @@ const success = urlParams.get("success") === "1";
           )}
         </form>
       </section>
+
+      {trashSettings && (
+        <section class="settings-section" id="trash">
+          <h3>Trash</h3>
+          <form id="trash-settings-form" data-workspace-id={workspace.id} class="settings-form">
+            <div class="form-grid">
+              <label>
+                <span>Empty the Trash automatically</span>
+                <select name="trash_auto_empty_days" disabled={!canManage}>
+                  <option value="" selected={trashSettings.workspace_override_days === null}>
+                    Use platform default ({autoEmptyLabel(trashSettings.platform_default_days)})
+                  </option>
+                  {AUTO_EMPTY_CHOICES.map((days) => (
+                    <option value={String(days)} selected={trashSettings?.workspace_override_days === days}>
+                      {days ? `After ${autoEmptyLabel(days)}` : "Never"}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  Deleted entries wait in the Trash, where they can be restored. Entries in the Trash longer than this
+                  are deleted forever (checked hourly). Never keeps them until someone empties the Trash.
+                </small>
+              </label>
+            </div>
+            {canManage && (
+              <div class="form-actions">
+                <button type="submit" id="submit-trash-btn" class="button">Save Trash Settings</button>
+              </div>
+            )}
+          </form>
+        </section>
+      )}
 
       <section class="settings-section">
         <h3>Workspace Information</h3>
@@ -376,6 +412,26 @@ const success = urlParams.get("success") === "1";
         alert('Error: ' + (err instanceof Error ? err.message : 'Failed to update workspace settings'));
         submitBtn.disabled = false;
         submitBtn.textContent = 'Save Changes';
+      }
+    });
+  }
+
+  // Trash settings: "" = inherit the platform default (null), else 0 (never) / 7 / 30 / 90 days.
+  const trashForm = document.getElementById('trash-settings-form') as HTMLFormElement | null;
+  const submitTrashBtn = document.getElementById('submit-trash-btn') as HTMLButtonElement | null;
+  if (trashForm && submitTrashBtn) {
+    trashForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const workspaceId = trashForm.dataset.workspaceId;
+      if (!workspaceId) return;
+      submitTrashBtn.disabled = true;
+      try {
+        const value = new FormData(trashForm).get('trash_auto_empty_days') as string;
+        await sdk.workspaces.updatePreferences(workspaceId, { trash_auto_empty_days: value === '' ? null : Number(value) } as any);
+        window.location.href = '/workspace/settings/general?success=1#trash';
+      } catch (err) {
+        alert('Error: ' + (err instanceof Error ? err.message : 'Failed to update the Trash settings'));
+        submitTrashBtn.disabled = false;
       }
     });
   }

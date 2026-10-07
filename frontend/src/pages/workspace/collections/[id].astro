@@ -8,20 +8,26 @@ import {
   getCollectionMembers,
 } from "@/lib/api/collections";
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
+import TrashView from "@/components/TrashView.astro";
 import { listEntryTypes } from "@/lib/api/entryTypes";
+import { getTrashSummary, type TrashAutoEmpty } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { EDITORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 const { id } = Astro.params;
 // Everyone reads; changing a collection is EDITOR+.
-const { canEdit } = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+const { canEdit } = access;
 
 let collection: CollectionRead | null = null;
 let entries: EntryRead[] = [];
 let members: CollectionMember[] = [];
 let typeMap = new Map<string, string>();
 let error: string | null = null;
+// The Trash (system collection `trash`): restore / delete forever / empty instead of a plain list.
+let isTrash = false;
+let trashAutoEmpty: TrashAutoEmpty | null = null;
 
 if (!authToken) {
   error = "Authentication required";
@@ -35,6 +41,8 @@ if (!authToken) {
       const [ents, types] = await Promise.all([getCollectionEntries(id, authToken), listEntryTypes(authToken)]);
       entries = ents;
       typeMap = new Map(types.map((t) => [t.id, t.name]));
+      isTrash = Boolean(collection.isSystem) && collection.slug === "trash";
+      if (isTrash) trashAutoEmpty = await getTrashSummary(authToken).catch(() => null);
     } else {
       // Asset/resource smart collections: fetch the uniform member list.
       members = await getCollectionMembers(id, authToken);
@@ -62,6 +70,7 @@ const statusMeta: Record<string, { label: string; cls: string }> = {
   approved: { label: "Approved", cls: "s-approved" },
   published: { label: "Published", cls: "s-published" },
   archived: { label: "Archived", cls: "s-archived" },
+  trashed: { label: "In Trash", cls: "s-archived" },
 };
 
 function fmtDate(d?: string | null): string {
@@ -109,7 +118,16 @@ function fmtDate(d?: string | null): string {
       </div>
       {!canEdit && !collection.isSystem && <div class="alert alert-info" role="status">{EDITORS_ONLY}</div>}
 
-      {totalCount === 0 ? (
+      {isTrash ? (
+        <TrashView
+          entries={entries}
+          typeMap={typeMap}
+          mayChange={access.canEditEntry}
+          canEmpty={access.canManage}
+          canConfigure={access.canManage}
+          autoEmpty={trashAutoEmpty}
+        />
+      ) : totalCount === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">📭</div>
           <h3>No {targetType === "entry" ? "entries" : `${targetType}s`}</h3>

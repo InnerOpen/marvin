@@ -112,11 +112,11 @@ export interface Referral {
 }
 /**
  * An approval card's preview: what a big bulk write would link, or what an ask-first call would touch
- * (`archive`: the entries, no items) — see services/ai/tools/bulk_writes.py.
+ * (`archive` / `trash`: the entries, no items) — see services/ai/tools/bulk_writes.py.
  */
 export interface BulkWritePreview {
   summary: string;
-  action: "attach" | "detach" | "archive";
+  action: "attach" | "detach" | "archive" | "trash";
   links: number;
   targetType: string;
   targetCount: number;

@@ -1,0 +1,259 @@
+---
+/**
+ * The Trash collection's page body: deleted entries, each restorable or deletable forever, plus bulk
+ * Restore and Empty trash (workspace ADMIN/OWNER — the backend enforces it too). Restore sends an entry
+ * back to the status it had; a published one comes back as a draft (services/entries/trash.py).
+ */
+import type { EntryRead } from "@/lib/api/entries";
+import type { TrashAutoEmpty } from "@/lib/api/trash";
+import { autoEmptyNote, restoresTo, trashedAt } from "@/lib/trash";
+
+interface Props {
+  entries: EntryRead[];
+  typeMap: Map<string, string>;
+  /** Per entry: may the caller restore it / delete it forever (the entry page's own rule). */
+  mayChange: (entry: EntryRead) => boolean;
+  /** Workspace ADMIN/OWNER: may empty the whole Trash. */
+  canEmpty: boolean;
+  /** Workspace ADMIN/OWNER: may change how long the Trash keeps entries (Settings → General). */
+  canConfigure: boolean;
+  autoEmpty: TrashAutoEmpty | null;
+}
+
+const { entries, typeMap, mayChange, canEmpty, canConfigure, autoEmpty } = Astro.props;
+const label = (status: string) => status.replace("_", " ");
+const metaOf = (entry: EntryRead) => (entry.metadataJson ?? null) as Record<string, unknown> | null;
+
+function fmtDate(d?: string | null): string {
+  if (!d) return "";
+  try {
+    return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return "";
+  }
+}
+---
+
+<div class="trash">
+  {autoEmpty && (
+    <p class="trash-note">
+      {autoEmptyNote(autoEmpty.effective_days)}
+      {canConfigure && <a href="/workspace/settings/general#trash">Change</a>}
+    </p>
+  )}
+
+  <div class="trash-actions">
+    <label class="select-all"><input type="checkbox" id="trash-select-all" disabled={entries.length === 0} /> Select all</label>
+    <button type="button" class="button secondary" id="trash-restore-selected" disabled>Restore selected</button>
+    {canEmpty && (
+      <button type="button" class="button danger" id="trash-empty" data-count={entries.length} disabled={entries.length === 0}>
+        Empty trash
+      </button>
+    )}
+  </div>
+
+  {entries.length === 0 ? (
+    <div class="empty-state">
+      <div class="empty-icon">🗑️</div>
+      <h3>The Trash is empty</h3>
+      <p>Deleted entries land here. You can restore them until the Trash is emptied.</p>
+    </div>
+  ) : (
+    <ul class="trash-list">
+      {entries.map((entry) => {
+        const allowed = mayChange(entry);
+        const meta = metaOf(entry);
+        return (
+          <li class="trash-row" data-id={entry.id}>
+            <input type="checkbox" class="trash-pick" value={entry.id} disabled={!allowed} aria-label={`Select ${entry.title}`} />
+            <a class="trash-main" href={`/workspace/entries/${entry.id}`}>
+              <span class="trash-title">{entry.title || "Untitled"}</span>
+              <span class="trash-sub">
+                {typeMap.get(entry.entryTypeId) && <span>{typeMap.get(entry.entryTypeId)}</span>}
+                <span>Restores to {label(restoresTo(meta))}</span>
+                {trashedAt(meta) && <span>Trashed {fmtDate(trashedAt(meta))}</span>}
+              </span>
+            </a>
+            {allowed && (
+              <span class="trash-row-actions">
+                <button type="button" class="button secondary small" data-restore={entry.id}>Restore</button>
+                <button type="button" class="button secondary small danger" data-forever={entry.id}>Delete forever</button>
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  )}
+</div>
+
+<script>
+  import { deleteForever, emptyTrash, restoreFromTrash } from '@/lib/api/trash';
+  import { emptyTrashPrompt } from '@/lib/trash';
+  import { isForbidden } from '@/lib/workspaceRole';
+
+  const fail = (error: any, fallback: string) =>
+    alert(isForbidden(error) ? "You don't have permission to do this." : error?.message || fallback);
+
+  const picks = () => Array.from(document.querySelectorAll<HTMLInputElement>('.trash-pick:not(:disabled)'));
+  const restoreSelected = document.getElementById('trash-restore-selected') as HTMLButtonElement | null;
+  const selectAll = document.getElementById('trash-select-all') as HTMLInputElement | null;
+  const syncSelection = () => {
+    const chosen = picks().filter((p) => p.checked).length;
+    if (restoreSelected) {
+      restoreSelected.disabled = chosen === 0;
+      restoreSelected.textContent = chosen ? `Restore selected (${chosen})` : 'Restore selected';
+    }
+  };
+  document.querySelectorAll('.trash-pick').forEach((p) => p.addEventListener('change', syncSelection));
+  selectAll?.addEventListener('change', () => {
+    picks().forEach((p) => (p.checked = selectAll.checked));
+    syncSelection();
+  });
+
+  restoreSelected?.addEventListener('click', async () => {
+    const ids = picks().filter((p) => p.checked).map((p) => p.value);
+    restoreSelected.disabled = true;
+    const failed: string[] = [];
+    for (const id of ids) {
+      try {
+        await restoreFromTrash(id);
+      } catch {
+        failed.push(id);
+      }
+    }
+    if (failed.length) alert(`${failed.length} of ${ids.length} entries could not be restored.`);
+    window.location.reload();
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-restore]').forEach((button) =>
+    button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        await restoreFromTrash(button.dataset.restore!);
+        window.location.reload();
+      } catch (error) {
+        fail(error, 'Failed to restore the entry');
+        button.disabled = false;
+      }
+    }),
+  );
+
+  document.querySelectorAll<HTMLButtonElement>('[data-forever]').forEach((button) =>
+    button.addEventListener('click', async () => {
+      if (!confirm("Delete this entry forever? This can't be undone.")) return;
+      button.disabled = true;
+      try {
+        await deleteForever(button.dataset.forever!);
+        window.location.reload();
+      } catch (error) {
+        fail(error, 'Failed to delete the entry');
+        button.disabled = false;
+      }
+    }),
+  );
+
+  const emptyButton = document.getElementById('trash-empty') as HTMLButtonElement | null;
+  emptyButton?.addEventListener('click', async () => {
+    if (!confirm(emptyTrashPrompt(Number(emptyButton.dataset.count || 0)))) return;
+    emptyButton.disabled = true;
+    try {
+      await emptyTrash();
+      window.location.reload();
+    } catch (error) {
+      fail(error, 'Failed to empty the Trash');
+      emptyButton.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  .trash-note {
+    margin: 0.75rem 0 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .trash-note a {
+    margin-left: 0.35rem;
+    color: var(--accent);
+  }
+  .trash-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-top: 1rem;
+  }
+  .select-all {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-right: auto;
+  }
+  .button.danger {
+    color: var(--color-error);
+    border-color: var(--color-error);
+  }
+  .button.danger:hover:not(:disabled) {
+    background: var(--color-error-bg);
+  }
+  .button.small {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.8rem;
+  }
+  .trash-list {
+    list-style: none;
+    margin: 1rem 0 0;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: var(--panel);
+  }
+  .trash-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 1rem;
+  }
+  .trash-row + .trash-row {
+    border-top: 1px solid var(--line);
+  }
+  .trash-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    color: var(--ink);
+    text-decoration: none;
+  }
+  .trash-title {
+    font-weight: 600;
+    font-size: 0.9rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .trash-sub {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+  .trash-row-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 0.4rem;
+  }
+  .empty-state {
+    text-align: center;
+    padding: 3rem 1rem;
+    color: var(--muted);
+  }
+  .empty-icon {
+    font-size: 2rem;
+  }
+</style>
