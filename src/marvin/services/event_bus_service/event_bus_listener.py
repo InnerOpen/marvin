@@ -1003,10 +1003,15 @@ class SiteRebuildReactionListener(BuiltinReaction):
         return rebuild_change(label, event.event_type.name, entity_type, entity_id)
 
     def _enabled(self, session: Session) -> bool:
+        """On unless the workspace turned it off — and only where a rebuild reaches something: with no deploy
+        hook or deploy integration on `webhook_triggered`, a queued rebuild would build nothing and only toast."""
         from marvin.db.models.groups.preferences import GroupPreferencesModel
+        from marvin.services.site_rebuild import deploy_targets
 
         prefs = session.query(GroupPreferencesModel).filter_by(group_id=self.group_id).first()
-        return getattr(prefs, "site_auto_rebuild", True) is not False
+        if getattr(prefs, "site_auto_rebuild", True) is False:
+            return False
+        return bool(deploy_targets(session, self.group_id))
 
     def _visible(self, session: Session, event: Event) -> bool:
         """Whether this event changes what a site can see. When it can't tell, it says yes — a spare

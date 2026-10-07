@@ -299,7 +299,7 @@ class RequestSiteRebuildHandler(ScheduledTaskHandler):
     def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
         from marvin.core.config import get_app_settings
         from marvin.db.models.groups.groups import Groups
-        from marvin.services.site_rebuild import rebuild_change, request_rebuild
+        from marvin.services.site_rebuild import deploy_targets, rebuild_change, request_rebuild
 
         reason = task.task_config.get("reason", "scheduled")
 
@@ -307,11 +307,11 @@ class RequestSiteRebuildHandler(ScheduledTaskHandler):
             if task.group_id:
                 workspace_ids = [UUID(str(task.group_id))]
             else:
-                # Admin system task — rebuild every workspace
-                workspace_ids = [row[0] for row in session.query(Groups.id).all()]
+                # Admin system task — rebuild every workspace that has a site to build
+                workspace_ids = [row[0] for row in session.query(Groups.id).all() if deploy_targets(session, row[0])]
             counts = [request_rebuild(session, wid, reason, change=rebuild_change(reason)) for wid in workspace_ids]
 
-        scope = "this workspace" if task.group_id else f"all {len(workspace_ids)} workspaces"
+        scope = "this workspace" if task.group_id else f"{len(workspace_ids)} workspaces with a deploy target"
         pending = f", {counts[0]} requests pending" if task.group_id and counts[0] > 1 else ""
         quiet = get_app_settings().SITE_REBUILD_QUIET_SECONDS
         summary = f"Site rebuild queued ({scope}, reason: {reason}{pending}); sent once requests are quiet for {quiet}s"

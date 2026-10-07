@@ -21,7 +21,9 @@ from marvin.services.event_bus_service.event_types import EventTypes
 def site(db_session):
     from marvin.db.models.groups import Groups
     from marvin.db.models.groups.preferences import GroupPreferencesModel
+    from marvin.db.models.groups.webhooks import GroupWebhooksModel
     from marvin.db.models.platform import Collections, Entries, EntryCollections, EntryTypes
+    from marvin.services.event_bus_service.event_types import WebhookMode
 
     gid = uuid.uuid4()
     g = Groups(session=db_session, name=f"sr-{gid.hex[:8]}", slug=f"sr-{gid.hex[:8]}")
@@ -29,6 +31,18 @@ def site(db_session):
     db_session.add(g)
     db_session.flush()
     db_session.add(GroupPreferencesModel(session=db_session, group_id=gid))
+    # The site's deploy hook: without one a rebuild builds nothing, so none is queued.
+    db_session.add(
+        GroupWebhooksModel(
+            session=db_session,
+            group_id=gid,
+            name="Deploy",
+            url="https://hooks.example.test/deploy",
+            webhook_type=WebhookMode.event_driven,
+            enabled=True,
+            subscribed_events=["webhook_triggered"],
+        )
+    )
     et = EntryTypes(session=db_session, group_id=gid, name="Venue", slug="venue", schema_json={})
     # A submission type: its entries are never served, whatever their status (publishing_controller).
     signup = EntryTypes(
@@ -59,6 +73,7 @@ def site(db_session):
     db_session.query(Entries).filter_by(group_id=gid).delete()
     db_session.query(EntryTypes).filter_by(group_id=gid).delete()
     db_session.query(GroupPreferencesModel).filter_by(group_id=gid).delete()
+    db_session.query(GroupWebhooksModel).filter_by(group_id=gid).delete()
     db_session.query(Groups).filter_by(id=gid).delete()
     db_session.commit()
 
@@ -201,6 +216,16 @@ def test_a_skip_is_logged_at_debug(db_session, site, caplog):
     with caplog.at_level(logging.DEBUG):
         _fire(site.gid, _event(EventTypes.entry_published, site.subscriber))
     assert any("Site rebuild skipped: entry_published" in r.getMessage() and r.levelno == logging.DEBUG for r in caplog.records)
+
+
+def test_a_workspace_with_no_deploy_target_queues_nothing(db_session, site):
+    """Nothing would build the site, so a content change queues no rebuild (and no "Site rebuild" toast)."""
+    from marvin.db.models.groups.webhooks import GroupWebhooksModel
+
+    db_session.query(GroupWebhooksModel).filter_by(group_id=site.gid).update({"enabled": False})
+    db_session.commit()
+    _fire(site.gid, _event(EventTypes.entry_published, site.live))
+    assert _queued(db_session, site.gid) == 0
 
 
 def test_the_workspace_can_turn_it_off(db_session, site):
