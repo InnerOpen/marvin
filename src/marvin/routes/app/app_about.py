@@ -84,9 +84,10 @@ def get_startup_info():
 
     settings = get_app_settings()
 
-    # Get settings as dict, excluding sensitive fields
+    # Get settings as dict, excluding sensitive fields. DB_PROVIDER holds raw connection fields
+    # (POSTGRES_URL_OVERRIDE is a plain string that can embed credentials), so it stays out too.
     data = settings.model_dump(
-        exclude={"theme", "SECRET", "ENV_SECRETS", "_logger"},
+        exclude={"theme", "SECRET", "ENV_SECRETS", "_logger", "DB_PROVIDER"},
         exclude_none=True,
     )
 

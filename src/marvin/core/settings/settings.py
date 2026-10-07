@@ -634,13 +634,14 @@ class AppSettings(BaseSettings):
     DEFAULT_EMAIL: str = "changeme@example.com"
     """Default email for the initial admin user, if created."""
 
-    DEFAULT_PASSWORD: str | None = None
+    DEFAULT_PASSWORD: MaskedNoneString = None
     """
     Default password for the initial admin user, if created.
 
     Security: This is generated randomly at runtime rather than hardcoded.
     Set via environment variable DEFAULT_PASSWORD, or auto-generated if not set.
     The generated password is logged during database seeding for admin access.
+    Masked when serialized, so a settings dump (the startup-info endpoints) never carries it.
     """
 
     def model_post_init(self, __context) -> None:
