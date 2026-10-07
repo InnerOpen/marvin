@@ -4,6 +4,7 @@ import "../styles/global.css";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import type { UserRegistration } from "@/lib/api/auth";
 import { register } from "@/lib/api/auth";
+import { getCookieName } from "@/lib/api/config";
 import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
 
 // Non-production instances (backend ENVIRONMENT_LABEL) prefix the tab title.
@@ -12,9 +13,10 @@ const environmentLabel = await getEnvironmentLabel();
 // Get token from query params (supports both ?token= and ?invite=)
 const token = Astro.url.searchParams.get("token") || Astro.url.searchParams.get("invite");
 
-// Check if user is already logged in
-const existingAuth = Astro.cookies.get("marvin_session");
-if (existingAuth) {
+// Already logged in: go to the workspace — unless the link carries an invitation, which must still be shown.
+// (The cookie is the one the backend reads, AUTH_COOKIE_NAME; this used to check a name nothing sets.)
+const existingAuth = Astro.cookies.get(getCookieName());
+if (existingAuth && !token) {
   return Astro.redirect("/workspace");
 }
 
