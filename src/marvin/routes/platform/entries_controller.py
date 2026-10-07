@@ -5,10 +5,10 @@ from pydantic import UUID4
 
 from marvin.db.models.platform import EntryCollections, EntryTypes
 from marvin.routes._base import BaseUserController, controller
-from marvin.routes._base.checks import editable_entry, require_can_create_entry
+from marvin.routes._base.checks import editable_entry, require_can_create_entry, require_can_edit_entry, require_workspace_admin
 from marvin.schemas.platform import CollectionRead, EntryCreate, EntryRead, EntryUpdate
-from marvin.services.entries import EntryService
-from marvin.services.entries.entry_service import count_by_status
+from marvin.services.entries import EntryService, trash
+from marvin.services.entries.entry_service import TRASHED, count_by_status, restore_status
 from marvin.services.entry_urls import entry_url, site_base_url
 
 router = APIRouter(prefix="/entries")
@@ -21,7 +21,11 @@ class EntriesController(BaseUserController):
 
     Any member reads. Writes follow the content roles: EDITORs and above change any entry; an AUTHOR
     creates entries and changes their own until they are approved or published (see
-    `require_can_edit_entry`); a VIEWER gets a 403."""
+    `require_can_edit_entry`); a VIEWER gets a 403.
+
+    Delete moves an entry to the Trash (reversible); only a trashed entry can be deleted forever, and
+    only an ADMIN/OWNER empties the whole Trash (services/entries/trash.py). Trashed entries are left
+    out of the list; fetching one by id still works and shows its status."""
 
     def _entries(self) -> EntryService:
         """The entry domain service, wired with this request's actor + event bus."""
@@ -34,7 +38,8 @@ class EntriesController(BaseUserController):
 
     @router.get("", response_model=list[EntryRead], summary="List Entries")
     def list_entries(self) -> list[EntryRead]:
-        return self.repos.entries.get_all(order_by="created_at")
+        """Every entry but those in the Trash (the Trash collection lists those)."""
+        return [e for e in self.repos.entries.get_all(order_by="created_at") if e.status != TRASHED]
 
     @router.post("", response_model=EntryRead, status_code=status.HTTP_201_CREATED, summary="Create Entry")
     def create_entry(self, data: EntryCreate) -> EntryRead:
@@ -47,6 +52,20 @@ class EntriesController(BaseUserController):
     def entry_counts(self) -> dict[str, int]:
         """`{inbox, draft, …, total}` for this workspace — what the sidebar badge reads. Declared before `/{item_id}`."""
         return count_by_status(self.session, self.group_id)
+
+    @router.get("/trash", summary="Trash summary")
+    def trash_summary(self) -> dict:
+        """How many entries are in the Trash and how long it keeps them (`effective_days`, 0 = until
+        emptied; the platform default and this workspace's override beside it). Declared before `/{item_id}`."""
+        return {"count": len(trash.trashed_ids(self.session, self.group_id)), **trash.auto_empty_status(self.session, self.group_id)}
+
+    @router.post("/trash/empty", summary="Empty the Trash")
+    def empty_trash(self) -> dict:
+        """Delete every entry in the Trash forever (ADMIN/OWNER). Each goes through the normal delete, so
+        `entry_deleted` fires per entry. Returns `{deleted: n}`."""
+        require_workspace_admin(self.user, self.group_id)
+        deleted = trash.empty_trash(self.session, self.group_id, actor_id=self.user.id, event_bus=self.event_bus)
+        return {"status": "ok", "deleted": deleted}
 
     @router.get("/{item_id}", response_model=EntryRead, summary="Get Entry")
     def get_entry(self, item_id: UUID4) -> EntryRead:
@@ -100,18 +119,46 @@ class EntriesController(BaseUserController):
     def update_entry(self, item_id: UUID4, data: EntryUpdate) -> EntryRead:
         # The service emits entry_updated + any status-transition events (published/unpublished/
         # archived/restored), in that order.
-        editable_entry(self.user, self.group_id, self.repos, item_id, data.status, data.publish_at)
+        current = editable_entry(self.user, self.group_id, self.repos, item_id, data.status, data.publish_at)
+        # The Trash has its own doors: DELETE puts an entry in, POST /restore takes it out. A trashed
+        # entry is read-only until restored.
+        if current.status == TRASHED:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This entry is in the Trash. Restore it before editing it.")
+        if data.status == TRASHED:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Move an entry to the Trash with DELETE /entries/{id}.")
         entry = self._entries().update(item_id, data)
         if entry is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found.")
         return entry
 
-    @router.delete("/{item_id}", summary="Delete Entry")
-    def delete_entry(self, item_id: UUID4) -> dict:
-        editable_entry(self.user, self.group_id, self.repos, item_id)
-        if not self._entries().delete(item_id):
+    @router.delete("/{item_id}", summary="Move Entry to Trash (or delete a trashed entry forever)")
+    def delete_entry(self, item_id: UUID4, permanent: bool = False) -> dict:
+        """Move the entry to the Trash (`entry_trashed`; restorable). With `permanent=true`, delete an entry
+        that is already in the Trash forever (`entry_deleted`); any other entry gets a 409."""
+        entry = editable_entry(self.user, self.group_id, self.repos, item_id)
+        if permanent:
+            if entry.status != TRASHED:
+                detail = "Only an entry in the Trash can be deleted forever. Move it to the Trash first."
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+            if not trash.delete_forever(self.session, self.group_id, [item_id], actor_id=self.user.id, event_bus=self.event_bus):
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found.")
+            return {"status": "ok", "message": "Entry deleted forever", "deleted": True}
+        if self._entries().trash(item_id) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found.")
-        return {"status": "ok", "message": "Entry deleted successfully"}
+        return {"status": "ok", "message": "Entry moved to the Trash", "trashed": True}
+
+    @router.post("/{item_id}/restore", response_model=EntryRead, summary="Restore Entry from Trash")
+    def restore_entry(self, item_id: UUID4) -> EntryRead:
+        """Take an entry out of the Trash, back to the status it had — a published entry comes back as a
+        draft, so a restore never puts anything on the site by itself. Emits `entry_restored`."""
+        entry = editable_entry(self.user, self.group_id, self.repos, item_id)
+        if entry.status != TRASHED:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This entry is not in the Trash.")
+        require_can_edit_entry(self.user, self.group_id, entry, restore_status(entry))  # e.g. an AUTHOR restoring to Approved
+        restored = self._entries().restore_from_trash(item_id)
+        if restored is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Entry not found.")
+        return restored
 
     @router.get("/{entry_id}/collections", response_model=list[CollectionRead], summary="List Entry Collections")
     def list_entry_collections(self, entry_id: UUID4) -> list[CollectionRead]:

@@ -16,6 +16,7 @@ from marvin.schemas.platform import (
     SmartRulesPreviewRequest,
     UpdateEntryCollectionRequest,
 )
+from marvin.services.entries import trash
 from marvin.services.event_bus_service.event_types import EventCollectionData, EventOperation, EventTypes
 
 router = APIRouter(prefix="/collections")
@@ -67,24 +68,28 @@ class CollectionsController(BaseUserController):
         from sqlalchemy import func
 
         from marvin.db.models.platform import CollectionAssets, CollectionResources, Collections, EntryCollections
+        from marvin.db.models.platform.entries import Entries
 
-        def _counts(junction, fk):
-            return dict(
+        def _counts(junction, fk, *filters):
+            q = (
                 self.session.query(junction.collection_id, func.count(getattr(junction, fk)))
                 .join(Collections, Collections.id == junction.collection_id)
                 .filter(Collections.group_id == self.group_id)
-                .group_by(junction.collection_id)
-                .all()
             )
+            if filters:
+                q = q.join(Entries, Entries.id == junction.entry_id).filter(*filters)
+            return dict(q.group_by(junction.collection_id).all())
 
         by_type = {
-            "entry": _counts(EntryCollections, "entry_id"),
+            "entry": _counts(EntryCollections, "entry_id", trash.not_trashed()),
             "asset": _counts(CollectionAssets, "asset_id"),
             "resource": _counts(CollectionResources, "resource_id"),
         }
+        in_trash = _counts(EntryCollections, "entry_id", Entries.status == trash.TRASHED)
         for collection in collections:
             counts = by_type.get(getattr(collection, "target_type", "entry") or "entry", {})
-            collection.entry_count = counts.get(collection.id, 0)
+            # Trashed entries count only toward the Trash; every other collection hides them.
+            collection.entry_count = (in_trash if trash.is_trash_collection(collection) else counts).get(collection.id, 0)
         return collections
 
     @router.patch("/order", summary="Reorder Collections")
@@ -251,18 +256,16 @@ class CollectionsController(BaseUserController):
             "resource": (Resources, CollectionResources, CollectionResources.resource_id, "name"),
         }[target]
 
-        rows = (
-            self.session.query(model)
-            .join(junction, model.id == fk)
-            .filter(junction.collection_id == item_id)
-            .order_by(getattr(model, label_col))
-            .all()
-        )
+        q = self.session.query(model).join(junction, model.id == fk).filter(junction.collection_id == item_id)
+        if target == "entry":
+            q = q.filter(trash.collection_entries_filter(collection))
+        rows = q.order_by(getattr(model, label_col)).all()
         return [{"id": str(r.id), "label": getattr(r, label_col), "slug": r.slug, "type": target} for r in rows]
 
     @router.get("/{item_id}/entries", response_model=list[EntryRead], summary="Get Collection Entries")
     def get_collection_entries(self, item_id: UUID4) -> list[EntryRead]:
-        """Get all entries in a collection, ordered by sort_order."""
+        """Get all entries in a collection, ordered by sort_order. Entries in the Trash are listed only by
+        the Trash collection (a manual collection keeps their membership, so a restore puts them back)."""
         collection = self.repos.collections.get_one(item_id)
         if not collection:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Collection not found.")
@@ -273,6 +276,7 @@ class CollectionsController(BaseUserController):
             self.session.query(Entries)
             .join(EntryCollections, Entries.id == EntryCollections.entry_id)
             .filter(EntryCollections.collection_id == item_id)
+            .filter(trash.collection_entries_filter(collection))
             .options(*EntryRead.loader_options())
             .order_by(
                 sa.case(

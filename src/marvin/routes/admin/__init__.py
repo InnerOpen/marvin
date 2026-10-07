@@ -15,6 +15,7 @@ from . import (
     scheduled_tasks_controller,
     storage_controller,
     submission_protection_controller,
+    trash_controller,
     user_controller,
     workspace_members_controller,
 )
@@ -37,3 +38,4 @@ router.include_router(workspace_members_controller.router)
 router.include_router(scheduled_tasks_controller.router, tags=["Admin: Scheduled Tasks"])
 router.include_router(storage_controller.router, tags=["Admin: Storage"])
 router.include_router(submission_protection_controller.router, tags=["Admin: Submission Protection"])
+router.include_router(trash_controller.router, tags=["Admin: Trash"])

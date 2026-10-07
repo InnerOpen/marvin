@@ -177,6 +177,17 @@ def get_payload_example(event_type: str) -> dict:
             "authorId": "<user-uuid>",
             "authorName": "Jane Smith",
         },
+        "entry_trashed": {
+            "documentType": "entry",
+            "operation": "update",
+            "entryId": "<entry-uuid>",
+            "entryTitle": "My Blog Post",
+            "entryType": "post",
+            "workspaceId": "<workspace-uuid>",
+            "workspaceName": "My Workspace",
+            "authorId": "<user-uuid>",
+            "authorName": "Jane Smith",
+        },
         "entry_scheduled_publish_blocked": {
             "documentType": "entry",
             "operation": "info",

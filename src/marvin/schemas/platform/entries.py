@@ -20,7 +20,12 @@ ENTRY_STATUSES = {
     "approved",
     "published",
     "archived",
+    "trashed",
 }
+
+TRASHED = "trashed"
+"""The Trash: an entry moved there by Delete (or the `trash` workflow op / trash_entries tool). Hidden from
+every listing but the Trash collection, restorable, and permanently deleted only when the Trash is emptied."""
 
 
 class AssetAttachment(BaseModel):
@@ -83,6 +88,8 @@ class EntryCreate(_MarvinModel):
     def validate_status(cls, value: str) -> str:
         if value not in ENTRY_STATUSES:
             raise ValueError(f"status must be one of: {', '.join(sorted(ENTRY_STATUSES))}")
+        if value == TRASHED:
+            raise ValueError("an entry can't be created in the Trash")
         return value
 
     @model_validator(mode="after")

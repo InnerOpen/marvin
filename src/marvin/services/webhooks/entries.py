@@ -22,8 +22,9 @@ class EntriesWebhook(BaseWebhook):
         since = last_log if last_log else datetime.now(UTC) - timedelta(hours=24)
         since_naive = since.replace(tzinfo=None) if since.tzinfo else since
 
-        def _count(*where):
-            return self.session.execute(select(func.count()).select_from(Entries).where(Entries.group_id == self._group_id, *where)).scalar() or 0
+        def _count(*where):  # entries in the Trash are not counted
+            stmt = select(func.count()).select_from(Entries).where(Entries.group_id == self._group_id, Entries.status != "trashed", *where)
+            return self.session.execute(stmt).scalar() or 0
 
         return {
             "total_entries": _count(),

@@ -1,7 +1,8 @@
 """System workflow collections.
 
 Every workspace gets a small set of **system** collections that mirror the entry review
-pipeline: Inbox → Drafts → Needs Review → Approved → Archive. They are:
+pipeline: Inbox → Drafts → Needs Review → Approved → Archive, plus the Trash (deleted entries, waiting
+to be restored or emptied). They are:
 
 - **smart** — membership is derived from entry status (see smart_collections), so entries move
   between them automatically as they progress;
@@ -44,7 +45,17 @@ WORKFLOW_COLLECTIONS: list[dict] = [
         "sort_order": -5,
         "statuses": ["archived"],
     },
+    {
+        "slug": "trash",
+        "name": "Trash",
+        "icon": "🗑️",
+        "description": "Deleted entries. Restore them or empty the trash.",
+        "sort_order": -1,
+        "statuses": ["trashed"],
+    },
 ]
+
+TRASH_COLLECTION_SLUG = "trash"
 
 # The slugs of Marvin-managed workflow collections. They are seeded per workspace and locked from
 # create/edit, and they are status-driven (an entry appears in them by its status, not by explicit

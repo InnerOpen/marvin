@@ -112,6 +112,17 @@ class GroupPreferencesController(BaseUserController):
             effective=resolve_submission_protection(platform, override),
         )
 
+    @router.get("/trash", summary="Get Trash auto-empty (platform default, workspace override, effective)")
+    def get_trash_settings(self, group_id: UUID4) -> dict:
+        """How long the Trash keeps entries: `{platform_default_days, workspace_override_days, effective_days}`
+        (0 = until someone empties it; a null override inherits the platform default). Members read it; the
+        override is set through PATCH on the preferences (`trash_auto_empty_days`)."""
+        if not self._user_has_workspace_access(group_id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this workspace")
+        from marvin.services.entries.trash import auto_empty_status
+
+        return auto_empty_status(self.session, group_id)
+
     @router.patch("", response_model=GroupPreferencesRead, summary="Update Workspace Preferences and Settings")
     def update_preferences(self, group_id: UUID4, data: GroupPreferencesUpdate) -> GroupPreferencesRead:
         """

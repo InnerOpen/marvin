@@ -1424,6 +1424,9 @@ class TestEntryAction:
                 calls["set_status"].append((str(eid), status, reaction_depth))
                 return object()  # non-None = found
 
+            def trash(self, eid, *, reaction_depth=0):
+                return self.set_status(eid, "trashed", reaction_depth=reaction_depth)
+
             def add_to_collection(self, eid, ref, *, reaction_depth=0):
                 calls["add_to_collection"].append((str(eid), ref, reaction_depth))
                 return "added"
@@ -1433,8 +1436,10 @@ class TestEntryAction:
                 return "removed"
 
         import marvin.services.entries as entries_mod
+        from marvin.services.automation.actions import entry as entry_action
 
         monkeypatch.setattr(entries_mod, "EntryService", SpySvc)
+        monkeypatch.setattr(entry_action, "_is_trashed", lambda *a: False)  # no session here; not in the Trash
         return calls
 
     def test_publish_sets_status_at_depth_plus_one(self, monkeypatch):

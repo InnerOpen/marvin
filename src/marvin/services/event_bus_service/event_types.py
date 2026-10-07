@@ -163,7 +163,9 @@ class EventTypes(EventTypeBase):
     entry_archived = auto()
     """Event dispatched when an entry is archived."""
     entry_restored = auto()
-    """Event dispatched when an archived entry is restored."""
+    """Event dispatched when an archived entry is restored, or a trashed one is restored from the Trash."""
+    entry_trashed = auto()
+    """Event dispatched when an entry is moved to the Trash (Delete, the `trash` workflow op, trash_entries)."""
     entry_scheduled_publish_blocked = auto()
     """An entry's Scheduled Publish time arrived but the scheduled publish is holding it back (the publish gate
     refused it, or the workspace publishes only approved entries on schedule). Once per distinct reason."""

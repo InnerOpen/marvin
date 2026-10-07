@@ -112,6 +112,10 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
     dimensions: list[bool] = []
 
     if target_type == "entry":
+        # A trashed entry belongs only to a collection that asks for trashed entries (the Trash): it is out
+        # of sight everywhere else until restored, whatever else the rules match (`match: any` included).
+        if getattr(item, "status", None) == "trashed" and "trashed" not in (rules.get("statuses") or []):
+            return False
         entry_types = rules.get("entry_types")
         if entry_types:
             dimensions.append(getattr(getattr(item, "entry_type", None), "slug", None) in entry_types)

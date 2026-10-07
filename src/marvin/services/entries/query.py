@@ -8,7 +8,9 @@ A spec is a plain dict (all keys optional, unknown keys ignored):
 
 - ``entry_type`` / ``entry_types`` — type slug(s); `bench_note` and `bench-note` both match.
 - ``status`` / ``statuses`` — the PUBLISH status (inbox, draft, needs_review, approved, published,
-  archived). A value that isn't one (usually a field's value) yields a note instead of a silent 0.
+  archived, trashed). A value that isn't one (usually a field's value) yields a note instead of a silent 0.
+  Entries in the Trash are left out unless ``trashed`` is asked for by name — so a workflow target
+  "all entries" + a `trash` action never re-touches them, and agents don't find deleted entries.
 - ``text`` / ``query`` — title or slug contains (case-insensitive).
 - ``tags`` — any of these tags (slug or name). ``collection`` / ``collections`` — in any of these (slug or name).
 - ``has_images`` / ``has_assets`` / ``has_resources``.
@@ -117,6 +119,8 @@ def build(session, group_id, spec: dict | None):
             )
             return nothing, note
         q = q.filter(Entries.status.in_(statuses))
+    if "trashed" not in statuses:
+        q = q.filter(Entries.status != "trashed")
 
     text = spec.get("text") or spec.get("query")
     if text:
@@ -319,7 +323,8 @@ def identity_value(value) -> tuple[str, bool] | None:
 def find_by_identity(session, group_id, entry_type_id, field_key: str, value: str, *, ignore_case: bool = False):
     """The newest entry of ``entry_type_id`` whose ``field_key`` equals ``value`` (from
     :func:`identity_value`) after trimming the stored value — and lower-casing it when ``ignore_case``.
-    Deleted entries are gone from the table, so they never match. None when there's no such entry."""
+    Deleted entries are gone from the table and trashed ones are skipped, so neither matches (a repeat
+    form submission from someone whose entry is in the Trash starts a new entry). None when there's no such entry."""
     import sqlalchemy as sa
 
     from marvin.db.models.platform.entries import Entries
@@ -329,7 +334,7 @@ def find_by_identity(session, group_id, entry_type_id, field_key: str, value: st
         stored = sa.func.lower(stored)
     return (
         session.query(Entries)
-        .filter(Entries.group_id == group_id, Entries.entry_type_id == entry_type_id, stored == value)
+        .filter(Entries.group_id == group_id, Entries.entry_type_id == entry_type_id, stored == value, Entries.status != "trashed")
         .order_by(Entries.created_at.desc())
         .first()
     )

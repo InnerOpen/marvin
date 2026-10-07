@@ -1,8 +1,9 @@
 """`entry` action — act on an entry. No AI.
 
 Two families, both through EntryService so the right events fire and chains stay reliable:
-  * **status** — publish / unpublish / archive / restore (emits entry_published / entry_unpublished /
-    entry_archived / entry_restored), and
+  * **status** — publish / unpublish / archive / trash / restore (emits entry_published /
+    entry_unpublished / entry_archived / entry_trashed / entry_restored). `restore` brings a trashed
+    entry back to the status it had (a published one as a draft), and an archived one to draft.
   * **collection membership** — add_to_collection / remove_from_collection (emits
     entry_added_to_collection / entry_removed_from_collection), idempotent.
   * **field writes** — set_metadata (merge into metadata_json) and set_data (merge into the schema
@@ -16,7 +17,9 @@ matching X to the Featured collection" is a `target` selecting drafts + an add_t
 since each matched entry is bound to `$event.entry_id` for its fan-out row. Collection ops take a
 `collection_slug` (or `collection_id`), which may itself be a `$event.*` template.
 
-`entry.delete` is deliberately NOT offered here.
+`entry.delete` is deliberately NOT offered here, and neither is emptying the Trash: `trash` is reversible,
+permanent deletion stays a person's action. "Move every X to the Trash" is a `target` + a `trash` action;
+entries already in the Trash are skipped (a no-op, nothing emitted).
 """
 
 import uuid
@@ -30,6 +33,7 @@ ENTRY_OPS: dict[str, str] = {
     "publish": "published",
     "unpublish": "draft",
     "archive": "archived",
+    "trash": "trashed",
     "restore": "draft",
 }
 
@@ -64,6 +68,7 @@ OP_SENDS: dict[str, tuple[str, ...]] = {
     "publish": ("entry_updated", "entry_published"),
     "unpublish": ("entry_updated", "entry_unpublished"),
     "archive": ("entry_updated", "entry_archived"),
+    "trash": ("entry_updated", "entry_trashed"),
     "restore": ("entry_updated", "entry_restored"),
     "add_to_collection": ("entry_added_to_collection",),
     "remove_from_collection": ("entry_removed_from_collection",),
@@ -237,19 +242,60 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
 
     # ── Status transition ──────────────────────────────────────────────────────
     if dry_run:
-        return {"dry_run": True, "kind": "entry", "op": op, "entity_id": str(entity_id), "would_set_status": ENTRY_OPS[op]}
+        return {
+            "dry_run": True,
+            "kind": "entry",
+            "op": op,
+            "entity_id": str(entity_id),
+            "would_set_status": _would_set_status(session, op, entity_id),
+        }
+    return _set_status(session, group_id, entity_id, op, user_id=user_id, depth=depth)
+
+
+def _set_status(session, group_id, entity_id, op: str, *, user_id, depth: int) -> dict:
+    """Run a status op. `trash` on an entry already in the Trash is skipped (nothing emitted); `restore` on a
+    trashed entry returns it to the status it had before (a published one as a draft)."""
     from fastapi import HTTPException
 
+    from marvin.services.entries import EntryService
+
     svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
+    trashed = op in ("trash", "restore") and _is_trashed(session, group_id, entity_id)
+    if op == "trash" and trashed:
+        return {"entry_id": str(entity_id), "op": op, "skipped": True, "reason": "already in the Trash"}
     try:
-        entry = svc.set_status(entity_id, ENTRY_OPS[op], reaction_depth=depth)
+        if op == "trash":
+            entry = svc.trash(entity_id, reaction_depth=depth)
+        elif op == "restore" and trashed:
+            entry = svc.restore_from_trash(entity_id, reaction_depth=depth)
+        else:
+            entry = svc.set_status(entity_id, ENTRY_OPS[op], reaction_depth=depth)
     except HTTPException as e:  # the publish gate refused: required fields missing, expiry passed, …
         detail = e.detail if isinstance(e.detail, dict) else {}
         reason = "; ".join(detail.get("issues") or []) or detail.get("message") or e.detail
         raise AutomationActionError(f"entry {op} refused: {reason}") from e
     if entry is None:
         raise AutomationActionError(f"entry {entity_id} not found in this workspace")
-    return {"entry_id": str(entity_id), "op": op, "status": ENTRY_OPS[op]}
+    return {"entry_id": str(entity_id), "op": op, "status": entry.status if trashed else ENTRY_OPS[op]}
+
+
+def _would_set_status(session, op: str, entity_id) -> str:
+    """The status a status op moves the entry to — for `restore` on a trashed entry, the one it had."""
+    if op == "restore":
+        from marvin.db.models.platform.entries import Entries
+        from marvin.services.entries.entry_service import restore_status
+
+        orm = session.get(Entries, entity_id)
+        if orm is not None and orm.status == "trashed":
+            return restore_status(orm)
+    return ENTRY_OPS[op]
+
+
+def _is_trashed(session, group_id, entity_id) -> bool:
+    from marvin.db.models.platform.entries import Entries
+
+    orm = session.get(Entries, entity_id)
+    return orm is not None and orm.group_id == group_id and orm.status == "trashed"
 
 
 def _request_review(session, group_id, entity_id, action: dict, context: dict, *, user_id, depth: int, dry_run: bool) -> dict:

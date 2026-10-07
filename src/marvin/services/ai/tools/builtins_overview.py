@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 
+import sqlalchemy as sa
 from sqlalchemy import func
 
 from marvin.db.models.groups.agents import WorkspaceAgentModel
@@ -58,6 +59,7 @@ def workspace_overview(ctx: ToolContext, _args: dict) -> str:
     group = s.query(Groups).filter(Groups.id == g).first()
 
     by_type: dict[str, dict] = {}
+    in_trash = 0
     for slug, name, status, n in (
         s.query(EntryTypes.slug, EntryTypes.name, Entries.status, func.count(Entries.id))
         .join(Entries, Entries.entry_type_id == EntryTypes.id)
@@ -65,16 +67,22 @@ def workspace_overview(ctx: ToolContext, _args: dict) -> str:
         .group_by(EntryTypes.slug, EntryTypes.name, Entries.status)
         .all()
     ):
+        if status == "trashed":  # deleted, waiting in the Trash: not part of the workspace's content
+            in_trash += n
+            continue
         t = by_type.setdefault(slug, {"slug": slug, "name": name, "total": 0, "byStatus": {}})
         t["total"] += n
         t["byStatus"][status] = n
     entries_total = sum(t["total"] for t in by_type.values())
 
+    # Collection sizes leave out trashed entries (the Trash itself reads 0 here; `entries.inTrash` has it).
+    visible_member = sa.case((Entries.status != "trashed", EntryCollections.id))
     collections = [
         {"slug": slug, "name": name, "entries": n}
         for slug, name, n in (
-            s.query(Collections.slug, Collections.name, func.count(EntryCollections.id))
+            s.query(Collections.slug, Collections.name, func.count(visible_member))
             .outerjoin(EntryCollections, EntryCollections.collection_id == Collections.id)
+            .outerjoin(Entries, Entries.id == EntryCollections.entry_id)
             .filter(Collections.group_id == g)
             .group_by(Collections.id, Collections.slug, Collections.name)
             .order_by(Collections.name)
@@ -103,7 +111,7 @@ def workspace_overview(ctx: ToolContext, _args: dict) -> str:
         {
             "workspace": {"name": getattr(group, "name", None), "slug": getattr(group, "slug", None)},
             "structure": workspace_structure(s, g, settings=caller_role(ctx) >= ROLE_ADMIN),
-            "entries": {"total": entries_total, "byType": sorted(by_type.values(), key=lambda t: -t["total"])},
+            "entries": {"total": entries_total, "byType": sorted(by_type.values(), key=lambda t: -t["total"]), "inTrash": in_trash},
             "collections": collections,
             "assets": {"total": totals["asset"], "byType": assets},
             "resources": {"total": totals["resource"], "byType": resources},

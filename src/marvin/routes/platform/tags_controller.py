@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 from sqlalchemy import func
 
-from marvin.db.models.platform import AssetTags, EntryTags, ResourceTags, Tags
+from marvin.db.models.platform import AssetTags, Entries, EntryTags, ResourceTags, Tags
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import editable_entry, require_workspace_editor, require_workspace_role
@@ -33,16 +33,15 @@ class TagsController(BaseUserController):
 
         # Per-junction counts, each in one grouped query (avoids N+1). entry_count drives the
         # entries-list filter; usage_count (entries + assets + resources) is the admin total.
-        def _counts(junction, fk):
-            return dict(
-                self.session.query(junction.tag_id, func.count(getattr(junction, fk)))
-                .join(Tags, Tags.id == junction.tag_id)
-                .filter(Tags.group_id == self.group_id)
-                .group_by(junction.tag_id)
-                .all()
-            )
+        def _counts(junction, fk, *, entries: bool = False):
+            q = self.session.query(junction.tag_id, func.count(getattr(junction, fk))).join(Tags, Tags.id == junction.tag_id)
+            if entries:  # an entry in the Trash doesn't count as using the tag
+                from marvin.services.entries.trash import not_trashed
 
-        entry_counts = _counts(EntryTags, "entry_id")
+                q = q.join(Entries, Entries.id == junction.entry_id).filter(not_trashed())
+            return dict(q.filter(Tags.group_id == self.group_id).group_by(junction.tag_id).all())
+
+        entry_counts = _counts(EntryTags, "entry_id", entries=True)
         asset_counts = _counts(AssetTags, "asset_id")
         resource_counts = _counts(ResourceTags, "resource_id")
         for tag in tags:

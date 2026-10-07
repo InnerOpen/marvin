@@ -16,7 +16,7 @@ writing anything. `bind` turns a spec into the agent's (run, approval_check) pai
 
 The same gate serves tools whose ask is about *what* a call touches rather than how much: such a tool
 passes `ask_first=`, a function that looks at one call and returns an `AskFirst` (the card's preview and
-the refusal for runs that can't park) when the user must say yes — `archive_entries` on a published
+the refusal for runs that can't park) when the user must say yes — `archive_entries` or `trash_entries` on a published
 entry, which takes it off the site. Both gates apply wherever the gate applies: a caller nobody can be asked
 on behalf of (`unattended`) gets the refusal for either.
 """

@@ -8,7 +8,7 @@ entry, so the editor can show it next to Scheduled Publish, and it notifies once
     {"waiting_for": "requirements" | "approval", "reason": str, "issues": [str, ...],
      "at": ISO timestamp (first held back for this reason), "notified": bool}
 
-It ends when the entry publishes, is archived, or its publish_at changes (`after_edit`). Any other edit
+It ends when the entry publishes, is archived or trashed, or its publish_at changes (`after_edit`). Any other edit
 keeps it (the notice stays) but re-arms the notification, so a save that doesn't fix it is told again.
 """
 
@@ -20,7 +20,7 @@ WAITING_FOR_REQUIREMENTS = "requirements"
 WAITING_FOR_APPROVAL = "approval"
 APPROVAL_REASON = "Waiting for approval"
 # Statuses that end the wait whatever else the edit does: the entry went out, or was put away.
-_ENDS_WAIT = ("published", "archived")
+_ENDS_WAIT = ("published", "archived", "trashed")
 
 
 def approval_issue(status: str) -> str:

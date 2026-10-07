@@ -157,7 +157,8 @@ class PublishScheduledEntriesHandler(ScheduledTaskHandler):
         with session_context() as session:
             q = session.query(Entries).filter(
                 Entries.publish_at <= datetime.now(UTC),
-                Entries.status.notin_(("published", "archived")),
+                # Trashing clears publish_at; the status check keeps a trashed entry put regardless.
+                Entries.status.notin_(("published", "archived", "trashed")),
             )
             if workspace_id:
                 q = q.filter(Entries.group_id == workspace_id)

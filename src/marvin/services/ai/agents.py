@@ -86,10 +86,18 @@ TAGGING_RULE = (
 )
 
 # Asked to delete test inbox entries, an agent with no remove tool staged no-op revise suggestions ("Deleted test
-# inbox entry.") on seven real entries. Archive is the reversible delete; there is no AI hard delete.
+# inbox entry.") on seven real entries. Delete moves entries to the Trash (trash_entries), which a person restores
+# or empties; archiving retires an entry that is kept. There is no AI hard delete and no AI "empty the Trash".
+TRASH_RULE = (
+    "Deleting or removing entries: call trash_entries — what Delete does in Marvin — and tell the user the entries are "
+    "in the Trash, where they can restore them, and that only a person can empty it. Never use revise_entry or "
+    "compose_entry to 'delete' or blank an entry."
+)
+ARCHIVE_RULE = "Retiring or archiving entries (kept, but out of the active pipeline): call archive_entries."
 REMOVING_RULE = (
-    "Deleting or removing entries: call archive_entries — Marvin's reversible delete — and tell the user they were "
-    "archived, not deleted, and how to restore them. Never use revise_entry or compose_entry to 'delete' or blank an entry."
+    "Deleting or removing entries: call archive_entries — Marvin's reversible way to put entries away — and tell the "
+    "user they were archived, not deleted, and how to restore them. Never use revise_entry or compose_entry to "
+    "'delete' or blank an entry."
 )
 NO_REMOVE_RULE = (
     "You cannot delete or archive entries here: if asked to, say so and point the user to the entry page. Never use "
@@ -141,7 +149,11 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
         lines.append(SOURCE_HONESTY_RULE)
     if "attach_tag" in names:
         lines.append(TAGGING_RULE)
-    if "archive_entries" in names:
+    if "trash_entries" in names:
+        lines.append(TRASH_RULE)
+        if "archive_entries" in names:
+            lines.append(ARCHIVE_RULE)
+    elif "archive_entries" in names:  # no Trash for this agent: archiving is the reversible way to remove
         lines.append(REMOVING_RULE)
     elif names.intersection(("revise_entry", "compose_entry")):
         lines.append(NO_REMOVE_RULE)

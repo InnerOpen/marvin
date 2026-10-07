@@ -106,7 +106,16 @@ class OperationAction(_DefnBase):
 class EntryAction(_DefnBase):
     kind: Literal["entry"]
     op: Literal[
-        "publish", "unpublish", "archive", "restore", "add_to_collection", "remove_from_collection", "set_metadata", "set_data", "request_review"
+        "publish",
+        "unpublish",
+        "archive",
+        "trash",
+        "restore",
+        "add_to_collection",
+        "remove_from_collection",
+        "set_metadata",
+        "set_data",
+        "request_review",
     ]
     entity_id: str | None = None
     entity_slug: str | None = None

@@ -32,6 +32,7 @@ ENTRY_SAMPLE_EVENTS: dict[str, str | None] = {
     "entry_unpublished": None,
     "entry_archived": "archived",
     "entry_restored": None,
+    "entry_trashed": "trashed",
 }
 
 
@@ -198,6 +199,8 @@ def _entry_samples(session, group_id, automation, event_type: str, limit: int, u
     status = ENTRY_SAMPLE_EVENTS[event_type]
     if status:
         query = query.filter(Entries.status == status)
+    else:  # entries in the Trash only sample entry_trashed
+        query = query.filter(Entries.status != "trashed")
     newest = Entries.created_at if event_type == "entry_created" else Entries.update_at
     rows = query.order_by(newest.desc()).limit(min(limit, SCAN_LIMIT)).all()
     return [_evaluated(session, group_id, automation, _from_entry(session, group_id, e, event_type, user_id)) for e in rows]

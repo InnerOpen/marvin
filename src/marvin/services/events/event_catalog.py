@@ -428,16 +428,32 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         event_type="entry_restored",
         name="Entry Restored",
-        description="An archived entry was restored.",
+        description="An archived entry was restored, or a trashed entry was restored from the Trash.",
         category="Content",
         trigger_group="Entries",
         triggerable=True,
         emittable=True,
-        sent_by=["Restoring an archived entry (app, API, CLI)"],
+        sent_by=["Restoring an archived entry (app, API, CLI)", "Restoring an entry from the Trash (app, API, the restore workflow op)"],
         variables=COMMON_VARS
         + [
             EventVariable("entry_title", "Title of the restored entry", "My Post", type="title"),
             EventVariable("author_name", "Who restored it", "Jane Smith", type="name"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="entry_trashed",
+        name="Entry Moved to Trash",
+        description="An entry was moved to the Trash. It can be restored until the Trash is emptied.",
+        category="Content",
+        trigger_group="Entries",
+        triggerable=True,
+        emittable=True,
+        sent_by=["Deleting an entry (app, API, CLI)", "The trash workflow op", "The trash_entries AI tool"],
+        leads_to=["site_rebuild_queued"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("entry_title", "Title of the trashed entry", "Old Post", type="title"),
+            EventVariable("author_name", "Who trashed it", "Jane Smith", type="name"),
         ],
     ),
     CatalogEntry(

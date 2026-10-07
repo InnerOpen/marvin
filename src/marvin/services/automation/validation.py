@@ -33,7 +33,7 @@ _EVENT_TYPE_FIELD = {
 # Entry-lifecycle triggers load the referenced entry into the context as `entry.*`.
 _ENTRY_FIELDS = [
     {"field": "entry.entry_type", "label": "Entry type", "description": "The entry's type slug, e.g. 'recipe'."},
-    {"field": "entry.status", "label": "Status", "description": "draft | published | archived | inbox…"},
+    {"field": "entry.status", "label": "Status", "description": "draft | published | archived | inbox | trashed…"},
     {"field": "entry.title", "label": "Title", "description": "The entry title (use with 'contains')."},
     {"field": "entry.slug", "label": "Slug", "description": "The entry's URL slug."},
     {"field": "entry.id", "label": "Entry ID", "description": "The entry's UUID."},

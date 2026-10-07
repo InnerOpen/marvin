@@ -137,8 +137,9 @@ def _ask_first(ctx: ToolContext, args: dict) -> AskFirst | None:
 @register_tool(
     name="archive_entries",
     description=(
-        "Archive entries — Marvin's reversible delete. Use this whenever the user asks to delete, remove, clear "
-        "out or get rid of entries (e.g. test or spam entries). Archived entries leave the site and the "
+        "Archive entries — retire them while keeping them. Use this when the user asks to archive or retire "
+        "entries; to delete or remove entries use trash_entries when you have it, and this only when you don't. "
+        "Archived entries leave the site and the "
         "publishing API but are kept and can be restored. Up to 50 entries per call by slug or id, plus an "
         "optional short reason. Archiving a published entry asks the user first. Entries you may not change "
         "are skipped and reported. There is no hard delete: tell the user it is archived, not deleted, and "

@@ -32,5 +32,5 @@ def test_user_collections_are_still_created():
     repos.collections.create.assert_called_once()
 
 
-def test_the_five_workflow_slugs_are_covered():
-    assert SYSTEM_COLLECTION_SLUGS == frozenset({"inbox", "drafts", "needs-review", "approved", "archive"})
+def test_the_six_workflow_slugs_are_covered():
+    assert SYSTEM_COLLECTION_SLUGS == frozenset({"inbox", "drafts", "needs-review", "approved", "archive", "trash"})

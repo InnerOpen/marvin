@@ -69,7 +69,7 @@ class ToolSpec:
     # the user first instead of running — see tools/bulk_writes.py. None = never bulk.
     bulk_write: Callable[[ToolContext, dict], Any] | None = None
     # Ask-first tools: look at one call without writing and return a `bulk_writes.AskFirst` when *this*
-    # call needs the user's go-ahead (archive_entries on a published entry), else None.
+    # call needs the user's go-ahead (archive_entries or trash_entries on a published entry), else None.
     ask_first: Callable[[ToolContext, dict], Any] | None = None
 
     def info(self) -> dict:

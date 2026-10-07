@@ -133,11 +133,14 @@ def test_archive_entries_is_a_registry_write_in_its_own_matrix_row():
     assert spec.input_schema["properties"]["entries"]["maxItems"] == MAX_ARCHIVE_BATCH
 
 
-def test_descriptions_steer_deletes_to_archive_and_away_from_revise():
+def test_descriptions_steer_deletes_to_trash_and_away_from_revise():
+    """Delete is the Trash now (builtins_trash.py); archive retires, and is the fallback for an agent without the Trash."""
     archive = get_tool("archive_entries").description
-    assert "delete" in archive and "reversible" in archive
+    assert "retire" in archive and "trash_entries" in archive
+    trash = get_tool("trash_entries").description
+    assert "delete" in trash and "restored" in trash and "archive_entries" in trash
     revise = get_tool("revise_entry").description
-    assert "Not for deleting, removing or clearing out entries" in revise and "archive_entries" in revise
+    assert "Not for deleting, removing or clearing out entries" in revise and "trash_entries" in revise
 
 
 # ── Drafts archive straight away, through the human path ─────────────────────
@@ -329,7 +332,8 @@ def test_mcp_invoke_refuses_a_published_call_but_archives_drafts(ws):
 def test_asked_to_delete_test_entries_the_agent_archives_them_and_stages_no_revisions(ws):
     """A scripted model can't prove what a real one would choose, so this pins both halves: what steers
     the choice (the descriptions and the preamble rule the run is given) and what the choice does
-    (entries archived, no suggestion staged on any entry)."""
+    (entries archived, no suggestion staged on any entry). An agent with the Trash deletes with
+    trash_entries instead (test_trash.py); this is the one bound to archive_entries alone."""
     from marvin.services.ai.agents import REMOVING_RULE, workspace_preamble
 
     tools = [_agent_tool(ws), AgentTool(name="revise_entry", description=get_tool("revise_entry").description, input_schema={}, run=lambda a: "{}")]
@@ -340,7 +344,7 @@ def test_asked_to_delete_test_entries_the_agent_archives_them_and_stages_no_revi
     res = run_agent_loop(provider, "m", [Message(role="system", content=preamble), Message(role="user", content="delete these test entries")], tools)
     assert [s.tool for s in res.steps] == ["archive_entries"]
     offered = {t.name: t.description for t in provider.seen_tools[0]}
-    assert "delete" in offered["archive_entries"] and "use archive_entries" in offered["revise_entry"]
+    assert "delete" in offered["archive_entries"] and "archive_entries" in offered["revise_entry"]
     assert _status(ws, "test1") == "archived" and _status(ws, "test2") == "archived"
     staged = ws.session.query(Entries).filter(Entries.group_id == ws.gid, Entries.suggestion_json.isnot(None)).count()
     assert staged == 0

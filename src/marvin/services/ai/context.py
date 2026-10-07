@@ -107,6 +107,7 @@ class ContextBuilder:
                         EntryCollections.collection_id.in_(collection_ids),
                         Entries.id != entry_id,
                         Entries.group_id == self._group_id,
+                        Entries.status != "trashed",
                     )
                 )
                 .limit(limit)

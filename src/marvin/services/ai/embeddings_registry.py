@@ -102,7 +102,7 @@ def _register_defaults() -> None:
             index_on=(EventTypes.entry_published, EventTypes.entry_updated),
             # Only published entries are searchable, so leaving 'published' takes an entry out of the
             # index — not only deleting it (an archived duplicate must not keep answering questions).
-            delete_on=(EventTypes.entry_deleted, EventTypes.entry_unpublished, EventTypes.entry_archived),
+            delete_on=(EventTypes.entry_deleted, EventTypes.entry_unpublished, EventTypes.entry_archived, EventTypes.entry_trashed),
             should_index=_entry_should_index,
             # The same rule for the full reindex: drafts, inbox and archived entries are left out (and purged).
             content_ok=lambda entry: getattr(entry, "status", None) == "published",

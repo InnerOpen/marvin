@@ -70,10 +70,10 @@ def _event_message(e) -> str:
     return (e.event_type or "event").replace("_", " ").replace(".", " ").strip().capitalize()
 
 
-def _count(session, model, group_id: UUID4) -> int:
+def _count(session, model, group_id: UUID4, *where) -> int:
     """Return a group-scoped row count, defaulting to 0 on any error."""
     try:
-        return session.execute(select(func.count(model.id)).where(model.group_id == group_id)).scalar() or 0
+        return session.execute(select(func.count(model.id)).where(model.group_id == group_id, *where)).scalar() or 0
     except Exception:
         return 0
 
@@ -106,7 +106,7 @@ class StatsController(BaseUserController):
             members_count = 0
 
         return WorkspaceStats(
-            entries=_count(session, Entries, workspace_id),
+            entries=_count(session, Entries, workspace_id, Entries.status != "trashed"),  # the Trash is out of sight
             assets=_count(session, Assets, workspace_id),
             collections=_count(session, Collections, workspace_id),
             webhooks=_count(session, GroupWebhooksModel, workspace_id),
@@ -164,6 +164,11 @@ class StatsController(BaseUserController):
         needs_review = _c(select(func.count(Entries.id)).where(Entries.group_id == gid, Entries.status == "needs_review"))
 
         suggestions = sum(_c(select(func.count(m.id)).where(m.group_id == gid, m.suggestion_json.isnot(None))) for m in (Entries, Assets, Resources))
+        # …but not a suggestion waiting on an entry in the Trash.
+        trashed_suggestions = select(func.count(Entries.id)).where(
+            Entries.group_id == gid, Entries.suggestion_json.isnot(None), Entries.status == "trashed"
+        )
+        suggestions -= _c(trashed_suggestions)
 
         since = datetime.now(UTC) - timedelta(days=7)
         failures = sum(

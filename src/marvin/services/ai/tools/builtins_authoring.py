@@ -100,7 +100,7 @@ def compose_entry(ctx: ToolContext, args: dict) -> str:
         "Revise an EXISTING entry in place from an instruction — never recreates it. E.g. 'determine "
         "the tags and attach any relevant resources', or 'tighten the summary'. Reuses existing "
         "tags/resources. Identify the entry by slug or id. Not for deleting, removing or clearing out entries — "
-        "use archive_entries. The result's reviewLink is a finished markdown "
+        "use trash_entries (or archive_entries to retire one). The result's reviewLink is a finished markdown "
         "link — give it to the user verbatim; never build a URL yourself."
     ),
     input_schema={

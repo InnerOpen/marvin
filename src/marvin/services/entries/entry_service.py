@@ -8,7 +8,7 @@ that flipped an entry to published silently skipped `entry_published`, and chain
 key on publish quietly stopped firing.
 
 This service is the single seam. Every entry write goes through it, and it owns the emit — so status
-transitions (`entry_published` / `entry_unpublished` / `entry_archived` / `entry_restored`) fire
+transitions (`entry_published` / `entry_unpublished` / `entry_archived` / `entry_trashed` / `entry_restored`) fire
 *by construction*, from any caller, and chaining becomes reliable. It's also the natural home for
 `changed_fields` / `before` / `after` (added next).
 
@@ -40,7 +40,22 @@ logger = get_logger("entry_service")
 _TRACKED_FIELDS = ("status", "title", "slug")
 
 # The status-transition events: each one is a change of `status`, so its diff always names it.
-_TRANSITION_EVENTS = (EventTypes.entry_published, EventTypes.entry_unpublished, EventTypes.entry_archived, EventTypes.entry_restored)
+_TRANSITION_EVENTS = (
+    EventTypes.entry_published,
+    EventTypes.entry_unpublished,
+    EventTypes.entry_archived,
+    EventTypes.entry_restored,
+    EventTypes.entry_trashed,
+)
+
+TRASHED = "trashed"
+# Where a trashed entry came from, kept in its metadata_json while it is in the Trash:
+# {previous_status, trashed_at (ISO, UTC), trashed_by (user id or null)}. Written on the way in, removed on
+# the way out, by whatever path changes the status (EntryService.update), so it can't go stale.
+TRASH_KEY = "trash"
+# Statuses a restore must not return an entry to: restoring never re-publishes by itself (nor does it
+# re-approve an entry that may be scheduled), and "processing" belongs to a run that is long gone.
+_RESTORE_AS_DRAFT = frozenset({"published", "processing", TRASHED})
 
 
 def _is_uuid(value: str) -> bool:
@@ -64,6 +79,7 @@ def _diff(old, new) -> tuple[list[str], dict, dict]:
 
 def count_by_status(session, group_id) -> dict[str, int]:
     """`{status: n}` for every known status (zero-filled) plus `total` — the sidebar's inbox badge.
+    `trashed` is counted on its own and left out of `total`: the Trash is out of sight.
 
     One grouped query on the (group_id, status) index; cheap enough to run on every page load.
     """
@@ -76,8 +92,20 @@ def count_by_status(session, group_id) -> dict[str, int]:
     counts = dict.fromkeys(sorted(ENTRY_STATUSES), 0)
     for status_value, n in rows:
         counts[status_value] = int(n)
-    counts["total"] = sum(n for k, n in counts.items() if k != "total")
+    counts["total"] = sum(n for k, n in counts.items() if k not in ("total", TRASHED))
     return counts
+
+
+def restore_status(entry) -> str:
+    """The status a trashed entry goes back to: the one it had before (metadata_json.trash), except that
+    a published entry comes back as a draft — restoring must never put an entry on the site by itself."""
+    record = (getattr(entry, "metadata_json", None) or {}).get(TRASH_KEY) or {}
+    previous = record.get("previous_status") if isinstance(record, dict) else None
+    from marvin.schemas.platform.entries import ENTRY_STATUSES
+
+    if previous not in ENTRY_STATUSES or previous in _RESTORE_AS_DRAFT:
+        return "draft"
+    return previous
 
 
 class EntryService:
@@ -126,9 +154,35 @@ class EntryService:
         if not old:
             return None
         self._gate_publish(entry_id, old, data)
+        data = self._trash_bookkeeping(old, data)
         entry = self.repos.entries.update(entry_id, data)
         self._emit_updated_and_transitions(old, entry, "updated", reaction_depth)
         return entry
+
+    def _trash_bookkeeping(self, old, data):
+        """Record where an entry came from as it enters the Trash (metadata_json.trash), and drop that
+        record as it leaves. Entering also clears a scheduled publish, so the Publish Scheduled Entries
+        task can't put a trashed (or later restored) entry live. Returns `data` unchanged otherwise."""
+        from datetime import UTC, datetime
+
+        pending = data if isinstance(data, dict) else data.model_dump(exclude_unset=True)
+        new_status = pending.get("status")
+        old_status = getattr(old, "status", None)
+        if new_status is None or new_status == old_status or TRASHED not in (new_status, old_status):
+            return data
+
+        pending = dict(pending)
+        base = pending.get("metadata_json")
+        meta = {k: v for k, v in (base if base is not None else (getattr(old, "metadata_json", None) or {})).items() if k != TRASH_KEY}
+        if new_status == TRASHED:
+            meta[TRASH_KEY] = {
+                "previous_status": old_status,
+                "trashed_at": datetime.now(UTC).isoformat(),
+                "trashed_by": str(self.actor_id) if self.actor_id else None,
+            }
+            pending["publish_at"] = None
+        pending["metadata_json"] = meta
+        return pending
 
     def _gate_publish(self, entry_id, old, data) -> None:
         """Block an inbox/draft → published transition when the entry doesn't satisfy its type's
@@ -277,11 +331,28 @@ class EntryService:
         return True
 
     def set_status(self, entry_id, new_status: str, *, reaction_depth: int = 0):
-        """Convenience for the entry status actions (publish/unpublish/archive/restore) — an update
+        """Convenience for the entry status actions (publish/unpublish/archive/trash/restore) — an update
         that only changes status, emitting `entry_updated` + the transition event."""
         from marvin.schemas.platform import EntryUpdate
 
         return self.update(entry_id, EntryUpdate(status=new_status), reaction_depth=reaction_depth)
+
+    # ── Trash ─────────────────────────────────────────────────────────────────
+    def trash(self, entry_id, *, reaction_depth: int = 0):
+        """Move an entry to the Trash: `entry_updated` + `entry_trashed` (and `entry_unpublished` when it
+        was live). Already trashed → returned as is, nothing emitted. None if it doesn't exist."""
+        entry = self.repos.entries.get_one(entry_id)
+        if entry is None or entry.status == TRASHED:
+            return entry
+        return self.set_status(entry_id, TRASHED, reaction_depth=reaction_depth)
+
+    def restore_from_trash(self, entry_id, *, reaction_depth: int = 0):
+        """Take an entry out of the Trash, back to the status it had (`restore_status`): `entry_updated` +
+        `entry_restored`. Not trashed → returned as is. None if it doesn't exist."""
+        entry = self.repos.entries.get_one(entry_id)
+        if entry is None or entry.status != TRASHED:
+            return entry
+        return self.set_status(entry_id, restore_status(entry), reaction_depth=reaction_depth)
 
     # ── Collection membership ──────────────────────────────────────────────────
     def _resolve_collection(self, collection_ref):
@@ -581,7 +652,7 @@ class EntryService:
     # ── Emission ──────────────────────────────────────────────────────────────
     def _emit_updated_and_transitions(self, old, entry, verb: str, reaction_depth: int) -> None:
         """Emit `entry_updated` first, then any status-transition events (published/unpublished/
-        archived/restored). Each carries the scalar diff (changed_fields/before/after). The
+        archived/trashed/restored). Each carries the scalar diff (changed_fields/before/after). The
         updated-then-published ordering is relied on by the embedding reaction — keep it.
 
         Wrapped in one correlation scope so `entry_updated` and its transition event share a chain id
@@ -624,12 +695,33 @@ class EntryService:
                     reaction_depth=reaction_depth,
                     diff=diff,
                 )
-            if entry.status == "archived":
+            # Leaving the Trash is a restore whatever the status it returns to (even Archived).
+            if old_status == TRASHED:
+                self._emit(
+                    entry,
+                    EventTypes.entry_restored,
+                    EventOperation.update,
+                    f"Entry '{entry.title}' restored from the Trash",
+                    names,
+                    reaction_depth=reaction_depth,
+                    diff=diff,
+                )
+            elif entry.status == "archived":
                 self._emit(
                     entry,
                     EventTypes.entry_archived,
                     EventOperation.update,
                     f"Entry '{entry.title}' archived",
+                    names,
+                    reaction_depth=reaction_depth,
+                    diff=diff,
+                )
+            elif entry.status == TRASHED:
+                self._emit(
+                    entry,
+                    EventTypes.entry_trashed,
+                    EventOperation.update,
+                    f"Entry '{entry.title}' moved to the Trash",
                     names,
                     reaction_depth=reaction_depth,
                     diff=diff,

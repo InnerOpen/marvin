@@ -876,6 +876,8 @@ async def get_published_collection(
     # entries are single reads, which never serve an unpublished entry.
     if expand == EXPAND_FULL or not perms.has_permission(Permissions.READ_ALL_ENTRIES):
         query = query.filter(Entries.status == settings.PUBLISHING_DEFAULT_STATUS)
+    else:  # "all" never includes the Trash: a deleted entry is gone from every client's view
+        query = query.filter(Entries.status != "trashed")
 
     entries = query.order_by(EntryCollections.sort_order.asc(), Entries.published_at.desc()).all()
     site_url = site_base_url(session, group.id)

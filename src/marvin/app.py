@@ -336,6 +336,7 @@ async def start_scheduler() -> None:
     # Register hourly tasks
     SchedulerRegistry.register_hourly(
         scheduler_tasks.expire_parked_runs,
+        scheduler_tasks.empty_expired_trash,
         # scheduler_tasks.locked_user_reset,
     )
 

@@ -7,7 +7,7 @@ settings associated with a user group, such as privacy settings or display optio
 like the first day of the week.
 """
 
-from pydantic import UUID4, ConfigDict  # For UUID type and Pydantic model configuration
+from pydantic import UUID4, ConfigDict, field_validator  # For UUID type and Pydantic model configuration
 from sqlalchemy.orm.interfaces import LoaderOption  # Type for loader options
 
 # Corresponding SQLAlchemy models (used in loader_options)
@@ -66,6 +66,8 @@ class GroupPreferencesCreate(_MarvinModel):
     """Workspace override of the platform submission-protection defaults; null fields inherit."""
     scheduled_publish_requires_approval: bool = False
     """Scheduled publish only publishes due entries whose status is 'approved'; the others wait."""
+    trash_auto_empty_days: int | None = None
+    """Days an entry stays in the Trash before it is deleted forever (0 = never); null inherits the platform default."""
 
     model_config = ConfigDict(from_attributes=True)  # Allows creating from ORM model attributes
 
@@ -121,6 +123,18 @@ class GroupPreferencesUpdate(_MarvinModel):  # Typically, update schemas allow p
     """Optional: workspace override of the platform submission-protection defaults; null fields inherit."""
     scheduled_publish_requires_approval: bool | None = None
     """Optional: scheduled publish only publishes due entries whose status is 'approved'."""
+    trash_auto_empty_days: int | None = None
+    """Optional: days an entry stays in the Trash before it is deleted forever (0 = never). An explicit null
+    goes back to inheriting the platform default."""
+
+    @field_validator("trash_auto_empty_days")
+    @classmethod
+    def validate_trash_auto_empty_days(cls, value: int | None) -> int | None:
+        from marvin.services.entries.trash import AUTO_EMPTY_CHOICES
+
+        if value is not None and value not in AUTO_EMPTY_CHOICES:
+            raise ValueError(f"trash_auto_empty_days must be one of {', '.join(map(str, AUTO_EMPTY_CHOICES))} (0 = never), or null")
+        return value
 
     model_config = ConfigDict(from_attributes=True)
 

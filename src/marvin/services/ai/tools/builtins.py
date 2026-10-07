@@ -189,6 +189,7 @@ def search_content(ctx: ToolContext, args: dict) -> str:
                 pass
     images_by_entry: dict = {}
     urls_by_entry: dict = {}
+    trashed: set[str] = set()
     if entry_uuids:
         for eid, a in (
             ctx.session.query(EntryAssets.entry_id, Assets)
@@ -201,6 +202,9 @@ def search_content(ctx: ToolContext, args: dict) -> str:
         site_url = site_base_url(ctx.session, ctx.group_id)
         for e in ctx.session.query(Entries).filter(Entries.group_id == ctx.group_id, Entries.id.in_(entry_uuids)).all():
             urls_by_entry[str(e.id)] = _url_field(e, site_url)
+            if e.status == "trashed":  # the index drops it on entry_trashed; don't show it meanwhile
+                trashed.add(str(e.id))
+    results = [r for r in results if not (r["entityType"] == "entry" and r["entityId"] in trashed)]
     for r in results:
         r["assets"] = images_by_entry.get(r["entityId"], []) if r["entityType"] == "entry" else []
         if r["entityType"] == "entry":
@@ -425,7 +429,14 @@ def get_collection(ctx: ToolContext, args: dict) -> str:
     col = _resolve_collection(ctx, ident)
     if not col:
         return json.dumps({"error": f"collection '{ident}' not found — pass its name, slug, or id"})
-    count = (ctx.session.query(func.count(EntryCollections.entry_id)).filter(EntryCollections.collection_id == col.id).scalar()) or 0
+    from marvin.services.entries.trash import collection_entries_filter
+
+    count = (
+        ctx.session.query(func.count(EntryCollections.entry_id))
+        .join(Entries, Entries.id == EntryCollections.entry_id)
+        .filter(EntryCollections.collection_id == col.id, collection_entries_filter(col))
+        .scalar()
+    ) or 0
     return json.dumps(
         {
             "id": str(col.id),
@@ -522,14 +533,21 @@ def get_entry_type(ctx: ToolContext, args: dict) -> str:
     input_schema={"type": "object", "properties": {}},
 )
 def list_collections(ctx: ToolContext, _args: dict) -> str:
+    from marvin.services.entries.trash import TRASHED, is_trash_collection, not_trashed
+
     rows = ctx.session.query(Collections).filter(Collections.group_id == ctx.group_id).all()
-    counts = dict(
-        ctx.session.query(EntryCollections.collection_id, func.count(EntryCollections.entry_id))
-        .join(Collections, Collections.id == EntryCollections.collection_id)
-        .filter(Collections.group_id == ctx.group_id)
-        .group_by(EntryCollections.collection_id)
-        .all()
-    )
+
+    def _counts(*filters) -> dict:
+        return dict(
+            ctx.session.query(EntryCollections.collection_id, func.count(EntryCollections.entry_id))
+            .join(Collections, Collections.id == EntryCollections.collection_id)
+            .join(Entries, Entries.id == EntryCollections.entry_id)
+            .filter(Collections.group_id == ctx.group_id, *filters)
+            .group_by(EntryCollections.collection_id)
+            .all()
+        )
+
+    counts, in_trash = _counts(not_trashed()), _counts(Entries.status == TRASHED)
     out = [
         {
             "id": str(c.id),
@@ -537,7 +555,7 @@ def list_collections(ctx: ToolContext, _args: dict) -> str:
             "slug": c.slug,
             "isSmart": c.is_smart,
             "isSystem": c.is_system,
-            "entryCount": counts.get(c.id, 0),
+            "entryCount": (in_trash if is_trash_collection(c) else counts).get(c.id, 0),
         }
         for c in rows
     ]
@@ -557,10 +575,12 @@ def get_collection_entries(ctx: ToolContext, args: dict) -> str:
     col = _resolve_collection(ctx, str(args.get("collection") or args.get("id_or_slug") or args.get("slug") or ""))
     if not col:
         return json.dumps({"error": "collection not found — pass its name or slug (e.g. 'inbox')"})
+    from marvin.services.entries.trash import collection_entries_filter
+
     rows = (
         ctx.session.query(Entries)
         .join(EntryCollections, EntryCollections.entry_id == Entries.id)
-        .filter(EntryCollections.collection_id == col.id)
+        .filter(EntryCollections.collection_id == col.id, collection_entries_filter(col))
         .all()
     )
     site_url = site_base_url(ctx.session, ctx.group_id) if rows else None
@@ -586,18 +606,16 @@ def get_collection_entries(ctx: ToolContext, args: dict) -> str:
 def list_tags(ctx: ToolContext, _args: dict) -> str:
     from marvin.db.models.platform.asset_tags import AssetTags
     from marvin.db.models.platform.resource_tags import ResourceTags
+    from marvin.services.entries.trash import not_trashed
 
-    def _counts(junction, fk):
-        return dict(
-            ctx.session.query(junction.tag_id, func.count(getattr(junction, fk)))
-            .join(Tags, Tags.id == junction.tag_id)
-            .filter(Tags.group_id == ctx.group_id)
-            .group_by(junction.tag_id)
-            .all()
-        )
+    def _counts(junction, fk, *, entries: bool = False):
+        q = ctx.session.query(junction.tag_id, func.count(getattr(junction, fk))).join(Tags, Tags.id == junction.tag_id)
+        if entries:  # an entry in the Trash doesn't count as using the tag
+            q = q.join(Entries, Entries.id == junction.entry_id).filter(not_trashed())
+        return dict(q.filter(Tags.group_id == ctx.group_id).group_by(junction.tag_id).all())
 
     rows = ctx.session.query(Tags).filter(Tags.group_id == ctx.group_id).all()
-    ec, ac, rc = _counts(EntryTags, "entry_id"), _counts(AssetTags, "asset_id"), _counts(ResourceTags, "resource_id")
+    ec, ac, rc = _counts(EntryTags, "entry_id", entries=True), _counts(AssetTags, "asset_id"), _counts(ResourceTags, "resource_id")
     out = [
         {
             "id": str(t.id),

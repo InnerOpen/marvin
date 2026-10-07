@@ -803,7 +803,7 @@ class SmartCollectionReactionListener(BuiltinReaction):
     Reaction listener that keeps smart-collection membership in sync.
 
     When an entry's type or status changes (created / updated / published / unpublished /
-    archived / restored), re-evaluate which of the workspace's smart collections it belongs to
+    archived / restored / trashed), re-evaluate which of the workspace's smart collections it belongs to
     and add or remove EntryCollections rows accordingly. The read path (renderers-core,
     publishing) is unchanged — it reads junction rows exactly as for a manually-curated
     collection. Declarative rules, imperative materialization, unchanged reads.
@@ -823,6 +823,7 @@ class SmartCollectionReactionListener(BuiltinReaction):
             EventTypes.entry_unpublished,
             EventTypes.entry_archived,
             EventTypes.entry_restored,
+            EventTypes.entry_trashed,
         }
     )
 
@@ -923,6 +924,7 @@ class SiteRebuildReactionListener(BuiltinReaction):
             EventTypes.entry_published,
             EventTypes.entry_unpublished,
             EventTypes.entry_archived,
+            EventTypes.entry_trashed,
             EventTypes.entry_updated,
             EventTypes.entry_added_to_collection,
             EventTypes.entry_removed_from_collection,
@@ -959,7 +961,7 @@ class SiteRebuildReactionListener(BuiltinReaction):
     EMPTY_BODY = "generic"
     # Workspace settings no site renders: a settings change touching only these queues no rebuild. A field
     # counts by its first dotted segment, so "agents" covers every "agents.<slug>[.<field>]" an agent edit names.
-    UNSEEN_SETTINGS = frozenset({"audit_overrides", "agents"})
+    UNSEEN_SETTINGS = frozenset({"audit_overrides", "agents", "trash_auto_empty_days"})
 
     def __init__(self, group_id: UUID4) -> None:
         from .publisher import ConsolePublisher

@@ -87,6 +87,12 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         server_default="24",
         doc="An open integration alert is announced again after this many hours (0 = never remind).",
     )
+    trash_auto_empty_days: Mapped[int | None] = mapped_column(
+        sa.Integer,
+        nullable=True,
+        doc="Days an entry stays in the Trash before it is deleted forever (0 = never). Null inherits the platform "
+        "default (services/entries/trash.py).",
+    )
     site_social_json: Mapped[dict | None] = mapped_column(
         sa.JSON, nullable=True, doc="Social media links and handles (e.g., {instagram: 'url', facebook: 'url'})."
     )
