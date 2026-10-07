@@ -489,7 +489,7 @@ function statusMeta(status: string): { text: string; cls: string } {
     </div>
   </div>
 
-  <script type="application/json" id="providers-data" set:html={JSON.stringify(providers)}></script>
+  <script type="application/json" id="providers-data" set:html={JSON.stringify(providers).replace(/</g, "\\u003c")}></script>
 </AppLayout>
 
 <script>

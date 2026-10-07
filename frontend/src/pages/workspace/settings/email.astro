@@ -933,7 +933,15 @@ function isSuperseded(template: any): boolean {
       // Add a banner at the top so the user knows they're in connect flow
       const banner = document.createElement('div');
       banner.className = 'connect-flow-banner';
-      banner.innerHTML = `Connecting to <strong>${connectEvent}</strong> event &mdash; edit the template below, then click <strong>Connect</strong> when ready.`;
+      // connect_event comes from the URL: text only, never markup.
+      const strong = (text) => Object.assign(document.createElement('strong'), { textContent: text });
+      banner.append(
+        'Connecting to ',
+        strong(connectEvent),
+        ' event \u2014 edit the template below, then click ',
+        strong('Connect'),
+        ' when ready.',
+      );
       document.querySelector('.toolbar')?.before(banner);
 
       // Auto-open the template

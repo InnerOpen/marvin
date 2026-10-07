@@ -529,7 +529,7 @@ const openTemplates = emailTemplates.filter((t: any) => {
   </div>
 </div>
 
-<script type="application/json" id="int-data" set:html={JSON.stringify({ integrations, providers: integrationProviders, eventType: type })}></script>
+<script type="application/json" id="int-data" set:html={JSON.stringify({ integrations, providers: integrationProviders, eventType: type }).replace(/</g, "\\u003c")}></script>
 
 <script define:vars={{ type, apiUrl, examplePayload, eventVariables: eventInfo?.variables ?? [], wsId: wsId ?? null }}>
   // Webhook modal
