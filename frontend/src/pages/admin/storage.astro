@@ -49,7 +49,7 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
         <p>
           Switching only decides where <strong>new</strong> uploads are stored, and you can switch back at any time.
           Existing files keep serving from the provider they were stored on; moving them is
-          <code>python -m marvin.scripts.storage_migrate --to &lt;provider&gt;</code> (see the "Assets on R2" runbook).
+          <code>python -m marvin.scripts.storage_migrate --to &lt;provider&gt; --rekey</code> (see the "Assets on R2" runbook).
         </p>
         <fieldset class="choices">
           <label class="choice">
@@ -112,6 +112,7 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
           {storage.remotePublicBaseUrl ? <code>{storage.remotePublicBaseUrl}</code> : <span>(<code>STORAGE_REMOTE_PUBLIC_URL</code>, not set)</span>}.
           Files on local disk always use the API host.
         </p>
+        <div class="table-scroll">
         <table class="table">
           <thead>
             <tr><th>Workspace</th><th>Key prefix</th><th>Public asset domain</th><th></th></tr>
@@ -130,15 +131,16 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
                     value={w.assetPublicBaseUrl ?? ""}
                     aria-label={`Public asset domain for ${w.workspace}`}
                   />
+                  <span class="status-text domain-status" role="status"></span>
                 </td>
                 <td class="row-actions">
                   <button type="button" class="button domain-save">Save</button>
-                  <span class="status-text domain-status" role="status"></span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section class="settings-section">
@@ -284,9 +286,19 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
   .table .num {
     text-align: right;
   }
+  .table-scroll {
+    overflow-x: auto;
+  }
+  .domain-status {
+    display: block;
+    margin-top: 4px;
+  }
+  .domain-status:empty {
+    display: none;
+  }
   .domain-input {
     width: 100%;
-    min-width: 220px;
+    min-width: 180px;
     padding: 6px 8px;
     border: 1px solid var(--line);
     border-radius: var(--radius);

@@ -2345,6 +2345,69 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
   backup token (a leaked backend token shouldn't reach the backups); the prune period (suggest 30 days, after a
   restore test with assets); dev refreshes from production need the bucket copied too once production is on R2.
 
+## Review (opaque keys + per-workspace domain, 2026-10-07) — code only, no environment changed
+- **Branches (not pushed):** core `feat/opaque-asset-keys` (from `develop` f099f244), plugin `marvin-storage-s3`
+  `feat/content-disposition` (from `main` 969fbde), marvin-sdk `feat/opaque-keys-types` (from `main`). Push order:
+  plugin (merge to `main`: the chart installs its `main` tarball), core, SDK types (the SDK gate fails on the core
+  PR until they're in).
+- **Key format:** `<storage code>/<yyyy>/<mm>/<uuid>.<ext>` (`services/storage/keys.py`) for uploads, derivatives,
+  bundle imports and character-library files (`_platform/…`). `<storage code>` = `groups.storage_code`, 12 random
+  base32 chars, backfilled by the migration and set on creation (model default; `workspace_code()` makes one if
+  ever missing). **Why random, not HMAC(`.secret`, id):** stable even if `.secret` is lost or rotated (a pod
+  without the PVC), reveals nothing if the secret leaks, no secret needed to work it out; it costs one column.
+  Keys live on rows and are never recomputed, so neither choice would break old keys. Extension kept, lower-cased,
+  `[a-z0-9]{1,10}` (or guessed from the MIME type).
+- **Download names:** `content_disposition()` → `inline; filename="<ascii fallback>"` + `filename*=UTF-8''…` for
+  non-ASCII (quotes/control chars/paths stripped). Served by `/api/platform/assets/{id}/file` (inline now, was
+  `attachment`) and the `/assets` mount (opaque keys, name looked up and cached); passed to `put()` as metadata
+  `content_disposition`, which the plugin (and core's temporary s3) store as the object's `Content-Disposition`.
+  The frontend `/assets` proxy passes the header through.
+- **`--rekey`** (`migration.migrate(to, rekey=True)`): rows/library files without an opaque key (under their own
+  workspace's code) are copied to `rekeyed()` keys — uuid5 of the row id (library: pack + old key), month from the
+  old key — verified, then one compare-and-set repoints provider + key and inserts `storage_key_aliases` (old
+  provider/key → current key, asset or pack). Idempotent (second run `0 passes`), resumable (an interrupted run
+  finds its copy at the same key: `already there`), stragglers caught by the next pass, rows deleted mid-copy
+  have the copy removed. Old copies never deleted by it. **`--prune-old`** deletes an old copy only if nothing is
+  stored at that (provider, key) and the current copy matches (both downloaded); the alias stays (marked pruned)
+  so `/assets/<old key>` keeps redirecting (302, any provider's old key). `--prune-local` also covers a local
+  copy at an old key (dev's case: moved to R2 under old keys, then rekeyed there). Deleting an asset deletes its
+  unpruned old copies and aliases.
+- **Per-workspace domain:** `groups.asset_public_base_url`; `PUT /api/admin/storage/workspaces/{id}` (super admin;
+  `https://host[/path]`, no user info/query/fragment, ≤255; `http://` outside production), table on Admin →
+  Storage (key prefix + domain per workspace, platform default shown). `public_url_for(slug, key, group_id)`
+  rebuilds the row's provider with `STORAGE_REMOTE_PUBLIC_URL` = the domain (only providers that declare that
+  setting; cached per domain); local rows keep the API host. Every URL site uses it (AssetRead, publishing API +
+  `/file`, download redirect, characters, AI tools, automation). Audited as `storage_public_domain_changed`
+  (platform scope, locked). Lookups cached 5 s like the upload choice.
+- **Assumption audit:** backup mirror is key-agnostic (`assets/<key>`; tested with opaque keys); export writes
+  `files/<key>` and import makes a new key under the importing workspace's code; library delete guard accepts
+  its old prefix or `_platform` opaque keys; `repair_character_mattes` keeps the download name when rewriting.
+  MarvinAstro/sites: they only pass `publicUrl` through (fixtures have old-format URLs as data only) — no change;
+  sites must be rebuilt after a rekey and before `--prune-old`. SDK `StorageProvider` docstring still shows the
+  old key as its example (cosmetic, SDK repo, not changed).
+- **Tests:** backend 3464 passed / 12 skipped (develop 3441/12; new `test_opaque_storage_keys.py`, plus updated
+  library/migrate/switching/catalog tests); plugin 120 passed / 1 skipped against MinIO (+ moto); frontend unit
+  475 pass, `astro check` 51 errors = base 51, Biome clean. SDK gate reproduced (fresh 3.12 venv, `pip install
+  -e`, FastAPI 0.142.2): additions only (`PUT /api/admin/storage/workspaces/{workspace_id}`,
+  `StorageWorkspaceSettings`, `StorageWorkspaceUpdate`, 2 fields on `StorageSettingsRead`); `tsc --noEmit` clean.
+- **E2E against MinIO** (anonymous-read bucket standing in for the custom domain; SQLite; plugin editable): develop's
+  code uploaded 6 assets (`IMG_9750 orig.JPEG`, `Café menü.png`, `Résumé 2026.pdf`, `日本の写真.webp`, …) and a
+  2-file pack under old keys → branch: migration gave the workspace a code, old URLs 200, a new local upload is
+  opaque and served inline under its name → admin switched to s3 → `--to s3 --rekey --verify` (7 rows + 2 library
+  files, 8 rekeyed, 0 failed) → every asset: opaque key, URL on the bucket, bytes equal, `Content-Disposition`
+  right (ASCII + RFC 5987), publishing API `publicUrl` and `/file` redirect equal, `/file` redirect; pack states
+  on `_platform/…` with `idle.gif`/`waving.gif` names → second run copies 0 → old `/assets` URLs 200 → `--prune-old`
+  (8) → old asset and library URLs 302 to the opaque URLs, bytes equal → workspace domain (`localhost` vs
+  `127.0.0.1`, same bucket) reflected in the API, publishing API and both redirects, bytes equal from it; invalid
+  domain 422; event on admin Events → back to local with `--to local --rekey --verify` (0 rekeyed) → all served from
+  `/assets/<opaque>` inline. 194 checks, 0 failed. Admin UI screenshots in the job's `opaque-shots/` (table, invalid
+  domain error, saved, phone width, Events). MinIO and servers stopped; no cluster or R2 touched.
+- **For Jared:** (1) dev: `--rekey` on `marvin-assets-dev`, rebuild the dev sites, then `--prune-local` /
+  `--prune-old` (runbook "Opaque keys"); (2) production's switch with `--to s3 --rekey --verify` after this ships;
+  (3) a workspace domain needs DNS work first (R2 custom domain in our account, or Cloudflare for SaaS for a
+  client-owned zone — check its pricing/plan); (4) `/file` now answers `inline` instead of `attachment` (as asked:
+  images open in the tab; *Save as* keeps the name).
+
 ## Decisions (Jared, 2026-10-06)
 - Keep core lean: cloud SDKs out of core. Storage is its own plugin type (`marvin.storage_providers`), with the
   contract in the plugin SDK (core re-exports), installed site-wide by a platform admin (Helm init container) and
