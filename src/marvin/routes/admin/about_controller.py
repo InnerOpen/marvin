@@ -52,6 +52,7 @@ class AdminAboutController(BaseAdminController):
             version=APP_VERSION,
             versionLatest=get_latest_version(settings.GITHUB_VERSION_URL),  # Fetches latest version from GitHub
             demo_status=settings.IS_DEMO,
+            environment_label=settings.ENVIRONMENT_LABEL,
             api_port=settings.API_PORT,
             api_docs=settings.API_DOCS,
             db_type=settings.DB_ENGINE,

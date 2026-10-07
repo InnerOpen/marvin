@@ -24,6 +24,7 @@ class LoginInfo(_MarvinModel):
     oidc_auto_redirect: bool = False
     allow_signup: bool = False
     is_demo: bool = False  # Demo mode seeds sample users; the login page shows their credentials only then.
+    environment_label: str = ""  # e.g. "DEV"; empty in production. The UI badges non-production instances with it.
 
 
 class AppStatistics(_MarvinModel):

@@ -47,6 +47,7 @@ class AppInfo(_MarvinModel):
     production: bool  # Indicates if the application is running in production mode.
     version: str  # The current version of the application (e.g., "1.0.0", "develop").
     demo_status: bool  # Indicates if the application is running in demo mode.
+    environment_label: str = ""  # Non-production instance tag (e.g. "DEV"); empty in production.
     allow_signup: bool  # Indicates if new user signups are currently allowed.
     default_group_slug: str | None = None  # Slug of the default group for new users, if applicable.
     default_household_slug: str | None = None  # Legacy or alternative naming for default group slug.

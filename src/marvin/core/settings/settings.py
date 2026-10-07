@@ -103,6 +103,10 @@ def determine_secrets(data_dir: Path, production: bool) -> str:
         return new_secret
 
 
+ENVIRONMENT_LABEL_MAX_LENGTH = 12
+"""Longest ``ENVIRONMENT_LABEL`` kept; longer values are truncated so the badge stays small."""
+
+
 class AppSettings(BaseSettings):
     """
     Main application settings.
@@ -119,6 +123,17 @@ class AppSettings(BaseSettings):
     """Flag indicating if the application is running in production mode."""
 
     IS_DEMO: bool = False
+
+    ENVIRONMENT_LABEL: str = ""
+    """Short tag naming a non-production instance (e.g. ``DEV``, ``STAGING``). When set, the UI shows
+    it as a badge in the app/admin headers and on the login page, and prefixes page titles with
+    ``[LABEL]``. Stripped, upper-cased and capped at 12 characters. Empty (the default) shows nothing.
+    Independent of ``PRODUCTION`` (container runtime mode) and ``IS_DEMO`` (public demo mode)."""
+
+    @field_validator("ENVIRONMENT_LABEL", mode="before")
+    @classmethod
+    def _normalize_environment_label(cls, v: object) -> str:
+        return str(v or "").strip().upper()[:ENVIRONMENT_LABEL_MAX_LENGTH]
 
     BASE_URL: str = "http://localhost:8080"
     """trailing slashes are trimmed (ex. `http://localhost:8080/` becomes ``http://localhost:8080`)"""
