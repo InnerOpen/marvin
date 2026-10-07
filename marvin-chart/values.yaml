@@ -31,6 +31,9 @@ split:
       tag: ""          # defaults to image.tag
   frontend:
     replicaCount: 1
+    # Sleep before SIGTERM so the Service/Route stop routing to a stopping frontend pod first (a rolling
+    # deploy without it drops in-flight page loads). Empty uses shutdown.preStopSleepSeconds; 0 disables.
+    preStopSleepSeconds: ""
     image:
       repository: ""   # defaults to "<image.repository>-frontend"
       tag: ""          # defaults to image.tag

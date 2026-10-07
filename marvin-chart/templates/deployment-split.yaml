@@ -118,6 +118,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
 ---
+{{- $frontendPreStop := include "marvin.frontendPreStopSleepSeconds" . | int }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -149,6 +150,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "marvin.serviceAccountName" . }}
+      {{- /* The preStop sleep counts against the grace period; keep a margin for node to exit after it. */}}
+      terminationGracePeriodSeconds: {{ max 30 (add $frontendPreStop 10) }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -179,6 +182,13 @@ spec:
           periodSeconds: 15
           timeoutSeconds: 3
           failureThreshold: 3
+        {{- if gt $frontendPreStop 0 }}
+        lifecycle:
+          preStop:
+            exec:
+              # Keep serving while the Service/Route stop sending new requests here; SIGTERM then stops node.
+              command: ["sleep", "{{ $frontendPreStop }}"]
+        {{- end }}
         resources:
           {{- toYaml .Values.resources | nindent 12 }}
         env:

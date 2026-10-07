@@ -336,3 +336,17 @@ but it is removed after the install, so the PYTHONPATH copy never shadows the im
   value: /plugins
 {{- end }}
 {{- end -}}
+
+{{/*
+The split frontend's preStop sleep: split.frontend.preStopSleepSeconds when set (0 disables it), else
+the shared shutdown.preStopSleepSeconds. The SSR server holds no long requests, so it needs only the
+sleep — long enough for the Service/Route to stop sending it traffic — not the API's drain window.
+*/}}
+{{- define "marvin.frontendPreStopSleepSeconds" -}}
+{{- $v := .Values.split.frontend.preStopSleepSeconds -}}
+{{- if or (kindIs "invalid" $v) (eq (toString $v) "") -}}
+{{- int .Values.shutdown.preStopSleepSeconds -}}
+{{- else -}}
+{{- int $v -}}
+{{- end -}}
+{{- end -}}

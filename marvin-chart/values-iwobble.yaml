@@ -11,9 +11,10 @@ mode: split
 # is ready before the old one stops, so a promotion has no downtime. Safe since the move to Postgres —
 # no single-writer file any more; the scheduler's leader lease keeps scheduled work on one pod during
 # the brief overlap, and the old pod drains its AI runs (shutdown.terminationGracePeriodSeconds).
-# The old pod keeps serving for preStopSleepSeconds after it is told to stop, while the OpenShift
-# router (which reloads its backend list every few seconds) takes it out of rotation; at the chart's
-# 5s a rolling restart still dropped ~6s of requests (measured 2026-10-06), so give it 15s.
+# The old pod (backend and frontend alike) keeps serving for preStopSleepSeconds after it is told to
+# stop, while the OpenShift router (which reloads its backend list every few seconds) takes it out of
+# rotation; at the chart's 5s a rolling restart still dropped ~6s of requests (measured 2026-10-06),
+# so give it 15s.
 shutdown:
   preStopSleepSeconds: 15
 
