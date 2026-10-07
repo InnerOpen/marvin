@@ -278,7 +278,11 @@ if (!authToken) {
     }
     const banner = document.getElementById('delete-error');
     if (banner) {
-      banner.innerHTML = `<p><strong>Couldn't delete collection:</strong> ${msg}</p>`;
+      const strong = document.createElement('strong');
+      strong.textContent = "Couldn't delete collection:";
+      const p = document.createElement('p');
+      p.append(strong, ` ${msg}`);
+      banner.replaceChildren(p);
       banner.style.display = 'flex';
       banner.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
@@ -361,6 +365,21 @@ if (!authToken) {
   }
 
   // --- Entry attachment card management ---
+  // Build an element with string children as text nodes (never markup).
+  function node(tag: string, className: string, ...children: (Node | string)[]): HTMLElement {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    n.append(...children);
+    return n;
+  }
+
+  function actionBtn(className: string, title: string, text: string): HTMLButtonElement {
+    const b = node('button', `${className} icon-btn`, text) as HTMLButtonElement;
+    b.type = 'button';
+    b.title = title;
+    return b;
+  }
+
   const collectionId = window.location.pathname.split('/').filter(Boolean).slice(-2)[0]!;
   const entriesContainer = document.getElementById('attached-entries') as HTMLElement;
   const saveEntriesBtn = document.getElementById('save-entries-btn') as HTMLButtonElement;
@@ -498,33 +517,43 @@ if (!authToken) {
       card.dataset.entryId = entryId;
       card.dataset.entryTitle = title;
       card.dataset.entryStatus = entryStatus;
-      card.innerHTML = `
-        <div class="attachment-header">
-          <div class="drag-handle" draggable="true">⋮⋮</div>
-          <div class="sortable-order">${idx + 1}</div>
-          <div class="attachment-name">
-            <strong>${title}</strong>
-            <span class="picker-meta">
-              <span class="pill ${entryStatus}">${entryStatus}</span>
-            </span>
-          </div>
-          <div class="attachment-actions">
-            <button type="button" class="move-up-btn icon-btn" title="Move up">↑</button>
-            <button type="button" class="move-down-btn icon-btn" title="Move down">↓</button>
-            <button type="button" class="remove-btn icon-btn" title="Remove">×</button>
-          </div>
-        </div>
-        <div class="attachment-fields">
-          <div class="field-row">
-            <label>Role</label>
-            <input type="text" class="junction-role" value="" placeholder="e.g. primary, featured" />
-          </div>
-          <div class="field-row field-row-full">
-            <label>Metadata</label>
-            <textarea class="junction-metadata attachment-metadata" rows="2" placeholder='{"featured": true}'></textarea>
-          </div>
-        </div>
-      `;
+      // The title and status come from entries anyone with edit access can name, so they go in as text.
+      const handle = node('div', 'drag-handle', '⋮⋮');
+      handle.draggable = true;
+      const role = node('input', 'junction-role') as HTMLInputElement;
+      role.type = 'text';
+      role.defaultValue = '';
+      role.placeholder = 'e.g. primary, featured';
+      const metadata = node('textarea', 'junction-metadata attachment-metadata') as HTMLTextAreaElement;
+      metadata.rows = 2;
+      metadata.placeholder = '{"featured": true}';
+      card.append(
+        node(
+          'div',
+          'attachment-header',
+          handle,
+          node('div', 'sortable-order', String(idx + 1)),
+          node(
+            'div',
+            'attachment-name',
+            node('strong', '', title),
+            node('span', 'picker-meta', node('span', `pill ${entryStatus}`, entryStatus)),
+          ),
+          node(
+            'div',
+            'attachment-actions',
+            actionBtn('move-up-btn', 'Move up', '↑'),
+            actionBtn('move-down-btn', 'Move down', '↓'),
+            actionBtn('remove-btn', 'Remove', '×'),
+          ),
+        ),
+        node(
+          'div',
+          'attachment-fields',
+          node('div', 'field-row', node('label', '', 'Role'), role),
+          node('div', 'field-row field-row-full', node('label', '', 'Metadata'), metadata),
+        ),
+      );
 
       entriesContainer.appendChild(card);
       setupEntryCard(card);

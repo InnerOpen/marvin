@@ -352,7 +352,11 @@ const PRIVATE_TITLE = "Hidden from the publishing API — sites can't list or re
     }
     const banner = document.getElementById('delete-error');
     if (banner) {
-      banner.innerHTML = `<p><strong>Couldn't delete collection:</strong> ${msg}</p>`;
+      const strong = document.createElement('strong');
+      strong.textContent = "Couldn't delete collection:";
+      const p = document.createElement('p');
+      p.append(strong, ` ${msg}`);
+      banner.replaceChildren(p);
       banner.style.display = 'flex';
       banner.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
