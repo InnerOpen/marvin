@@ -557,6 +557,7 @@ class WorkspaceExporter:
             "defaultRegister": row.default_register,
             "tones": row.tones,
             "hiddenTones": row.hidden_tones,
+            "agentToolPolicies": row.agent_tool_policies,
         }
 
     def _export_secrets(self) -> list[dict[str, Any]]:

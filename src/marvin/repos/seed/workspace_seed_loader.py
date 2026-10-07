@@ -873,6 +873,10 @@ class WorkspaceSeedLoader:
                 if json_key in ai_data and hasattr(row, attr):
                     setattr(row, attr, ai_data[json_key])
             self._import_tones(row, ai_data)
+            if "agentToolPolicies" in ai_data:  # built-in agents' matrices, re-validated like a save
+                from marvin.services.ai.agents import clean_builtin_policies
+
+                row.agent_tool_policies = clean_builtin_policies(ai_data["agentToolPolicies"])
             self.repos.session.commit()
             self.logger.info("Imported AI settings")
             return True

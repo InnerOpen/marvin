@@ -193,6 +193,9 @@ class AgentSpec:
     # The bubble's character while this agent talks, as stored (an own pack or {"library": id}); None →
     # the workspace's. System agents have none: they're code, and `marvin` *is* the workspace's character.
     character: dict | None = None
+    # A built-in agent whose matrix this workspace changed (Settings → AI → Agents): `tool_policy` is then
+    # the code default with the workspace's override merged over it (see `_system_agent`).
+    tool_policy_overridden: bool = False
 
 
 SYSTEM_AGENTS: dict[str, AgentSpec] = {
@@ -222,6 +225,9 @@ SYSTEM_AGENTS: dict[str, AgentSpec] = {
     ),
 }
 assert tuple(SYSTEM_AGENTS) == SYSTEM_AGENT_SLUGS
+# Built-ins whose permission matrix a workspace admin may change (and nothing else about them). `chat` is a
+# model agent: it binds no tools, so it has no matrix to change.
+BUILTIN_POLICY_SLUGS = tuple(slug for slug, spec in SYSTEM_AGENTS.items() if spec.kind == "persona")
 
 
 def spec_from_row(row) -> AgentSpec:
@@ -259,29 +265,76 @@ def unsaved_spec(values: dict, slug: str) -> AgentSpec:
     return replace(spec_from_row(SimpleNamespace(**values, slug=slug, id=None, character=None)), id=None)
 
 
-def _system_agent(session, group_id, spec: AgentSpec) -> AgentSpec:
-    """A system agent as this workspace knows it: the main agent (`marvin`) carries the workspace's
-    assistant name (AI settings → Persona), so the Ask page, the bubble, MCP and hand-offs all say it."""
-    if spec.slug != ROUTER_SLUG:
-        return spec
+def _ai_settings(session, group_id):
+    """The workspace's AI settings row (assistant name, built-in matrix overrides), or None."""
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    return session.query(WorkspaceAISettingsModel).filter_by(group_id=group_id).first() if session is not None else None
+
+
+def _clean_policy(policy) -> dict[str, str] | None:
+    """A matrix with only well-formed entries: a value other than allow/ask/block is dropped, never trusted."""
+    if not isinstance(policy, dict):
+        return None
+    clean = {k: v for k, v in policy.items() if isinstance(k, str) and v in POLICY_VALUES}
+    return clean or None
+
+
+def clean_builtin_policies(value) -> dict | None:
+    """An `agent_tool_policies` value (stored or imported) with only the editable built-ins' well-formed matrices."""
+    if not isinstance(value, dict):
+        return None
+    out = {slug: p for slug in BUILTIN_POLICY_SLUGS if (p := _clean_policy(value.get(slug)))}
+    return out or None
+
+
+def builtin_policy_override(settings, slug: str) -> dict[str, str] | None:
+    """This workspace's stored matrix override of built-in `slug` (from its AI settings row), or None."""
+    return (clean_builtin_policies(getattr(settings, "agent_tool_policies", None)) or {}).get(slug)
+
+
+def with_builtin_override(settings, slug: str, policy: dict | None) -> dict | None:
+    """The settings row's new `agent_tool_policies` with `slug`'s override replaced — or removed when
+    `policy` is empty or None (back to the code default). A new dict, so the JSON column sees the change."""
+    stored = getattr(settings, "agent_tool_policies", None)
+    out = {k: v for k, v in stored.items() if k != slug} if isinstance(stored, dict) else {}
+    if policy:
+        out[slug] = dict(policy)
+    return out or None
+
+
+def _system_agent(settings, spec: AgentSpec) -> AgentSpec:
+    """A system agent as this workspace knows it — the one place a built-in is resolved, so every consumer
+    (bubble, Ask page, hand-offs, MCP `run_agent`, direct invoke and its tool listing) sees the same agent:
+
+    - the main agent (`marvin`) carries the workspace's assistant name (AI settings → Persona);
+    - a workspace override of its permission matrix (Settings → AI → Agents) is merged over the code
+      default. Only the matrix: the prompt, model, allowlist and the rest stay as defined in code, and
+      `resolve_policy`'s floors (allowlist, EDITOR for writes) apply to the merged matrix as to any other.
+    """
     from dataclasses import replace
 
-    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
-    from marvin.services.ai.persona import resolve_persona
+    changes: dict = {}
+    if spec.slug == ROUTER_SLUG:
+        from marvin.services.ai.persona import resolve_persona
 
-    settings = session.query(WorkspaceAISettingsModel).filter_by(group_id=group_id).first() if session is not None else None
-    name, _persona = resolve_persona(getattr(settings, "assistant_name", None), getattr(settings, "persona_prompt", None))
-    if not isinstance(name, str):
-        return spec
-    return spec if name == spec.name else replace(spec, name=name)
+        name, _persona = resolve_persona(getattr(settings, "assistant_name", None), getattr(settings, "persona_prompt", None))
+        if isinstance(name, str) and name != spec.name:
+            changes["name"] = name
+    override = builtin_policy_override(settings, spec.slug)
+    if override:
+        changes["tool_policy"] = {**(spec.tool_policy or {}), **override}
+        changes["tool_policy_overridden"] = True
+    return replace(spec, **changes) if changes else spec
 
 
 def list_agents(session, group_id) -> list[AgentSpec]:
     """System agents first, then the workspace's rows by slug."""
     from marvin.db.models.groups.agents import WorkspaceAgentModel
 
+    settings = _ai_settings(session, group_id)
     rows = session.query(WorkspaceAgentModel).filter_by(group_id=group_id).order_by(WorkspaceAgentModel.slug).all()
-    return [*(_system_agent(session, group_id, s) for s in SYSTEM_AGENTS.values()), *(spec_from_row(r) for r in rows)]
+    return [*(_system_agent(settings, s) for s in SYSTEM_AGENTS.values()), *(spec_from_row(r) for r in rows)]
 
 
 def agent_names(session, group_id) -> dict[str, str]:
@@ -303,7 +356,7 @@ def operation_label(operation_slug: str, names: dict[str, str]) -> str:
 def resolve_agent(session, group_id, slug: str) -> AgentSpec | None:
     slug = (slug or "").strip().lower()
     if slug in SYSTEM_AGENTS:
-        return _system_agent(session, group_id, SYSTEM_AGENTS[slug])
+        return _system_agent(_ai_settings(session, group_id), SYSTEM_AGENTS[slug])
     from marvin.db.models.groups.agents import WorkspaceAgentModel
 
     row = session.query(WorkspaceAgentModel).filter_by(group_id=group_id, slug=slug).first()
@@ -380,6 +433,7 @@ POLICY_BLOCK = "block"
 # "Ask first": the tool is bound, but each call pauses the run for the user's approval (needs a
 # thread to park on — Ask threads; from MCP an ask-first tool is simply not bound).
 POLICY_ASK = "ask"
+POLICY_VALUES = (POLICY_ALLOW, POLICY_ASK, POLICY_BLOCK)
 
 
 ROUTER_SLUG = "marvin"
@@ -466,8 +520,8 @@ def unattended_refusal(spec: AgentSpec, tool_name: str, category_id: str, role: 
             f"Not done: {tool_name} is in {label}, which is set to Ask first for {spec.name} in this workspace, and this call "
             "cannot pause for approval. Run it from the Ask page or an agent conversation, where it can be approved"
         )
-        # A built-in agent's matrix is fixed in code; only a workspace agent's can be switched to Allow.
-        error += "." if spec.is_system else f", or set {label} to Allow for {spec.name} ({where})."
+        # Every agent a direct call can stand in for has an editable matrix (built-ins: Settings → AI → Agents).
+        error += f", or set {label} to Allow for {spec.name} ({where})."
     elif reason == "caller role is below EDITOR":
         error = f"Not done: {tool_name} writes, and {spec.name} writes only for an EDITOR or above."
     else:
@@ -503,6 +557,8 @@ def permission_matrix(spec: AgentSpec, role: int, catalog: list[dict]) -> list[d
                 "description": cat.description,
                 "default": policy.get(cat.id) or default_policy(spec, cat.id),
                 "override": policy.get(cat.id),
+                # What the row does with no entry in the matrix (the editor's "Default (…)" choice).
+                "inherited": default_policy(spec, cat.id),
                 "tools": tools,
             }
         )

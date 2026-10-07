@@ -881,7 +881,13 @@ class AIOperationsController(BaseUserController):
 
         spec = self._agent_or_404(slug)
         role = self._user_role()
-        return {"agent": spec.slug, "role": role, "allowWrites": spec.allow_writes, "rows": permission_matrix(spec, role, self._catalog_with_mcp())}
+        return {
+            "agent": spec.slug,
+            "role": role,
+            "allowWrites": spec.allow_writes,
+            "overridden": spec.tool_policy_overridden,
+            "rows": permission_matrix(spec, role, self._catalog_with_mcp()),
+        }
 
     @router.get("/agents/{slug}", response_model=AgentRead, summary="Get an agent")
     def get_agent(self, slug: str) -> AgentRead:
@@ -911,6 +917,8 @@ class AIOperationsController(BaseUserController):
         from marvin.services.ai.operations.base import ROLE_ADMIN
 
         self._require_role(ROLE_ADMIN, "ADMIN role or higher required to edit agents.")
+        if self._is_builtin(slug):
+            return self._update_builtin_agent(slug, data)
         row = self._agent_row_or_404(slug)
         self._require_known_tone(data.default_register)
         for k, v in data.model_dump(exclude_unset=True).items():
@@ -918,6 +926,73 @@ class AIOperationsController(BaseUserController):
         self.session.commit()
         self.session.refresh(row)
         spec = spec_from_row(row)
+        return self._agent_read(spec, self._agent_character(spec))
+
+    @router.delete("/agents/{slug}/tool-policy", response_model=AgentRead, summary="Reset an agent's permission matrix to its default")
+    def reset_agent_tool_policy(self, slug: str) -> AgentRead:
+        """Drop every matrix override: a built-in agent goes back to its code matrix, a workspace agent to the
+        defaults its Allow writes setting gives. ADMIN+."""
+        from marvin.services.ai.agents import spec_from_row
+        from marvin.services.ai.operations.base import ROLE_ADMIN
+
+        self._require_role(ROLE_ADMIN, "ADMIN role or higher required to edit agents.")
+        if self._is_builtin(slug):
+            return self._save_builtin_policy(self._builtin_with_matrix(slug), None)
+        row = self._agent_row_or_404(slug)
+        row.tool_policy = None
+        self.session.commit()
+        self.session.refresh(row)
+        spec = spec_from_row(row)
+        return self._agent_read(spec, self._agent_character(spec))
+
+    # ── A built-in agent's permission matrix: the one thing a workspace may change about it ──
+    # Stored per workspace on its AI settings row (`agent_tool_policies`) and merged over the code default by
+    # `agents.resolve_agent`, so every surface that runs the agent sees it.
+
+    @staticmethod
+    def _is_builtin(slug: str) -> bool:
+        from marvin.schemas.group.agent import SYSTEM_AGENT_SLUGS
+
+        return (slug or "").strip().lower() in SYSTEM_AGENT_SLUGS
+
+    def _builtin_with_matrix(self, slug: str):
+        """The built-in agent `slug`, or a 400 when it has no matrix to change (`chat` binds no tools)."""
+        from marvin.services.ai.agents import BUILTIN_POLICY_SLUGS
+
+        spec = self._agent_or_404(slug)
+        if spec.slug not in BUILTIN_POLICY_SLUGS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"'{spec.slug}' is a built-in agent with no tools, so it has no permission matrix to change.",
+            )
+        return spec
+
+    def _update_builtin_agent(self, slug: str, data: AgentUpdate) -> AgentRead:
+        """PATCH on a built-in: `tool_policy` only (null = back to the code default); anything else is a 400."""
+        spec = self._builtin_with_matrix(slug)
+        fixed = sorted(data.model_fields_set - {"tool_policy"})
+        if fixed or "tool_policy" not in data.model_fields_set:
+            listed = f" ({', '.join(fixed)} sent)" if fixed else ""
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"'{spec.slug}' is a built-in agent: only its permission matrix (tool_policy) can be changed; "
+                    f"its name, instructions, model and other settings are fixed{listed}."
+                ),
+            )
+        return self._save_builtin_policy(spec, data.tool_policy)
+
+    def _save_builtin_policy(self, spec, policy: dict | None) -> AgentRead:
+        from marvin.services.ai.agents import with_builtin_override
+
+        row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
+        if row is None and policy:
+            row = WorkspaceAISettingsModel(session=self.session, group_id=self.group_id)
+            self.session.add(row)
+        if row is not None:
+            row.agent_tool_policies = with_builtin_override(row, spec.slug, policy)
+            self.session.commit()
+        spec = self._agent_or_404(spec.slug)
         return self._agent_read(spec, self._agent_character(spec))
 
     @router.delete("/agents/{slug}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete an agent")
@@ -1658,6 +1733,7 @@ class AIOperationsController(BaseUserController):
             suggestions=list(spec.suggestions) if spec.suggestions else None,
             handoff_hint=spec.handoff_hint,
             is_system=spec.is_system,
+            tool_policy_overridden=spec.tool_policy_overridden,
             character=character,
         )
 

@@ -132,6 +132,9 @@ class AgentRead(AgentBase):
     id: UUID4 | None = None  # system agents have no row
     slug: str
     is_system: bool = False
+    # A built-in agent whose permission matrix this workspace changed: `tool_policy` is the effective (merged)
+    # matrix. Reset with DELETE /ai/agents/{slug}/tool-policy (or PATCH `tool_policy: null`).
+    tool_policy_overridden: bool = False
     # The bubble's character while this agent talks (a library pack resolved to its states); None → the
     # workspace's. Set through /ai/agents/{slug}/character; see services/ai/character.py.
     character: AssistantCharacter | None = None

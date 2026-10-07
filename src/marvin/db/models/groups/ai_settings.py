@@ -80,6 +80,10 @@ class WorkspaceAISettingsModel(SqlAlchemyBase, BaseMixins):
     tones: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
     # Tone slugs (built-in or custom) left out of the pickers. Hidden tones still resolve at run time.
     hidden_tones: Mapped[list | None] = mapped_column(sa.JSON, nullable=True)
+    # The workspace's overrides of the built-in agents' permission matrices (they're code, not rows):
+    # {agent_slug: {category_id | tool_name: "allow" | "ask" | "block"}}. Merged over the code default by
+    # services/ai/agents.py:resolve_agent; None → every built-in runs its code matrix.
+    agent_tool_policies: Mapped[dict | None] = mapped_column(sa.JSON, nullable=True)
 
     @auto_init()
     def __init__(self, session: Session, **kwargs) -> None:
