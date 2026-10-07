@@ -39,9 +39,9 @@ def _asset_public_url(asset) -> str | None:
     """
     if getattr(asset, "storage_key", None):
         try:
-            from marvin.services.storage.provider_factory import provider_for
+            from marvin.services.storage.provider_factory import asset_public_url
 
-            return provider_for(asset).get_public_url(asset.storage_key)
+            return asset_public_url(asset)
         except Exception:
             pass
     return getattr(asset, "public_url", None)

@@ -256,7 +256,7 @@ def test_library_files_move_with_their_pack(world, db_session):
         stored = db_session.get(CharacterPackModel, pack_id).pack
         assert stored["files"][0]["provider"] == "fakes3"
         assert stored["files"][0]["url"] == stored["states"]["idle"] == f"https://cdn.example.test/{key}"
-        assert FakeRemote.store[key] == (b"GIF89a-idle", "image/gif", None)
+        assert FakeRemote.store[key] == (b"GIF89a-idle", "image/gif", {"content_disposition": 'inline; filename="idle.gif"'})
         assert pack_character(db_session.get(CharacterPackModel, pack_id))["states"]["idle"] == f"https://cdn.example.test/{key}"
         assert world.local.exists(key)
 

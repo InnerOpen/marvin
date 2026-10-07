@@ -414,6 +414,8 @@ class EventTypes(EventTypeBase):
     """Event dispatched when storage quota is exceeded."""
     storage_provider_changed = auto()
     """Event dispatched when a platform admin changes where new asset uploads are stored."""
+    storage_public_domain_changed = auto()
+    """Event dispatched when a platform admin changes the public domain a workspace's remote assets are served from."""
 
     # ==========================================================================
     # Notification Events
@@ -975,6 +977,18 @@ class EventStorageProviderChangedData(EventDocumentDataBase):
     """The new choice, None to follow STORAGE_PROVIDER."""
     effective_provider: str
     """Where new uploads go now."""
+    changed_by_name: str | None = None
+    """The full name of the admin who changed it."""
+
+
+class EventStoragePublicDomainChangedData(EventDocumentDataBase):
+    """Data payload for `storage_public_domain_changed`: a workspace's own public asset domain."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    previous_url: str | None = None
+    """The previous domain, None for the platform default (STORAGE_REMOTE_PUBLIC_URL)."""
+    url: str | None = None
+    """The new domain, None for the platform default."""
     changed_by_name: str | None = None
     """The full name of the admin who changed it."""
 

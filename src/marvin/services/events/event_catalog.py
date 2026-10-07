@@ -1625,6 +1625,19 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("changed_by_name", "Name of the admin who changed it", "Jane Smith", type="name"),
         ],
     ),
+    CatalogEntry(
+        event_type="storage_public_domain_changed",
+        name="Workspace Asset Domain Changed",
+        description="A platform admin changed the public domain a workspace's remote-stored assets are served from.",
+        category="System",
+        sent_by=["A platform admin setting a workspace's public asset domain (Admin → Storage)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("previous_url", "The previous domain (empty: the platform default)", "https://assets.iwobble.com", type="url"),
+            EventVariable("url", "The new domain (empty: the platform default)", "https://assets.gracemartinfranklin.com", type="url"),
+            EventVariable("changed_by_name", "Name of the admin who changed it", "Jane Smith", type="name"),
+        ],
+    ),
     # ── System: Backups ───────────────────────────────────────────────────────
     CatalogEntry(
         event_type="backup_started",
@@ -1923,6 +1936,7 @@ _PLATFORM_SCOPE: frozenset[str] = frozenset(
         "backup_completed",
         "backup_failed",
         "storage_provider_changed",
+        "storage_public_domain_changed",
     }
 )
 for _e in CATALOG:

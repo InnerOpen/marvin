@@ -116,10 +116,10 @@ def _featured_image_url(entry) -> str | None:
     chosen = next((ea for ea in links if ea.role in ("hero", "featured")), links[0] if links else None)
     if chosen is None:
         return None
-    from marvin.services.storage.provider_factory import provider_for
+    from marvin.services.storage.provider_factory import asset_public_url
 
     try:
-        return provider_for(chosen.asset).get_public_url(chosen.asset.storage_key)
+        return asset_public_url(chosen.asset)
     except Exception:  # noqa: BLE001 — a missing image must never break the workflow context
         return None
 

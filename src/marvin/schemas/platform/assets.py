@@ -2,7 +2,7 @@
 
 from typing import Annotated, Any, Literal
 
-from pydantic import UUID4, AliasChoices, ConfigDict, Field, StringConstraints, field_serializer, field_validator, model_validator
+from pydantic import UUID4, AliasChoices, ConfigDict, Field, PrivateAttr, StringConstraints, field_serializer, field_validator, model_validator
 
 from marvin.schemas._marvin import _MarvinModel
 
@@ -174,17 +174,28 @@ class AssetRead(AssetSummary):
         """Ensure metadata is serialized as dict."""
         return value if isinstance(value, dict) else None
 
-    @model_validator(mode="after")
-    def compute_public_url(self) -> "AssetRead":
-        if not self.storage_key:
-            return self
-        try:
-            from marvin.services.storage.provider_factory import provider_for
+    _group_id: Any = PrivateAttr(default=None)
+    """The row's workspace (not part of the schema): what ``asset_public_url`` needs for its domain."""
 
-            self.public_url = provider_for(self).get_public_url(self.storage_key)
+    @model_validator(mode="wrap")
+    @classmethod
+    def compute_public_url(cls, data: Any, handler) -> "AssetRead":
+        """The URL the file is served at now: its row's provider, on its workspace's public domain when it
+        has one (the workspace id is read from the row, it isn't part of the schema)."""
+        if isinstance(data, AssetRead):
+            return handler(data)
+        model = handler(data)
+        if not model.storage_key:
+            return model
+        group_id = data.get("group_id") if isinstance(data, dict) else getattr(data, "group_id", None)
+        model._group_id = group_id
+        try:
+            from marvin.services.storage.provider_factory import public_url_for
+
+            model.public_url = public_url_for(model.storage_provider, model.storage_key, group_id)
         except Exception:
             pass  # retain DB value as degraded fallback if provider config is broken
-        return self
+        return model
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 

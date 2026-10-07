@@ -197,6 +197,103 @@ def provider_for(asset: Any) -> BaseStorageProvider:
     return _provider(slug, settings)
 
 
+# --------------------------------------------------------------------------------------------------
+# Public URLs, with a workspace's own public domain
+# --------------------------------------------------------------------------------------------------
+
+PUBLIC_URL_SETTING = "STORAGE_REMOTE_PUBLIC_URL"
+"""The setting a remote provider builds its public URLs from. A provider that declares it can serve a
+workspace from that workspace's own domain (``groups.asset_public_base_url``)."""
+_domains: tuple[float, dict[str, str]] | None = None  # (expires at, {workspace id: public base URL})
+_domain_providers: dict[tuple[str, str, int], BaseStorageProvider] = {}
+_domain_warned: set[tuple[str, str]] = set()
+
+
+def _read_workspace_public_bases() -> dict[str, str]:
+    try:
+        from marvin.db.db_setup import session_context
+        from marvin.db.models.groups import Groups
+
+        with session_context() as session:
+            rows = session.query(Groups.id, Groups.asset_public_base_url).filter(Groups.asset_public_base_url.isnot(None)).all()
+    except Exception as e:  # no database yet (a script, startup): the providers' own URLs
+        logger.debug(f"storage: workspaces' public domains are unreadable ({e})")
+        return {}
+    return {str(gid): url for gid, url in rows if url}
+
+
+def workspace_public_bases() -> dict[str, str]:
+    """{workspace id: public base URL} of the workspaces a platform admin gave their own domain. Read
+    through a short cache like the upload choice (every asset URL asks); saving one resets it here."""
+    global _domains
+    now = time.monotonic()
+    if _domains is None or _domains[0] <= now:
+        _domains = (now + CHOICE_TTL_SECONDS, _read_workspace_public_bases())
+    return _domains[1]
+
+
+def reset_workspace_public_bases() -> None:
+    global _domains
+    _domains = None
+
+
+def supports_public_base(slug: str) -> bool:
+    """Whether ``slug``'s provider builds URLs from ``STORAGE_REMOTE_PUBLIC_URL`` (so a workspace domain applies)."""
+    if slug == registry.LOCAL:
+        return False
+    try:
+        provider_cls = registry.get_plugin(slug, needs="provider").provider
+    except StorageConfigError:
+        return False
+    return any(s.env == PUBLIC_URL_SETTING for s in getattr(provider_cls, "settings", ()))
+
+
+def _provider_with_public_base(slug: str, base: str, settings: "AppSettings") -> BaseStorageProvider:
+    """``slug``'s provider built from the same settings, except ``STORAGE_REMOTE_PUBLIC_URL`` = ``base``:
+    the same bucket and credentials, URLs on the workspace's domain. Built once per (slug, base)."""
+    cache_key = (slug, base, id(settings))
+    if cache_key not in _domain_providers:
+        if not supports_public_base(slug):
+            raise StorageConfigError(f"storage provider {slug!r} has no {PUBLIC_URL_SETTING} setting, so it can't serve a workspace's own domain")
+        provider_cls = registry.get_plugin(slug, needs="provider").provider
+        source = registry.settings_source(settings)
+
+        class _WithBase(dict):
+            def get(self, key, default=None):  # read_config only calls get()
+                return base if key == PUBLIC_URL_SETTING else (source[key] if key in source else default)
+
+        try:
+            config = read_config(provider_cls.settings, _WithBase())
+        except StorageConfigError as e:
+            raise StorageConfigError(f"storage provider {slug!r}: {e}") from e
+        _domain_providers[cache_key] = provider_cls.from_config(config)
+    return _domain_providers[cache_key]
+
+
+def public_url_for(slug: str | None, storage_key: str, group_id: Any = None, provider: BaseStorageProvider | None = None) -> str:
+    """The URL a file is served at: ``slug``'s provider (``provider`` when the caller has it already),
+    on the workspace's own public domain when a platform admin set one and the provider is a remote one
+    that builds URLs from ``STORAGE_REMOTE_PUBLIC_URL``. Local files always use the API host. If the
+    domain can't be applied (the provider has no such setting, or fails to build), the provider's own
+    URL is used and the reason logged once."""
+    base = workspace_public_bases().get(str(group_id)) if group_id is not None and slug and slug != registry.LOCAL else None
+    if base:
+        try:
+            return _provider_with_public_base(slug, base, _settings()).get_public_url(storage_key)
+        except Exception as e:
+            reason = str(e) or type(e).__name__
+            if (slug, reason) not in _domain_warned:
+                _domain_warned.add((slug, reason))
+                logger.error(f"storage: workspace {group_id} should be served from {base}, but {reason}; using the provider's own URL")
+    return (provider or provider_for(slug)).get_public_url(storage_key)
+
+
+def asset_public_url(asset: Any) -> str:
+    """The URL an asset row (or anything with ``storage_provider``, ``storage_key`` and ``group_id``) is served at."""
+    group_id = getattr(asset, "group_id", None) or getattr(asset, "_group_id", None)  # a row, or an AssetRead made from one
+    return public_url_for(getattr(asset, "storage_provider", None), asset.storage_key, group_id)
+
+
 def provider_slug(provider: BaseStorageProvider) -> str:
     """The slug a provider instance stores rows under: its own ``slug``, else a guess from its class
     name (stand-ins in tests)."""
@@ -225,4 +322,7 @@ def reset_provider_cache() -> None:
     """Forget the providers built for rows and the admin's choice (tests that change settings or plugins)."""
     _row_providers.clear()
     _fallback_warned.clear()
+    _domain_providers.clear()
+    _domain_warned.clear()
     reset_upload_choice()
+    reset_workspace_public_bases()

@@ -12,7 +12,8 @@ from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
 from marvin.services.assets.asset_storage_service import AssetStorageService
 from marvin.services.event_bus_service.event_types import EventAssetData, EventTypes
 from marvin.services.storage import StorageConfigError
-from marvin.services.storage.provider_factory import get_storage_provider, provider_for
+from marvin.services.storage.keys import content_disposition
+from marvin.services.storage.provider_factory import get_storage_provider, provider_for, public_url_for
 
 router = APIRouter(prefix="/assets")
 
@@ -218,7 +219,14 @@ class AssetsController(BaseUserController):
             if not file_path.exists():
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset file not found on disk.")
 
-            return FileResponse(path=str(file_path), media_type=asset.mime_type or "application/octet-stream", filename=asset.original_filename)
+            # Inline, under the name it was uploaded with (keys carry no filename).
+            disposition = content_disposition(asset.original_filename)
+            return FileResponse(
+                path=str(file_path),
+                media_type=asset.mime_type or "application/octet-stream",
+                headers={"Content-Disposition": disposition} if disposition else None,
+            )
 
-        # For remote providers, redirect to the provider's URL for the file
-        return RedirectResponse(url=storage_provider.get_public_url(asset.storage_key))
+        # For remote providers, redirect to the file's URL (the workspace's public domain when it has
+        # one); the object carries its Content-Disposition from the upload.
+        return RedirectResponse(url=public_url_for(asset.storage_provider, asset.storage_key, self.group_id, provider=storage_provider))

@@ -312,12 +312,11 @@ class WorkspaceSeedLoader:
         from datetime import UTC, datetime
 
         from marvin.services.assets.asset_storage_service import AssetStorageService
+        from marvin.services.storage.keys import object_metadata
         from marvin.services.storage.provider_factory import get_storage_provider, provider_slug
 
         storage_provider = get_storage_provider()
         zip_names = set(zip_file.namelist()) if zip_file else set()
-        workspace = self.repos.groups.get_one(self.repos.group_id)
-        workspace_slug = (workspace.slug if workspace else None) or "workspace"
         user_id = self._get_seed_user_id()
         count = 0
 
@@ -346,14 +345,12 @@ class WorkspaceSeedLoader:
                     checksum_val = checksum_val or hashlib.sha256(raw_bytes).hexdigest()
 
                     storage_service = AssetStorageService(self.repos, storage_provider)
-                    new_storage_key = storage_service.generate_storage_key(
-                        workspace_slug=workspace_slug,
-                        filename=asset.get("originalFilename") or f"{slug}.{asset.get('extension', 'bin')}",
-                        upload_date=datetime.now(UTC),
-                    )
+                    filename = asset.get("originalFilename") or f"{slug}.{asset.get('extension', 'bin')}"
+                    mime_type = asset.get("mimeType", "application/octet-stream")
+                    new_storage_key = storage_service.generate_storage_key(self.repos.group_id, filename, mime_type, datetime.now(UTC))
 
-                    storage_provider.put(new_storage_key, binary_data, asset.get("mimeType", "application/octet-stream"))
-                    new_public_url = storage_provider.get_public_url(new_storage_key)
+                    storage_provider.put(new_storage_key, binary_data, mime_type, object_metadata(filename))
+                    new_public_url = storage_service.public_url(self.repos.group_id, new_storage_key)
                 except Exception as e:
                     self.logger.error(f"Failed to store binary for asset {slug}: {e}")
                     continue

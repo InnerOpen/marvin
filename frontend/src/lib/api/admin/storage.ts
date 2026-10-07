@@ -27,6 +27,16 @@ export interface StorageWorkspaceUsage {
   bytes: number;
 }
 
+/** A workspace's storage settings: the opaque key prefix its files get, and its own public domain. */
+export interface StorageWorkspaceSettings {
+  workspaceId: string;
+  workspace: string;
+  /** The first segment of the workspace's storage keys (and file URLs). */
+  storageCode: string | null;
+  /** Its own public domain for files on a remote provider; null uses remotePublicBaseUrl. */
+  assetPublicBaseUrl: string | null;
+}
+
 export interface StorageSettings {
   /** STORAGE_PROVIDER: where uploads go until an admin chooses. */
   envDefault: string;
@@ -38,6 +48,9 @@ export interface StorageSettings {
   warning: string | null;
   providers: StorageProviderOption[];
   workspaces: StorageWorkspaceUsage[];
+  workspaceSettings: StorageWorkspaceSettings[];
+  /** STORAGE_REMOTE_PUBLIC_URL: the domain remote files use when their workspace has none of its own. */
+  remotePublicBaseUrl: string | null;
 }
 
 const PATH = "/api/admin/storage";
@@ -53,6 +66,23 @@ export async function updateStorageSettings(
   return fetchApi<StorageSettings>(
     PATH,
     { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uploadProvider }) },
+    authToken,
+  );
+}
+
+/** Serve a workspace's remote-stored files from its own domain (null: the platform default). */
+export async function updateWorkspaceStorage(
+  workspaceId: string,
+  assetPublicBaseUrl: string | null,
+  authToken?: string,
+): Promise<StorageSettings> {
+  return fetchApi<StorageSettings>(
+    `${PATH}/workspaces/${encodeURIComponent(workspaceId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assetPublicBaseUrl }),
+    },
     authToken,
   );
 }

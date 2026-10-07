@@ -291,12 +291,16 @@ def _image(name="idle"):
 
 def test_library_files_record_and_use_their_own_provider(platform):
     from marvin.services.ai.character_library import library_store
+    from marvin.services.storage.keys import LIBRARY_CODE, is_opaque
 
     pack_id = uuid.uuid4()
     _choose("fakes3")
     store = library_store(pack_id)
     new = store.put(_image(), "idle.gif", "a")
-    assert new["provider"] == "fakes3" and new["url"].startswith("https://cdn.example.test/_platform/character-packs/")
+    # An opaque key: the platform prefix, the month and a UUID; neither the pack nor the name.
+    assert new["provider"] == "fakes3" and new["url"] == f"https://cdn.example.test/{new['key']}"
+    assert is_opaque(new["key"], LIBRARY_CODE) and "idle" not in new["key"] and str(pack_id) not in new["key"]
+    assert FakeRemote.store[new["key"]][2] == {"content_disposition": 'inline; filename="idle.gif"'}
 
     # A file stored before files recorded a provider lives on local disk, wherever uploads go now.
     local = LocalStorageProvider(root=platform.local_root)

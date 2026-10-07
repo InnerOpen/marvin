@@ -14,7 +14,7 @@ import pytest
 from fastapi import HTTPException, UploadFile
 from PIL import Image
 
-from marvin.services.ai.character_library import LIBRARY_STORAGE_PREFIX
+from marvin.services.storage.keys import LIBRARY_CODE, is_opaque
 from tests import character_images as images
 
 
@@ -196,8 +196,9 @@ def test_a_pack_upload_stores_its_files_under_the_platform_prefix_not_as_assets(
     pack = admin.create("idle.gif", "waving.gif", "extra.gif", name="Robot")
     assert set(pack.states) == {"idle", "greeting"} and [f.name for f in pack.files] == ["idle.gif", "waving.gif", "extra.gif"]
     stored = _stored(storage.root)
-    assert len(stored) == 3 and all(k.startswith(f"{LIBRARY_STORAGE_PREFIX}/{pack.id}/") for k in stored)
-    assert all(f.url.startswith(f"/assets/{LIBRARY_STORAGE_PREFIX}/") for f in pack.files)  # served like asset files
+    # Opaque keys under the platform's prefix: neither the pack nor the file names appear in them.
+    assert len(stored) == 3 and all(is_opaque(k, LIBRARY_CODE) and str(pack.id) not in k and "idle" not in k for k in stored)
+    assert all(f.url.startswith(f"/assets/{LIBRARY_CODE}/") for f in pack.files)  # served like asset files
     assert _asset_ids(db_session, workspace[0]) == set()
 
 
@@ -309,7 +310,7 @@ def test_uploading_after_a_library_pack_replaces_it_and_leaves_the_pack_alone(ad
     settings.use_library(pack.id)
     own = settings.upload("idle.gif")
     assert own.library is None and len(own.files) == 1
-    assert any(k.startswith(f"{LIBRARY_STORAGE_PREFIX}/{pack.id}/") for k in _stored(storage.root))
+    assert any(is_opaque(k, LIBRARY_CODE) for k in _stored(storage.root))
 
 
 def test_any_member_reads_the_library_to_choose_from(admin, settings):

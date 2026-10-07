@@ -4,8 +4,9 @@ workspace or agent to pick instead of uploading its own (db/models/platform/char
 Plugins and shared assets are installed site-wide by a platform admin, and workspaces only choose. So a
 pack's files belong to no workspace: assets are workspace-scoped (every asset row has a group), and a
 pack shared by all of them can't be one workspace's asset — deleting that workspace would take the pack
-from everyone. They go to the provider new uploads go to (Admin → Storage), under a prefix of their own
-(LIBRARY_STORAGE_PREFIX/<pack id>/…), and are loaded by the provider's public URL exactly as asset
+from everyone. They go to the provider new uploads go to (Admin → Storage), under opaque keys of their
+own (``_platform/<yyyy>/<mm>/<uuid>.<ext>``, services/storage/keys.py; files stored before that are under
+LIBRARY_STORAGE_PREFIX/<pack id>/…), and are loaded by the provider's public URL exactly as asset
 files are (local storage: the /assets static mount; S3: the bucket's public URL). Like an asset row,
 each file records the provider it lives in ("provider"; a file without one predates that and is
 local), so switching providers or moving files never breaks a pack.
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Never a workspace's slug: workspace keys are "<slug>/assets/…", and slugs don't start with "_".
+# Where library files were stored before opaque keys (never a workspace's: slugs and storage codes have no "_").
 LIBRARY_STORAGE_PREFIX = "_platform/character-packs"
 MAX_PACK_SLUG = 64
 DEFAULT_PACK_SLUG = "character"
@@ -45,6 +46,16 @@ def library_file_provider(file: dict) -> str:
     """The provider a pack file lives in. Files stored before files recorded one are local: every
     environment stored on local disk until then."""
     return file.get("provider") or LOCAL_PROVIDER
+
+
+def library_download_name(file: dict) -> str:
+    """The name a library file downloads as: its name, with the extension its key carries."""
+    from marvin.services.storage.keys import key_extension
+
+    key = file.get("key") or ""
+    name = file.get("name") or key.rsplit("/", 1)[-1]
+    ext = key_extension(key)
+    return name if "." in name or not ext else f"{name}.{ext}"
 
 
 @dataclass
@@ -61,10 +72,11 @@ class LibraryFileStore:
         return f"{LIBRARY_STORAGE_PREFIX}/{self.pack_id}/"
 
     def put(self, image: CharacterImage, name: str, slug: str) -> dict:
+        from marvin.services.storage.keys import LIBRARY_CODE, new_key, object_metadata
         from marvin.services.storage.provider_factory import provider_slug
 
-        key = f"{self.prefix}{slug}-{name}"
-        self.storage.put(storage_key=key, file_data=io.BytesIO(image.data), content_type=image.mime_type)
+        key = new_key(LIBRARY_CODE, name, image.mime_type)
+        self.storage.put(storage_key=key, file_data=io.BytesIO(image.data), content_type=image.mime_type, metadata=object_metadata(name))
         return {"key": key, "url": self.storage.get_public_url(key), "provider": provider_slug(self.storage)}
 
     def storage_for(self, file: dict) -> BaseStorageProvider:
@@ -74,9 +86,12 @@ class LibraryFileStore:
         return self.storage if slug == provider_slug(self.storage) else provider_for(slug)
 
     def delete(self, file: dict) -> None:
-        # Keys come from the pack's stored JSON, never a request — but a pack only ever deletes its own.
+        # Keys come from the pack's stored JSON, never a request — but a pack only ever deletes library
+        # files: its own old-style ones, or opaque library keys (never a workspace's).
+        from marvin.services.storage.keys import LIBRARY_CODE, is_opaque
+
         key = file.get("key") or ""
-        if key.startswith(self.prefix):
+        if key.startswith(self.prefix) or is_opaque(key, LIBRARY_CODE):
             self.storage_for(file).delete(key)
 
 
@@ -122,7 +137,7 @@ def library_reference(session: Session, ref: str | None) -> dict:
 def _current(session: Session | None, file: dict) -> tuple[str, str] | None:
     """(storage key, URL it is served at now) of a character file: an asset file by its row's provider,
     a library file by the provider it records. None when that can't be worked out (the stored URL stays)."""
-    from marvin.services.storage.provider_factory import provider_for
+    from marvin.services.storage.provider_factory import asset_public_url, provider_for
 
     try:
         if file.get("assetId"):
@@ -131,7 +146,7 @@ def _current(session: Session | None, file: dict) -> tuple[str, str] | None:
             from marvin.db.models.platform import Assets
 
             asset = session.get(Assets, uuid.UUID(str(file["assetId"])))
-            return (asset.storage_key, provider_for(asset).get_public_url(asset.storage_key)) if asset is not None else None
+            return (asset.storage_key, asset_public_url(asset)) if asset is not None else None
         if file.get("key"):
             return file["key"], provider_for(library_file_provider(file)).get_public_url(file["key"])
     except Exception as e:  # a provider that's gone or misconfigured: keep serving the stored URL

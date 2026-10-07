@@ -38,6 +38,12 @@ if TYPE_CHECKING:
     from .webhooks import GroupWebhooksModel
 
 
+def _new_storage_code() -> str:
+    from marvin.services.storage.keys import new_code
+
+    return new_code()
+
+
 class Groups(SqlAlchemyBase, BaseMixins):
     """
     SQLAlchemy model representing a user group.
@@ -56,6 +62,16 @@ class Groups(SqlAlchemyBase, BaseMixins):
     # the instance secret. Generated on first backup, downloadable, never included in a bundle.
     backup_key_encrypted: Mapped[str | None] = mapped_column(
         sa.Text, nullable=True, doc="Instance-encrypted per-workspace backup key (see services.backup.keys)."
+    )
+
+    # Storage (services/storage/keys.py): the opaque first segment of every key this workspace's files get,
+    # made once and never changed; and the public domain its files on a remote provider are served from
+    # (a platform admin's setting, Admin → Storage; empty means the provider's own, STORAGE_REMOTE_PUBLIC_URL).
+    storage_code: Mapped[str | None] = mapped_column(
+        sa.String(16), unique=True, nullable=True, default=_new_storage_code, doc="Opaque, stable key prefix of this workspace's stored files."
+    )
+    asset_public_base_url: Mapped[str | None] = mapped_column(
+        sa.String(255), nullable=True, doc="Public base URL of this workspace's remote-stored assets (platform admin); None: the provider's."
     )
 
     # Relationship to Users model (one-to-many: one group has many users)

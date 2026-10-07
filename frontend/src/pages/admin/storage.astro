@@ -102,6 +102,45 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
         </table>
       </section>
 
+      <section class="settings-section" data-testid="workspace-domains">
+        <h3>Workspace keys and public domains</h3>
+        <p>
+          New files are stored as <code>&lt;prefix&gt;/&lt;yyyy&gt;/&lt;mm&gt;/&lt;uuid&gt;.&lt;ext&gt;</code>: the prefix is a fixed,
+          random code per workspace, so URLs show neither the workspace nor the file's name. A workspace can serve
+          its files on a remote provider from its own domain, which must serve the same bucket (an R2 custom domain
+          or a Cloudflare for SaaS hostname; see the "Assets on R2" runbook). Empty uses the platform default
+          {storage.remotePublicBaseUrl ? <code>{storage.remotePublicBaseUrl}</code> : <span>(<code>STORAGE_REMOTE_PUBLIC_URL</code>, not set)</span>}.
+          Files on local disk always use the API host.
+        </p>
+        <table class="table">
+          <thead>
+            <tr><th>Workspace</th><th>Key prefix</th><th>Public asset domain</th><th></th></tr>
+          </thead>
+          <tbody>
+            {storage.workspaceSettings.map((w) => (
+              <tr data-workspace-id={w.workspaceId}>
+                <td><a href={`/admin/groups/${w.workspaceId}`}>{w.workspace}</a></td>
+                <td><code>{w.storageCode ?? "—"}</code></td>
+                <td>
+                  <input
+                    class="domain-input"
+                    type="url"
+                    inputmode="url"
+                    placeholder={storage.remotePublicBaseUrl ?? "https://assets.example.com"}
+                    value={w.assetPublicBaseUrl ?? ""}
+                    aria-label={`Public asset domain for ${w.workspace}`}
+                  />
+                </td>
+                <td class="row-actions">
+                  <button type="button" class="button domain-save">Save</button>
+                  <span class="status-text domain-status" role="status"></span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
       <section class="settings-section">
         <h3>By workspace</h3>
         {storage.workspaces.length === 0 ? (
@@ -129,7 +168,29 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
 </AdminLayout>
 
 <script>
-  import { updateStorageSettings } from "@/lib/api/admin/storage";
+  import { updateStorageSettings, updateWorkspaceStorage } from "@/lib/api/admin/storage";
+
+  for (const row of document.querySelectorAll<HTMLTableRowElement>("tr[data-workspace-id]")) {
+    const input = row.querySelector<HTMLInputElement>(".domain-input");
+    const button = row.querySelector<HTMLButtonElement>(".domain-save");
+    const status = row.querySelector<HTMLElement>(".domain-status");
+    const id = row.dataset.workspaceId;
+    if (!input || !button || !id) continue;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      if (status) status.textContent = "Saving…";
+      try {
+        const saved = await updateWorkspaceStorage(id, input.value.trim() || null);
+        const mine = saved.workspaceSettings.find((w) => w.workspaceId === id);
+        input.value = mine?.assetPublicBaseUrl ?? "";
+        if (status) status.textContent = "Saved";
+      } catch (err) {
+        if (status) status.textContent = "Error: " + (err instanceof Error ? err.message : "save failed");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  }
 
   const form = document.getElementById("storage-form") as HTMLFormElement | null;
   const saveBtn = document.getElementById("storage-save") as HTMLButtonElement | null;
@@ -222,6 +283,19 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
   }
   .table .num {
     text-align: right;
+  }
+  .domain-input {
+    width: 100%;
+    min-width: 220px;
+    padding: 6px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel);
+    color: inherit;
+    font: inherit;
+  }
+  .row-actions {
+    white-space: nowrap;
   }
   .alert.error {
     padding: 12px 16px;

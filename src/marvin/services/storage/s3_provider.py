@@ -20,6 +20,7 @@ except ImportError:
 from marvin_integration_sdk.storage import Setting
 
 from .base_provider import BaseStorageProvider, StorageMetadata
+from .keys import CONTENT_DISPOSITION_META
 
 
 class S3StorageProvider(BaseStorageProvider):
@@ -109,6 +110,10 @@ class S3StorageProvider(BaseStorageProvider):
         extra_args: dict[str, Any] = {
             "ContentType": content_type,
         }
+        metadata = dict(metadata or {})
+        disposition = metadata.pop(CONTENT_DISPOSITION_META, None)  # the object's header, not user metadata
+        if isinstance(disposition, str) and disposition.isascii() and disposition.isprintable():
+            extra_args["ContentDisposition"] = disposition
         if metadata:
             extra_args["Metadata"] = {k: str(v) for k, v in metadata.items()}
 

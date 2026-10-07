@@ -45,10 +45,92 @@ class WorkspaceUsage:
 
 
 @dataclass
+class WorkspaceStorage:
+    """A workspace's storage settings: the opaque prefix its keys get, and its own public domain."""
+
+    workspace_id: str
+    workspace: str
+    storage_code: str | None
+    asset_public_base_url: str | None
+
+
+@dataclass
 class StorageStatus:
     target: provider_factory.UploadTarget
     providers: list[ProviderOption]
     workspaces: list[WorkspaceUsage] = field(default_factory=list)
+    workspace_settings: list[WorkspaceStorage] = field(default_factory=list)
+    remote_public_base_url: str | None = None
+    """``STORAGE_REMOTE_PUBLIC_URL``: the public domain of remote files whose workspace has none of its own."""
+
+
+class InvalidPublicBaseURLError(ValueError):
+    """Not a URL a workspace's files can be served from."""
+
+
+MAX_PUBLIC_BASE_URL = 255
+
+
+def validate_public_base_url(url: str | None, *, allow_http: bool = False) -> str | None:
+    """``url`` as stored (no trailing ``/``), or None for empty. It must be an absolute ``https://`` URL
+    with a host and nothing else: no user info, query or fragment (a path prefix is allowed).
+    ``allow_http`` also accepts ``http://`` (development only)."""
+    from urllib.parse import urlsplit
+
+    url = (url or "").strip()
+    if not url:
+        return None
+    if len(url) > MAX_PUBLIC_BASE_URL:
+        raise InvalidPublicBaseURLError(f"at most {MAX_PUBLIC_BASE_URL} characters")
+    try:
+        parts = urlsplit(url)
+        host, _ = parts.hostname, parts.port  # .port raises for a malformed port
+    except ValueError as e:
+        raise InvalidPublicBaseURLError(f"not a URL ({e})") from None
+    schemes = ("https", "http") if allow_http else ("https",)
+    if parts.scheme not in schemes:
+        raise InvalidPublicBaseURLError("must start with https://" if not allow_http else "must start with https:// or http://")
+    if not host or not all(c.isalnum() or c in ".-" for c in host) or host.startswith((".", "-")) or ".." in host:
+        raise InvalidPublicBaseURLError("needs a host name, e.g. https://assets.example.com")
+    if parts.username or parts.password or "@" in parts.netloc:
+        raise InvalidPublicBaseURLError("must not carry a user name or password")
+    if parts.query or parts.fragment or "?" in url or "#" in url:
+        raise InvalidPublicBaseURLError("must not have a query string or fragment")
+    if any(c.isspace() for c in url):
+        raise InvalidPublicBaseURLError("must not contain spaces")
+    return url.rstrip("/")
+
+
+def workspace_settings(session: Session) -> list[WorkspaceStorage]:
+    from marvin.db.models.groups import Groups
+
+    rows = session.query(Groups.id, Groups.name, Groups.storage_code, Groups.asset_public_base_url).order_by(Groups.name)
+    return [WorkspaceStorage(str(gid), name or str(gid), code, url) for gid, name, code, url in rows]
+
+
+def set_workspace_public_base_url(session: Session, workspace_id, url: str | None, *, allow_http: bool = False) -> tuple[str, str | None, str | None]:
+    """Give a workspace its own public domain for files on a remote provider (None: the provider's own).
+    Returns (workspace name, previous, new). Raises ``InvalidPublicBaseURLError``, or ``LookupError``
+    for an unknown workspace. The caller commits."""
+    from marvin.db.models.groups import Groups
+
+    url = validate_public_base_url(url, allow_http=allow_http)
+    group = session.get(Groups, workspace_id)
+    if group is None:
+        raise LookupError(f"no workspace {workspace_id}")
+    previous = group.asset_public_base_url
+    group.asset_public_base_url = url
+    session.flush()
+    provider_factory.reset_workspace_public_bases()
+    return group.name, previous, url
+
+
+def remote_public_base_url() -> str | None:
+    """``STORAGE_REMOTE_PUBLIC_URL`` as configured (shown next to the workspaces' own)."""
+    try:
+        return registry.settings_source(provider_factory._settings())[provider_factory.PUBLIC_URL_SETTING] or None
+    except KeyError:
+        return None
 
 
 def check_available(slug: str) -> None:
@@ -134,7 +216,13 @@ def storage_status(session: Session) -> StorageStatus:
         .order_by(Groups.name, Assets.storage_provider)
     )
     workspaces = [WorkspaceUsage(str(gid), name or str(gid), slug, n, int(size or 0)) for gid, name, slug, n, size in rows]
-    return StorageStatus(target=target, providers=options, workspaces=workspaces)
+    return StorageStatus(
+        target=target,
+        providers=options,
+        workspaces=workspaces,
+        workspace_settings=workspace_settings(session),
+        remote_public_base_url=remote_public_base_url(),
+    )
 
 
 def set_upload_provider(session: Session, slug: str | None) -> tuple[str | None, str | None]:

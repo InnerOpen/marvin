@@ -24,6 +24,8 @@ const RESPONSE_PASSTHROUGH = [
   "cache-control",
   "etag",
   "last-modified",
+  // Opaque keys carry no filename: the backend names the file (inline; filename="…").
+  "content-disposition",
 ];
 
 export const GET: APIRoute = async ({ params, request }) => {

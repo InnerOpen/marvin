@@ -2098,6 +2098,14 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
       rollback, `--prune-local`), `/assets/<key>` redirects for moved files, backups mirror every provider in use
       (`BACKUP_ASSET_PROVIDERS`); e2e against MinIO green — see "Review (slice 8)". **No environment switched.**
       Left: Jared's Cloudflare checklist + Secret, then the runbook (`docs/manual/assets-on-r2.md`), dev first
+- [ ] **Opaque asset keys + per-workspace asset domain** (Jared 2026-10-07: "A but can B be configurable"):
+      **A** new keys `<storage code>/<yyyy>/<mm>/<uuid>.<ext>` for assets and library files (`_platform/…`): no
+      workspace slug, no filename; original name served as `Content-Disposition` (Marvin) and stored on the object
+      (plugin); `storage_migrate --rekey [--to P]` + `--prune-old`, old `/assets/` URLs keep working. **B** a
+      platform admin's per-workspace `asset_public_base_url` (Admin → Storage, audited) for remote files.
+      — **code built** on `feat/opaque-asset-keys` (see "Review (opaque keys)"). Left: dev `--rekey` on
+      `marvin-assets-dev` + rebuild dev sites + prunes (runbook "Opaque keys"); then production's switch with
+      `--to s3 --rekey --verify` (opaque from day one)
 - [ ] **SDK rename** (its own slice, Jared 2026-10-06): `marvin-integration-sdk` → `marvin-plugin-sdk`. Ship the
       new package `marvin_plugin_sdk` and keep `marvin_integration_sdk` as a re-exporting shim (both import names
       work); publish the new distribution name; move core's pin, the plugin repos' dependencies and the init

@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from marvin.services.ai.character import CharacterImage, clear_matte, library_ref, sniff_image
+from marvin.services.storage.keys import object_metadata
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -54,12 +55,12 @@ class Repair:
 
 
 def _library_files(session: Session) -> Iterator[StoredFile]:
-    from marvin.services.ai.character_library import library_file_provider, list_packs
+    from marvin.services.ai.character_library import library_download_name, library_file_provider, list_packs
 
     for pack in list_packs(session):
         for f in (pack.pack or {}).get("files") or []:
             if f.get("key"):
-                yield StoredFile(owner=f"library pack {pack.slug}", name=f.get("name") or f["key"], key=f["key"], provider=library_file_provider(f))
+                yield StoredFile(owner=f"library pack {pack.slug}", name=library_download_name(f), key=f["key"], provider=library_file_provider(f))
 
 
 def _own_characters(session: Session) -> Iterator[tuple[str, dict]]:
@@ -99,7 +100,9 @@ def _repair(storage: BaseStorageProvider, file: StoredFile, apply: bool) -> Repa
     if fixed is None:
         return None
     if apply:
-        stored = storage.put(storage_key=file.key, file_data=io.BytesIO(fixed.data), content_type=fixed.mime_type)
+        # Written back in place, keeping the object's download name (keys carry none).
+        name = file.asset.original_filename if file.asset is not None else file.name
+        stored = storage.put(storage_key=file.key, file_data=io.BytesIO(fixed.data), content_type=fixed.mime_type, metadata=object_metadata(name))
         if file.asset is not None:
             file.asset.file_size, file.asset.checksum = stored.size, stored.checksum or file.asset.checksum
     return Repair(owner=file.owner, name=file.name, key=file.key, before=len(data), after=len(fixed.data))

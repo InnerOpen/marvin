@@ -1,4 +1,5 @@
-"""Asset storage (admin): which provider new uploads go to, and how many files live on each.
+"""Asset storage (admin): which provider new uploads go to, how many files live on each, and each
+workspace's key prefix and own public domain for remote files.
 
 Switching is safe at any time and in either direction: it only decides where new uploads are stored.
 Existing files keep serving from the provider their row names until `scripts/storage_migrate.py`
@@ -8,11 +9,23 @@ moves them. See services/storage/admin.py.
 from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import UUID4
 
 from marvin.routes._base import BaseAdminController, controller
-from marvin.schemas.admin.storage import StorageSettingsRead, StorageSettingsUpdate
-from marvin.services.event_bus_service.event_types import EventOperation, EventStorageProviderChangedData, EventTypes
-from marvin.services.storage.admin import UnavailableProviderError, set_upload_provider, storage_status
+from marvin.schemas.admin.storage import StorageSettingsRead, StorageSettingsUpdate, StorageWorkspaceUpdate
+from marvin.services.event_bus_service.event_types import (
+    EventOperation,
+    EventStorageProviderChangedData,
+    EventStoragePublicDomainChangedData,
+    EventTypes,
+)
+from marvin.services.storage.admin import (
+    InvalidPublicBaseURLError,
+    UnavailableProviderError,
+    set_upload_provider,
+    set_workspace_public_base_url,
+    storage_status,
+)
 
 router = APIRouter(prefix="/storage")
 
@@ -35,6 +48,8 @@ class AdminStorageController(BaseAdminController):
             warning=warning,
             providers=[asdict(p) for p in status_.providers],
             workspaces=[asdict(w) for w in status_.workspaces],
+            workspace_settings=[asdict(w) for w in status_.workspace_settings],
+            remote_public_base_url=status_.remote_public_base_url,
         )
 
     @router.get("", response_model=StorageSettingsRead, summary="Admin: Get Asset Storage Settings")
@@ -54,6 +69,45 @@ class AdminStorageController(BaseAdminController):
         if previous != chosen:
             self._announce(previous, chosen, result.effective_provider)
         return result
+
+    @router.put("/workspaces/{workspace_id}", response_model=StorageSettingsRead, summary="Admin: Set a Workspace's Public Asset Domain")
+    def update_workspace_storage(self, workspace_id: UUID4, data: StorageWorkspaceUpdate) -> StorageSettingsRead:
+        """Serve a workspace's files on a remote provider (s3) from its own domain (null: the platform's,
+        STORAGE_REMOTE_PUBLIC_URL). The domain must serve the same bucket (DNS work: see the "Assets on R2"
+        runbook). Files on local disk keep the API host. 422 for a URL that isn't https://host[/path]."""
+        try:
+            name, previous, url = set_workspace_public_base_url(
+                self.session, workspace_id, data.asset_public_base_url, allow_http=not self.settings.PRODUCTION
+            )
+        except LookupError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found") from None
+        except InvalidPublicBaseURLError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Public asset domain {e}") from None
+        self.session.commit()
+        if previous != url:
+            self._announce_domain(workspace_id, name, previous, url)
+        return self._read()
+
+    def _announce_domain(self, workspace_id, workspace: str, previous: str | None, url: str | None) -> None:
+        """storage_public_domain_changed (platform scope, always audited), under the workspace it serves."""
+        name = getattr(self.user, "full_name", None) or self.user.username
+        self.logger.info(
+            f"Storage: workspace {workspace!r} assets now served from {url or 'STORAGE_REMOTE_PUBLIC_URL'} (was {previous!r}, by {name})"
+        )
+        self.event_bus.dispatch(
+            integration_id="storage_settings",
+            group_id=workspace_id,
+            event_type=EventTypes.storage_public_domain_changed,
+            document_data=EventStoragePublicDomainChangedData(
+                operation=EventOperation.update,
+                previous_url=previous,
+                url=url,
+                changed_by_name=name,
+            ),
+            message=f"{workspace}: remote assets now served from {url or 'the platform default'} (was {previous or 'the platform default'})",
+            user_id=self.user.id,
+            entity_type="storage",
+        )
 
     def _announce(self, previous: str | None, chosen: str | None, effective: str) -> None:
         """storage_provider_changed (platform scope, always audited)."""
