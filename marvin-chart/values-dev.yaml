@@ -66,21 +66,36 @@ persistence:
   storageClass: managed-nfs-storage
   size: 2Gi
 
-# The Postgres backup: an hourly pg_dump (+ config + assets) to dev's own bucket, marvin-backups-dev
-# (BACKUP_S3_BUCKET in the Secret). At most an hour of data lost; no point-in-time recovery by choice.
-# Retention for postgres/: 24 hourly + 7 daily, no weekly (config/: 7 daily) — less than production's
-# 48 + 14 + 8, since dev's data is disposable.
+# Backups: the backup engine, one CronJob per target (marvin-backup-<name>; docs/manual/offsite-backup.md).
+# r2: hourly pg_dump (+ config + assets) to dev's own bucket, marvin-backups-dev (BACKUP_S3_BUCKET in the
+# Secret), through the s3 target of marvin-storage-s3 (plugins.packages below). Same key layout as the
+# old offsite_backup.py job, so it carries on that history. At most an hour of data lost; no point-in-time
+# recovery by choice. Retention 24 hourly + 7 daily, no weekly — less than production's, since dev's data
+# is disposable. Dev has no NAS target.
 backup:
-  enabled: true
+  # The old single-target offsite_backup.py CronJob (marvin-offsite-backup), retired by the r2 target
+  # below. Its settings stay until slice 7 removes it, so `enabled: true` (with the r2 target removed or
+  # suspended) is the rollback.
+  enabled: false
   existingSecret: marvin-r2-backup
   retention:
     hourly: 24
     daily: 7
     weekly: 0
   schedule: "0 * * * *"
-  # An hourly run must finish (or give up) well before the next one.
   activeDeadlineSeconds: 2700
   startingDeadlineSeconds: 900
+  targets:
+    - name: r2
+      type: s3
+      # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET (region: the
+      # plugin's default, auto — right for R2).
+      existingSecret: marvin-r2-backup
+      schedule: "0 * * * *"
+      retention: {hourly: 24, daily: 7, weekly: 0}
+      # An hourly run must finish (or give up) well before the next one.
+      activeDeadlineSeconds: 2700
+      startingDeadlineSeconds: 900
 
 route:
   enabled: true
@@ -99,41 +114,24 @@ route:
     - name: X-Robots-Tag
       value: "noindex, nofollow"
 
-# --- Integration plugins (split backend only) — same set as production ----------------------------
-initContainers:
-  - name: install-integrations
-    image: python:3.12-slim
-    command: ["sh", "-c"]
-    args:
-      - >
-        set -eux;
-        pip install --target=/plugins
-        https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
-        https://github.com/InnerOpen/marvin-integration-apprise/archive/refs/heads/main.tar.gz
-        https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
-        https://github.com/InnerOpen/marvin-integration-openai-images/archive/refs/heads/main.tar.gz
-        https://github.com/InnerOpen/marvin-integration-instagram/archive/refs/heads/main.tar.gz
-        https://github.com/InnerOpen/marvin-integration-square/archive/refs/heads/main.tar.gz
-        https://github.com/InnerOpen/marvin-integration-cloudflare-pages/archive/refs/heads/main.tar.gz
-        https://github.com/InnerOpen/marvin-integration-buttondown/archive/refs/heads/main.tar.gz
-        https://github.com/InnerOpen/marvin-integration-n8n/archive/refs/heads/main.tar.gz;
-        echo "--- installed into /plugins ---";
-        ls -1 /plugins
-    volumeMounts:
-      - name: plugins
-        mountPath: /plugins
-
-extraVolumes:
-  - name: plugins
-    emptyDir: {}
-
-extraVolumeMounts:
-  - name: plugins
-    mountPath: /plugins
+# --- Site-wide plugins — same set as production -------------------------------------------------
+# One pip install into an emptyDir on PYTHONPATH, in the backend and in each backup CronJob (the r2
+# target comes from marvin-storage-s3). The SDK tarball only satisfies pip; the chart removes it after
+# the install, so the image's pinned SDK is the one imported.
+plugins:
+  packages:
+    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-apprise/archive/refs/heads/main.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-openai-images/archive/refs/heads/main.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-instagram/archive/refs/heads/main.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-square/archive/refs/heads/main.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-cloudflare-pages/archive/refs/heads/main.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-buttondown/archive/refs/heads/main.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-n8n/archive/refs/heads/main.tar.gz
+    - https://github.com/InnerOpen/marvin-storage-s3/archive/refs/heads/main.tar.gz
 
 extraEnv:
-  - name: PYTHONPATH
-    value: /plugins
   # Dev holds a copy of production: no scheduler, so nothing fires on its own (webhook delivery,
   # scheduled tasks, queued site rebuilds, retries). The copy is also loaded with --pause-outbound.
   # Turn it on only to test something that needs it, with outbound rows still paused.

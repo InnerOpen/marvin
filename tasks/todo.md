@@ -1884,9 +1884,10 @@ errors; 390px shows only the parent with no horizontal scroll, light and dark.
 # Storage plugins + backup targets — cloud storage leaves core (plan, 2026-10-06, Jared: "everything uses the same APIs")
 
 **Status:** all 8 slices approved by Jared (2026-10-06); slices 1–3 merged and in production since revision 28
-(`develop-f83140e`) — see "Review (slices 1–3)" below; slice 4 merged and live too ("Review (slice 4)"). Slice 5
-built: the plugin repo exists locally only (`~/code/MarvinStorageS3`, not on GitHub yet), so "installed in dev" waits
-for the repo — see "Review (slice 5)".
+(`develop-f83140e`) — see "Review (slices 1–3)" below; slice 4 merged and live too ("Review (slice 4)"). Slice 5:
+the plugin is on GitHub (`InnerOpen/marvin-storage-s3`, public, `main`, CI green) and installed in dev with slice 6.
+Slice 6: **dev cut over** (2026-10-06, `r2` target hourly, legacy job off, restore test green); **production pending
+the coordinator's promotion** of the same chart change — see "Review (slice 6)".
 Decisions below are Jared's (2026-10-06), open questions answered the same day.
 
 **Goal (Jared 2026-10-06):** keep core lean. Cloud SDKs leave core, and storage becomes a site-wide plugin type the
@@ -2066,9 +2067,9 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
 - [x] **Slice 4 — chart targets:** `backup.targets[]`, one CronJob per target, static NFS PV/PVC for `local`,
       data-PVC guardrail (`helm template` fails as expected), old `backup.*` still renders unchanged; production
       gets the `nas-nightly` local target (NAS export, `prod/` subfolder, 02:30 New York, 0/30/8)
-- [ ] **Slice 5 — `marvin-storage-s3`:** repo, provider + target, conformance kit on MinIO, ported S3 tests,
+- [x] **Slice 5 — `marvin-storage-s3`:** repo, provider + target, conformance kit on MinIO, ported S3 tests,
       per-provider credential docs; installed in dev
-      — built and verified locally (see "Review (slice 5)"); left: create the GitHub repo, then install it in dev
+      — repo `InnerOpen/marvin-storage-s3` (public, CI green); installed in dev through `plugins.packages` with slice 6
 - [ ] **Slice 6 — backup cutover, no R2 gap:** NAS export ready (Jared); **dev first:** targets `r2` (bucket
       `marvin-backups-dev`, same layout, hourly) + `nas` (nightly), old CronJob off in the same upgrade; a one-off
       run per target, `list` on both, the restore test from each (dump → scratch Postgres 17 → per-table counts
@@ -2076,6 +2077,12 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
       hourly; the old CronJob's last run and the new one's first are ≤ 1 h apart) + `backup-nas` (nightly). Run
       `backup-r2` once right after the upgrade, watch the next three hourly runs and the first nightly, then the
       restore test from both targets. Rollback: re-enable `backup.*`
+      — **dev done** (2026-10-06): chart values only (`plugins.packages` incl. the plugin, `backup.targets[r2]`,
+      `backup.enabled: false`; dev and production in one commit); one-off run, `list` and the restore test green
+      (see "Review (slice 6)"). Dev has no NAS target (Decisions, answer 1), so dev's "+ nas" part is dropped.
+      **Production pending** the coordinator's promotion: one upgrade swaps `marvin-offsite-backup` for
+      `marvin-backup-r2` (48/30/8); `nas-nightly` already live since slice 4 (it gains the plugins init container).
+      Then: run `marvin-backup-r2` once, watch three hourly runs + the next nightly, restore test from both targets
 - [ ] **Slice 7 — remove the old code (only after slice 6 has been green for 7 days):** delete
       `offsite_backup.py` + its test, the old `backup-cronjob.yaml` / `backup.*` values; `s3_provider.py` and the
       `s3` registration leave core; `boto3` out of `pyproject.toml` + `uv.lock`; `STORAGE_S3_*` documented as the
@@ -2204,6 +2211,53 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
   the old job passed `BACKUP_S3_REGION` from values); `plugins.packages` must carry the plugin's tarball (and the
   SDK's) in dev and production values. The plugin pulls boto3 + deps (~35 MB) into `/plugins` on each pod start,
   shadowing the image's copies until slice 7 drops boto3 from core.
+
+## Review (slice 6, 2026-10-06)
+- **Chart values only** (no code, no template logic; two comments updated): `values-dev.yaml` and
+  `values-iwobble.yaml` move the integration list from the raw `install-integrations` init container
+  (+ `extraVolumes` / `extraVolumeMounts` / `PYTHONPATH` in `extraEnv`) to `plugins.packages`, adding
+  `marvin-storage-s3` (main tarball); add target `r2` (`type: s3`, `existingSecret: marvin-r2-backup`, hourly,
+  deadlines 2700/900 as before; dev 24/7/0, production 48/30/8 with `timeZone: America/New_York`); set
+  `backup.enabled: false` with the old settings kept as the rollback. No `BACKUP_S3_REGION` needed: the plugin
+  defaults to `auto`, and the Secret's four keys (same in both namespaces) are exactly the plugin's.
+- **One install, no SDK shadowing:** the chart's `install-plugins` replaces `install-integrations` (one init
+  container in the backend, plus one per backup CronJob); it removes the SDK copy after pip, so the image's pinned
+  SDK (`424927150c…` = the SDK's `develop` head, 0.7.0) is imported. Checked in the dev pod:
+  `marvin_integration_sdk` from `/app/.venv`, `boto3` from `/plugins` (shadows the image's until slice 7).
+- **Renders** (per object): default / k8s / production / staging byte-identical. Dev: CronJob
+  `marvin-offsite-backup` removed, `marvin-backup-r2` added, backend init container renamed + rewritten (same
+  packages + the plugin, SDK removed after install), frontend loses the unused `PYTHONPATH`. Production: the same,
+  plus `marvin-backup-nas-nightly` gains the plugins init container / volume / `PYTHONPATH`. Legacy vs new R2
+  CronJob: same schedule, zone, deadlines, image, affinity, data mount; command → `marvin.scripts.backup run
+  --target s3 --name r2`, the four `secretKeyRef`s → `envFrom`, `BACKUP_S3_REGION` dropped, `BACKUP_KEEP_*` set
+  (production 48/30/8; dev unchanged 24/7/0). `helm lint --strict` clean for every values file. A read-only render
+  of production at its live tag against `helm get manifest`: exactly those changes, nothing else.
+- **Dev cutover** (`helm upgrade` revision 8, `image.tag=develop-7f653ff`, chart from this branch): backend and
+  frontend rolled out; the 8 integrations load as before; the storage registry loads lazily, so the backend log
+  shows "storage plugin 's3' replaces core's built-in 's3'" on the first storage call — confirmed by loading the
+  registry in the backend pod (load report `s3`, marvin-storage-s3 0.1.0, ok) and in every backup job's log.
+  `marvin-offsite-backup` and its jobs are gone.
+- **First run** (`oc create job --from=cronjob/marvin-backup-r2`, 60 s incl. the plugin install): found the old
+  job's history in `marvin-backups-dev`: pg_dump 63 tables 7.4 MB, config, **assets 0 uploaded / 516 unchanged**,
+  pruned 2 (the old job's 02:00 UTC dump + config, same hour/day), 8.7 s. `list`: 6 dumps (back to
+  20261006T213943Z) + 2 configs, within 24/7/0.
+- **Restore test** (Job from the CronJob, `restore --into /tmp/restore`): `.secret` identical to the live one;
+  516/516 assets sha256-identical to `marvin-data`; the dump `pg_restore`d into a local `postgres:17` scratch
+  database: **63 tables, 16,062 rows, every per-table count equal** to `marvin-dev-pg` live. Scratch container,
+  dump and Job deleted. (`postgres.md`'s count query needs `psql -U postgres` in the CNPG pod: peer auth.)
+- **Docs:** `offsite-backup.md` rewritten around targets (r2 + NAS, retention table, run/check/restore with the
+  engine, the old job as a retired section with the rollback); `postgres.md` backups + restore test (in-cluster
+  fetch, no credentials on the workstation); chart README "Backups"; `operations.md` "every hour".
+- **New dependency to know about:** every backup run now pip-installs the plugins (GitHub + PyPI egress, ~45 s);
+  if GitHub or PyPI is down, the R2 and NAS runs fail until it's back (the old job needed neither). Fixed for good
+  by pinned tags or baking plugins into an image; not done here.
+- **Production expectations:** `promote-iwobble.sh <develop sha with this commit>` removes `marvin-offsite-backup`
+  and adds `marvin-backup-r2` in the same upgrade (plus the backend restart that installs the plugin). The next
+  run is the following top of the hour (America/New_York), so the old job's last run and the new first are
+  ≤ 1 h apart; run it at once: `oc -n marvin create job --from=cronjob/marvin-backup-r2 marvin-r2-first`, expect
+  `assets 0 uploaded, 516 unchanged` and the old job's same-hour dump pruned. Rollback: `helm rollback marvin
+  <previous revision> -n marvin` (old CronJob back at once), or `backup.enabled: true` + suspend/remove the
+  `r2` target.
 
 ## Decisions (Jared, 2026-10-06)
 - Keep core lean: cloud SDKs out of core. Storage is its own plugin type (`marvin.storage_providers`), with the

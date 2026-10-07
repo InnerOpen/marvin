@@ -72,9 +72,9 @@ Moving a cluster to a new class = restore the newest dump into a new cluster wit
 
 ## Backups
 
-The Postgres backup is the off-site CronJob (`marvin-offsite-backup`), run **hourly** (`backup.schedule: "0 * * * *"`): a `pg_dump --format=custom` of the app's database, read back with `pg_restore --list`, uploaded as `postgres/marvin-<UTC stamp>.dump`, plus the config archive and the asset mirror ([Off-site backup](offsite-backup.md)). Retention for `postgres/`: the newest of each of the last 48 hours, of each of the last 14 days and of each of the last 8 weeks. Dev keeps less: 24 hours and 7 days, no weeks (`backup.retention` in `values-dev.yaml`).
+The Postgres backup is the backup engine's `r2` target (CronJob `marvin-backup-r2`, through the `s3` target of the `marvin-storage-s3` plugin), run **hourly**: a `pg_dump --format=custom` of the app's database, read back with `pg_restore --list`, uploaded as `postgres/marvin-<UTC stamp>.dump`, plus the config archive and the asset mirror ([Off-site backup](offsite-backup.md)). Retention for the dumps: the newest of each of the last 48 hours, of each of the last 30 days and of each of the last 8 weeks. Dev keeps less: 24 hours and 7 days, no weeks (the `r2` target's `retention` in `values-dev.yaml`). It replaced the old off-site CronJob (`marvin-offsite-backup`) in the same bucket, history included.
 
-Production also writes a nightly copy to the NAS: backup target `nas-nightly` (CronJob `marvin-backup-nas-nightly`, 02:30 New York time, 30 daily + 8 weekly), the backup engine with the same `pg_dump`, config archive and asset mirror ([Off-site backup → Backup targets](offsite-backup.md#backup-targets)). It shares a ZFS pool with the live data, so R2 stays the off-site copy. Dev has no NAS target.
+Production also writes a nightly copy to the NAS: backup target `nas-nightly` (CronJob `marvin-backup-nas-nightly`, 02:30 New York time, 30 daily + 8 weekly), with the same `pg_dump`, config archive and asset mirror ([Off-site backup → Targets in the chart](offsite-backup.md#targets-in-the-chart)). It shares a ZFS pool with the live data, so R2 stays the off-site copy. Dev has no NAS target.
 
 - **At most an hour of data can be lost** (whatever was written since the last dump).
 - **No point-in-time recovery, by choice**: no WAL archiving, no Barman Cloud plugin, no cert-manager. A restore goes back to a dump's moment.
@@ -82,24 +82,27 @@ Production also writes a nightly copy to the NAS: backup target `nas-nightly` (C
 Check and run one now:
 
 ```bash
-oc -n marvin-dev get cronjob marvin-offsite-backup; oc -n marvin-dev get jobs --sort-by=.metadata.creationTimestamp | tail -3
-oc -n marvin-dev create job --from=cronjob/marvin-offsite-backup marvin-backup-now
+oc -n marvin-dev get cronjob marvin-backup-r2; oc -n marvin-dev get jobs --sort-by=.metadata.creationTimestamp | tail -3
+oc -n marvin-dev create job --from=cronjob/marvin-backup-r2 marvin-backup-now
 oc -n marvin-dev wait --for=condition=complete job/marvin-backup-now --timeout=10m
-oc -n marvin-dev logs job/marvin-backup-now | tail -3     # "offsite-backup ok: db … (postgres/marvin-….dump)"
+oc -n marvin-dev logs job/marvin-backup-now -c backup | tail -1     # "backup[r2] ok: db … (postgres/marvin-….dump)"
 ```
 
 ### Restore test (do this first on dev, then after any change to the backup)
 
-Fetch the newest dump, load it into a throwaway local Postgres 17, and compare every table's row count with the live database. Take a fresh backup right before (above) so the counts are from the same moment — dev runs no scheduler, so nothing changes in between.
+Fetch the newest dump in a Job made from the target's CronJob (it has the plugin and the credentials; nothing on the workstation needs them), load it into a throwaway local Postgres 17, and compare every table's row count with the live database. Take a fresh backup right before (above) so the counts are from the same moment — dev runs no scheduler, so nothing changes in between. For the NAS use `--from=cronjob/marvin-backup-nas-nightly` and `--target local --name nas-nightly`.
 
 ```bash
 mkdir -p /tmp/r && chmod 700 /tmp/r
-# 1. fetch + verify the newest dump from dev's bucket
-AWS_ACCESS_KEY_ID=$(pass show marvin/r2/access-key-id | head -n1) \
-AWS_SECRET_ACCESS_KEY=$(pass show marvin/r2/secret-access-key | head -n1) \
-BACKUP_S3_ENDPOINT=$(pass show marvin/r2/endpoint | head -n1) BACKUP_S3_BUCKET=marvin-backups-dev \
-DB_ENGINE=postgres PYTHONPATH=src \
-  uv run python -m marvin.scripts.offsite_backup restore --target /tmp/r --skip-config --skip-assets
+# 1. fetch + verify the newest dump from dev's bucket, inside the cluster; the pod waits 10 minutes for the copy
+oc -n marvin-dev create job --from=cronjob/marvin-backup-r2 marvin-restore-test --dry-run=client -o json \
+  | jq '.spec.template.spec.containers[0].command = ["sh", "-c"]
+        | .spec.template.spec.containers[0].args = ["python -m marvin.scripts.backup restore --target s3 --name r2
+            --into /tmp/restore --skip-config --skip-assets && echo READY && sleep 600"]' \
+  | oc apply -f -
+until oc -n marvin-dev logs job/marvin-restore-test -c backup 2>/dev/null | grep -q READY; do sleep 5; done
+oc -n marvin-dev cp -c backup "$(oc -n marvin-dev get pod -l job-name=marvin-restore-test -o name | cut -d/ -f2)":/tmp/restore/marvin.dump /tmp/r/marvin.dump
+oc -n marvin-dev delete job marvin-restore-test
 
 # 2. load it into a scratch Postgres 17
 docker run -d --name marvin-restore-test -e POSTGRES_USER=marvin -e POSTGRES_PASSWORD=marvin -e POSTGRES_DB=marvin \
@@ -109,12 +112,14 @@ sleep 5; docker exec marvin-restore-test pg_restore --exit-on-error --no-owner -
 # 3. per-table counts on both sides must be identical
 COUNTS="select table_name, (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I', table_name), false, true, '')))[1]::text
         from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE' order by 1"
-docker exec marvin-restore-test psql -U marvin -d marvin -tAc "$COUNTS" > /tmp/r/restored.txt
-oc -n marvin-dev exec marvin-dev-pg-1 -c postgres -- psql -d marvin -tAc "$COUNTS" > /tmp/r/live.txt
+docker exec marvin-restore-test psql -U marvin -d marvin -tAc "$COUNTS" | LC_ALL=C sort > /tmp/r/restored.txt
+oc -n marvin-dev exec marvin-dev-pg-1 -c postgres -- psql -U postgres -d marvin -tAc "$COUNTS" | LC_ALL=C sort > /tmp/r/live.txt
 diff /tmp/r/live.txt /tmp/r/restored.txt && echo "restore test OK: $(wc -l < /tmp/r/live.txt) tables"
 
 docker rm -f marvin-restore-test; rm -rf /tmp/r     # the dump is production data: don't keep it
 ```
+
+The `.secret` and assets can be checked the same way inside the Job, against the live volume mounted at `/app/data`: restore without `--skip-config --skip-assets`, then `cmp /tmp/restore/.secret /app/data/.secret` and compare `sha256sum` lists of `/tmp/restore/assets` and `/app/data/assets`.
 
 To **restore for real**, load the dump the same way into an empty database — a new CNPG cluster (`postgres.cluster.name: <new>`) or the app's after a deliberate drop — through `oc port-forward svc/<cluster>-rw 15432:5432` and the `<cluster>-app` credentials, with the backend scaled to 0; then point the release at it and scale back up.
 

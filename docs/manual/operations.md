@@ -75,7 +75,7 @@ Since rc.96 an automatic run whose handler returns `None` writes no execution ro
 
 Admin: **Admin → Operations → Backups** (`/admin/backups`) and `/api/admin/backups` (`GET` list, `POST /workspaces/{workspace_id}`, `GET /workspaces/{workspace_id}/key`, `GET /{filename}`, `POST /workspaces/{workspace_id}/import`). Per workspace: **Settings → General → Backups** (`/workspace/settings/backups`) and `/api/platform/workspace` with `POST /backups`, `GET /backups`, `GET /backups/{filename}`, `GET /backup-key`, `GET /export`, `GET /export/pretty`, `POST /import`. Maintenance actions (temp cleanup, revoked-token cleanup, event cleanup, DB optimize, cache clear, stats) are under `/api/admin/maintenance`.
 
-These are per-workspace content exports kept on the data volume. For the whole installation (users, tokens, event logs, the `.secret`, uploaded files) copied off the cluster every night, see [Off-site backup](offsite-backup.md).
+These are per-workspace content exports kept on the data volume. For the whole installation (users, tokens, event logs, the `.secret`, uploaded files) copied off the cluster every hour, see [Off-site backup](offsite-backup.md).
 
 ## Settings reference
 

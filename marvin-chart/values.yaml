@@ -312,7 +312,7 @@ backup:
       cpu: 500m
       memory: 512Mi
   # Backup targets for the backup engine (templates/backup-targets.yaml), independent of `enabled`
-  # above (the single-target offsite_backup.py CronJob, kept until the cutover). One CronJob
+  # above (the retired single-target offsite_backup.py CronJob, kept as the rollback). One CronJob
   # `<fullname>-backup-<name>` per target runs `python -m marvin.scripts.backup run --target <type>
   # --name <name>` from the backend image, on the backend's node, with the plugins init container when
   # plugins.packages is set. Same key layout as the off-site job (postgres/ or sqlite/, config/,

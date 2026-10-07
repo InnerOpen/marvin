@@ -120,62 +120,51 @@ persistence:
   accessMode: ReadWriteOnce
 ```
 
-#### Off-site Backup
-
-A nightly CronJob (`<release>-offsite-backup`, off by default) copies the data volume to an
-S3-compatible bucket (Cloudflare R2, MinIO, AWS): a consistent SQLite snapshot checked with
-`integrity_check`, a config archive (`.secret`, `scheduler_state.json`, `templates/`), and an
-incremental mirror of `assets/`. It runs `python -m marvin.scripts.offsite_backup` from the backend
-image on the backend pod's node (the PVC is ReadWriteOnce), and keeps the newest backup of each of the
-last 14 days plus the newest of each of the last 8 weeks.
-
-```yaml
-backup:
-  enabled: true
-  existingSecret: marvin-r2-backup   # keys: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY,
-                                     #       BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET
-  schedule: "15 3 * * *"
-  timeZone: ""                       # e.g. America/New_York; empty = controller's zone
-  s3Region: auto                     # right for R2
-```
-
-The bucket holds the installation `.secret`, which decrypts every secret Marvin stores: keep it
-private and its token scoped to it. One-off run:
-`oc create job --from=cronjob/marvin-offsite-backup marvin-offsite-backup-manual-$(date +%s)`.
-Restore runbook, retention details and the script's options:
-[docs/manual/offsite-backup.md](../docs/manual/offsite-backup.md).
-
-#### Backup targets
+#### Backups
 
 `backup.targets[]` (empty by default) runs the backup engine, `python -m marvin.scripts.backup`, as one
-CronJob `<release>-backup-<name>` per target, each with its own schedule and retention. It is
-independent of `backup.enabled` above, which stays until the cutover. `type` is `local` (built in: a
-directory on a volume of its own) or a storage plugin's target slug (from `plugins.packages`, which
-these CronJobs get as well).
+CronJob `<release>-backup-<name>` per target, each with its own schedule, retention and exit code: the
+database (a consistent SQLite snapshot or a `pg_dump`), a config archive (`.secret`,
+`scheduler_state.json`, `templates/`) and an incremental mirror of `assets/`, from the backend image on
+the backend pod's node (the PVC is ReadWriteOnce). `type` is `local` (built in: a directory on a volume
+of its own) or a storage plugin's target slug, e.g. `s3` from `marvin-storage-s3` (from
+`plugins.packages`, which these CronJobs get as well).
 
 ```yaml
+plugins:
+  packages:
+    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
+    - https://github.com/InnerOpen/marvin-storage-s3/archive/refs/heads/main.tar.gz
 backup:
   targets:
+    - name: r2                                        # S3-compatible bucket (R2, AWS, MinIO, B2)
+      type: s3
+      schedule: "0 * * * *"
+      existingSecret: marvin-r2-backup                # every key becomes an env var: AWS_ACCESS_KEY_ID,
+                                                      # AWS_SECRET_ACCESS_KEY, BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET
+      retention: {hourly: 48, daily: 30, weekly: 8}   # → BACKUP_KEEP_*; engine default 48 / 30 / 0
     - name: nas-nightly
       type: local
       schedule: "30 2 * * *"
       timeZone: America/New_York
-      retention: {hourly: 0, daily: 30, weekly: 8}   # → BACKUP_KEEP_*; engine default 48 / 30 / 0
+      retention: {hourly: 0, daily: 30, weekly: 8}
       volume:
         nfs: {server: 192.168.30.10, path: /tank/backups/marvin}   # or existingClaim: <pvc>
         subPath: prod                                 # created by the kubelet if missing
-    # - name: r2                                      # a plugin target (slice 5+)
-    #   type: s3
-    #   schedule: "0 * * * *"
-    #   existingSecret: marvin-r2-backup              # every key becomes an env var
 ```
 
 `volume.nfs` renders a static PV `<namespace>-<release>-backup-<name>` (ReadWriteMany, `Retain`,
 `storageClassName: ""`, `hard,nfsvers=4.2`, `claimRef`) and its PVC; OpenShift's `restricted-v2` SCC
 doesn't allow inline `nfs:` volumes. `helm template` fails on a local target without a volume or on
 the data volume (`marvin-data`, `<release>-data`, `persistence.existingClaim`); the engine also refuses
-a directory on the data volume's filesystem. Every key is described in `values.yaml`; runbook:
-[docs/manual/offsite-backup.md → Backup targets](../docs/manual/offsite-backup.md#backup-targets).
+a directory on the data volume's filesystem. A target holds the installation `.secret`, which decrypts
+every secret Marvin stores: keep it private and its token scoped to it. One-off run:
+`oc create job --from=cronjob/marvin-backup-r2 marvin-r2-now`. Every key is described in
+`values.yaml`; runbook (restore, retention):
+[docs/manual/offsite-backup.md](../docs/manual/offsite-backup.md).
+
+`backup.enabled` is the retired single-target job (`<release>-offsite-backup`,
+`marvin.scripts.offsite_backup`, S3 only), kept off as the rollback until it is removed.
 
 #### OpenShift Route
 
