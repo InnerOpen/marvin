@@ -2449,3 +2449,54 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
 
 ## Open questions for Jared
 None open: all seven were answered on 2026-10-06 (see Decisions).
+
+# Backup health + storage settings visibility (2026-10-07, approved by Jared)
+
+Why: prod's hourly R2 backup failed silently 15:00–16:00 UTC (the `marvin-r2-backup` Secret held a revoked
+key after the token was re-scoped). The backend has no Kubernetes API access, so the jobs report to it
+through the database.
+
+## Plan
+- [x] `backup_runs` table (model + migration, SQLite + Postgres 17 up/down): target name/type, status
+      ok|failed|partial|missed, started/finished/duration, schedule/time zone/retention, location (describe(),
+      never a credential), non-secret target settings, db key/bytes, config items, assets uploaded/unchanged,
+      pruned, error summary (scrubbed), pod name, notified_at.
+- [x] Engine side (`backup_engine/recorder.py`, no Marvin settings/SQLAlchemy): plain DB-API insert at the
+      end of every `run` — ok/failed/partial, and failed when the target can't even be opened; the DB is
+      the job's own (POSTGRES_* or DATA_DIR/marvin.db). Errors mapped to plain messages (shared mapping).
+- [x] `backup test` subcommand: list/put/get/delete `_marvin-healthcheck/<uuid>.txt` on a target.
+- [x] Chart: BACKUP_SCHEDULE / BACKUP_TIME_ZONE on each target CronJob (retention already travels).
+- [x] Backend `services/backup_health`: tiny 5-field cron reader (no croniter dependency), target status
+      (last run, last success, next expected, overdue), recent runs; scheduler task every minute-tick:
+      dispatch `backup_completed`/`backup_failed` for runs not yet notified, overdue → a `missed` row +
+      `backup_failed` (reason overdue) once per incident, cleared by the next ok run; prune runs > 90 days.
+- [x] Events: un-hide backup_completed/backup_failed (sent_by, variables), dispatch with group_id=None;
+      EmailEventListener must not match every workspace's subscriptions when group_id is None.
+- [x] Bell: `GET /api/admin/events/feed` (super admin, platform events); ActivityToaster polls it for
+      super admins (AppLayout + AdminLayout), `backup_failed` toast → /admin/backup-health.
+- [x] Admin: `GET /api/admin/backup-health`, page `/admin/backup-health` (Operations), linked from Storage
+      and Backups; Storage shows each provider's effective settings (masked via SDK `masked_config`) and
+      backup targets' settings from their latest run; Test connection (super admin) for asset providers.
+- [x] Docs: offsite-backup.md, assets-on-r2.md, what's new.
+- [x] Verify: full pytest, new tests, frontend tests/biome/astro check vs baseline, live check +
+      screenshots, helm lint/template diffs, SDK gate (+ types commit in a MarvinSDK worktree).
+
+## Review (2026-10-07) — code only, nothing deployed, no cluster or R2 writes
+- Migration `59d0896537fa` (`backup_runs`): up/down/up on SQLite and Postgres 17 (throwaway container).
+- Runs record themselves at the end of `run`: ok / partial / failed, and failed when the target can't be
+  opened (exit 2). Plain DB-API insert (sqlite3 / psycopg2), never creates a DB, never changes the exit
+  code. Same-reason step failures are folded ("database, config, assets: the key is invalid or revoked…").
+- Overdue = no successful run within interval + min(interval, 2 h) + 15 min (hourly 2h15, daily 26h15),
+  from the last success (or first seen). One `missed` row per incident = the dedupe marker; next ok clears.
+- Found live: dispatching while the `missed` row was uncommitted lost the event on SQLite ("database is
+  locked" in the audit publisher's own connection). Fixed: marker committed first, `announce_runs`
+  dispatches every un-notified row; regression test + a throwaway test proving the old order lost it.
+- Events: `backup_completed` / `backup_failed` un-hidden, platform scope, audit-locked, `group_id=None`.
+  EmailEventListener no longer matches every workspace's subscriptions when group_id is None.
+- Bell: new `GET /api/admin/events/feed`; ActivityToaster polls it for super admins (AppLayout + AdminLayout
+  now has the bell). No Slack routing for platform events exists → bell + admin pages are the alert.
+- Verified: backend 3523 passed / 14 skipped (SQLite), 3529 / 5 on Postgres 17; frontend 484 tests,
+  biome 1 info (= baseline), astro check 50 errors (= baseline); helm lint ok, template diff prod/dev =
+  only BACKUP_SCHEDULE / BACKUP_TIME_ZONE on the target CronJobs; SDK gate reproduced, types committed in
+  MarvinSDK `feat/backup-health-types`. Live check (SQLite + astro dev + headless Chromium + local MinIO)
+  with real job runs incl. a revoked key; screenshots in the job's tmp/backuphealth-shots.

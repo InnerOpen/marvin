@@ -67,6 +67,7 @@ Each entry renders a CronJob `<release>-backup-<name>` running `python -m marvin
 - **Guardrails:** `helm template` fails when a local target has no volume or points at the data volume (`marvin-data`, `<release>-data` or `persistence.existingClaim`). At runtime the engine also refuses a target directory inside `DATA_DIR` or on the same filesystem as it, and a directory that doesn't exist (a missing mount mustn't fill the container's disk).
 - **Assets from more than local disk:** the mirror reads local disk and `STORAGE_PROVIDER`, plus every provider in `BACKUP_ASSET_PROVIDERS` (comma-separated, from the target's `env`). Once an admin sends uploads to R2 (Admin → Storage), set `BACKUP_ASSET_PROVIDERS=s3` and the plugin's `STORAGE_S3_*` settings on each target, or the R2 files aren't backed up: see [Assets on R2](assets-on-r2.md). A key held by several providers (mid-move) is copied once; a provider that can't be opened fails only the asset step.
 - Other keys: `prefix` (`BACKUP_PREFIX`, e.g. `staging/` to share a bucket), `env`, `resources` (default `backup.resources`). Deadlines default to 3600 each. The chart's `values.yaml` lists them all.
+- **Schedule in the run record:** the chart passes each CronJob's own `schedule` and `timeZone` to it as `BACKUP_SCHEDULE` and `BACKUP_TIME_ZONE`, so every run records them and Marvin knows when the next one is due (see [Backup health and alerts](#backup-health-and-alerts)).
 
 Creating the R2 Secret (once per namespace; each environment's `BACKUP_S3_BUCKET` is its own bucket):
 
@@ -77,6 +78,14 @@ oc -n marvin create secret generic marvin-r2-backup \
   --from-literal=BACKUP_S3_ENDPOINT='https://<account id>.r2.cloudflarestorage.com' \
   --from-literal=BACKUP_S3_BUCKET='marvin-backups'
 ```
+
+!!! warning "When an R2 token changes, update the matching cluster Secret and run a test"
+    When a token is rotated, re-scoped or revoked in Cloudflare, its old key stops working, but the cluster Secret still holds it: on 7 October 2026 production's hourly R2 backup failed for two hours (15:00–16:00 UTC) because `marvin-r2-backup` kept a key revoked when its token was re-scoped. Whenever a token changes, update the Secret that uses it (`marvin-r2-backup` in `marvin` and `marvin-dev` for backups, `marvin-r2-assets` for assets), then test it:
+
+    - **backup targets:** run the target's `test` as a one-off Job ([below](#testing-a-targets-credentials)), or wait for the next run and check **Admin → Backup health**;
+    - **assets:** **Admin → Storage → Provider settings → Test connection** on `s3` (the backend reads `marvin-r2-assets` at start, so restart it first: `oc -n marvin rollout restart deploy/marvin-backend`).
+
+    To check which key a Secret holds without printing it, compare fingerprints: `oc -n marvin get secret marvin-r2-backup -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | base64 -d | sha256sum` against the same from `pass`. Admin → Storage shows the last four characters of the assets key id.
 
 !!! warning "The NAS shares a pool with the live data"
     The export `/tank/backups/marvin` (ZFS dataset `tank/backups` on `pve`, 50 GB quota) is in the same `tank` pool as `managed-nfs-storage`. The NAS copy covers a deleted or corrupted PVC and app bugs, not losing the NAS. R2 remains the off-site copy. The export squashes every client to uid 3100 (`all_squash`), which owns it at mode 0770, so any pod UID can write. Any host in the export's client range (`192.168.50.0/25`, the cluster nodes) can mount it.
@@ -107,6 +116,35 @@ oc -n marvin logs -f job/marvin-r2-check -c backup; oc -n marvin delete job marv
 ```
 
 A backup is only proven by restoring it: see [Postgres → Restore test](postgres.md#restore-test-do-this-first-on-dev-then-after-any-change-to-the-backup).
+
+### Testing a target's credentials
+
+`python -m marvin.scripts.backup test --target <type> --name <name>` lists, writes, reads back and deletes one small object under `_marvin-healthcheck/` in the target and prints each step with its latency; it records nothing and leaves nothing behind (a `local` target keeps the empty `_marvin-healthcheck/` directory). Errors are in plain words: *the key is invalid or revoked — update the Secret that holds it* (`InvalidAccessKeyId`, `Unauthorized`, `SignatureDoesNotMatch`), *the key can't access this bucket* (`AccessDenied`), *the bucket doesn't exist* (`NoSuchBucket`), *the endpoint can't be reached* (DNS or network) or *didn't answer in time*. Run it as a one-off Job from the CronJob, which has the target's Secret and plugins, by overriding its arguments:
+
+```bash
+oc -n marvin create job --from=cronjob/marvin-backup-r2 marvin-backup-r2-test --dry-run=client -o json \
+  | jq '.spec.template.spec.containers[0].args = ["test", "--target", "s3", "--name", "r2"]' \
+  | oc apply -f -
+oc -n marvin logs -f job/marvin-backup-r2-test -c backup     # list ok … put ok … get ok … delete ok
+oc -n marvin delete job marvin-backup-r2-test
+```
+
+Exit code 0 when every step passed, 1 otherwise. The backend can't run this check for a backup target (it doesn't have the target's credentials; each CronJob has its own Secret), so **Admin → Backup health** shows the exact command per target, and otherwise the next scheduled run is the test.
+
+## Backup health and alerts
+
+The backend has no Kubernetes API access, so the backup jobs report to it through the database. At the end of every `run` (not `--dry-run`) the job writes one row to `backup_runs`, whatever happened: status `ok`, `partial` (the database was saved, another step such as the asset mirror failed) or `failed` (the database wasn't saved, or the target couldn't even be opened, e.g. a missing setting). The row holds the target's name and type, its schedule, time zone and retention, where it writes (`s3://marvin-backups (….r2.cloudflarestorage.com)`, never a key), its non-secret settings, the database backup's key and size, the config items, assets uploaded and unchanged, how many old backups were pruned, the duration, the pod name and a one-line error summary scrubbed of every credential in the job's environment. The job writes it with the database connection it already has (`POSTGRES_*` from the cluster's Secret for `pg_dump`, or `marvin.db` on the data volume it mounts for SQLite); if that write fails, the log says `run NOT recorded` and the job's exit code is unchanged.
+
+**Admin → Operations → Backup health** (`/admin/backup-health`) shows each target that has reported: type, schedule (with how often it runs), retention, where it writes, the last run (time, status, database size, assets, pruned, duration), the last success, the next run, an **Overdue** badge and the last error, then the recent runs of every target (filter by target). The admin overview has an **Installation backups** card, and Admin → Storage lists the targets with what their runs reported.
+
+The backend's scheduler (leader only, every minute) turns the rows into events:
+
+- each recorded run → `backup_completed` (ok) or `backup_failed` (failed or partial; `reason` says which, `error_message` what went wrong). A run recorded more than a day before the backend saw it is marked, not announced. With `backoffLimit: 2` a failing run is retried twice, so one bad hour can send three `backup_failed`.
+- **overdue**: no successful run started within one interval plus one more (hourly) or plus two hours (daily), plus 15 minutes for the run itself, so 2 h 15 min for `r2` and 26 h 15 min for `nas-nightly`, counted from the last success (or from the target's first run if it never succeeded). This catches what can't record itself: a job that never started, stayed Pending, was killed, or couldn't reach the database. The backend records a `missed` row and sends one `backup_failed` with `reason: overdue` per incident; the next successful run ends it.
+
+Both events are platform scope and always audited: they're on **Admin → Events**, and a super admin's activity bell (in the app and on admin pages) shows `backup_failed` as a red toast that links to Backup health. There is no Slack or email routing for platform events yet (Slack routing exists only for a workspace's integration alerts), so the bell and the admin pages are the alert. A workflow can't trigger on them (workflows are per workspace).
+
+Limits: a target appears after its first recorded run, so a new target that never manages to run isn't known (add it, run it once by hand). A target removed from the chart keeps showing (overdue, reported once) until its rows are 90 days old, when they're pruned. Runs from CronJobs rendered before `BACKUP_SCHEDULE` existed record no schedule, so they show no next run and are never overdue until the chart is upgraded. The dev environment's scheduler is off (`values-dev.yaml`), so dev records runs but sends no events.
 
 ## Restoring
 
@@ -164,15 +202,16 @@ The engine is engine-aware through `DB_ENGINE`, which the CronJob reads from the
 
 ```text
 python -m marvin.scripts.backup run     --target TYPE [--name NAME] [--dry-run]
+python -m marvin.scripts.backup test    --target TYPE [--name NAME]
 python -m marvin.scripts.backup list    --target TYPE [--name NAME]
 python -m marvin.scripts.backup prune   --target TYPE [--name NAME] [--dry-run]
 python -m marvin.scripts.backup restore --target TYPE [--name NAME] --into DIR [--db-key KEY] [--config-key KEY]
                                         [--skip-db] [--skip-config] [--skip-assets] [--force]
 ```
 
-`--target` is the target type (`local`, or a plugin's slug such as `s3`; default `BACKUP_TARGET`), `--name` a label for the logs. Settings: `BACKUP_LOCAL_ROOT` (local), the plugin's own settings (s3: above), `BACKUP_PREFIX` (falls back to `BACKUP_S3_PREFIX`), `BACKUP_KEEP_HOURLY` / `_DAILY` / `_WEEKLY`, `BACKUP_DATA_DIR` (default `/app/data`), `DB_ENGINE`, and `POSTGRES_SERVER` … `POSTGRES_DB` for Postgres. More in the module docstrings (`marvin/scripts/backup.py`, `marvin/services/backup_engine/`).
+`--target` is the target type (`local`, or a plugin's slug such as `s3`; default `BACKUP_TARGET`), `--name` a label for the logs. Settings: `BACKUP_LOCAL_ROOT` (local), the plugin's own settings (s3: above), `BACKUP_PREFIX` (falls back to `BACKUP_S3_PREFIX`), `BACKUP_KEEP_HOURLY` / `_DAILY` / `_WEEKLY`, `BACKUP_DATA_DIR` (default `/app/data`), `DB_ENGINE`, and `POSTGRES_SERVER` … `POSTGRES_DB` for Postgres (also where the run is recorded), `BACKUP_SCHEDULE` and `BACKUP_TIME_ZONE` (recorded with the run; the chart sets them). More in the module docstrings (`marvin/scripts/backup.py`, `marvin/services/backup_engine/`).
 
-Exit codes: `0` success, `1` a step failed (the summary or error line says which), `2` missing configuration. `run --dry-run` still snapshots and checks the database locally and lists the target, so it also proves the credentials work.
+Exit codes: `0` success, `1` a step failed (the summary or error line says which), `2` missing configuration (the run is still recorded as failed). `run --dry-run` still snapshots and checks the database locally and lists the target, so it also proves the credentials work.
 
 ## The old off-site job
 

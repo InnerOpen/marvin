@@ -150,6 +150,15 @@ The domain must serve **the same bucket** (`marvin-assets`). Set it up before sa
 Marvin accepts only `https://host[/path]` (no user info, query or fragment; `http://` only outside production).
 
 
+## Checking the settings and the key
+
+**Admin → Storage → Provider settings** shows what each provider is using, as the backend reads it from its environment: bucket, endpoint, region, key prefix, public URL, cache-control, addressing style and checksum mode, read-only. Secrets read `****`, and the access key id shows only its last four characters, enough to tell which key is loaded. Settings come from the chart (`extraEnv` / the `marvin-r2-assets` Secret), not from this page.
+
+**Test connection** (super admin) lists, writes, reads back and deletes a tiny object under `_marvin-healthcheck/` in the bucket, and shows each step with its latency. The object is deleted whatever happens. A failure says what it means: *the key is invalid or revoked — update the Secret that holds it*, *the key can't access this bucket* (the token isn't scoped to it), *the bucket doesn't exist*, or *the endpoint can't be reached / didn't answer in time*. The same page lists the backup targets with what their latest run reported (bucket and host, no keys); the backend can't test those (it doesn't have their Secret), see [Off-site backup → Testing a target's credentials](offsite-backup.md#testing-a-targets-credentials).
+
+!!! warning "When an R2 token changes, update the matching cluster Secret and run a test"
+    A rotated, re-scoped or revoked token leaves the old key in the cluster Secret, and nothing fails until the next upload (assets) or the next run (backups). Update `marvin-r2-assets` (assets; then `oc -n marvin rollout restart deploy/marvin-backend`, since the backend reads it at start) or `marvin-r2-backup` (backups) from `pass`, then **Test connection** here, or the backup target's `test` Job. On 7 October 2026 the backup Secret kept a revoked key and the hourly R2 backup failed for two hours before anyone saw it; it now shows on **Admin → Backup health** and as a `backup_failed` alert.
+
 ## Rollback
 
 1. **Admin → Storage → Local disk → Save.** New uploads go to `marvin-data` again at once.
@@ -166,4 +175,5 @@ Once production's assets live in `marvin-assets`, a copy of production's databas
 - `python -m marvin.scripts.storage_migrate [--to PROVIDER] [--rekey] [--dry-run] [--workspace SLUG] [--batch N] [--verify]` (at least one of `--to`, `--rekey`), or `--prune-local [--dry-run] [--workspace SLUG]`, or `--prune-old [--dry-run] [--workspace SLUG]`. `--batch` sets how often progress is logged. Exit status 0 when everything moved, 1 when any file failed (the rest still moved), 2 for a provider that can't take files or an unknown workspace.
 - Key format: `<storage code>/<yyyy>/<mm>/<uuid>.<ext>` (`_platform/…` for character-library files). The storage code is `groups.storage_code`: random, made once, unaffected by `.secret`; keys are stored on rows, never recomputed.
 - Plugin settings: `STORAGE_S3_BUCKET` (required), `STORAGE_S3_ENDPOINT`, `STORAGE_S3_REGION` (default `auto`), `STORAGE_S3_ACCESS_KEY`, `STORAGE_S3_SECRET_KEY`, `STORAGE_S3_PREFIX`, `STORAGE_REMOTE_PUBLIC_URL` (the custom domain; without it, asset URLs are presigned and expire, which breaks built sites), `STORAGE_S3_PRESIGN_SECONDS`, `STORAGE_S3_CACHE_CONTROL`. See the plugin's README.
+- Admin API: `GET /api/admin/storage` (each provider's effective `settings`, masked, and `backupTargets`), `POST /api/admin/storage/providers/{slug}/test` (Test connection).
 - Backups: `BACKUP_ASSET_PROVIDERS` (comma-separated) on a target adds providers to the asset mirror; local disk and `STORAGE_PROVIDER` are always read. A provider that can't be opened fails only the asset step (the database and config backups still run). See [Off-site backup](offsite-backup.md).
