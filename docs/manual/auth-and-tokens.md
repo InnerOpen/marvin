@@ -23,7 +23,7 @@ A user has one platform role, `NONE` or `SUPER_ADMIN`, and one workspace role pe
 |---|---|---|
 | `OWNER` | 5 | everything an admin can |
 | `ADMIN` | 4 | manage workspace settings, members, publishing (API clients), entry types and forms; AI tools that read or run settings; everything an editor can |
-| `EDITOR` | 3 | create, edit, approve, publish and delete (move to the Trash, restore, delete forever) any entry; manage assets, resources, collections and tags; read form submissions; AI write tools |
+| `EDITOR` | 3 | create, edit, approve, publish and delete (move to the Trash, restore, delete forever) any entry; manage assets, resources (deleting moves them to the Trash too), collections and tags; read form submissions; AI write tools |
 | `AUTHOR` | 2 | create entries and edit or delete their own until approved or published (never approve, publish or schedule one), upload assets, add tags |
 | `VIEWER` | 1 | read; every content write answers 403 |
 
