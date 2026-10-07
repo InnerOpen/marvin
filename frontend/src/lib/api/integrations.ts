@@ -83,21 +83,6 @@ export type IntegrationWithHealth = Integration & {
   credentialSecret?: string | null;
 };
 
-export interface AlertRoutingTarget {
-  integrationId: string;
-  name: string;
-  provider: string;
-  action: string;
-  enabled: boolean;
-}
-
-/** Where integration alerts go besides the bell (which always gets them). */
-export interface AlertRouting {
-  emailAdmins: boolean;
-  targets: AlertRoutingTarget[];
-  reminderHours: number;
-}
-
 export async function listProviders(authToken?: string): Promise<ProviderInfo[]> {
   return createSdkClient(authToken).integrations.listProviders();
 }
@@ -170,21 +155,6 @@ export async function setErrorOverrides(
   return fetchApi(
     `/api/groups/integrations/${encodeURIComponent(id)}/error-overrides`,
     { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ overrides }) },
-    authToken,
-  );
-}
-
-export async function getAlertRouting(authToken?: string): Promise<AlertRouting> {
-  return fetchApi("/api/groups/integrations/alert-routing", {}, authToken);
-}
-
-export async function setAlertRouting(
-  data: { emailAdmins: boolean; integrationIds: string[]; reminderHours: number },
-  authToken?: string,
-): Promise<AlertRouting> {
-  return fetchApi(
-    "/api/groups/integrations/alert-routing",
-    { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) },
     authToken,
   );
 }

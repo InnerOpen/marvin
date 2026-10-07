@@ -203,6 +203,7 @@ const NODES: NavNode[] = [
     href: "/automation/incoming-webhooks",
     parent: "settings",
   },
+  { id: "automation.notifications", label: "Notifications", href: "/automation/notifications", parent: "settings" },
   {
     id: "automation.scheduled-tasks",
     label: "Scheduled Tasks",

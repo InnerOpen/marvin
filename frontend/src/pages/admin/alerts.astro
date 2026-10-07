@@ -4,6 +4,7 @@
 // connection in the platform workspace can be added as a route. Server strings render through Astro's
 // escaping ({...}); the script builds route rows with textContent only.
 import AdminLayout from "@/layouts/AdminLayout.astro";
+import "@/styles/alert-settings.css";
 import { deliveryBadge } from "@/lib/admin/platformAlerts";
 import { getPlatformAlerts, type PlatformAlerts } from "@/lib/api/admin/platformAlerts";
 import { getAuthToken } from "@/lib/api/client";
@@ -39,10 +40,10 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
     </div>
   </div>
 
-  {error && <div class="pa-error" role="alert">Could not load platform alerts: {error}</div>}
+  {error && <div class="alert-settings-error" role="alert">Could not load platform alerts: {error}</div>}
 
   {data && email && (
-    <form id="pa-form" class="page" novalidate>
+    <form id="pa-form" class="alert-settings" novalidate>
       <section class="card">
         <h3>Which events alert</h3>
         <p class="lead">Each one is sent once, when it happens — a failing backup alerts once per incident, not on every retry.</p>
@@ -330,41 +331,3 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
     });
   }
 </script>
-
-<style is:global>
-  /* Global, but only under #pa-form: the route rows are built by the script, which scoped styles can't reach. */
-  #pa-form.page { display: grid; gap: 20px; max-width: 900px; }
-  #pa-form .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
-  #pa-form .card h3 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
-  #pa-form .lead { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
-  #pa-form .kinds { display: grid; gap: 10px; }
-  #pa-form .kind { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
-  #pa-form .kind input { margin-top: 3px; }
-  #pa-form .block { display: block; }
-  #pa-form .muted { color: var(--muted); }
-  #pa-form .small { font-size: 12px; }
-  #pa-form .channel-head, #pa-form .route-head { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
-  #pa-form .route-head strong { flex: 1; }
-  #pa-form .switch { font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
-  #pa-form .recipients { border: 0; padding: 0; margin: 0 0 12px; display: grid; gap: 6px; font-size: 14px; }
-  #pa-form .recipients legend { font-weight: 600; margin-bottom: 4px; }
-  #pa-form .recipients textarea { width: 100%; font: inherit; font-size: 13px; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); }
-  #pa-form .channel-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
-  #pa-form .channel-foot .muted.small { flex: 1; min-width: 160px; overflow-wrap: anywhere; }
-  #pa-form .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel-2); color: var(--muted); white-space: nowrap; }
-  #pa-form .pill.ok { color: var(--good); }
-  #pa-form .pill.warn { color: var(--warn); }
-  #pa-form .pill.err { background: var(--color-error-bg); color: var(--color-error); }
-  #pa-form .notice { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius); background: var(--panel-2); font-size: 14px; }
-  #pa-form .notice p { margin: 0 0 8px; }
-  #pa-form .notice.warn { border-left: 3px solid var(--warn); }
-  #pa-form .routes { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 12px; }
-  #pa-form .route { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 8px; }
-  #pa-form .field { display: grid; gap: 4px; }
-  #pa-form .field input { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); }
-  #pa-form .add-route { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  #pa-form .add-route select { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); max-width: 100%; }
-  #pa-form .small-btn { padding: 4px 10px; font-size: 12px; }
-  #pa-form .form-actions { display: flex; align-items: center; gap: 12px; }
-  .pa-error { padding: 12px 16px; border: 1px solid var(--color-error); border-radius: var(--radius); color: var(--color-error); background: var(--color-error-bg); }
-</style>

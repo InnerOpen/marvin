@@ -5,27 +5,16 @@
  * passes the cookie token.
  */
 
+import type { AlertDelivery, AlertKind, AlertTarget } from "../alerts";
 import { fetchApi } from "../client";
 
-export type DeliveryOutcome = "sent" | "failed" | "skipped";
-
-export interface PlatformAlertDelivery {
-  at: string;
-  outcome: DeliveryOutcome;
-  detail: string;
-  /** The event that was sent; null for a test. */
-  eventType: string | null;
-  test: boolean;
-}
-
-export interface PlatformAlertKind {
-  key: string;
-  label: string;
-  description: string;
-  eventType: string;
-  enabled: boolean;
-  default: boolean;
-}
+export type {
+  AlertActionInput as PlatformAlertActionInput,
+  AlertDelivery as PlatformAlertDelivery,
+  AlertKind as PlatformAlertKind,
+  AlertTarget as PlatformAlertTarget,
+  DeliveryOutcome,
+} from "../alerts";
 
 export interface PlatformAlertEmail {
   enabled: boolean;
@@ -33,25 +22,7 @@ export interface PlatformAlertEmail {
   recipients: string[] | null;
   superAdminEmails: string[];
   smtpReady: boolean;
-  lastDelivery: PlatformAlertDelivery | null;
-}
-
-export interface PlatformAlertActionInput {
-  key: string;
-  label: string;
-  description: string;
-  required: boolean;
-}
-
-export interface PlatformAlertTarget {
-  integrationId: string;
-  integrationName: string;
-  provider: string;
-  providerName: string;
-  connectionEnabled: boolean;
-  action: string;
-  actionLabel: string;
-  inputs: PlatformAlertActionInput[];
+  lastDelivery: AlertDelivery | null;
 }
 
 export interface PlatformAlertRoute {
@@ -63,14 +34,14 @@ export interface PlatformAlertRoute {
   label: string;
   /** Why it can't send right now. */
   problem: string | null;
-  lastDelivery: PlatformAlertDelivery | null;
+  lastDelivery: AlertDelivery | null;
 }
 
 export interface PlatformAlerts {
-  types: PlatformAlertKind[];
+  types: AlertKind[];
   email: PlatformAlertEmail;
   routes: PlatformAlertRoute[];
-  targets: PlatformAlertTarget[];
+  targets: AlertTarget[];
   platformWorkspace: { id: string; name: string; slug: string | null } | null;
   integrationsAvailable: boolean;
 }
@@ -99,7 +70,7 @@ export async function updatePlatformAlerts(data: PlatformAlertsUpdate, authToken
 export async function testPlatformAlert(
   channel: string,
   authToken?: string,
-): Promise<{ channel: string; delivery: PlatformAlertDelivery }> {
+): Promise<{ channel: string; delivery: AlertDelivery }> {
   return fetchApi(
     `${PATH}/test`,
     { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ channel }) },

@@ -2,15 +2,12 @@
 // Settings → Integrations → Alerts & health: what integration error handling is doing across the
 // workspace — each connection at a glance, open alerts (Test / Resolve), retries waiting to run (Retry
 // now / Give up), failures a provider's policy handled, resolved alerts, each connection's changes to
-// its provider's error handling (Review / Alert, the card's setting), where alerts go, and the
-// installed provider plugins. Admins only (every route behind it is). Server strings are rendered with Astro JSX only, never innerHTML.
-import IntegrationAlertsPanel from "@/components/IntegrationAlertsPanel.astro";
+// its provider's error handling (Review / Alert, the card's setting), a link to where alerts go (Settings →
+// Automation → Notifications), and the installed provider plugins. Admins only (every route behind it is). Server strings are rendered with Astro JSX only, never innerHTML.
 import IntegrationMark from "@/components/IntegrationMark.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { ApiRequestError, getAuthToken } from "@/lib/api/client";
 import {
-  type AlertRouting,
-  getAlertRouting,
   getIntegrationHealth,
   type HandledFailure,
   type IntegrationAlert,
@@ -39,6 +36,7 @@ import {
   retryState,
 } from "@/lib/integrationHealth";
 import { connectionPolicies } from "@/lib/integrationPolicy";
+import { navHref, navTitle } from "@/lib/navTree";
 import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -52,7 +50,6 @@ let openAlerts: IntegrationAlert[] = [];
 let history: Paged<IntegrationAlert> = { items: [], page: 1, perPage: PER_PAGE, total: 0 };
 let retries: IntegrationRetry[] = [];
 let handled: Paged<HandledFailure> = { items: [], page: 1, perPage: PER_PAGE, total: 0 };
-let routing: AlertRouting | null = null;
 let connections: IntegrationWithHealth[] = [];
 let providers: ProviderInfo[] = [];
 let plugins: IntegrationPluginInfo[] = [];
@@ -62,13 +59,12 @@ let error: string | null = null;
 
 try {
   let open: Paged<IntegrationAlert>;
-  [health, open, history, retries, handled, routing, connections, plugins] = await Promise.all([
+  [health, open, history, retries, handled, connections, plugins] = await Promise.all([
     getIntegrationHealth(authToken),
     listIntegrationAlerts("open", 1, 100, authToken),
     listIntegrationAlerts("resolved", historyPage, PER_PAGE, authToken),
     listIntegrationRetries(authToken),
     listHandledFailures(handledPage, PER_PAGE, authToken),
-    getAlertRouting(authToken),
     // The connections' error_overrides; the providers' declared defaults come with the catalog below.
     listIntegrations(authToken),
     listPlugins(authToken),
@@ -497,7 +493,13 @@ const handledPages = pageCount(handled.total, handled.perPage);
         <!-- Where alerts go -->
         <section class="block" aria-labelledby="h-routing">
           <h3 class="block-title" id="h-routing">Where alerts go</h3>
-          {routing && <IntegrationAlertsPanel routing={routing} />}
+          <p class="block-sub">
+            The bell always gets them. Email, Slack and other channels — and the reminder window — are set with the rest
+            of the workspace's notifications.
+          </p>
+          <a class="button secondary small" href={navHref("automation.notifications")} data-testid="notifications-link">
+            Open {navTitle("automation.notifications")}
+          </a>
         </section>
 
         <!-- Installed plugins -->

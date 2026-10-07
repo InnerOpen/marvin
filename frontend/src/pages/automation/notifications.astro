@@ -1,0 +1,353 @@
+---
+// Settings → Automation → Notifications: which of the workspace's failures — a workflow, a scheduled task, a
+// connection that needs attention — reach people outside Marvin, and how. Email to the workspace's owners and
+// admins is built in; any message-capable action on one of its connections can be added as a route, and each
+// channel takes every kind or only some. Admins and owners only (the API enforces it). Server strings render
+// through Astro's escaping ({...}); the script builds route rows with textContent only.
+import AppLayout from "@/layouts/AppLayout.astro";
+import "@/styles/alert-settings.css";
+import { deliveryBadge } from "@/lib/alerts";
+import { getAuthToken } from "@/lib/api/client";
+import { getNotifications, type WorkspaceNotifications } from "@/lib/api/notifications";
+import { navHref } from "@/lib/navTree";
+import { takes } from "@/lib/notifications";
+import { isForbidden } from "@/lib/workspaceRole";
+
+const authToken = getAuthToken(Astro.cookies);
+
+let data: WorkspaceNotifications | null = null;
+let error: string | null = null;
+let adminOnly = false;
+try {
+  data = await getNotifications(authToken);
+} catch (e) {
+  if (isForbidden(e)) adminOnly = true;
+  else {
+    console.error("[automation/notifications] Failed to load:", e);
+    error = e instanceof Error ? e.message : String(e);
+  }
+}
+
+const email = data?.email;
+const emailBadge = deliveryBadge(email?.lastDelivery);
+const ADD_CHANNEL = `${navHref("settings.integrations")}?category=notify`;
+---
+
+<AppLayout crumb="automation.notifications" adminOnly={adminOnly}>
+  <div class="toolbar">
+    <div>
+      <p>
+        The bell and the <a href={navHref("automation.event-log")}>Event Log</a> always get the workspace's events. Choose
+        which failures also go out by email or through a chat integration, so a broken workflow reaches someone who isn't
+        looking at Marvin. Something that keeps failing alerts once, and says so when it works again.
+      </p>
+    </div>
+  </div>
+
+  {error && <div class="alert-settings-error" role="alert">Could not load notifications: {error}</div>}
+
+  {data && email && (
+    <form id="wn-form" class="alert-settings" novalidate>
+      <section class="card">
+        <h3>Which events notify</h3>
+        <p class="lead">Each kind can go to every channel below, or only to the channels that take it.</p>
+        <div class="kinds">
+          {data.types.map((k) => (
+            <div>
+              <label class="kind">
+                <input type="checkbox" name="kind" value={k.key} checked={k.enabled} data-testid={`kind-${k.key}`} />
+                <span>
+                  <strong>{k.label}</strong> <code class="small muted">{k.eventType}</code>
+                  <span class="muted small block">{k.description}</span>
+                </span>
+              </label>
+              {k.key === "integration_attention" && (
+                <label class="reminder">
+                  Remind every
+                  <input type="number" id="wn-reminder" min="0" max="720" value={data.integrationReminderHours} data-testid="reminder-hours" />
+                  hours while it stays open <span class="muted small">(0 = never)</span>
+                </label>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section class="card" data-testid="email-channel">
+        <div class="channel-head">
+          <h3>Email</h3>
+          <label class="switch"><input type="checkbox" id="wn-email-enabled" checked={email.enabled} /> On</label>
+        </div>
+        {email.smtpReady ? (
+          <p class="lead">
+            Built in. Sent with the workspace's SMTP profile (<a href={navHref("settings.email.smtp")}>SMTP</a>), or the
+            platform's email settings when it has none.
+          </p>
+        ) : (
+          <p class="notice warn" role="status" data-testid="smtp-missing">
+            <strong>Email isn't set up,</strong> so email notifications are recorded as not sent. Add an SMTP profile
+            (<a href={navHref("settings.email.smtp")}>SMTP</a>) to start sending them.
+          </p>
+        )}
+        <fieldset class="recipients">
+          <legend>Send to</legend>
+          <label class="radio">
+            <input type="radio" name="wn-recipients" value="all" checked={email.recipients === null} />
+            Every owner and admin{" "}
+            <span class="muted small">({email.adminEmails.length ? email.adminEmails.join(", ") : "none has an email address"})</span>
+          </label>
+          <label class="radio">
+            <input type="radio" name="wn-recipients" value="list" checked={email.recipients !== null} />
+            These addresses
+          </label>
+          <textarea id="wn-recipients-text" rows="3" placeholder="ops@example.com, one per line or comma-separated" aria-label="Email addresses">{(email.recipients ?? []).join("\n")}</textarea>
+        </fieldset>
+        <fieldset class="takes" data-testid="email-kinds">
+          <legend>Takes</legend>
+          {data.types.map((k) => (
+            <label><input type="checkbox" name="email-kind" value={k.key} checked={takes(email.kinds, k.key)} /> {k.label}</label>
+          ))}
+        </fieldset>
+        <div class="channel-foot">
+          <span class:list={["pill", emailBadge.tone]} id="wn-email-status">{emailBadge.label}</span>
+          <span class="muted small" id="wn-email-detail">{emailBadge.detail}</span>
+          <button type="button" class="button secondary small-btn" data-test-channel="email">Send test</button>
+        </div>
+      </section>
+
+      <section class="card" data-testid="integration-routes">
+        <h3>Integrations</h3>
+        {!data.integrationsAvailable ? (
+          <p class="lead">The integrations framework isn't installed on this server, so only email can carry notifications.</p>
+        ) : (
+          <p class="lead">
+            Any connected action that can send a message — Slack's <em>Send message</em>, Apprise's <em>Send notification</em>,
+            or another plugin's — can be a route, with its own settings such as a channel.
+          </p>
+        )}
+        {data.integrationsAvailable && data.targets.length === 0 && (
+          <div class="notice" role="status" data-testid="no-targets">
+            <p>No connected integration in this workspace can send messages.</p>
+            <a class="button secondary" href={ADD_CHANNEL} data-testid="add-channel">Add a notification channel</a>
+          </div>
+        )}
+        <ul id="wn-routes" class="routes" aria-label="Integration routes"></ul>
+        {data.targets.length > 0 && (
+          <div class="add-route">
+            <label for="wn-add-target" class="small muted">Add a route</label>
+            <select id="wn-add-target">
+              {data.targets.map((t) => (
+                <option value={`${t.integrationId}:${t.action}`}>
+                  {t.integrationName} → {t.actionLabel} ({t.providerName}){t.connectionEnabled ? "" : " — connection off"}
+                </option>
+              ))}
+            </select>
+            <button type="button" class="button secondary" id="wn-add">Add</button>
+            <a class="small" href={ADD_CHANNEL}>Add a notification channel</a>
+          </div>
+        )}
+      </section>
+
+      <div class="form-actions">
+        <button type="submit" class="button" id="wn-save">Save</button>
+        <span id="wn-status" class="muted small" role="status"></span>
+      </div>
+    </form>
+  )}
+
+  <script is:inline type="application/json" id="wn-data" set:html={JSON.stringify(data ?? null).replace(/</g, "\\u003c")} />
+</AppLayout>
+
+<script>
+  import { type Tone, deliveryBadge, missingInputs, targetKey } from "@/lib/alerts";
+  import type { AlertDelivery, AlertTarget } from "@/lib/api/alerts";
+  import { testNotification, updateNotifications, type WorkspaceNotifications } from "@/lib/api/notifications";
+  import { buildUpdate, channelKinds, draftFrom, type RouteDraft, reminderHours, takes } from "@/lib/notifications";
+
+  const raw = document.getElementById("wn-data")?.textContent;
+  let state: WorkspaceNotifications | null = raw ? JSON.parse(raw) : null;
+  const form = document.getElementById("wn-form") as HTMLFormElement | null;
+  const list = document.getElementById("wn-routes") as HTMLUListElement | null;
+  const statusEl = document.getElementById("wn-status");
+
+  if (state && form && list) {
+    let routes: RouteDraft[] = state.routes.map(draftFrom);
+    const kindKeys = () => (state?.types ?? []).map((k) => k.key);
+    const targets = () => new Map<string, AlertTarget>((state?.targets ?? []).map((t) => [targetKey(t), t]));
+
+    const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
+      const node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text !== undefined) node.textContent = text;
+      return node;
+    };
+
+    const setStatus = (pill: HTMLElement, detail: HTMLElement, d: AlertDelivery | null | undefined) => {
+      const b: { label: string; tone: Tone; detail: string } = deliveryBadge(d);
+      pill.className = `pill ${b.tone}`;
+      pill.textContent = b.label;
+      detail.textContent = b.detail;
+    };
+
+    function kindsField(route: RouteDraft): HTMLFieldSetElement {
+      const field = el("fieldset", "takes");
+      field.append(el("legend", "", "Takes"));
+      for (const kind of state?.types ?? []) {
+        const label = el("label");
+        const box = el("input");
+        box.type = "checkbox";
+        box.checked = takes(route.kinds, kind.key);
+        box.addEventListener("change", () => {
+          const ticked = [...field.querySelectorAll<HTMLInputElement>("input:checked")].map((b) => b.value);
+          route.kinds = channelKinds(ticked, kindKeys());
+        });
+        box.value = kind.key;
+        label.append(box, ` ${kind.label}`);
+        field.append(label);
+      }
+      return field;
+    }
+
+    function render() {
+      if (!list || !state) return;
+      list.replaceChildren();
+      const byKey = targets();
+      routes.forEach((route, index) => {
+        const saved = route.id ? state?.routes.find((r) => r.id === route.id) : undefined;
+        const target = byKey.get(targetKey(route));
+        const li = el("li", "route");
+        li.dataset.testid = "route";
+
+        const head = el("div", "route-head");
+        const title = el("strong", "", saved?.label ?? (target ? `${target.integrationName} → ${target.actionLabel}` : route.action));
+        const toggle = el("label", "switch");
+        const box = el("input");
+        box.type = "checkbox";
+        box.checked = route.enabled;
+        box.addEventListener("change", () => (route.enabled = box.checked));
+        toggle.append(box, " On");
+        const remove = el("button", "button secondary small-btn", "Remove");
+        remove.type = "button";
+        remove.addEventListener("click", () => {
+          routes.splice(index, 1);
+          render();
+        });
+        head.append(title, toggle, remove);
+        li.append(head);
+
+        if (saved?.problem) li.append(el("p", "notice warn small", saved.problem));
+
+        for (const input of target?.inputs ?? []) {
+          const field = el("label", "field");
+          field.append(el("span", "small", input.label + (input.required ? " (required)" : "")));
+          const text = el("input");
+          text.type = "text";
+          text.value = String(route.args[input.key] ?? "");
+          text.required = input.required;
+          text.placeholder = input.description || "";
+          text.dataset.input = input.key;
+          text.addEventListener("input", () => (route.args[input.key] = text.value));
+          field.append(text);
+          li.append(field);
+        }
+        if (target && target.inputs.length === 0) {
+          li.append(el("p", "muted small", "No settings: the connection decides where its messages go."));
+        }
+        li.append(kindsField(route));
+
+        const foot = el("div", "channel-foot");
+        const pill = el("span", "pill");
+        const detail = el("span", "muted small");
+        setStatus(pill, detail, saved?.lastDelivery);
+        const test = el("button", "button secondary small-btn", "Send test");
+        test.type = "button";
+        if (route.id) test.dataset.testChannel = route.id;
+        else {
+          test.disabled = true;
+          test.title = "Save first";
+        }
+        foot.append(pill, detail, test);
+        li.append(foot);
+        list.append(li);
+      });
+      if (routes.length === 0) list.append(el("li", "muted small", "No integration routes."));
+    }
+
+    render();
+
+    document.getElementById("wn-add")?.addEventListener("click", () => {
+      const select = document.getElementById("wn-add-target") as HTMLSelectElement | null;
+      const target = select ? targets().get(select.value) : undefined;
+      if (!target) return;
+      routes.push({ integrationId: target.integrationId, action: target.action, args: {}, enabled: true, kinds: null });
+      render();
+    });
+
+    form.addEventListener("click", async (e) => {
+      const button = (e.target as HTMLElement).closest<HTMLButtonElement>("button[data-test-channel]");
+      if (!button) return;
+      const channel = button.dataset.testChannel!;
+      button.disabled = true;
+      try {
+        const res = await testNotification(channel);
+        const holder = button.parentElement; // the channel's footer: its status pill and detail
+        const pill = holder?.querySelector<HTMLElement>(".pill");
+        const detail = holder?.querySelector<HTMLElement>(".muted.small");
+        if (pill && detail) setStatus(pill, detail, res.delivery);
+        if (state) {
+          if (channel === "email") state.email.lastDelivery = res.delivery;
+          else {
+            const r = state.routes.find((x) => x.id === channel);
+            if (r) r.lastDelivery = res.delivery;
+          }
+        }
+      } catch (err) {
+        if (statusEl) statusEl.textContent = `Test failed: ${err instanceof Error ? err.message : String(err)}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!state || !statusEl) return;
+      const byKey = targets();
+      const missing = routes.flatMap((r) =>
+        missingInputs(byKey.get(targetKey(r)), r.args).map((m) => `${byKey.get(targetKey(r))?.integrationName}: ${m}`),
+      );
+      if (missing.length) {
+        statusEl.textContent = `Fill in: ${missing.join(", ")}`;
+        return;
+      }
+      const types = Object.fromEntries(
+        [...form.querySelectorAll<HTMLInputElement>('input[name="kind"]')].map((box) => [box.value, box.checked]),
+      );
+      const emailTicked = [...form.querySelectorAll<HTMLInputElement>('input[name="email-kind"]:checked')].map((b) => b.value);
+      const update = buildUpdate({
+        types,
+        emailEnabled: (document.getElementById("wn-email-enabled") as HTMLInputElement).checked,
+        everyAdmin: (form.querySelector<HTMLInputElement>('input[name="wn-recipients"]:checked')?.value ?? "all") === "all",
+        recipientsText: (document.getElementById("wn-recipients-text") as HTMLTextAreaElement).value,
+        emailKinds: channelKinds(emailTicked, kindKeys()),
+        routes,
+        reminderHours: reminderHours(
+          (document.getElementById("wn-reminder") as HTMLInputElement | null)?.value ?? "",
+          state.integrationReminderHours,
+        ),
+      });
+      const save = document.getElementById("wn-save") as HTMLButtonElement;
+      save.disabled = true;
+      statusEl.textContent = "Saving…";
+      try {
+        state = await updateNotifications(update);
+        routes = state.routes.map(draftFrom);
+        render();
+        statusEl.textContent = "Saved.";
+      } catch (err) {
+        statusEl.textContent = `Not saved: ${err instanceof Error ? err.message : String(err)}`;
+      } finally {
+        save.disabled = false;
+      }
+    });
+  }
+</script>

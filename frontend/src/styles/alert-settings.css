@@ -1,0 +1,42 @@
+/* Alert settings pages: Admin → Platform alerts and Settings → Automation → Notifications (one look, one code
+   path: services/alerting.py). Global, under .alert-settings: the route rows are built by the pages' scripts,
+   which scoped styles can't reach. */
+.alert-settings { display: grid; gap: 20px; max-width: 900px; }
+.alert-settings .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+.alert-settings .card h3 { margin: 0 0 6px; font-size: 17px; font-weight: 600; }
+.alert-settings .lead { margin: 0 0 14px; color: var(--muted); font-size: 14px; }
+.alert-settings .kinds { display: grid; gap: 10px; }
+.alert-settings .kind { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.alert-settings .kind input { margin-top: 3px; }
+.alert-settings .block { display: block; }
+.alert-settings .muted { color: var(--muted); }
+.alert-settings .small { font-size: 12px; }
+.alert-settings .channel-head, .alert-settings .route-head { display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+.alert-settings .route-head strong { flex: 1; }
+.alert-settings .switch { font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+.alert-settings .recipients { border: 0; padding: 0; margin: 0 0 12px; display: grid; gap: 6px; font-size: 14px; }
+.alert-settings .recipients legend { font-weight: 600; margin-bottom: 4px; }
+.alert-settings .recipients textarea { width: 100%; font: inherit; font-size: 13px; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); }
+.alert-settings .channel-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.alert-settings .channel-foot .muted.small { flex: 1; min-width: 160px; overflow-wrap: anywhere; }
+.alert-settings .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--panel-2); color: var(--muted); white-space: nowrap; }
+.alert-settings .pill.ok { color: var(--good); }
+.alert-settings .pill.warn { color: var(--warn); }
+.alert-settings .pill.err { background: var(--color-error-bg); color: var(--color-error); }
+.alert-settings .notice { margin: 0 0 12px; padding: 10px 12px; border-radius: var(--radius); background: var(--panel-2); font-size: 14px; }
+.alert-settings .notice p { margin: 0 0 8px; }
+.alert-settings .notice.warn { border-left: 3px solid var(--warn); }
+.alert-settings .routes { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 12px; }
+.alert-settings .route { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 8px; }
+.alert-settings .field { display: grid; gap: 4px; }
+.alert-settings .field input { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); }
+.alert-settings .add-route { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.alert-settings .add-route select { font: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); max-width: 100%; }
+.alert-settings .small-btn { padding: 4px 10px; font-size: 12px; }
+.alert-settings .form-actions { display: flex; align-items: center; gap: 12px; }
+.alert-settings-error { padding: 12px 16px; border: 1px solid var(--color-error); border-radius: var(--radius); color: var(--color-error); background: var(--color-error-bg); }
+.alert-settings .takes { border: 0; padding: 0; margin: 4px 0 0; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
+.alert-settings .takes legend { font-weight: 600; font-size: 13px; margin-bottom: 4px; padding: 0; }
+.alert-settings .takes label { display: inline-flex; gap: 5px; align-items: center; }
+.alert-settings .reminder { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; margin: 4px 0 0 26px; }
+.alert-settings .reminder input { width: 72px; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); }
