@@ -4,6 +4,7 @@ import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import type { IntegrationWithHealth, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
 import { listIntegrations, listProviders } from "@/lib/api/integrations";
+import { CATEGORY_LABEL, focusedCategory, groupByCategory } from "@/lib/integrationCategories";
 import { policyRows } from "@/lib/integrationPolicy";
 import type { Blueprint } from "@/lib/api/blueprints";
 import { listBlueprints } from "@/lib/api/blueprints";
@@ -66,12 +67,16 @@ const KIND_NOUN: Record<string, string> = {
 
 const providersBySlug = new Map(providers.map((p) => [p.slug, p]));
 
-const CATEGORY_LABEL: Record<string, string> = {
-  source: "Source",
-  destination: "Destination",
-  capability: "Capability",
-  notify: "Notify",
-};
+// Both lists are grouped by category (Notify, Destination, Capability, Source). `?category=notify` (Settings →
+// Automation → Notifications' "Add a notification channel") puts that group first in the catalog, highlights it
+// in both lists and scrolls to it.
+const providerCategory = (slug: string) => providersBySlug.get(slug)?.category;
+const focus = focusedCategory(Astro.url.searchParams.get("category"), [
+  ...providers.map((p) => p.category),
+  ...integrations.map((it) => providerCategory(it.provider) ?? ""),
+]);
+const connectedGroups = groupByCategory(integrations, (it) => providerCategory(it.provider));
+const catalogGroups = groupByCategory(providers, (p) => p.category, focus);
 
 function when(iso: string | null | undefined): string {
   return iso ? new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "";
@@ -109,301 +114,312 @@ function statusMeta(status: string): { text: string; cls: string } {
         <p class="hint">Add one from the catalog below.</p>
       </div>
     ) : (
-      <div class="conn-list">
-        {integrations.map((it) => {
-          const prov = providersBySlug.get(it.provider);
-          const st = statusMeta(it.status);
-          return (
-            <article class={`conn-card ${it.enabled ? "" : "is-disabled"}`} data-id={it.id}>
-              <div class="conn-top">
-                <div class="conn-id">
-                  <strong class="int-named">
-                    {prov && <IntegrationMark slug={prov.slug} icon={prov.icon} hasLogo={prov.hasLogo} />}
-                    {it.name}
-                  </strong>
-                  <span class="conn-sub">
-                    {prov?.name ?? it.provider}
-                    {prov && ` · ${CATEGORY_LABEL[prov.category] ?? prov.category}`}
-                  </span>
-                </div>
-                <div class="conn-status">
-                  <span class={`badge ${st.cls}`}>{st.text}</span>
-                  {(it.attention?.length ?? 0) > 0 && <span class="badge warn">Needs attention</span>}
-                  <label class="toggle" title={it.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}>
-                    <input type="checkbox" class="js-toggle" checked={it.enabled} data-id={it.id} />
-                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                  </label>
-                </div>
-              </div>
-              {it.lastError && <p class="conn-error">{it.lastError}</p>}
-              {(it.attention?.length ?? 0) > 0 && (
-                <div class="attention" role="status">
-                  {(it.attention ?? []).map((a) => (
-                    <p class="attention-line">
-                      <code>{a.code}</code> {a.message}
-                      <span class="attention-count">
-                        {" "}· {a.count} {a.count === 1 ? "failure" : "failures"} since {when(a.firstAt)}
+      <div class="cat-groups">
+        {connectedGroups.map((group) => (
+          <div
+            class:list={["cat-group", { "is-focused": group.category === focus }]}
+            id={`connected-${group.category}`}
+            data-category={group.category}
+          >
+            <h4 class="cat-title">{group.label}</h4>
+            <div class="conn-list">
+              {group.items.map((it) => {
+              const prov = providersBySlug.get(it.provider);
+              const st = statusMeta(it.status);
+              return (
+                <article class={`conn-card ${it.enabled ? "" : "is-disabled"}`} data-id={it.id}>
+                  <div class="conn-top">
+                    <div class="conn-id">
+                      <strong class="int-named">
+                        {prov && <IntegrationMark slug={prov.slug} icon={prov.icon} hasLogo={prov.hasLogo} />}
+                        {it.name}
+                      </strong>
+                      <span class="conn-sub">
+                        {prov?.name ?? it.provider}
+                        {prov && ` · ${CATEGORY_LABEL[prov.category] ?? prov.category}`}
                       </span>
-                    </p>
-                  ))}
-                  <div class="attention-btns">
-                    <button type="button" class="button small secondary js-check" data-id={it.id} title="Run the health check — a pass resolves this">
-                      Test
-                    </button>
-                    <button type="button" class="button small js-resolve" data-id={it.id} title="I fixed it: resolve, and retry what was waiting for it">
-                      Resolve
-                    </button>
+                    </div>
+                    <div class="conn-status">
+                      <span class={`badge ${st.cls}`}>{st.text}</span>
+                      {(it.attention?.length ?? 0) > 0 && <span class="badge warn">Needs attention</span>}
+                      <label class="toggle" title={it.enabled ? "Enabled — click to disable" : "Disabled — click to enable"}>
+                        <input type="checkbox" class="js-toggle" checked={it.enabled} data-id={it.id} />
+                        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                      </label>
+                    </div>
                   </div>
-                </div>
-              )}
-              {(it as { credentialSecret?: string }).credentialSecret && (
-                <p class="conn-meta">Credential: workspace secret <code>{`{{${(it as { credentialSecret?: string }).credentialSecret}}}`}</code></p>
-              )}
+                  {it.lastError && <p class="conn-error">{it.lastError}</p>}
+                  {(it.attention?.length ?? 0) > 0 && (
+                    <div class="attention" role="status">
+                      {(it.attention ?? []).map((a) => (
+                        <p class="attention-line">
+                          <code>{a.code}</code> {a.message}
+                          <span class="attention-count">
+                            {" "}· {a.count} {a.count === 1 ? "failure" : "failures"} since {when(a.firstAt)}
+                          </span>
+                        </p>
+                      ))}
+                      <div class="attention-btns">
+                        <button type="button" class="button small secondary js-check" data-id={it.id} title="Run the health check — a pass resolves this">
+                          Test
+                        </button>
+                        <button type="button" class="button small js-resolve" data-id={it.id} title="I fixed it: resolve, and retry what was waiting for it">
+                          Resolve
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {(it as { credentialSecret?: string }).credentialSecret && (
+                    <p class="conn-meta">Credential: workspace secret <code>{`{{${(it as { credentialSecret?: string }).credentialSecret}}}`}</code></p>
+                  )}
 
-              {(() => {
-                const needs = needsByProvider.get(it.provider) ?? [];
-                if (needs.length === 0) return null;
-                // Two different things: content an action genuinely reads or writes, and worked
-                // examples of how you *could* use it. Only the first is a problem when absent.
-                const required = needs.filter((b) => b.required);
-                const suggested = needs.filter((b) => !b.required);
-                const missingRequired = required.filter((b) => !b.applied);
-                // Parameterised items carry their inputs in the row (prefilled with defaults), so every
-                // missing item can be added — the Add buttons read those inputs.
-                const askable = missingRequired;
+                  {(() => {
+                    const needs = needsByProvider.get(it.provider) ?? [];
+                    if (needs.length === 0) return null;
+                    // Two different things: content an action genuinely reads or writes, and worked
+                    // examples of how you *could* use it. Only the first is a problem when absent.
+                    const required = needs.filter((b) => b.required);
+                    const suggested = needs.filter((b) => !b.required);
+                    const missingRequired = required.filter((b) => !b.applied);
+                    // Parameterised items carry their inputs in the row (prefilled with defaults), so every
+                    // missing item can be added — the Add buttons read those inputs.
+                    const askable = missingRequired;
 
-                const row = (b: Blueprint) => (
-                  <li class={b.applied ? (b.outdated ? "is-there is-outdated" : "is-there") : "is-missing"}>
-                    <span class="tick" title={b.outdated ? "Update available" : undefined}>{b.applied ? (b.outdated ? "↑" : "✓") : "○"}</span>
-                    <span class="needs-name">{b.name}</span>
-                    <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
-                    <span class="needs-desc">{b.description}</span>
-                    {!b.applied && b.parameters.length > 0 && (
-                      <span class="needs-params">
-                        {b.parameters.map((p) => {
-                          // Pickers for what the workspace already has; the default is pre-selected —
-                          // for an integration, the card it's shown on.
-                          const options =
-                            p.kind === "entry_type"
-                              ? entryTypeOptions
-                              : p.kind === "collection"
-                                ? collectionOptions
-                                : p.kind === "integration"
-                                  ? integrations.filter((x) => x.provider === it.provider).map((x) => ({ slug: x.slug, name: x.name }))
-                                  : null;
-                          const selected = p.kind === "integration" ? it.slug : p.default ?? "";
-                          return (
-                            <label title={p.help || ""}>
-                              <span>{p.label}</span>
-                              {options && options.length > 0 ? (
-                                <select class="input tiny" data-bp={b.slug} data-param={p.key} required={p.required}>
-                                  {!options.some((o) => o.slug === selected) && <option value="">Choose…</option>}
-                                  {options.map((o) => (
-                                    <option value={o.slug} selected={o.slug === selected}>{o.name}</option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <input class="input tiny" data-bp={b.slug} data-param={p.key} value={selected} required={p.required} />
-                              )}
-                            </label>
-                          );
-                        })}
-                      </span>
-                    )}
-                    {b.applied && b.outdated && (
-                      <button
-                        type="button"
-                        class="button tiny secondary js-update-blueprint"
-                        data-source={it.provider}
-                        data-slug={b.slug}
-                        data-name={b.name}
-                        title="The integration ships a newer version of this workflow"
-                      >
-                        Update
-                      </button>
-                    )}
-                    {!b.applied && (
-                      <button
-                        type="button"
-                        class="button tiny secondary js-apply-needs"
-                        data-source={it.provider}
-                        data-slugs={JSON.stringify([b.slug])}
-                      >
-                        Add
-                      </button>
-                    )}
-                  </li>
-                );
-
-                return (
-                  <details class="needs" open={missingRequired.length > 0}>
-                    <summary>
-                      Content
-                      <span class={`badge ${missingRequired.length ? "warn" : "ok"}`}>
-                        {missingRequired.length ? `${missingRequired.length} missing` : "ready"}
-                      </span>
-                    </summary>
-
-                    {required.length > 0 && (
-                      <>
-                        <h5 class="needs-head">Needed to work</h5>
-                        <ul>{required.map(row)}</ul>
-                        {askable.length > 0 && (
+                    const row = (b: Blueprint) => (
+                      <li class={b.applied ? (b.outdated ? "is-there is-outdated" : "is-there") : "is-missing"}>
+                        <span class="tick" title={b.outdated ? "Update available" : undefined}>{b.applied ? (b.outdated ? "↑" : "✓") : "○"}</span>
+                        <span class="needs-name">{b.name}</span>
+                        <span class="needs-kind">{KIND_NOUN[b.kind] ?? b.kind}</span>
+                        <span class="needs-desc">{b.description}</span>
+                        {!b.applied && b.parameters.length > 0 && (
+                          <span class="needs-params">
+                            {b.parameters.map((p) => {
+                              // Pickers for what the workspace already has; the default is pre-selected —
+                              // for an integration, the card it's shown on.
+                              const options =
+                                p.kind === "entry_type"
+                                  ? entryTypeOptions
+                                  : p.kind === "collection"
+                                    ? collectionOptions
+                                    : p.kind === "integration"
+                                      ? integrations.filter((x) => x.provider === it.provider).map((x) => ({ slug: x.slug, name: x.name }))
+                                      : null;
+                              const selected = p.kind === "integration" ? it.slug : p.default ?? "";
+                              return (
+                                <label title={p.help || ""}>
+                                  <span>{p.label}</span>
+                                  {options && options.length > 0 ? (
+                                    <select class="input tiny" data-bp={b.slug} data-param={p.key} required={p.required}>
+                                      {!options.some((o) => o.slug === selected) && <option value="">Choose…</option>}
+                                      {options.map((o) => (
+                                        <option value={o.slug} selected={o.slug === selected}>{o.name}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input class="input tiny" data-bp={b.slug} data-param={p.key} value={selected} required={p.required} />
+                                  )}
+                                </label>
+                              );
+                            })}
+                          </span>
+                        )}
+                        {b.applied && b.outdated && (
                           <button
                             type="button"
-                            class="button small js-apply-needs"
+                            class="button tiny secondary js-update-blueprint"
                             data-source={it.provider}
-                            data-slugs={JSON.stringify(askable.map((b) => b.slug))}
+                            data-slug={b.slug}
+                            data-name={b.name}
+                            title="The integration ships a newer version of this workflow"
                           >
-                            Add {askable.length} missing {askable.length === 1 ? "item" : "items"}
+                            Update
                           </button>
                         )}
-                      </>
-                    )}
+                        {!b.applied && (
+                          <button
+                            type="button"
+                            class="button tiny secondary js-apply-needs"
+                            data-source={it.provider}
+                            data-slugs={JSON.stringify([b.slug])}
+                          >
+                            Add
+                          </button>
+                        )}
+                      </li>
+                    );
 
-                    {suggested.length > 0 && (
-                      <>
-                        <h5 class="needs-head">Optional — set these up if you want them</h5>
-                        <ul>{suggested.map(row)}</ul>
-                      </>
-                    )}
+                    return (
+                      <details class="needs" open={missingRequired.length > 0}>
+                        <summary>
+                          Content
+                          <span class={`badge ${missingRequired.length ? "warn" : "ok"}`}>
+                            {missingRequired.length ? `${missingRequired.length} missing` : "ready"}
+                          </span>
+                        </summary>
 
-                    <p class="needs-note">
-                      Applying only creates what is missing — anything you have already changed is left alone.
-                    </p>
-                  </details>
-                );
-              })()}
+                        {required.length > 0 && (
+                          <>
+                            <h5 class="needs-head">Needed to work</h5>
+                            <ul>{required.map(row)}</ul>
+                            {askable.length > 0 && (
+                              <button
+                                type="button"
+                                class="button small js-apply-needs"
+                                data-source={it.provider}
+                                data-slugs={JSON.stringify(askable.map((b) => b.slug))}
+                              >
+                                Add {askable.length} missing {askable.length === 1 ? "item" : "items"}
+                              </button>
+                            )}
+                          </>
+                        )}
 
-              {(() => {
-                const actions = prov?.actions ?? [];
-                const emits = prov?.emits ?? [];
-                if (actions.length === 0 && emits.length === 0) return null;
-                const args = (a: ProviderActionInfo) => {
-                  const props = Object.keys(a.inputSchema?.properties ?? {});
-                  return props.length ? props.join(", ") : "nothing";
-                };
-                return (
-                  <details class="needs possibilities">
-                    <summary>
-                      What you can do with this
-                      <span class="badge">{actions.length} {actions.length === 1 ? "action" : "actions"}</span>
-                    </summary>
-                    <ul class="acts">
-                      {actions.map((a) => (
-                        <li>
-                          <div class="act-head">
-                            <strong>{a.label}</strong>
-                            <code>{a.key}</code>
-                            {a.capability && <span class="badge">{a.capability}</span>}
-                            {a.requiresApproval && <span class="badge warn">needs approval</span>}
-                            {a.costHint && <span class="badge">{a.costHint}</span>}
-                          </div>
-                          {a.description && <p class="act-desc">{a.description}</p>}
-                          <p class="act-args">takes: {args(a)}</p>
-                        </li>
-                      ))}
-                    </ul>
-                    {emits.length > 0 && (
-                      <>
-                        <h5 class="needs-head">Events it can raise</h5>
+                        {suggested.length > 0 && (
+                          <>
+                            <h5 class="needs-head">Optional — set these up if you want them</h5>
+                            <ul>{suggested.map(row)}</ul>
+                          </>
+                        )}
+
+                        <p class="needs-note">
+                          Applying only creates what is missing — anything you have already changed is left alone.
+                        </p>
+                      </details>
+                    );
+                  })()}
+
+                  {(() => {
+                    const actions = prov?.actions ?? [];
+                    const emits = prov?.emits ?? [];
+                    if (actions.length === 0 && emits.length === 0) return null;
+                    const args = (a: ProviderActionInfo) => {
+                      const props = Object.keys(a.inputSchema?.properties ?? {});
+                      return props.length ? props.join(", ") : "nothing";
+                    };
+                    return (
+                      <details class="needs possibilities">
+                        <summary>
+                          What you can do with this
+                          <span class="badge">{actions.length} {actions.length === 1 ? "action" : "actions"}</span>
+                        </summary>
                         <ul class="acts">
-                          {emits.map((e) => (
+                          {actions.map((a) => (
                             <li>
                               <div class="act-head">
-                                <strong>{e.label}</strong>
-                                <code>{e.key}</code>
+                                <strong>{a.label}</strong>
+                                <code>{a.key}</code>
+                                {a.capability && <span class="badge">{a.capability}</span>}
+                                {a.requiresApproval && <span class="badge warn">needs approval</span>}
+                                {a.costHint && <span class="badge">{a.costHint}</span>}
                               </div>
-                              {e.description && <p class="act-desc">{e.description}</p>}
+                              {a.description && <p class="act-desc">{a.description}</p>}
+                              <p class="act-args">takes: {args(a)}</p>
                             </li>
                           ))}
                         </ul>
-                      </>
-                    )}
-                    <p class="needs-note">
-                      Run any of these three ways: from an <strong>automation</strong> when something happens, on a
-                      <strong> schedule</strong> (a Run Integration Action task), or ad hoc with the buttons below. The
-                      optional content above is ready-made wiring for the common cases.
-                    </p>
-                  </details>
-                );
-              })()}
-
-              {(() => {
-                const labels = Object.fromEntries((prov?.actions ?? []).map((a) => [a.key, a.label]));
-                const rows = policyRows(prov?.errorPolicy, labels, it.errorOverrides);
-                if (rows.length === 0) return null;
-                return (
-                  <details class="needs possibilities policy" data-id={it.id}>
-                    <summary>
-                      How errors are handled
-                      <span class="badge">{rows.length} {rows.length === 1 ? "error" : "errors"}</span>
-                      {rows.some((r) => r.overridden) && <span class="badge warn js-policy-adjusted">adjusted</span>}
-                    </summary>
-                    <table class="policy-table">
-                      <thead>
-                        <tr>
-                          <th>Error</th>
-                          <th>What {prov?.name ?? it.provider} does</th>
-                          <th title="Send the entry to Needs review">Review</th>
-                          <th title="Mark this connection Needs attention and alert admins">Alert</th>
-                          <th></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((r) => (
-                          <tr data-code={r.code} data-default-review={String(r.defaults.review)} data-default-notify={String(r.defaults.notify)}>
-                            <td><code>{r.label}</code></td>
-                            <td>
-                              {r.declared.map((d) => (
-                                <div class="policy-what"><span class="policy-scope">{d.scope}:</span> {d.summary}</div>
+                        {emits.length > 0 && (
+                          <>
+                            <h5 class="needs-head">Events it can raise</h5>
+                            <ul class="acts">
+                              {emits.map((e) => (
+                                <li>
+                                  <div class="act-head">
+                                    <strong>{e.label}</strong>
+                                    <code>{e.key}</code>
+                                  </div>
+                                  {e.description && <p class="act-desc">{e.description}</p>}
+                                </li>
                               ))}
-                            </td>
-                            {(["review", "notify"] as const).map((flag) => (
-                              <td class="policy-flag">
-                                <input type="checkbox" class="js-policy" data-flag={flag} checked={r.effective[flag]} aria-label={`${flag === "review" ? "Review" : "Alert"} on ${r.label}`} />
-                                <span class="policy-default">default {r.defaults[flag] ? "on" : "off"}</span>
-                              </td>
-                            ))}
-                            <td><button type="button" class="link-btn js-policy-reset" hidden={!r.overridden}>Reset to default</button></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    <p class="needs-note">
-                      <strong>Review</strong> sends the entry to Needs review with the reason. <strong>Alert</strong> marks this
-                      connection "Needs attention" and tells admins once per error, not once per item (where it goes: Settings →
-                      Integrations → Integration alerts). Retries stay as {prov?.name ?? it.provider} declares them. A workflow with
-                      its own on-failure steps, or with <code>integration_errors: "fail"</code>, handles failures itself — the alert
-                      still fires.
-                    </p>
-                  </details>
-                );
-              })()}
+                            </ul>
+                          </>
+                        )}
+                        <p class="needs-note">
+                          Run any of these three ways: from an <strong>automation</strong> when something happens, on a
+                          <strong> schedule</strong> (a Run Integration Action task), or ad hoc with the buttons below. The
+                          optional content above is ready-made wiring for the common cases.
+                        </p>
+                      </details>
+                    );
+                  })()}
 
-              <div class="conn-foot">
-                <code class="conn-slug" title="Reference this integration from automations">{it.slug}</code>
-                <div class="conn-btns">
-                  {(prov?.actions ?? []).map((a) => (
-                    <button type="button" class="button small secondary js-action" data-id={it.id} data-provider={it.provider} data-action={a.key} title={a.description}>
-                      {a.label}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    class="icon-btn-sm js-edit"
-                    data-provider={it.provider}
-                    data-integration={JSON.stringify({ id: it.id, name: it.name, config: it.config ?? {}, hasCredential: it.hasCredential, credentialSecret: (it as { credentialSecret?: string }).credentialSecret ?? null })}
-                    title="Edit integration"
-                    aria-label="Edit integration"
-                  >✎</button>
-                  <button type="button" class="icon-btn-sm js-check" data-id={it.id} title="Run health check" aria-label="Run health check">↻</button>
-                  <button type="button" class="icon-btn-sm danger js-delete" data-id={it.id} data-name={it.name} title="Delete integration" aria-label="Delete integration">✕</button>
-                </div>
-              </div>
-            </article>
-          );
-        })}
+                  {(() => {
+                    const labels = Object.fromEntries((prov?.actions ?? []).map((a) => [a.key, a.label]));
+                    const rows = policyRows(prov?.errorPolicy, labels, it.errorOverrides);
+                    if (rows.length === 0) return null;
+                    return (
+                      <details class="needs possibilities policy" data-id={it.id}>
+                        <summary>
+                          How errors are handled
+                          <span class="badge">{rows.length} {rows.length === 1 ? "error" : "errors"}</span>
+                          {rows.some((r) => r.overridden) && <span class="badge warn js-policy-adjusted">adjusted</span>}
+                        </summary>
+                        <table class="policy-table">
+                          <thead>
+                            <tr>
+                              <th>Error</th>
+                              <th>What {prov?.name ?? it.provider} does</th>
+                              <th title="Send the entry to Needs review">Review</th>
+                              <th title="Mark this connection Needs attention and alert admins">Alert</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r) => (
+                              <tr data-code={r.code} data-default-review={String(r.defaults.review)} data-default-notify={String(r.defaults.notify)}>
+                                <td><code>{r.label}</code></td>
+                                <td>
+                                  {r.declared.map((d) => (
+                                    <div class="policy-what"><span class="policy-scope">{d.scope}:</span> {d.summary}</div>
+                                  ))}
+                                </td>
+                                {(["review", "notify"] as const).map((flag) => (
+                                  <td class="policy-flag">
+                                    <input type="checkbox" class="js-policy" data-flag={flag} checked={r.effective[flag]} aria-label={`${flag === "review" ? "Review" : "Alert"} on ${r.label}`} />
+                                    <span class="policy-default">default {r.defaults[flag] ? "on" : "off"}</span>
+                                  </td>
+                                ))}
+                                <td><button type="button" class="link-btn js-policy-reset" hidden={!r.overridden}>Reset to default</button></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <p class="needs-note">
+                          <strong>Review</strong> sends the entry to Needs review with the reason. <strong>Alert</strong> marks this
+                          connection "Needs attention" and tells admins once per error, not once per item (where it goes: Settings →
+                          Automation → Notifications). Retries stay as {prov?.name ?? it.provider} declares them. A workflow with
+                          its own on-failure steps, or with <code>integration_errors: "fail"</code>, handles failures itself — the alert
+                          still fires.
+                        </p>
+                      </details>
+                    );
+                  })()}
+
+                  <div class="conn-foot">
+                    <code class="conn-slug" title="Reference this integration from automations">{it.slug}</code>
+                    <div class="conn-btns">
+                      {(prov?.actions ?? []).map((a) => (
+                        <button type="button" class="button small secondary js-action" data-id={it.id} data-provider={it.provider} data-action={a.key} title={a.description}>
+                          {a.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        class="icon-btn-sm js-edit"
+                        data-provider={it.provider}
+                        data-integration={JSON.stringify({ id: it.id, name: it.name, config: it.config ?? {}, hasCredential: it.hasCredential, credentialSecret: (it as { credentialSecret?: string }).credentialSecret ?? null })}
+                        title="Edit integration"
+                        aria-label="Edit integration"
+                      >✎</button>
+                      <button type="button" class="icon-btn-sm js-check" data-id={it.id} title="Run health check" aria-label="Run health check">↻</button>
+                      <button type="button" class="icon-btn-sm danger js-delete" data-id={it.id} data-name={it.name} title="Delete integration" aria-label="Delete integration">✕</button>
+                    </div>
+                  </div>
+                </article>
+              );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     )}
   </section>
@@ -414,19 +430,30 @@ function statusMeta(status: string): { text: string; cls: string } {
     {providers.length === 0 ? (
       <div class="empty"><p>No providers available.</p></div>
     ) : (
-      <div class="catalog">
-        {providers.map((p) => (
-          <article class="cat-card">
-            <div class="cat-head">
-              <strong class="int-named">
-                <IntegrationMark slug={p.slug} icon={p.icon} hasLogo={p.hasLogo} />
-                {p.name}
-              </strong>
-              <span class="chip">{CATEGORY_LABEL[p.category] ?? p.category}</span>
+      <div class="cat-groups">
+        {catalogGroups.map((group) => (
+          <div
+            class:list={["cat-group", { "is-focused": group.category === focus }]}
+            id={`add-${group.category}`}
+            data-category={group.category}
+          >
+            <h4 class="cat-title">{group.label}</h4>
+            <div class="catalog">
+              {group.items.map((p) => (
+                <article class="cat-card">
+                  <div class="cat-head">
+                    <strong class="int-named">
+                      <IntegrationMark slug={p.slug} icon={p.icon} hasLogo={p.hasLogo} />
+                      {p.name}
+                    </strong>
+                    <span class="chip">{CATEGORY_LABEL[p.category] ?? p.category}</span>
+                  </div>
+                  <p class="cat-desc">{p.description}</p>
+                  <button type="button" class="button small js-configure" data-slug={p.slug}>Configure</button>
+                </article>
+              ))}
             </div>
-            <p class="cat-desc">{p.description}</p>
-            <button type="button" class="button small js-configure" data-slug={p.slug}>Configure</button>
-          </article>
+          </div>
         ))}
       </div>
     )}
@@ -493,6 +520,11 @@ function statusMeta(status: string): { text: string; cls: string } {
 </AppLayout>
 
 <script>
+  // ?category=<cat>: bring the focused group (the catalog's, where a new one is added) into view.
+  (document.querySelector(".cat-group.is-focused[id^='add-']") ?? document.querySelector(".cat-group.is-focused"))?.scrollIntoView({
+    block: "start",
+  });
+
   import {
     createIntegration,
     deleteIntegration,
@@ -1042,6 +1074,13 @@ function statusMeta(status: string): { text: string; cls: string } {
   }
   .empty p { margin: 0; }
   .empty .hint { margin-top: 6px; font-size: 13px; }
+
+  /* category groups (both lists) */
+  .cat-groups { display: grid; gap: 18px; }
+  .cat-title { margin: 0 0 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .cat-group { scroll-margin-top: 80px; border-radius: var(--radius); }
+  .cat-group.is-focused { outline: 2px solid var(--accent); outline-offset: 6px; }
+  .cat-group.is-focused .cat-title { color: var(--accent); }
 
   /* connected list */
   .conn-list { display: grid; gap: 12px; }
