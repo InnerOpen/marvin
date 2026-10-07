@@ -1,11 +1,13 @@
 ---
 import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
+import EnvironmentBadge from "@/components/EnvironmentBadge.astro";
 import NavDrawerToggle from "@/components/NavDrawerToggle.astro";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import UpdateBanner from "@/components/UpdateBanner.astro";
 import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
 import NavTrail from "@/components/NavTrail.astro";
+import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
 import { navHref, navNode, navTitle, navTrail } from "@/lib/navTree";
 
 interface Props {
@@ -18,6 +20,8 @@ interface Props {
 const { crumb, title = navTitle(crumb) } = Astro.props;
 const trail = navTrail(crumb);
 const path = Astro.url.pathname;
+// Non-production instances (backend ENVIRONMENT_LABEL) badge the header and prefix the tab title.
+const environmentLabel = await getEnvironmentLabel();
 
 interface AdminNavItem {
   href: string;
@@ -102,7 +106,7 @@ function isActive(item: AdminNavItem, currentPath: string): boolean {
     <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Marvin platform admin" />
-    <title>{title} | Marvin Admin</title>
+    <title>{withEnvironmentPrefix(`${title} | Marvin Admin`, environmentLabel)}</title>
     <RuntimeConfig />
   </head>
   <body>
@@ -132,6 +136,7 @@ function isActive(item: AdminNavItem, currentPath: string): boolean {
         <header class="topbar">
           <div class="topbar-left">
             <NavDrawerToggle controls="app-sidebar" />
+            <EnvironmentBadge label={environmentLabel} />
             <div class="topbar-title">
               <NavTrail trail={trail} />
               <h1>{title}</h1>

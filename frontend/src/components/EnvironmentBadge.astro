@@ -1,0 +1,53 @@
+---
+// Marks a non-production instance (backend ENVIRONMENT_LABEL, e.g. "DEV"). The layouts and the login page
+// pass the label they already read; an empty label renders nothing, so production is unchanged.
+import { environmentTone } from "@/lib/environmentLabel";
+
+interface Props {
+  label: string;
+}
+
+const { label } = Astro.props;
+const tone = label ? environmentTone(label) : null;
+---
+
+{label && (
+  <span class:list={["env-badge", `env-badge--${tone}`]} title={`${label} environment — not production`}>
+    {label}
+  </span>
+)}
+
+<style>
+  .env-badge {
+    --env-staging: var(--theme-secondary, #7c3aed);
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  :global([data-theme="dark"]) .env-badge {
+    --env-staging: var(--theme-secondary, #8b5cf6);
+  }
+
+  .env-badge--dev {
+    background: var(--gold);
+    color: #1c1917;
+  }
+
+  .env-badge--staging {
+    background: var(--env-staging);
+    color: #fff;
+  }
+
+  .env-badge--neutral {
+    background: var(--ink);
+    color: var(--bg);
+  }
+</style>

@@ -1,9 +1,11 @@
 ---
 import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
+import EnvironmentBadge from "@/components/EnvironmentBadge.astro";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import { getBrowserApiBaseUrl, getServerApiBaseUrl } from "@/lib/api/config";
 import { isAuthenticated } from "@/lib/auth";
+import { withEnvironmentPrefix } from "@/lib/environmentLabel";
 
 // Ensure this page is server-rendered (not prerendered)
 export const prerender = false;
@@ -22,6 +24,7 @@ let oidcEnabled = false;
 let oidcProviderName = "OAuth";
 let oidcAutoRedirect = false;
 let isDemo = false;
+let environmentLabel = "";
 
 try {
   const res = await fetch(`${getServerApiBaseUrl()}/api/app/about/login-info`);
@@ -31,6 +34,7 @@ try {
     oidcProviderName = info.oidc_provider_name ?? "OAuth";
     oidcAutoRedirect = info.oidc_auto_redirect ?? false;
     isDemo = info.is_demo ?? false;
+    environmentLabel = typeof info.environmentLabel === "string" ? info.environmentLabel : "";
   }
 } catch {
   // Backend unreachable — fall through to password-only login
@@ -52,7 +56,7 @@ if (oidcEnabled && oidcAutoRedirect && !error) {
     <meta charset="UTF-8" />
     <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Login | Marvin</title>
+    <title>{withEnvironmentPrefix("Login | Marvin", environmentLabel)}</title>
     <RuntimeConfig />
   </head>
   <body class="login-page">
@@ -63,6 +67,7 @@ if (oidcEnabled && oidcAutoRedirect && !error) {
             <strong>Marvin</strong>
             <span>Content engine</span>
           </div>
+          <EnvironmentBadge label={environmentLabel} />
           <h1>Welcome back</h1>
           <p>Sign in to your workspace</p>
         </div>

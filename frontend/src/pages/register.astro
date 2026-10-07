@@ -4,6 +4,10 @@ import "../styles/global.css";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import type { UserRegistration } from "@/lib/api/auth";
 import { register } from "@/lib/api/auth";
+import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
+
+// Non-production instances (backend ENVIRONMENT_LABEL) prefix the tab title.
+const environmentLabel = await getEnvironmentLabel();
 
 // Get token from query params (supports both ?token= and ?invite=)
 const token = Astro.url.searchParams.get("token") || Astro.url.searchParams.get("invite");
@@ -61,7 +65,7 @@ if (Astro.request.method === "POST") {
     <meta charset="UTF-8" />
     <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Register | Marvin</title>
+    <title>{withEnvironmentPrefix("Register | Marvin", environmentLabel)}</title>
     <RuntimeConfig />
   </head>
   <body class="register-page">

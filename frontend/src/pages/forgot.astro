@@ -6,6 +6,10 @@ export const prerender = false;
 
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import { forgotPassword } from "@/lib/api/auth";
+import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
+
+// Non-production instances (backend ENVIRONMENT_LABEL) prefix the tab title.
+const environmentLabel = await getEnvironmentLabel();
 
 let success = false;
 let error: string | null = null;
@@ -31,7 +35,7 @@ if (Astro.request.method === "POST") {
     <meta charset="UTF-8" />
     <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Forgot Password | Marvin</title>
+    <title>{withEnvironmentPrefix("Forgot Password | Marvin", environmentLabel)}</title>
     <RuntimeConfig />
   </head>
   <body class="forgot-password-page">

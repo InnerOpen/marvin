@@ -2,6 +2,7 @@
 import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
 import ActivityToaster from "@/components/ActivityToaster.astro";
+import EnvironmentBadge from "@/components/EnvironmentBadge.astro";
 import Marvin from "@/components/Marvin.astro";
 import NavDrawerToggle from "@/components/NavDrawerToggle.astro";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
@@ -11,6 +12,7 @@ import WorkspaceSwitcher from "@/components/WorkspaceSwitcher.astro";
 import NavTrail from "@/components/NavTrail.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getEntryCounts } from "@/lib/api/entries";
+import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
 import { sourceAllowed } from "@/lib/marvin/gate";
 import { navTitle, navTrail } from "@/lib/navTree";
 import { createSdkClient } from "@/lib/sdk";
@@ -60,6 +62,8 @@ const title = Astro.props.title ?? (crumb ? navTitle(crumb) : "");
 const trail = crumb ? navTrail(crumb, { params: crumbParams, labels: crumbLabels }) : null;
 const blockedNote = adminOnly ? ADMINS_ONLY : restrictedNote;
 const path = Astro.url.pathname;
+// Non-production instances (backend ENVIRONMENT_LABEL) badge the header and prefix the tab title.
+const environmentLabel = await getEnvironmentLabel();
 
 // Check if user is admin and get platform role
 const authToken = getAuthToken(Astro.cookies);
@@ -177,7 +181,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
     <ThemeInit />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Marvin platform admin frontend" />
-    <title>{title} | Marvin</title>
+    <title>{withEnvironmentPrefix(`${title} | Marvin`, environmentLabel)}</title>
     <RuntimeConfig />
   </head>
   <body
@@ -213,6 +217,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
         <header class="topbar">
           <div class="topbar-left">
             <NavDrawerToggle controls="app-sidebar" />
+            <EnvironmentBadge label={environmentLabel} />
             <div class="topbar-title">
               {trail ? <NavTrail trail={trail} /> : <p>{eyebrow}</p>}
               <h1>{title}</h1>
