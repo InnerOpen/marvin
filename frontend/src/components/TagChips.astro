@@ -40,7 +40,7 @@ const { attachedTags = [], allTags = [], label = "Tags" } = Astro.props;
   </datalist>
   <small class="form-help">Press Enter or comma to add. New tags are created on save.</small>
   <input type="hidden" id="tags-payload" />
-  <script type="application/json" id="all-tags-data" set:html={JSON.stringify(allTags.map((t) => ({ id: t.id, name: t.name })))}></script>
+  <script type="application/json" id="all-tags-data" set:html={JSON.stringify(allTags.map((t) => ({ id: t.id, name: t.name }))).replace(/</g, "\\u003c")}></script>
 </div>
 
 <script>

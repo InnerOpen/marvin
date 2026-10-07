@@ -650,6 +650,8 @@ function fmtDate(iso: string): string {
 </style>
 
 <script>
+  import { BACKUP_COLUMNS, type BackupFile, backupCells } from '@/lib/admin/backups';
+
   function fmt(bytes: number): string {
     if (bytes === 0) return '0 B';
     const k = 1024, sizes = ['B', 'KB', 'MB', 'GB'];
@@ -661,17 +663,41 @@ function fmtDate(iso: string): string {
     return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   }
 
-  function makeRow(b: { filename: string; size: number; created_at: string; workspace_slug?: string }): HTMLTableRowElement {
+  // Built with textContent, never innerHTML: filenames and slugs come from the server.
+  function makeRow(b: BackupFile): HTMLTableRowElement {
     const tr = document.createElement('tr');
-    const dlUrl = `/api/admin/backups/${encodeURIComponent(b.filename)}`;
-    tr.innerHTML = `
-      <td class="slug-cell">${b.workspace_slug ?? ''}</td>
-      <td class="filename-cell">${b.filename}</td>
-      <td class="num-cell">${fmt(b.size)}</td>
-      <td class="num-cell">${fmtDate(b.created_at)}</td>
-      <td class="action-cell"><a href="${dlUrl}" download="${b.filename}" class="dl-link">Download</a></td>
-    `;
+    for (const cell of backupCells(b, fmt, fmtDate)) {
+      const td = document.createElement('td');
+      td.className = cell.className;
+      if (cell.link) {
+        const a = document.createElement('a');
+        a.href = cell.link.href;
+        a.download = cell.link.download;
+        a.className = 'dl-link';
+        a.textContent = cell.text;
+        td.append(a);
+      } else {
+        td.textContent = cell.text;
+      }
+      tr.append(td);
+    }
     return tr;
+  }
+
+  // The bundle table when the page rendered none (no backups yet, or a filter emptied it).
+  function makeTable(): HTMLTableElement {
+    const table = document.createElement('table');
+    table.id = 'backup-table';
+    table.className = 'backup-table';
+    const headRow = table.createTHead().insertRow();
+    for (const label of BACKUP_COLUMNS) {
+      const th = document.createElement('th');
+      th.textContent = label;
+      headRow.append(th);
+    }
+    const tbody = table.createTBody();
+    tbody.id = 'backup-tbody';
+    return table;
   }
 
   // ── Create Backup ──────────────────────────────────────────────────────────
@@ -705,15 +731,7 @@ function fmtDate(iso: string): string {
       if (!table) {
         const section = createBtn.closest('.sections')?.querySelectorAll('.card')[2];
         if (section) {
-          table = document.createElement('table');
-          table.id = 'backup-table';
-          table.className = 'backup-table';
-          table.innerHTML = `
-            <thead><tr>
-              <th>Workspace</th><th>Filename</th><th>Size</th><th>Created</th><th></th>
-            </tr></thead>
-            <tbody id="backup-tbody"></tbody>
-          `;
+          table = makeTable();
           section.appendChild(table);
         }
       }
@@ -798,13 +816,13 @@ function fmtDate(iso: string): string {
     const qs = slug ? `?workspace_slug=${encodeURIComponent(slug)}` : '';
     try {
       const res = await fetch(`/api/admin/backups${qs}`, { credentials: 'include' });
-      const list = await res.json() as { filename: string; size: number; created_at: string; workspace_slug: string }[];
+      const list = await res.json() as BackupFile[];
 
       const tbody = document.getElementById('backup-tbody') as HTMLTableSectionElement | null;
       const emptyMsg = document.getElementById('empty-msg');
 
       if (!list.length) {
-        if (tbody) tbody.innerHTML = '';
+        tbody?.replaceChildren();
         if (!emptyMsg) {
           const p = document.createElement('p');
           p.id = 'empty-msg';
@@ -823,29 +841,12 @@ function fmtDate(iso: string): string {
       let table = document.getElementById('backup-table') as HTMLTableElement | null;
       if (!table) {
         const section = filterSelect.closest('.card');
-        table = document.createElement('table');
-        table.id = 'backup-table';
-        table.className = 'backup-table';
-        table.innerHTML = `
-          <thead><tr>
-            <th>Workspace</th><th>Filename</th><th>Size</th><th>Created</th><th></th>
-          </tr></thead>
-          <tbody id="backup-tbody"></tbody>
-        `;
+        table = makeTable();
         section?.appendChild(table);
       }
 
       const newTbody = document.getElementById('backup-tbody') as HTMLTableSectionElement | null;
-      if (newTbody) newTbody.innerHTML = list.map(b => {
-        const dlUrl = `/api/admin/backups/${encodeURIComponent(b.filename)}`;
-        return `<tr>
-          <td class="slug-cell">${b.workspace_slug}</td>
-          <td class="filename-cell">${b.filename}</td>
-          <td class="num-cell">${fmt(b.size)}</td>
-          <td class="num-cell">${fmtDate(b.created_at)}</td>
-          <td class="action-cell"><a href="${dlUrl}" download="${b.filename}" class="dl-link">Download</a></td>
-        </tr>`;
-      }).join('');
+      newTbody?.replaceChildren(...list.map(makeRow));
     } catch (err) {
       console.error('Failed to filter backups:', err);
     }

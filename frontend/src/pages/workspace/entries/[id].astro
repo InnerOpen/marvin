@@ -747,7 +747,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
             {/* The source of truth the server reads on save: a JSON array of {name, id?}. */}
             <input type="hidden" name="tags_payload" id="tags-payload" form="entry-form" />
             {/* Workspace vocabulary for client-side name→id resolution (reuse existing tags). */}
-            <script type="application/json" id="all-tags-data" set:html={JSON.stringify(allTags.map((t) => ({ id: t.id, name: t.name, slug: t.slug })))}></script>
+            <script type="application/json" id="all-tags-data" set:html={JSON.stringify(allTags.map((t) => ({ id: t.id, name: t.name, slug: t.slug }))).replace(/</g, "\\u003c")}></script>
           </div>
 
           <div class="sidebar-section">
