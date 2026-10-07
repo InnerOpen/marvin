@@ -28,7 +28,7 @@ CATEGORIES: tuple[ToolCategory, ...] = (
         "entries_trash",
         "Entries: move to Trash",
         True,
-        "Delete entries to the Trash, where they can be restored (a published entry asks first). Never empties the Trash",
+        "Delete entries, assets and resources to the Trash and restore them (taking something off the site asks first). Never empties the Trash",
     ),
     ToolCategory("links", "Links", True, "Attach or detach tags, assets and resources; add to or remove from collections"),
     ToolCategory("library_read", "Library: read", False, "List and read collections, resources, tags and assets"),

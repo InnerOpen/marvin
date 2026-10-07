@@ -508,3 +508,74 @@ def test_publishing_api_never_serves_a_trashed_asset_or_resource(db_session, mak
     finally:
         db_session.query(GroupPreferencesModel).filter_by(group_id=gid).delete()
         db_session.commit()
+
+
+# ── AI: trash_entries / restore_entries take assets and resources ────────────
+
+
+def _ai(ws, tool: str, args: dict) -> dict:
+    import json
+
+    from marvin.services.ai.tools import get_tool
+    from tests.test_trash import _ctx
+
+    return json.loads(get_tool(tool).handler(_ctx(ws), args))
+
+
+def test_trash_entries_takes_assets_by_id_slug_or_filename_and_resources_by_name(ws):
+    by_id, by_slug, by_file = ws.asset("one"), ws.asset("two"), ws.asset("three")
+    twin_a, twin_b = ws.asset("twin-a"), ws.asset("twin-b")
+    for i in (twin_a, twin_b):
+        ws.session.get(Assets, i).name = "Same"
+    ws.session.flush()
+    rid = ws.resource("canvas")
+    eid = ws.entry("draft")
+    slug = _get(ws, "asset", by_slug).slug
+    out = _ai(ws, "trash_entries", {"entries": [str(eid)], "assets": [str(by_id), slug, "THREE.png", "Same"], "resources": ["Canvas"]})
+    assert [t["id"] for t in out["trashed"]] == [str(eid)]  # entries behave as before
+    assert {a["id"] for a in out["trashedAssets"]} == {str(by_id), str(by_slug), str(by_file)}
+    assert [r["id"] for r in out["trashedResources"]] == [str(rid)]
+    assert [s["asset"] for s in out["skipped"]] == ["Same"]  # a name two assets share: never guessed
+    assert all(_get(ws, "asset", i).trashed_at for i in (by_id, by_slug, by_file)) and _get(ws, "resource", rid).trashed_at
+    assert "file is kept" in out["undo"] and _names(by_id) == ["asset_trashed"]
+    again = _ai(ws, "trash_entries", {"assets": [str(by_id)]})
+    assert again["trashedAssets"] == [] and [a["id"] for a in again["alreadyTrashed"]] == [str(by_id)]
+
+
+def test_trash_entries_with_only_entries_answers_as_before(ws):
+    eid = ws.entry("plain")
+    out = _ai(ws, "trash_entries", {"entries": [str(eid)]})
+    assert set(out) <= {"trashed", "skipped", "alreadyTrashed", "undo", "trashLink"}  # no asset/resource keys
+    assert "assets" not in out["undo"]
+
+
+def test_trashing_an_asset_a_site_shows_asks_first(ws):
+    from marvin.services.ai.tools import get_tool
+    from tests.test_trash import _ctx
+
+    live = ws.entry("live", status="published")
+    shown, loose = ws.asset("shown"), ws.asset("loose")
+    ws.session.add(EntryAssets(entry_id=live, asset_id=shown, position=0))
+    ws.session.flush()
+    ask = get_tool("trash_entries").ask_first
+    flagged = ask(_ctx(ws), {"assets": [str(shown), str(loose)]})
+    assert flagged is not None and flagged.preview["summary"] == "Move 2 items to the Trash — 1 is on the site and will come off it"
+    assert "Shown (asset, on the site)" in flagged.preview["targets"]
+    assert ask(_ctx(ws), {"assets": [str(loose)]}) is None
+    assert _get(ws, "asset", shown).trashed_at is None  # asking writes nothing
+
+
+def test_restore_entries_takes_assets_and_resources_back_out(ws):
+    aid, rid, live = ws.asset("back"), ws.resource("back"), ws.asset("never-trashed")
+    T.trash(ws.session, ws.gid, "asset", aid)
+    T.trash(ws.session, ws.gid, "resource", rid)
+    out = _ai(ws, "restore_entries", {"assets": [str(aid), str(live)], "resources": [_get(ws, "resource", rid).slug]})
+    assert [a["id"] for a in out["restoredAssets"]] == [str(aid)] and [r["id"] for r in out["restoredResources"]] == [str(rid)]
+    assert [n["id"] for n in out["notTrashed"]] == [str(live)]
+    assert _get(ws, "asset", aid).trashed_at is None and _get(ws, "resource", rid).trashed_at is None
+    assert out["restored"] == []
+
+
+def test_the_tools_need_something_named_and_cap_the_batch(ws):
+    assert "name at least one" in _ai(ws, "trash_entries", {})["error"]
+    assert "at most 50" in _ai(ws, "restore_entries", {"assets": [f"a{i}" for i in range(30)], "resources": [f"r{i}" for i in range(21)]})["error"]

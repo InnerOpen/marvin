@@ -86,12 +86,13 @@ TAGGING_RULE = (
 )
 
 # Asked to delete test inbox entries, an agent with no remove tool staged no-op revise suggestions ("Deleted test
-# inbox entry.") on seven real entries. Delete moves entries to the Trash (trash_entries), which a person restores
-# or empties; archiving retires an entry that is kept. There is no AI hard delete and no AI "empty the Trash".
+# inbox entry.") on seven real entries. Delete moves entries, assets and resources to the Trash (trash_entries), which
+# a person restores or empties; archiving retires an entry that is kept. There is no AI hard delete and no AI "empty the Trash".
 TRASH_RULE = (
-    "Deleting or removing entries: call trash_entries — what Delete does in Marvin — and tell the user the entries are "
-    "in the Trash, where they can restore them, and that only a person can empty it. To bring trashed entries back, "
-    "call restore_entries. Never use revise_entry or compose_entry to 'delete' or blank an entry."
+    "Deleting or removing entries, assets (images, files) or resources: call trash_entries (its `entries`, `assets` and "
+    "`resources` lists) — what Delete does in Marvin — and tell the user they are in the Trash, where they can restore "
+    "them, and that only a person can empty it. To bring trashed items back, call restore_entries. Never use "
+    "revise_entry or compose_entry to 'delete' or blank an entry, and never detach an asset to 'delete' it."
 )
 ARCHIVE_RULE = "Retiring or archiving entries (kept, but out of the active pipeline): call archive_entries."
 REMOVING_RULE = (
