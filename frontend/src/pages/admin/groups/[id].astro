@@ -1,5 +1,6 @@
 ---
 import type { PlatformWorkspaceMember, Workspace } from "@inneropen/marvin-sdk/platform";
+import PlatformBadge from "@/components/PlatformBadge.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
@@ -29,6 +30,9 @@ if (!id) {
     console.error("[admin/groups] Failed to load:", error);
   }
 }
+// The platform (admin's) workspace: platform alerts and shared services run from it. It can be renamed
+// (name and slug) but never deleted. (`isPlatform` is newer than the SDK's Workspace type.)
+const isPlatform = Boolean((group as (Workspace & { isPlatform?: boolean }) | null)?.isPlatform);
 ---
 
 <AdminLayout crumb="admin.workspaces.workspace" title={group ? `Manage ${group.name}` : "Manage Workspace"}>
@@ -40,42 +44,41 @@ if (!id) {
     <>
       <div class="toolbar">
         <div>
-          <h2>{group.name}</h2>
-          <p>Manage workspace settings and members</p>
+          <div class="title-row">
+            <h2>{group.name}</h2>
+            {isPlatform && <PlatformBadge size="md" />}
+          </div>
+          <p>
+            {isPlatform
+              ? "The admin's workspace: platform alerts and shared services run from here."
+              : "Manage workspace settings and members"}
+          </p>
         </div>
       </div>
 
       <div class="layout-grid">
         <section class="main-section">
           <div class="panel">
-            <h3>Workspace Details</h3>
-            <form method="POST" action={`/api/admin/groups/${id}/update`} class="form">
+            <h3>{isPlatform ? "Rename the platform workspace" : "Workspace Details"}</h3>
+            <form id="workspace-rename-form" class="form" data-workspace-id={group.id}>
               <div class="form-group">
                 <label for="name">Name *</label>
-                <input
-                  type="text"
-                  id="name"
-                  name="name"
-                  required
-                  value={group.name}
-                />
+                <input type="text" id="name" name="name" required value={group.name} />
               </div>
 
               <div class="form-group">
                 <label for="slug">Slug</label>
-                <input
-                  type="text"
-                  id="slug"
-                  name="slug"
-                  value={group.slug || ""}
-                  disabled
-                  style="background: var(--panel-2); color: var(--muted);"
-                />
-                <p class="form-help">Auto-generated identifier</p>
+                <input type="text" id="slug" name="slug" value={group.slug || ""} pattern="[A-Za-z0-9 _-]*" />
+                <p class="form-help">
+                  Used in Publishing API URLs (<code>/api/publish/&lt;slug&gt;/…</code>) and backup names. Leave
+                  blank to derive it from the name. The old slug keeps working after a change, so sites, CLI
+                  arguments and backups that use it still reach this workspace.
+                </p>
               </div>
 
               <div class="form-actions">
                 <button type="submit" class="button">Save Changes</button>
+                <span id="rename-status" class="status-text" role="status" aria-live="polite"></span>
               </div>
             </form>
           </div>
@@ -151,7 +154,44 @@ if (!id) {
   ) : null}
 </AdminLayout>
 
+<script>
+  import { adminErrorMessage, renameWorkspace } from "@/lib/api/admin/workspaces";
+
+  const form = document.getElementById("workspace-rename-form") as HTMLFormElement | null;
+  const status = document.getElementById("rename-status");
+  form?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const id = form.dataset.workspaceId;
+    if (!id) return;
+    const data = new FormData(form);
+    const button = form.querySelector<HTMLButtonElement>("button[type=submit]");
+    if (button) button.disabled = true;
+    if (status) status.textContent = "Saving…";
+    try {
+      const saved = await renameWorkspace(id, String(data.get("name") ?? ""), String(data.get("slug") ?? ""));
+      if (status) status.textContent = `Saved — slug is now “${saved.slug}”.`;
+      window.location.reload();
+    } catch (err) {
+      if (status) status.textContent = `Error: ${adminErrorMessage(err)}`;
+      if (button) button.disabled = false;
+    }
+  });
+</script>
+
 <style>
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .status-text {
+    margin-left: 12px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
   .error-banner {
     padding: 1.5rem;
     background: var(--color-error-bg);

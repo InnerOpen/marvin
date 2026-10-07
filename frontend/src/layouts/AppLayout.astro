@@ -192,7 +192,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
     <div class="app-shell">
       <aside class="sidebar" id="app-sidebar" aria-label="Navigation">
         <div class="sidebar-header">
-          <WorkspaceSwitcher />
+          <WorkspaceSwitcher showPlatformBadge={isSuperAdmin} />
         </div>
         {finalNavGroups.map((group, groupIndex) => (
           <div class:list={["nav-group", { "nav-group-admin": group.label === "Administration" }]}>

@@ -1,6 +1,13 @@
 ---
+import PlatformBadge from "@/components/PlatformBadge.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getCurrentWorkspace, listWorkspaces } from "@/lib/api/workspaces";
+
+interface Props {
+  /** Badge the platform (admin's) workspace — for platform super admins only. */
+  showPlatformBadge?: boolean;
+}
+const { showPlatformBadge = false } = Astro.props;
 
 const authToken = getAuthToken(Astro.cookies);
 
@@ -29,6 +36,7 @@ try {
   <div class="workspace-switcher">
     <button class="workspace-button" id="workspace-menu-trigger" type="button">
       <span class="workspace-name">{currentWorkspace.name}</span>
+      {showPlatformBadge && currentWorkspace.isPlatform && <PlatformBadge />}
       <span class="dropdown-icon">▾</span>
     </button>
 
@@ -45,6 +53,7 @@ try {
                 disabled={isActive}
               >
                 <span class="workspace-name">{workspace.name}</span>
+                {showPlatformBadge && workspace.isPlatform && <PlatformBadge />}
                 {isActive && <span class="active-badge">Active</span>}
                 <span class="workspace-role">{role}</span>
               </button>
@@ -93,6 +102,7 @@ try {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
     width: 100%;
     padding: 10px 12px;
     background: var(--panel);

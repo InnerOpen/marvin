@@ -1,0 +1,49 @@
+---
+/**
+ * Marks the platform (admin's) workspace — the one platform alerts and shared services run from —
+ * whatever it is called. Show it to platform super admins only; other members see the workspace
+ * without it.
+ */
+interface Props {
+  size?: "sm" | "md";
+}
+const { size = "sm" } = Astro.props;
+---
+
+<span
+  class:list={["platform-badge", size]}
+  title="The admin's workspace: platform alerts and shared services run from here"
+>
+  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false">
+    <path
+      d="M8 1.2 2.5 3.3v4.1c0 3.4 2.3 6.2 5.5 7.4 3.2-1.2 5.5-4 5.5-7.4V3.3L8 1.2Z"
+      fill="currentColor"
+    ></path>
+  </svg>
+  Admin
+</span>
+
+<style>
+  .platform-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex: none;
+    padding: 1px 6px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.5;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--color-primary-bg);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  .platform-badge.md {
+    padding: 2px 8px;
+    font-size: 11px;
+  }
+</style>

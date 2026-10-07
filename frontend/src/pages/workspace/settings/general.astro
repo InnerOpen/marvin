@@ -309,7 +309,12 @@ const success = urlParams.get("success") === "1";
         <h3>Danger Zone</h3>
         <p>Irreversible and destructive actions.</p>
 
-        {isPlatformAdmin ? (
+        {workspace.isPlatform ? (
+          <p class="muted">
+            This is the platform (admin's) workspace — platform alerts and shared services run from it — so it
+            can't be deleted.{isPlatformAdmin && <> Rename it in <a href={`/admin/groups/${workspace.id}`}>Admin → Workspaces</a>.</>}
+          </p>
+        ) : isPlatformAdmin ? (
           <div class="danger-actions">
             <button
               type="button"

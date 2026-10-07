@@ -1,4 +1,5 @@
 ---
+import PlatformBadge from "@/components/PlatformBadge.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
@@ -11,7 +12,8 @@ let error: string | null = null;
 
 try {
   const response = await fetchApi<any>("/api/admin/groups", {}, authToken);
-  groups = response.items || [];
+  // The platform (admin's) workspace first, whatever it is called.
+  groups = (response.items || []).sort((a: any, b: any) => Number(!!b.isPlatform) - Number(!!a.isPlatform));
 } catch (e) {
   console.error("[platform/workspaces] Error loading:", e);
   error = e instanceof Error ? e.message : String(e);
@@ -43,7 +45,10 @@ try {
         {groups.map((group) => (
           <div class="group-card">
             <div class="group-info">
-              <strong>{group.name}</strong>
+              <div class="group-title">
+                <strong>{group.name}</strong>
+                {group.isPlatform && <PlatformBadge />}
+              </div>
               {group.slug && <code class="group-slug">{group.slug}</code>}
               <div class="group-meta">
                 <span>ID: {group.id}</span>
@@ -143,6 +148,13 @@ try {
     display: flex;
     flex-direction: column;
     gap: 6px;
+  }
+
+  .group-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
   }
 
   .group-info strong {
