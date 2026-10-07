@@ -33,6 +33,11 @@ export interface Agent {
   handoffHint?: string | null;
   isSystem: boolean;
   /**
+   * A built-in agent whose permission matrix this workspace changed (`toolPolicy` is then the effective,
+   * merged matrix). Only the matrix of a built-in can change; reset with `resetAgentToolPolicy`.
+   */
+  toolPolicyOverridden?: boolean;
+  /**
    * The bubble's character while this agent talks — its own upload, or a library pack's states — set
    * through /api/ai/agents/{slug}/character. Null → the workspace's. Built-ins never have one.
    */
@@ -41,7 +46,7 @@ export interface Agent {
 
 export type AgentCreate = Omit<Agent, "id" | "isSystem" | "minRole" | "enabled" | "allowWrites" | "character"> &
   Partial<Pick<Agent, "minRole" | "enabled" | "allowWrites">>;
-export type AgentUpdate = Partial<Omit<Agent, "id" | "slug" | "isSystem" | "character">>;
+export type AgentUpdate = Partial<Omit<Agent, "id" | "slug" | "isSystem" | "character" | "toolPolicyOverridden">>;
 
 export interface ToolCategory {
   id: string;
@@ -74,12 +79,16 @@ export interface MatrixRow {
   description: string;
   default: PolicyValue;
   override: PolicyValue | null;
+  /** What the row does with no entry in the matrix — the editor's "Default (…)" choice. */
+  inherited?: PolicyValue;
   tools: MatrixTool[];
 }
 export interface Permissions {
   agent: string;
   role: number;
   allowWrites: boolean;
+  /** A built-in agent whose matrix this workspace changed. */
+  overridden?: boolean;
   rows: MatrixRow[];
 }
 
@@ -251,6 +260,14 @@ export function createAgent(data: AgentCreate, authToken?: string): Promise<Agen
 }
 export function updateAgent(slug: string, data: AgentUpdate, authToken?: string): Promise<Agent> {
   return fetchApi<Agent>(`/api/ai/agents/${encodeURIComponent(slug)}`, { ...json(data), method: "PATCH" }, authToken);
+}
+/**
+ * Drop every override of an agent's permission matrix (ADMIN+): a built-in goes back to its code matrix, a
+ * workspace agent to the defaults its Allow writes setting gives. To change a built-in's matrix, PATCH
+ * `{ toolPolicy }` through `updateAgent` — any other field on a built-in is a 400.
+ */
+export function resetAgentToolPolicy(slug: string, authToken?: string): Promise<Agent> {
+  return fetchApi<Agent>(`/api/ai/agents/${encodeURIComponent(slug)}/tool-policy`, { method: "DELETE" }, authToken);
 }
 /**
  * The system prompt a run of the agent sends, in labelled parts (lib/promptPreview). `data` is the Edit form's

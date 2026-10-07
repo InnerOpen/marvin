@@ -1,6 +1,7 @@
 ---
 import CharacterPicker from "@/components/CharacterPicker.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
+import { matrixState } from "@/lib/agentMatrix";
 import { type Agent, type Catalog, getCatalog, listAgents } from "@/lib/api/aiAgents";
 import { getTones } from "@/lib/api/aiTones";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
@@ -228,7 +229,7 @@ const builtins = agents.filter((a) => a.isSystem);
 
     <!-- Built-ins -->
     <div class="section-card">
-      <div class="section-title"><h3>Built-in agents</h3><p>Always present, defined in code. You can see what each can do as you, but not edit them. They show the workspace's bubble character (AI settings → Persona).</p></div>
+      <div class="section-title"><h3>Built-in agents</h3><p>Always present, defined in code. Admins can change which tools a built-in may use in this workspace — its permissions — but not its name, instructions or model. They show the workspace's bubble character (AI settings → Persona).</p></div>
       {builtins.map((a) => (
         <div class="agent builtin" data-slug={a.slug}>
           <div class="agent-top">
@@ -241,14 +242,24 @@ const builtins = agents.filter((a) => a.isSystem);
             <div class="pills">
               <span class="pill">{a.kind}</span>
               <span class:list={["pill", a.allowWrites ? "warn" : ""]}>{a.allowWrites ? "can write" : "read-only"}</span>
+              {a.kind === "persona" && (
+                <span
+                  class:list={["pill", "matrix-state", a.toolPolicyOverridden ? "changed" : ""]}
+                  title={a.toolPolicyOverridden ? "This workspace changed its permissions" : "Its permissions are the built-in defaults"}
+                >permissions: {matrixState(a)}</span>
+              )}
             </div>
             <div class="agent-actions">
               <button class="button secondary small perms-btn" type="button">Permissions</button>
+              {a.kind === "persona" && <button class="button secondary small matrix-btn" type="button" aria-expanded="false">Edit permissions</button>}
+              {a.kind === "persona" && a.toolPolicyOverridden && <button class="button secondary small reset-btn" type="button">Reset to default</button>}
               <button class="button secondary small preview-btn" type="button" aria-expanded="false">Preview prompt</button>
             </div>
           </div>
           <div class="perms" data-role="perms" hidden></div>
+          <div class="edit" data-role="matrix-edit" hidden></div>
           <div class="prompt-preview agent-preview" data-role="preview" hidden aria-live="polite"></div>
+          <span class="save-status" data-role="status"></span>
         </div>
       ))}
     </div>
@@ -302,7 +313,8 @@ const builtins = agents.filter((a) => a.isSystem);
   .pills { display: flex; gap: 6px; flex-wrap: wrap; }
   .pill { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
   .pill.warn { color: #a16207; border-color: rgba(234,179,8,0.45); background: rgba(234,179,8,0.1); }
-  .agent-actions { display: flex; gap: 8px; }
+  .pill.matrix-state.changed { color: var(--accent); border-color: var(--accent); }
+  .agent-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .perms, .edit { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   .agent-preview { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   /* On the card (Character button) it's a section of its own; inside the Edit form it sits under Icon and Name. */
@@ -353,6 +365,17 @@ const builtins = agents.filter((a) => a.isSystem);
   .edit :global(.matrix select.mx-sel.block) { color: var(--color-error); border-color: var(--color-error); }
   .edit :global(.matrix select.mx-sel.allow) { color: var(--accent); border-color: var(--accent); }
   .edit :global(.matrix select.mx-sel.ask) { color: var(--warn); border-color: var(--warn); }
+  /* A row's text gives way to its select on a narrow screen instead of pushing the page sideways. */
+  /* The matrix is injected (no scope attribute), so the Edit forms' copy needs its own rules: one-line tool
+     descriptions as in the New form, and a row's text giving way to its select on a narrow screen. */
+  .edit :global(.matrix .mx-row code) { font-size: 12px; }
+  .edit :global(.matrix .mx-head .mx-desc) { color: var(--muted); font-weight: 400; }
+  .edit :global(.matrix .mx-row .mx-tdesc) { color: var(--muted); font-size: 12px; margin-left: 8px; display: -webkit-box; -webkit-line-clamp: 1; line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+  .matrix, .edit :global(.matrix) { min-width: 0; }
+  .matrix :global(.mx-head > div), .matrix :global(.mx-row > div), .perms :global(.mx-head > div), .perms :global(.mx-row > div), .edit :global(.matrix .mx-head > div), .edit :global(.matrix .mx-row > div) { min-width: 0; overflow-wrap: anywhere; }
+  @media (max-width: 600px) {
+    .matrix :global(.mx-head), .matrix :global(.mx-row), .edit :global(.matrix .mx-head), .edit :global(.matrix .mx-row) { flex-wrap: wrap; }
+  }
   @media (max-width: 900px) { .form-row, .form-row.four, .form-row.icon-name { grid-template-columns: 1fr; } }
 </style>
 
@@ -363,11 +386,13 @@ const builtins = agents.filter((a) => a.isSystem);
     getPermissions,
     previewAgentPrompt,
     previewNewAgentPrompt,
+    resetAgentToolPolicy,
     updateAgent,
     type Agent,
     type Catalog,
     type PolicyValue,
   } from "@/lib/api/aiAgents";
+  import { inheritedDefaults, inheritLabel, matrixCategories, matrixTools, policyFromChoices } from "@/lib/agentMatrix";
   import { agentPreviewView, promptPreviewHtml, promptPreviewMessage } from "@/lib/promptPreview";
   import { type Tone, toneOptions } from "@/lib/tones";
 
@@ -376,8 +401,6 @@ const builtins = agents.filter((a) => a.isSystem);
     const tones: Tone[] = JSON.parse(root.dataset.tones || "[]");
     const catalog: Catalog = JSON.parse(root.dataset.catalog || '{"categories":[],"tools":[]}');
     const agents: Agent[] = JSON.parse(root.dataset.agents || "[]");
-    const byCat = new Map<string, Catalog["tools"]>();
-    for (const t of catalog.tools) byCat.set(t.category, [...(byCat.get(t.category) ?? []), t]);
 
     const esc = (s: unknown) =>
       String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -400,23 +423,33 @@ const builtins = agents.filter((a) => a.isSystem);
         <option value="block"${v === "block" ? " selected" : ""}>Block</option>
       </select>`;
     }
-    function renderMatrix(container: HTMLElement, policy: Record<string, PolicyValue> | null | undefined, allowWrites: boolean) {
+    /**
+     * `opts` for a built-in: `inherited` — each row's own default (from its permissions), so "Default (…)" says
+     * what the built-in really does — and its `allowlist`, which limits the rows to the tools it can reach.
+     */
+    function renderMatrix(
+      container: HTMLElement,
+      policy: Record<string, PolicyValue> | null | undefined,
+      allowWrites: boolean,
+      opts: { inherited?: Record<string, PolicyValue>; allowlist?: string[] | null } = {},
+    ) {
       const p = policy ?? {};
-      container.innerHTML = catalog.categories
-        .filter((c) => (byCat.get(c.id) ?? []).length || c.id.startsWith("mcp"))
+      const tools = matrixTools(catalog.tools, opts.allowlist);
+      container.innerHTML = matrixCategories(catalog.categories, tools, opts.allowlist)
         .map((c) => {
-          const inherit = c.writes ? (allowWrites ? "Default (ask first — writes on)" : "Default (block — read-only)") : "Default (allow)";
-          const tools = (byCat.get(c.id) ?? [])
+          const inherit = inheritLabel(c, allowWrites, opts.inherited?.[c.id]);
+          const rows = tools
+            .filter((t) => t.category === c.id)
             .map(
               (t) =>
                 `<div class="mx-row"><div><code>${esc(t.name)}</code><span class="mx-tdesc" title="${esc(t.description)}">${esc(t.description)}</span></div>${sel(t.name, p[t.name], "Inherit")}</div>`,
             )
             .join("");
           const note =
-            c.id.startsWith("mcp") && !tools
+            c.id.startsWith("mcp") && !rows
               ? `<div class="mx-row"><span class="mx-tdesc">No connected-server tools in this row right now; the group policy applies to any discovered at run time.</span></div>`
               : "";
-          return `<div class="mx-group"><div class="mx-head"><div><strong>${esc(c.label)}</strong> <span class="mx-desc">· ${esc(c.description)}${c.writes ? " · writes" : ""}</span></div>${sel(c.id, p[c.id], inherit)}</div>${tools}${note}</div>`;
+          return `<div class="mx-group"><div class="mx-head"><div><strong>${esc(c.label)}</strong> <span class="mx-desc">· ${esc(c.description)}${c.writes ? " · writes" : ""}</span></div>${sel(c.id, p[c.id], inherit)}</div>${rows}${note}</div>`;
         })
         .join("");
       container.querySelectorAll<HTMLSelectElement>("select.mx-sel").forEach((s) =>
@@ -426,11 +459,9 @@ const builtins = agents.filter((a) => a.isSystem);
       );
     }
     function collectPolicy(container: HTMLElement): Record<string, PolicyValue> | null {
-      const out: Record<string, PolicyValue> = {};
-      container.querySelectorAll<HTMLSelectElement>("select.mx-sel").forEach((s) => {
-        if (s.value === "allow" || s.value === "ask" || s.value === "block") out[s.dataset.key!] = s.value;
-      });
-      return Object.keys(out).length ? out : null;
+      return policyFromChoices(
+        Array.from(container.querySelectorAll<HTMLSelectElement>("select.mx-sel")).map((s) => [s.dataset.key ?? "", s.value] as [string, string]),
+      );
     }
     function renderPermissions(container: HTMLElement, agentName: string, rows: any[], allowWrites: boolean) {
       container.innerHTML =
@@ -586,6 +617,59 @@ const builtins = agents.filter((a) => a.isSystem);
         (ev.currentTarget as HTMLElement).setAttribute("aria-expanded", String(opening));
         if (opening) void showPreview(previewBox, () => previewAgentPrompt(slug));
         else previewBox.hidden = true;
+      });
+
+      // A built-in's permissions: the one thing about it a workspace admin can change (PATCH { toolPolicy }).
+      const matrixBox = card.querySelector<HTMLElement>('[data-role="matrix-edit"]');
+      card.querySelector(".matrix-btn")?.addEventListener("click", async (ev) => {
+        if (!matrixBox || !agent) return;
+        const button = ev.currentTarget as HTMLElement;
+        if (!matrixBox.hidden) {
+          matrixBox.hidden = true;
+          button.setAttribute("aria-expanded", "false");
+          return;
+        }
+        matrixBox.hidden = false;
+        button.setAttribute("aria-expanded", "true");
+        matrixBox.innerHTML = `<div class="mx-title">Loading…</div>`;
+        let inherited: Record<string, PolicyValue>;
+        try {
+          inherited = inheritedDefaults((await getPermissions(slug)).rows);
+        } catch (e) {
+          matrixBox.innerHTML = `<div class="mx-title">Couldn't load: ${esc(e instanceof Error ? e.message : e)}</div>`;
+          return;
+        }
+        matrixBox.innerHTML = `<form class="agent-form">
+          <div class="form-field"><div class="section-title"><h4>${esc(agent.name)}'s permissions</h4><p>Each row starts at ${esc(agent.name)}'s built-in default. Override per group or per tool; <strong>Reset to default</strong> undoes every change. Ask first pauses the run for your approval on the Ask page; where nothing can pause (MCP, hand-off children) it behaves like Block.${slug === "marvin" ? " Direct MCP tool calls follow this matrix too: Allow lets them run, Ask first and Block refuse." : ""} Whatever you choose, a write still needs the person to be an Editor or above, and big bulk writes and archiving a published entry still ask first.</p></div><div class="matrix" data-role="matrix"></div></div>
+          <div class="form-actions"><button type="submit" class="button small">Save permissions</button><button type="button" class="button secondary small m-cancel">Cancel</button><span class="save-status" data-role="mstatus"></span></div>
+        </form>`;
+        const form = matrixBox.querySelector("form") as HTMLFormElement;
+        const matrix = matrixBox.querySelector<HTMLElement>('[data-role="matrix"]')!;
+        const mstatus = matrixBox.querySelector('[data-role="mstatus"]');
+        renderMatrix(matrix, agent.toolPolicy ?? null, agent.allowWrites, { inherited, allowlist: agent.toolAllowlist });
+        matrixBox.querySelector(".m-cancel")?.addEventListener("click", () => {
+          matrixBox.hidden = true;
+          button.setAttribute("aria-expanded", "false");
+        });
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          status(mstatus, "Saving…");
+          try {
+            await updateAgent(slug, { toolPolicy: collectPolicy(matrix) });
+            location.reload();
+          } catch (err) {
+            status(mstatus, "Couldn't save: " + (err instanceof Error ? err.message : err), "error");
+          }
+        });
+      });
+      card.querySelector(".reset-btn")?.addEventListener("click", async () => {
+        if (!confirm(`Reset ${agent?.name ?? slug}'s permissions to the built-in defaults?`)) return;
+        try {
+          await resetAgentToolPolicy(slug);
+          location.reload();
+        } catch (err) {
+          status(statusEl, "Couldn't reset: " + (err instanceof Error ? err.message : err), "error");
+        }
       });
 
       const enableInput = card.querySelector<HTMLInputElement>(".enable");
