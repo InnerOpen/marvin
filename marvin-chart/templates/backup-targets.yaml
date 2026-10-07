@@ -200,6 +200,14 @@ spec:
                     configMapKeyRef:
                       name: {{ $fullname }}
                       key: dbEngine
+                # The CronJob's own schedule, recorded with each run (backup_runs) so Marvin knows when
+                # the next one is due and can tell a missed run (Admin → Backup health).
+                - name: BACKUP_SCHEDULE
+                  value: {{ $schedule | quote }}
+                {{- with $t.timeZone }}
+                - name: BACKUP_TIME_ZONE
+                  value: {{ . | quote }}
+                {{- end }}
                 {{- if $claim }}
                 - name: BACKUP_LOCAL_ROOT
                   value: /backup-target

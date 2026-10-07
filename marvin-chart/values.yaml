@@ -320,7 +320,9 @@ backup:
   #   name                     DNS label, unique; the CronJob name must stay within 52 characters
   #   type                     `local` (built in: a directory on a volume of its own), or a storage
   #                            plugin's target slug (e.g. `s3`, from plugins.packages)
-  #   schedule, timeZone       cron schedule and the zone it is read in (empty = the controller's, UTC)
+  #   schedule, timeZone       cron schedule and the zone it is read in (empty = the controller's, UTC);
+  #                            also passed to the job (BACKUP_SCHEDULE / BACKUP_TIME_ZONE) and recorded
+  #                            with each run, so Admin → Backup health knows when the next one is due
   #   retention                {hourly, daily, weekly} → BACKUP_KEEP_*; a key left out keeps the
   #                            engine's default (48 / 30 / 0). hourly counts database backups only;
   #                            daily >= 1; 0 turns hourly or weekly off

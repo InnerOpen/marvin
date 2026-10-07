@@ -86,15 +86,25 @@ def _feed_item(event) -> EventFeedItem:
     )
 
 
+def _feed_start(since: datetime | None, now: datetime) -> datetime:
+    if since is None:
+        return now - FEED_FIRST_LOOK
+    return (since.astimezone(UTC) if since.tzinfo else since.replace(tzinfo=UTC)) - FEED_OVERLAP
+
+
 def build_feed(event_log_repo, workspace_id, since: datetime | None, now: datetime | None = None, visible=None) -> EventFeed:
     now = now or datetime.now(UTC)
-    if since is None:
-        start = now - FEED_FIRST_LOOK
-    else:
-        start = (since.astimezone(UTC) if since.tzinfo else since.replace(tzinfo=UTC)) - FEED_OVERLAP
+    start = _feed_start(since, now)
     events = event_log_repo.get_by_workspace(workspace_id=workspace_id, start_date=start, limit=FEED_LIMIT, visible=visible)
     items = [_feed_item(e) for e in reversed(events)]
     return EventFeed(now=now, events=items)
+
+
+def build_platform_feed(event_log_repo, since: datetime | None, now: datetime | None = None) -> EventFeed:
+    """The same feed over platform-scope events, every workspace and none (super admins: a failed backup)."""
+    now = now or datetime.now(UTC)
+    rows, _ = event_log_repo.page_platform_events(start_date=_feed_start(since, now), per_page=FEED_LIMIT)
+    return EventFeed(now=now, events=[_feed_item(e) for e in reversed(rows)])
 
 
 @controller(router)

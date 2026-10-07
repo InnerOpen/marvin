@@ -993,6 +993,41 @@ class EventStoragePublicDomainChangedData(EventDocumentDataBase):
     """The full name of the admin who changed it."""
 
 
+class EventBackupData(EventDocumentDataBase):
+    """Data payload for `backup_completed` / `backup_failed`: one backup target's run (or its absence).
+
+    Sent by the backend's backup health check (services/backup_health) from the `backup_runs` rows the
+    backup CronJobs write, so it never carries a credential: the target's name, type and `describe()`,
+    sizes, counts and a scrubbed error."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    target_name: str
+    """The chart's backup.targets[].name, e.g. `r2`."""
+    target_type: str
+    """`local`, or a storage plugin's target slug, e.g. `s3`."""
+    status: str
+    """The run's status: ok, partial, failed, or missed (no successful run in time)."""
+    reason: str
+    """Why the event was sent: completed, failed, partial (the database was saved, another step failed) or overdue."""
+    run_id: UUID4 | None = None
+    location: str | None = None
+    """Where the target writes, e.g. `s3://marvin-backups (….r2.cloudflarestorage.com)`; never a credential."""
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_seconds: float | None = None
+    duration: str | None = None
+    """The run's duration for people, e.g. `8.7s`."""
+    db_bytes: int | None = None
+    backup_size: str | None = None
+    """The database backup's size for people, e.g. `7.4 MB`."""
+    error_message: str | None = None
+    """What went wrong (failed, partial, overdue)."""
+    last_success_at: datetime | None = None
+    """The last successful run's start (overdue: how long it has been)."""
+    schedule: str | None = None
+    time_zone: str | None = None
+
+
 class EventAPITokenData(EventDocumentDataBase):
     """Data payload for personal API token events. Never the token value or its hash."""
 

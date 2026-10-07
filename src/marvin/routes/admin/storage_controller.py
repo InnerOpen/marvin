@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import UUID4
 
 from marvin.routes._base import BaseAdminController, controller
-from marvin.schemas.admin.storage import StorageSettingsRead, StorageSettingsUpdate, StorageWorkspaceUpdate
+from marvin.schemas.admin.storage import StorageCheckResult, StorageSettingsRead, StorageSettingsUpdate, StorageWorkspaceUpdate
 from marvin.services.event_bus_service.event_types import (
     EventOperation,
     EventStorageProviderChangedData,
@@ -25,6 +25,7 @@ from marvin.services.storage.admin import (
     set_upload_provider,
     set_workspace_public_base_url,
     storage_status,
+    test_provider,
 )
 
 router = APIRouter(prefix="/storage")
@@ -50,6 +51,7 @@ class AdminStorageController(BaseAdminController):
             workspaces=[asdict(w) for w in status_.workspaces],
             workspace_settings=[asdict(w) for w in status_.workspace_settings],
             remote_public_base_url=status_.remote_public_base_url,
+            backup_targets=[asdict(t) for t in status_.backup_targets],
         )
 
     @router.get("", response_model=StorageSettingsRead, summary="Admin: Get Asset Storage Settings")
@@ -87,6 +89,22 @@ class AdminStorageController(BaseAdminController):
         if previous != url:
             self._announce_domain(workspace_id, name, previous, url)
         return self._read()
+
+    @router.post("/providers/{slug}/test", response_model=StorageCheckResult, summary="Admin: Test a Storage Provider's Connection")
+    def test_provider_connection(self, slug: str) -> StorageCheckResult:
+        """Test connection: list, put, get and delete a tiny object under `_marvin-healthcheck/` through the
+        provider as this backend builds it (its settings come from the backend's environment), timing each
+        step. The object is deleted whatever happens. Errors come back as plain messages (a revoked key, a
+        bucket the key can't reach, a missing bucket, DNS or timeouts), never as a failed request. 404 for a
+        provider that isn't installed. Backup targets can't be tested from here (the backend doesn't have
+        their credentials): run `python -m marvin.scripts.backup test` as a Job (offsite-backup runbook)."""
+        try:
+            result = test_provider(slug)
+        except LookupError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+        name = getattr(self.user, "full_name", None) or self.user.username
+        self.logger.info(f"Storage: connection test of {slug!r} by {name}: {'ok' if result.ok else 'FAILED'} " + "; ".join(result.lines()))
+        return StorageCheckResult(provider=slug, **result.as_dict())
 
     def _announce_domain(self, workspace_id, workspace: str, previous: str | None, url: str | None) -> None:
         """storage_public_domain_changed (platform scope, always audited), under the workspace it serves."""

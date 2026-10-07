@@ -319,6 +319,7 @@ async def start_scheduler() -> None:
         scheduler_tasks.check_scheduled_tasks,
         scheduler_tasks.dispatch_site_rebuilds,
         scheduler_tasks.sweep_integration_retries,
+        scheduler_tasks.check_backup_health,
     )
 
     # Register hourly tasks

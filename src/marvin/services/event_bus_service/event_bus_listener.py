@@ -1203,7 +1203,11 @@ class EmailEventListener(EventListenerBase):
             return []
 
         with self.ensure_repos(self.group_id) as repos:
-            workspace_subs = repos.email_event_subscriptions.multi_query({"event_type": event.event_type.name, "enabled": True})
+            # A platform event dispatched with no workspace (backup_failed) has no workspace subscribers: the
+            # repository only scopes by group when it has one, and would otherwise match every workspace's.
+            workspace_subs = (
+                repos.email_event_subscriptions.multi_query({"event_type": event.event_type.name, "enabled": True}) if self.group_id else []
+            )
             # A connection's "working again" notice also goes to every email route that delivered its alert.
             from marvin.db.models.groups.email_event_subscriptions import EmailEventSubscriptionModel
             from marvin.services.integrations.errors import resolved_channel_rows

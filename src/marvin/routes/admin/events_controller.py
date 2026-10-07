@@ -16,7 +16,9 @@ from marvin.db.models.groups.groups import Groups
 from marvin.db.models.platform.event_log import EventLogModel
 from marvin.db.models.users.users import Users
 from marvin.routes._base import BaseAdminController, controller
+from marvin.routes.platform.events_controller import build_platform_feed
 from marvin.schemas.admin.events import AdminEventPagination, AdminEventRead, AdminEventSummary, AdminEventType
+from marvin.schemas.platform.event_log import EventFeed
 from marvin.services.events.event_catalog import CATALOG, CATEGORIES, get_catalog_entry, is_platform_event
 
 router = APIRouter(prefix="/events")
@@ -114,6 +116,13 @@ class AdminEventsController(BaseAdminController):
 
         entries = sorted((e for e in CATALOG if e.scope == "platform" and not e.hidden), key=lambda e: rank(e.category))
         return [AdminEventType(event_type=e.event_type, name=e.name, description=e.description, category=e.category) for e in entries]
+
+    @router.get("/feed", response_model=EventFeed, summary="Platform events since a time (the activity bell)")
+    def event_feed(self, since: datetime | None = None) -> EventFeed:
+        """Platform events since `since` (UTC), oldest first, at most the newest 50: what a super admin's
+        activity bell polls next to its workspace's feed (a failed or overdue backup). Pass the previous
+        response's `now` as the next `since`; with none, only the last few seconds."""
+        return build_platform_feed(self.repos.event_log, since)
 
     @router.get("/{event_id}", response_model=AdminEventRead, summary="Get a platform event")
     def get_event(self, event_id: UUID4) -> AdminEventRead:

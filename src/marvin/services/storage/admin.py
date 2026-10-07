@@ -7,12 +7,16 @@ files stay where they are (each row names its provider) until ``scripts/storage_
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
+from marvin_integration_sdk.storage import MASK, Setting, StorageConfigError, masked_config
 
 from . import provider_factory, registry
+from .healthcheck import CheckResult, CheckStep, check_provider, explain, is_credential_name
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -33,6 +37,7 @@ class ProviderOption:
     assets: int = 0
     bytes: int = 0
     library_files: int = 0
+    settings: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -55,6 +60,18 @@ class WorkspaceStorage:
 
 
 @dataclass
+class BackupTargetSummary:
+    """A backup target as its latest recorded run describes it (the backend has no CronJob env)."""
+
+    name: str
+    type: str
+    location: str | None
+    settings: list[dict]
+    state: str
+    last_run_at: object = None
+
+
+@dataclass
 class StorageStatus:
     target: provider_factory.UploadTarget
     providers: list[ProviderOption]
@@ -62,6 +79,7 @@ class StorageStatus:
     workspace_settings: list[WorkspaceStorage] = field(default_factory=list)
     remote_public_base_url: str | None = None
     """``STORAGE_REMOTE_PUBLIC_URL``: the public domain of remote files whose workspace has none of its own."""
+    backup_targets: list[BackupTargetSummary] = field(default_factory=list)
 
 
 class InvalidPublicBaseURLError(ValueError):
@@ -189,6 +207,7 @@ def storage_status(session: Session) -> StorageStatus:
                 assets=n,
                 bytes=size,
                 library_files=library.get(slug, 0),
+                settings=provider_settings(slug),
             )
         )
     # Rows on a provider that is no longer installed still count (and can't be served until it is back).
@@ -222,6 +241,7 @@ def storage_status(session: Session) -> StorageStatus:
         workspaces=workspaces,
         workspace_settings=workspace_settings(session),
         remote_public_base_url=remote_public_base_url(),
+        backup_targets=backup_targets(session),
     )
 
 
@@ -236,3 +256,122 @@ def set_upload_provider(session: Session, slug: str | None) -> tuple[str | None,
     previous = provider_factory.chosen_upload_provider()
     provider_factory.save_upload_choice(session, slug)
     return previous, slug
+
+
+# --------------------------------------------------------------------------------------------------
+# Effective settings (read-only) and Test connection
+# --------------------------------------------------------------------------------------------------
+
+
+def _local_settings(settings) -> tuple[tuple[Setting, ...], dict[str, Any]]:
+    """The built-in local provider declares no settings (it is built from Marvin's own); these are the ones
+    it reads, with the values it actually uses as defaults."""
+    from marvin.core.config import get_app_dirs
+
+    root = getattr(settings, "STORAGE_LOCAL_ROOT", None) or get_app_dirs().ASSETS_DIR
+    declared = (
+        Setting("STORAGE_LOCAL_ROOT", "Directory", default=str(root), help="Default: DATA_DIR/assets"),
+        Setting("STORAGE_LOCAL_PUBLIC_URL", "Mount path", default="/assets", help="Where the API serves the files"),
+        Setting("STORAGE_LOCAL_PUBLIC_BASE_URL", "Public base URL", help="Overrides the URL prefix (a CDN, another origin)"),
+    )
+    return declared, {s.env: getattr(settings, s.env, None) for s in declared}
+
+
+def setting_values(declared: Iterable[Setting], source: Mapping[str, Any]) -> list[dict]:
+    """Each declared setting's effective value, safe to show: the SDK's masking for secrets
+    (``masked_config``), and key ids (credential-like names the plugin doesn't call secret) cut to their
+    last four characters, enough to tell which key is in use without showing it."""
+    declared = tuple(declared)
+    raw = {s.env: _get(source, s.env) for s in declared}
+    effective = {s.env: raw[s.env] if raw[s.env] not in (None, "") else s.default for s in declared}
+    masked = masked_config(declared, effective)
+    out = []
+    for s in declared:
+        value = masked[s.env]
+        credential = not s.secret and is_credential_name(s.env)
+        if value in (None, ""):
+            value = None
+        elif credential:
+            text = str(value)
+            value = f"…{text[-4:]}" if len(text) > 8 else MASK
+        else:
+            value = str(value)
+        out.append(
+            {
+                "env": s.env,
+                "label": s.label or s.env,
+                "value": value,
+                "is_set": raw[s.env] not in (None, ""),
+                "secret": s.secret or credential,
+                "help": s.help,
+            }
+        )
+    return out
+
+
+def _get(source: Mapping[str, Any], key: str) -> Any:
+    try:
+        value = source[key]
+    except KeyError:
+        return None
+    return value.get_secret_value() if hasattr(value, "get_secret_value") else value
+
+
+def provider_settings(slug: str) -> list[dict]:
+    """A provider's effective settings as this backend reads them (its environment), masked."""
+    settings = provider_factory._settings()
+    if slug == registry.LOCAL:
+        declared, values = _local_settings(settings)
+        return setting_values(declared, values)
+    try:
+        provider_cls = registry.get_plugin(slug, needs="provider").provider
+    except Exception:
+        return []
+    return setting_values(provider_cls.settings, registry.settings_source(settings))
+
+
+def target_settings(recorded: Mapping[str, Any] | None) -> list[dict]:
+    """A backup target's settings as its run recorded them (already without secrets or keys)."""
+    return [
+        {"env": k, "label": k, "value": None if v in (None, "") else str(v), "is_set": True, "secret": False, "help": ""}
+        for k, v in sorted((recorded or {}).items())
+        if not is_credential_name(k)
+    ]
+
+
+def backup_targets(session: Session) -> list[BackupTargetSummary]:
+    from marvin.services import backup_health
+
+    return [
+        BackupTargetSummary(
+            name=t.name,
+            type=t.type,
+            location=t.location,
+            settings=target_settings(t.settings),
+            state=t.state,
+            last_run_at=t.last_run.started_at if t.last_run else None,
+        )
+        for t in backup_health.all_targets(session)
+    ]
+
+
+def test_provider(slug: str) -> CheckResult:
+    """Test connection: list, put, get and delete a tiny object through provider ``slug`` as this backend
+    builds it. A provider that can't be built is a failed result (one ``settings`` step), never an error."""
+    if slug != registry.LOCAL:
+        try:
+            registry.get_plugin(slug, needs="provider")
+        except StorageConfigError as e:
+            raise LookupError(str(e)) from None
+    try:
+        provider = provider_factory.build_provider(slug, provider_factory._settings())
+    except Exception as e:
+        why = explain(e)
+        return CheckResult(
+            ok=False,
+            key="",
+            checked_at=datetime.now(UTC).isoformat(),
+            steps=[CheckStep("settings", False, 0.0, why.message, why.code)],
+        )
+    location = getattr(getattr(provider, "connection", None), "location", None) or (str(getattr(provider, "root", "")) or None)
+    return check_provider(provider, location)

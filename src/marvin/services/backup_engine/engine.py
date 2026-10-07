@@ -119,18 +119,23 @@ class BackupSettings:
             asset_provider=env.get("STORAGE_PROVIDER") or "local",
             assets_root=Path(env["STORAGE_LOCAL_ROOT"]) if env.get("STORAGE_LOCAL_ROOT") else data_dir / "assets",
             extra_asset_providers=tuple(p.strip() for p in (env.get("BACKUP_ASSET_PROVIDERS") or "").split(",") if p.strip()),
-            pg_env={
-                pg: env[app]
-                for pg, app in (
-                    ("PGHOST", "POSTGRES_SERVER"),
-                    ("PGPORT", "POSTGRES_PORT"),
-                    ("PGUSER", "POSTGRES_USER"),
-                    ("PGPASSWORD", "POSTGRES_PASSWORD"),
-                    ("PGDATABASE", "POSTGRES_DB"),
-                )
-                if env.get(app)
-            },
+            pg_env=pg_env_from(env),
         )
+
+
+def pg_env_from(env: Mapping[str, str]) -> dict[str, str]:
+    """The libpq variables (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE) from Marvin's POSTGRES_*."""
+    return {
+        pg: env[app]
+        for pg, app in (
+            ("PGHOST", "POSTGRES_SERVER"),
+            ("PGPORT", "POSTGRES_PORT"),
+            ("PGUSER", "POSTGRES_USER"),
+            ("PGPASSWORD", "POSTGRES_PASSWORD"),
+            ("PGDATABASE", "POSTGRES_DB"),
+        )
+        if env.get(app)
+    }
 
 
 class PrefixedTarget(BackupTarget):
@@ -217,6 +222,13 @@ def open_asset_sources(settings: BackupSettings, env: Mapping[str, Any] | None =
 # --------------------------------------------------------------------------------------------------
 # Hashing, SQLite and archives
 # --------------------------------------------------------------------------------------------------
+
+
+def explain(exc: BaseException):
+    """A plain explanation of a storage error, e.g. "the key is invalid or revoked … (InvalidAccessKeyId)"."""
+    from marvin.services.storage.healthcheck import explain as _explain
+
+    return _explain(exc)
 
 
 def file_digest(path: Path, algorithm: str = "sha256") -> str:
@@ -460,7 +472,7 @@ def backup_assets(source: AssetSources, target: BackupTarget, report: Report, dr
             report.assets_uploaded += 1
             report.assets_uploaded_bytes += size
         except Exception as exc:  # one unreadable file must not stop the rest of the mirror
-            report.failures.append(f"asset {key}: {type(exc).__name__}")
+            report.failures.append(f"asset {key}: {explain(exc).code or type(exc).__name__}")
             log.error("asset %s: %s", key, exc)
         finally:
             staged.unlink(missing_ok=True)
@@ -498,12 +510,12 @@ def run_backup(
                 step()
                 prune(target, prefix, settings.retention, report, dry_run)
             except Exception as exc:
-                report.failures.append(f"{step_name}: {exc}")
+                report.failures.append(f"{step_name}: {explain(exc)}")
                 log.error("%s: %s", step_name, exc)
         try:
             backup_assets(source, target, report, dry_run, work)
         except Exception as exc:
-            report.failures.append(f"assets: {exc}")
+            report.failures.append(f"assets: {explain(exc)}")
             log.error("assets: %s", exc)
     return report
 

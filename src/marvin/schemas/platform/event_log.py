@@ -38,7 +38,8 @@ class EventLogSummary(_MarvinModel):
     event_id: UUID4
     event_type: str
     occurred_at: datetime
-    workspace_id: UUID4
+    workspace_id: UUID4 | None = None
+    """None for a platform event with no workspace (a backup target's run)."""
     user_id: UUID4 | None = None
     entity_id: UUID4 | None = None
     entity_type: str | None = None

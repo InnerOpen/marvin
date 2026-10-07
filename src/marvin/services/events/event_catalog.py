@@ -93,6 +93,18 @@ COMMON_VARS = [
     EventVariable("button_link", "Primary URL from the event (invitation link, reset link, etc.)", "https://...", type="url"),
 ]
 
+# A backup target's run (backup_completed / backup_failed): never a credential.
+_BACKUP_VARS = [
+    EventVariable("target_name", "The backup target's name", "r2", type="name"),
+    EventVariable("target_type", "The target's type: local, or a storage plugin's (s3)", "s3", type="string"),
+    EventVariable("status", "The run's status: ok, partial, failed or missed", "failed", type="string"),
+    EventVariable("reason", "Why it was sent: completed, failed, partial or overdue", "failed", type="string"),
+    EventVariable("location", "Where the target writes (bucket and host, or a directory)", "s3://marvin-backups (r2)", type="string"),
+    EventVariable("backup_size", "Size of the database backup", "7.4 MB", type="size"),
+    EventVariable("duration", "How long the run took", "8.7s", type="duration"),
+    EventVariable("schedule", "The target's cron schedule", "0 * * * *", type="string"),
+]
+
 _WEBHOOK_VARS = [
     EventVariable("webhook_id", "ID of the outgoing webhook", "<webhook-uuid>", type="string"),
     EventVariable("webhook_name", "Name of the outgoing webhook", "Deploy hook", type="name"),
@@ -1649,22 +1661,28 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         event_type="backup_completed",
         name="Backup Completed",
-        description="A database backup finished successfully.",
+        description="A backup target's run finished: the database, the config archive and the asset mirror were all saved.",
         category="System",
-        variables=COMMON_VARS
-        + [
-            EventVariable("backup_size", "Size of the backup", "45MB", type="size"),
-            EventVariable("duration", "How long it took", "12s", type="duration"),
-        ],
+        sent_by=["The backup health check, for each run a backup CronJob recorded (Admin → Backup health)"],
+        variables=COMMON_VARS + _BACKUP_VARS,
     ),
     CatalogEntry(
         event_type="backup_failed",
         name="Backup Failed",
-        description="A database backup failed.",
+        description=(
+            "A backup target's run failed, or saved the database but not everything else (partial), or no "
+            "successful run arrived in time (overdue: the job never ran, or died before recording itself)."
+        ),
         category="System",
+        sent_by=[
+            "The backup health check, for each failed or partial run a backup CronJob recorded",
+            "The backup health check, once per incident, when a target has no successful run within its window",
+        ],
         variables=COMMON_VARS
+        + _BACKUP_VARS
         + [
-            EventVariable("error_message", "What went wrong", "Disk full", type="error"),
+            EventVariable("error_message", "What went wrong", "the key is invalid or revoked — update the Secret that holds it", type="error"),
+            EventVariable("last_success_at", "When the last successful run started", "2026-10-07T15:00:04Z", type="datetime"),
         ],
     ),
     # ── AI ──────────────────────────────────────────────────────────────────
@@ -1843,9 +1861,7 @@ _NO_EMITTER: frozenset[str] = frozenset(
         "api_rate_limit_exceeded",
         # asset_attached_to_entry / asset_detached_from_entry now have emitters (EntryService.attach_asset
         # / detach_asset) — no longer dead.
-        "backup_completed",
-        "backup_failed",
-        "backup_started",
+        "backup_started",  # a run records itself when it ends; nothing announces its start
         "comment_added",
         "comment_deleted",
         "comment_updated",

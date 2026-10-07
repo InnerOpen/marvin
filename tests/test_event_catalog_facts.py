@@ -97,8 +97,6 @@ NEVER_SENT = {
     "site_published",
     # declared, never built
     "backup_started",
-    "backup_completed",
-    "backup_failed",
     "comment_added",
     "comment_updated",
     "comment_deleted",
