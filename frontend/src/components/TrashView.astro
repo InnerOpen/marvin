@@ -46,7 +46,7 @@ function fmtDate(d?: string | null): string {
     <label class="select-all"><input type="checkbox" id="trash-select-all" disabled={entries.length === 0} /> Select all</label>
     <button type="button" class="button secondary" id="trash-restore-selected" disabled>Restore selected</button>
     {canEmpty && (
-      <button type="button" class="button danger" id="trash-empty" data-count={entries.length} disabled={entries.length === 0}>
+      <button type="button" class="button secondary danger" id="trash-empty" data-count={entries.length} disabled={entries.length === 0}>
         Empty trash
       </button>
     )}
