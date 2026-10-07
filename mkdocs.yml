@@ -67,6 +67,7 @@ nav:
   - Auth & tokens: auth-and-tokens.md
   - Operations: operations.md
   - Off-site backup: offsite-backup.md
+  - Assets on R2: assets-on-r2.md
   - Postgres: postgres.md
   - Glossary: glossary.md
   - API Reference: api/index.md

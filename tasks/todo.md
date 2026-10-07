@@ -1887,7 +1887,9 @@ errors; 390px shows only the parent with no horizontal scroll, light and dark.
 (`develop-f83140e`) — see "Review (slices 1–3)" below; slice 4 merged and live too ("Review (slice 4)"). Slice 5:
 the plugin is on GitHub (`InnerOpen/marvin-storage-s3`, public, `main`, CI green) and installed in dev with slice 6.
 Slice 6: **dev cut over** (2026-10-06, `r2` target hourly, legacy job off, restore test green); **production pending
-the coordinator's promotion** of the same chart change — see "Review (slice 6)".
+the coordinator's promotion** of the same chart change — see "Review (slice 6)". Slice 8: **code built and
+tested** (admin choice of upload provider, `storage_migrate`, redirects, backups of R2 assets), no environment
+switched — see "Review (slice 8)" and the runbook `docs/manual/assets-on-r2.md`.
 Decisions below are Jared's (2026-10-06), open questions answered the same day.
 
 **Goal (Jared 2026-10-06):** keep core lean. Cloud SDKs leave core, and storage becomes a site-wide plugin type the
@@ -2091,6 +2093,11 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
       custom domain `assets.iwobble.com` (Jared, Cloudflare); dev rehearsal on a production copy (migrate, every
       asset URL 200, sites rebuilt); production: switch, migrate 516, verify counts + checksums, rebuild sites;
       delete local copies after the set period
+      — **code built** (2026-10-06, Jared's "8 ok but configurable"): admin choice of upload provider (Admin →
+      Storage), per-file providers for character-library files, `storage_migrate` (no freeze, `--to local`
+      rollback, `--prune-local`), `/assets/<key>` redirects for moved files, backups mirror every provider in use
+      (`BACKUP_ASSET_PROVIDERS`); e2e against MinIO green — see "Review (slice 8)". **No environment switched.**
+      Left: Jared's Cloudflare checklist + Secret, then the runbook (`docs/manual/assets-on-r2.md`), dev first
 - [ ] **SDK rename** (its own slice, Jared 2026-10-06): `marvin-integration-sdk` → `marvin-plugin-sdk`. Ship the
       new package `marvin_plugin_sdk` and keep `marvin_integration_sdk` as a re-exporting shim (both import names
       work); publish the new distribution name; move core's pin, the plugin repos' dependencies and the init
@@ -2258,6 +2265,77 @@ to R2, nightly to the NAS), and R2 backups must not stop at any point during the
   `assets 0 uploaded, 516 unchanged` and the old job's same-hour dump pruned. Rollback: `helm rollback marvin
   <previous revision> -n marvin` (old CronJob back at once), or `backup.enabled: true` + suspend/remove the
   `r2` target.
+
+## Review (slice 8, 2026-10-06) — code only, no environment switched
+- **Branches (not pushed):** core `feat/storage-slice-8` (from `develop` 1236b1db), plugin `marvin-storage-s3`
+  `feat/slice-8`, marvin-sdk `feat/slice8-types` (from `main`). Push order: plugin (merge to `main`, the chart
+  installs its `main` tarball; optional, only for `STORAGE_S3_CACHE_CONTROL`), core, SDK types (the SDK gate
+  fails on the core PR until they're in).
+- **Prerequisite, per-row everywhere:** every `get_storage_provider()` left is an upload (assets, derivatives, AI
+  imports, bundle imports, character uploads); reads and deletes resolve the row. Fixed: character-library files
+  record `"provider"` per file (a file without one is local) and are deleted from it (`CharacterFileStore.delete`
+  takes the file entry); `repair_character_mattes` reads/writes each file on its provider; a bundle import records
+  the provider the bytes were actually stored on (it copied the bundle's `storageProvider`, so after a switch the
+  row said `local` with the file on R2); the `/assets` mount is always there (it was mounted only when
+  `STORAGE_PROVIDER == "local"`, so local rows would 404 the moment it changed).
+- **Admin choice** (`services/storage/admin.py`, `routes/admin/storage_controller.py`, `GET/PUT
+  /api/admin/storage`, page `/admin/storage` under Settings): `platform_settings["storage"] =
+  {"upload_provider": slug|null}` overrides `STORAGE_PROVIDER` (null = follow it); only an installed, configured
+  provider is accepted (422); counts and bytes per provider, library files per provider, per workspace × provider;
+  asset detail shows *Stored on*. Read through a 5 s cache (every asset URL asks), reset in-process on save.
+  Audited as `storage_provider_changed` (new event type, catalog "System", platform scope → locked).
+- **Fallback decision:** `STORAGE_PROVIDER` stays strict at startup (operator config). The admin's choice is data:
+  if it becomes unavailable (plugin removed, Secret gone) new uploads fall back to `STORAGE_PROVIDER` with a
+  CRITICAL startup line, a once-per-reason error log and a red banner on Admin → Storage, instead of refusing to
+  start (which would lock the admin out of the page that fixes it). Safe now where the old quiet fallback wasn't:
+  each new row records the provider it was really stored on, so no URL is wrong. Verified live (backend without
+  `STORAGE_S3_BUCKET`, choice `s3`: starts, banner, uploads land local).
+- **`storage_migrate`** (`services/storage/migration.py`): stages each file, copies it unless the target already
+  has the same sha256 (resume), verifies (provider sha256; `--verify` downloads and hashes), then a compare-and-set
+  `UPDATE … WHERE storage_provider = <old> AND storage_key = <key>` (also refreshes the cached `public_url`); a row
+  deleted meanwhile has its copy removed, a changed one is left. Passes repeat until nothing is left (max 10), so
+  uploads to the old provider during the run are caught. Library files move with their pack JSON (provider, URL,
+  states). Never deletes the source; `--prune-local` deletes a local copy only after downloading the remote copy
+  and matching sha256 + size. A stale row checksum is reported, not fatal (the copy is checked against the bytes).
+  Exit 0 / 1 (some failed) / 2 (bad target or workspace).
+- **Old URLs:** `LocalAssetFiles` (the `/assets` mount) answers a missing key whose row (or pack file) lives
+  elsewhere with a 302 to its current URL; the frontend's `/assets` proxy passes redirects through
+  (`redirect: "manual"`) instead of streaming R2 through Astro. Character URLs are computed at read time
+  (`with_current_urls` in `resolve` / `pack_character` / the packs admin), never rewritten in the stored JSON.
+- **Backups (item 5):** the engine mirrors local + `STORAGE_PROVIDER` + `BACKUP_ASSET_PROVIDERS` (a key on several
+  providers copied once; a provider that can't open fails only the asset step). Decision: keep mirroring R2 assets
+  to both targets (R2→R2 covers app-level deletes, bugs and a leaked assets token at ~1.5 GB; the NAS is the
+  off-vendor copy). Proven R2→R2 (MinIO bucket → bucket, 46/46, re-run 0 uploaded) and s3 → local target.
+- **Plugin:** optional `STORAGE_S3_CACHE_CONTROL` (empty default; runbook sets `public, max-age=86400`, not
+  `immutable` because the matte repair rewrites in place); README covers the admin choice, migration, backups and
+  CORS. 118 passed / 1 skipped (moto + MinIO).
+- **Tests:** backend 3441 passed / 12 skipped (also with the plugin installed); new `test_storage_switching.py`
+  (13) and `test_storage_migrate.py` (12); frontend unit 475 pass; Biome clean on new files; `astro check` 51
+  errors = base 51; `mkdocs build --strict` only the pre-existing `openapi.json` warning. SDK gate reproduced
+  (fresh venv, `pip install -e`, FastAPI 0.142.2): additions only (`/api/admin/storage` + 4 schemas), committed in
+  marvin-sdk `feat/slice8-types`; `tsc --noEmit` clean.
+- **E2E against MinIO** (`cgr.dev/chainguard/minio`, anonymous-read bucket standing in for the custom domain, SQLite
+  backend + `marvin-storage-s3` editable): 40 local assets serve (API + publishing API, bytes equal) → `migrate --to
+  s3 --verify` started, 3 uploads landed local, admin switched to s3 via the API, 3 more landed on s3 → pass 2
+  caught the 3 stragglers (43 moved, 2 passes) → all 46 serve from the public base with equal bytes via the API,
+  the publishing API and its `/file` redirect → re-run copies 0 → old `/assets` URL 200 (local kept) →
+  prune dry-run 43 / prune 43 → old URLs 302 to the public base, bytes equal → backup r2 (bucket → bucket) 46/46,
+  re-run 0 uploaded; local "NAS" target 46/46 → switch back to local, 2 uploads land local, mixed rows serve →
+  `migrate --to local --verify` 46 back, all 48 serve from `/assets` → 2 `storage_provider_changed` events on the
+  admin Events page. Character pack: created on local → migrated (pack JSON provider s3, state URL on the public
+  base, bytes equal) → pruned → old URL 302 → back to local (original URL) → deleted. Admin page screenshots
+  (choice, fallback banner, asset *Stored on*) in the job's `slice8-shots/`. Containers stopped; no cluster or R2
+  touched.
+- **URL audit** (core, MarvinAstro, GraceMartinFranklin, mashandburnco): core issues fixed above (mount, bundle
+  import provider, character URLs, library files, mirror, proxy redirects; logo/favicon placeholders now suggest an
+  asset slug). Not code: any asset URL typed into entries/settings keeps working through the redirect (runbook has a
+  count query); MarvinAstro and both sites pass `publicUrl` through at build time (no image domains, CSP, headers or
+  redirects to change) — they must be rebuilt after the move, and production must never run without
+  `STORAGE_REMOTE_PUBLIC_URL` (presigned URLs would expire inside built pages). mashandburnco's `/assets/brand/…` are
+  its own `public/` files, not Marvin's. No changes in those repos.
+- **For Jared:** the Cloudflare checklist + Secret (runbook); new bucket-scoped tokens recommended over extending the
+  backup token (a leaked backend token shouldn't reach the backups); the prune period (suggest 30 days, after a
+  restore test with assets); dev refreshes from production need the bucket copied too once production is on R2.
 
 ## Decisions (Jared, 2026-10-06)
 - Keep core lean: cloud SDKs out of core. Storage is its own plugin type (`marvin.storage_providers`), with the
