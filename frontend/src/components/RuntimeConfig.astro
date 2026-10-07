@@ -16,4 +16,4 @@ const runtimeConfig = {
   appVersion: await getAppVersion(),
 };
 ---
-<script is:inline set:html={`window.__MARVIN_RUNTIME__=${JSON.stringify(runtimeConfig)}`}></script>
+<script is:inline set:html={`window.__MARVIN_RUNTIME__=${JSON.stringify(runtimeConfig).replace(/</g, "\\u003c")}`}></script>

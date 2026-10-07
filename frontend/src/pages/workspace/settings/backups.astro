@@ -651,15 +651,26 @@ function fmtDate(iso: string): string {
     return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   }
 
+  // Built with textContent, never innerHTML: the filename comes from the server.
   function makeRow(b: { filename: string; size: number; created_at: string }): HTMLTableRowElement {
     const tr = document.createElement('tr');
-    const dlUrl = `/api/platform/workspace/backups/${encodeURIComponent(b.filename)}`;
-    tr.innerHTML = `
-      <td class="filename-cell">${b.filename}</td>
-      <td class="num-cell">${fmt(b.size)}</td>
-      <td class="num-cell">${fmtDate(b.created_at)}</td>
-      <td class="action-cell"><a href="${dlUrl}" download="${b.filename}" class="dl-link">Download</a></td>
-    `;
+    const cell = (className: string, ...children: (Node | string)[]) => {
+      const td = document.createElement('td');
+      td.className = className;
+      td.append(...children);
+      return td;
+    };
+    const link = document.createElement('a');
+    link.href = `/api/platform/workspace/backups/${encodeURIComponent(b.filename)}`;
+    link.download = b.filename;
+    link.className = 'dl-link';
+    link.textContent = 'Download';
+    tr.append(
+      cell('filename-cell', b.filename),
+      cell('num-cell', fmt(b.size)),
+      cell('num-cell', fmtDate(b.created_at)),
+      cell('action-cell', link),
+    );
     return tr;
   }
 

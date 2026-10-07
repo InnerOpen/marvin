@@ -402,9 +402,15 @@ for (const evtType of connectedEventTypes) {
         const res = await fetch(`${apiUrl}/api/groups/variables`, { credentials: 'include' });
         const vars = res.ok ? await res.json() : [];
         if (!vars.length) { el.textContent = 'none configured'; return; }
-        el.innerHTML = vars.map((v) =>
-          `<code class="ws-var-chip" title="${v.slug}" style="cursor:pointer;background:rgba(79,156,132,0.08);padding:1px 5px;border-radius:3px;font-size:11px;margin:0 2px">{{${v.slug}}}</code>`
-        ).join('');
+        // A variable's slug is text (title and label), never markup.
+        el.replaceChildren(...vars.map((v) => {
+          const chip = document.createElement('code');
+          chip.className = 'ws-var-chip';
+          chip.title = v.slug;
+          chip.style.cssText = 'cursor:pointer;background:rgba(79,156,132,0.08);padding:1px 5px;border-radius:3px;font-size:11px;margin:0 2px';
+          chip.textContent = `{{${v.slug}}}`;
+          return chip;
+        }));
         el.querySelectorAll('.ws-var-chip').forEach(c => {
           c.addEventListener('click', async () => {
             const t = c.title ? `{{${c.title}}}` : c.textContent ?? '';

@@ -386,13 +386,21 @@ const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCE
         previewContent.innerHTML = `<img src="${url}" alt="Preview" />`;
       }
     } else {
-      previewContent.innerHTML = `
-        <div class="file-info">
-          <p class="file-name">${file.name}</p>
-          <p class="file-size">${formatFileSize(file.size)}</p>
-          <p class="file-size">${file.type || 'Unknown type'}</p>
-        </div>
-      `;
+      // The file's name and type are text: a file can be named "<img src=x onerror=…>.txt".
+      const line = (className: string, text: string) => {
+        const p = document.createElement('p');
+        p.className = className;
+        p.textContent = text;
+        return p;
+      };
+      const info = document.createElement('div');
+      info.className = 'file-info';
+      info.append(
+        line('file-name', file.name),
+        line('file-size', formatFileSize(file.size)),
+        line('file-size', file.type || 'Unknown type'),
+      );
+      previewContent.replaceChildren(info);
     }
   }
 

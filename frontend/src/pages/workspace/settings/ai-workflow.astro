@@ -755,7 +755,10 @@ const modCfg = s.moderationConfig ?? {};
         installedList.appendChild(chip);
       }
     } catch (err: any) {
-      installedList.innerHTML = `<span class="hint error">Couldn't reach the provider: ${err?.message ?? err}</span>`;
+      const hint = document.createElement('span');
+      hint.className = 'hint error';
+      hint.textContent = `Couldn't reach the provider: ${err?.message ?? err}`;
+      installedList.replaceChildren(hint);
     }
   }
 

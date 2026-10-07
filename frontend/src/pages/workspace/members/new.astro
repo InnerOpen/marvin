@@ -175,11 +175,16 @@ const roleDescriptions: Record<WorkspaceRole, string> = {
       }
 
       if (emailStatus) {
+        // The address and the error are text, never markup.
+        const status = document.createElement('p');
         if (emailSuccess) {
-          emailStatus.innerHTML = '<p class="status-success">✓ Email sent successfully to ' + formData.get('email') + '</p>';
+          status.className = 'status-success';
+          status.textContent = `✓ Email sent successfully to ${formData.get('email')}`;
         } else {
-          emailStatus.innerHTML = '<p class="status-error">⚠ Email failed to send: ' + emailError + '<br>Please share the link above manually.</p>';
+          status.className = 'status-error';
+          status.append(`⚠ Email failed to send: ${emailError}`, document.createElement('br'), 'Please share the link above manually.');
         }
+        emailStatus.replaceChildren(status);
       }
 
       if (modal) {

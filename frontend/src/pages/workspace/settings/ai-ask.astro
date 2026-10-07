@@ -317,7 +317,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
         if (seen.has(key)) continue;
         seen.add(key);
         const href = entityHref(s.entityType, s.entityId);
-        links.push(href ? `<a href="${href}">${esc(s.title || key)}</a>` : esc(s.title || key));
+        links.push(href ? `<a href="${esc(href)}">${esc(s.title || key)}</a>` : esc(s.title || key));
       }
       return links.length ? `<span>Sources:</span> ${links.join(" · ")}` : "";
     }
