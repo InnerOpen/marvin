@@ -37,7 +37,7 @@ import sqlite3
 import subprocess
 import tarfile
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -97,6 +97,7 @@ class BackupSettings:
     retention: Retention = field(default_factory=Retention)
     asset_provider: str = "local"
     assets_root: Path | None = None  # the local provider's root (default DATA_DIR/assets)
+    extra_asset_providers: tuple[str, ...] = ()  # BACKUP_ASSET_PROVIDERS: more providers to mirror
     # libpq environment for pg_dump (PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE); never logged.
     pg_env: dict[str, str] = field(default_factory=dict, repr=False)
 
@@ -105,7 +106,9 @@ class BackupSettings:
         """BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default DB_ENGINE, else `sqlite`),
         BACKUP_PREFIX (else BACKUP_S3_PREFIX, so the old script's environment carries over),
         BACKUP_KEEP_HOURLY / _DAILY / _WEEKLY, STORAGE_PROVIDER + STORAGE_LOCAL_ROOT (where assets are
-        read from), POSTGRES_SERVER / _PORT / _USER / _PASSWORD / _DB."""
+        read from), BACKUP_ASSET_PROVIDERS (comma-separated providers mirrored as well: an admin can send
+        new uploads to another provider than STORAGE_PROVIDER, which this job can't see),
+        POSTGRES_SERVER / _PORT / _USER / _PASSWORD / _DB."""
         env = dict(os.environ if env is None else env)
         data_dir = Path(env.get("BACKUP_DATA_DIR") or "/app/data")
         return cls(
@@ -115,6 +118,7 @@ class BackupSettings:
             retention=Retention.from_env(env),
             asset_provider=env.get("STORAGE_PROVIDER") or "local",
             assets_root=Path(env["STORAGE_LOCAL_ROOT"]) if env.get("STORAGE_LOCAL_ROOT") else data_dir / "assets",
+            extra_asset_providers=tuple(p.strip() for p in (env.get("BACKUP_ASSET_PROVIDERS") or "").split(",") if p.strip()),
             pg_env={
                 pg: env[app]
                 for pg, app in (
@@ -172,18 +176,42 @@ def open_target(slug: str, env: Mapping[str, Any] | None = None, prefix: str = "
     return PrefixedTarget(target, prefix) if prefix else target
 
 
-def open_asset_source(settings: BackupSettings, env: Mapping[str, Any] | None = None) -> StorageProvider | None:
-    """The storage provider assets are read from (STORAGE_PROVIDER), or None when the local assets
-    directory doesn't exist yet (nothing uploaded; the engine never creates it)."""
-    if settings.asset_provider == "local":
+def open_asset_source(settings: BackupSettings, env: Mapping[str, Any] | None = None, slug: str | None = None) -> StorageProvider | None:
+    """The storage provider assets are read from (``slug``, default STORAGE_PROVIDER), or None for
+    local when its assets directory doesn't exist yet (nothing uploaded; the engine never creates it)."""
+    slug = slug or settings.asset_provider
+    if slug == "local":
         from marvin.services.storage.local_provider import LocalStorageProvider
 
         root = settings.assets_root or settings.data_dir / "assets"
         return LocalStorageProvider(root=root) if root.is_dir() else None
     from marvin.services.storage import registry
 
-    provider_cls = registry.get_plugin(settings.asset_provider, needs="provider").provider
+    provider_cls = registry.get_plugin(slug, needs="provider").provider
     return provider_cls.from_config(read_config(provider_cls.settings, os.environ if env is None else env))
+
+
+def asset_provider_slugs(settings: BackupSettings) -> list[str]:
+    """Every provider the mirror reads, in order: local (built in: rows can live there whatever new
+    uploads use), STORAGE_PROVIDER, then BACKUP_ASSET_PROVIDERS."""
+    return list(dict.fromkeys(["local", settings.asset_provider, *settings.extra_asset_providers]))
+
+
+def open_asset_sources(settings: BackupSettings, env: Mapping[str, Any] | None = None) -> tuple[list[StorageProvider], list[str]]:
+    """(the providers to mirror assets from, why any of them couldn't be opened). A provider that
+    can't be opened fails the asset step only: the database and config backups still run."""
+    sources: list[StorageProvider] = []
+    problems: list[str] = []
+    for slug in asset_provider_slugs(settings):
+        try:
+            source = open_asset_source(settings, env, slug)
+        except Exception as exc:  # StorageConfigError, or a plugin failing to build its client
+            problems.append(f"assets from {slug}: {exc}")
+            log.error("assets from %s: %s", slug, exc)
+            continue
+        if source is not None:
+            sources.append(source)
+    return sources, problems
 
 
 # --------------------------------------------------------------------------------------------------
@@ -394,13 +422,29 @@ def asset_needs_copy(source: StorageProvider, key: str, remote: TargetObject | N
     return ours is not None and ours != remote.digest
 
 
-def backup_assets(source: StorageProvider | None, target: BackupTarget, report: Report, dry_run: bool, work: Path) -> None:
+AssetSources = StorageProvider | Sequence[StorageProvider] | None
+
+
+def _sources(source: AssetSources) -> list[StorageProvider]:
     if source is None:
+        return []
+    return [s for s in source if s is not None] if isinstance(source, Sequence) else [source]
+
+
+def backup_assets(source: AssetSources, target: BackupTarget, report: Report, dry_run: bool, work: Path) -> None:
+    """Mirror every key of every source (a key held by several, e.g. mid-move between providers, is
+    copied once, from the first: the same key holds the same bytes on each)."""
+    sources = _sources(source)
+    if not sources:
         log.info("assets: no assets directory yet, nothing to mirror")
         return
     remote = target.list(ASSETS_PREFIX)
     staged = work / "asset"
-    for key in source.iter_keys(""):
+    seen: set[str] = set()
+    for source, key in ((s, k) for s in sources for k in s.iter_keys("")):
+        if key in seen:
+            continue
+        seen.add(key)
         tkey = asset_key(key)
         try:
             if not asset_needs_copy(source, key, remote.get(tkey)):
@@ -435,7 +479,7 @@ def prune(target: BackupTarget, prefix: str, retention: Retention, report: Repor
 def run_backup(
     settings: BackupSettings,
     target: BackupTarget,
-    source: StorageProvider | None,
+    source: AssetSources,
     dry_run: bool = False,
     now: datetime | None = None,
     name: str = "",
@@ -626,7 +670,9 @@ __all__ = [
     "Report",
     "Retention",
     "list_backups",
+    "asset_provider_slugs",
     "open_asset_source",
+    "open_asset_sources",
     "open_target",
     "run_backup",
     "run_prune",

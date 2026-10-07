@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         settings = engine.BackupSettings.from_env()
         target = engine.open_target(args.target, prefix=settings.prefix)
-        source = engine.open_asset_source(settings) if args.command == "run" else None
+        sources, source_problems = engine.open_asset_sources(settings) if args.command == "run" else ([], [])
     except (BackupError, StorageConfigError) as exc:
         log.error("backup[%s]: %s", name, exc)
         return 2
@@ -78,7 +78,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "run":
         started = time.monotonic()
-        report = engine.run_backup(settings, target, source, dry_run=args.dry_run, name=name)
+        report = engine.run_backup(settings, target, sources, dry_run=args.dry_run, name=name)
+        report.failures += source_problems
         log.info("%s", report.summary(time.monotonic() - started, args.dry_run))
         return 1 if report.failures else 0
     try:
