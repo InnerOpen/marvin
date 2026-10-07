@@ -82,6 +82,7 @@ image:
 ```yaml
 config:
   production: false          # Enable production mode
+  environmentLabel: ""       # e.g. DEV / STAGING: UI badge + "[DEV] " tab titles; empty = nothing shown
   allowSignup: true          # Allow user signups
   logLevel: DEBUG            # Logging level (DEBUG, INFO, WARNING, ERROR)
   dbEngine: sqlite           # Database engine
@@ -90,6 +91,12 @@ config:
   webhookRetryAttempts: 3    # Webhook retry count
   webhookTimeout: 30         # Webhook timeout in seconds
 ```
+
+`config.environmentLabel` marks a non-production instance so nobody mistakes it for production: the app
+and admin headers and the login page show it as a badge, and every tab title starts with `[DEV] `. It
+becomes the API's `ENVIRONMENT_LABEL` (upper-cased, at most 12 characters). Left empty — the default,
+and what production uses — neither the ConfigMap key nor the env var is rendered. `values-dev.yaml`
+sets `DEV`.
 
 #### Resource Limits
 

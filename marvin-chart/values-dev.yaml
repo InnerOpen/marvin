@@ -25,6 +25,7 @@ split:
 
 config:
   production: true      # OpenShift's random UID can't write /app/dev (dev mode); dev uses DATA_DIR too
+  environmentLabel: DEV # badge + "[DEV] " tab titles, so dev is never mistaken for production
   logLevel: INFO
   dbEngine: postgres
   # Public tunnel hosts (Cloudflare, one level deep so the free *.iwobble.com certificate covers them):

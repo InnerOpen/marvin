@@ -161,6 +161,13 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
     configMapKeyRef:
       name: {{ include "marvin.fullname" . }}
       key: corsOrigins
+{{- if .Values.config.environmentLabel }}
+- name: ENVIRONMENT_LABEL
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "marvin.fullname" . }}
+      key: environmentLabel
+{{- end }}
 - name: SMTP_HOST
   valueFrom:
     secretKeyRef:

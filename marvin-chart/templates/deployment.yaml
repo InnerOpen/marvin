@@ -136,6 +136,13 @@ spec:
             configMapKeyRef:
               name: {{ include "marvin.fullname" . }}
               key: corsOrigins
+        {{- if .Values.config.environmentLabel }}
+        - name: ENVIRONMENT_LABEL
+          valueFrom:
+            configMapKeyRef:
+              name: {{ include "marvin.fullname" . }}
+              key: environmentLabel
+        {{- end }}
         # Secrets from Secret
         - name: SMTP_HOST
           valueFrom:

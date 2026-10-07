@@ -82,6 +82,7 @@ These are per-workspace content exports kept on the data volume. For the whole i
 | Variable | Default | Notes |
 |---|---|---|
 | `PRODUCTION` | `false` | enables the `.secret` file, sentinel replacement of unresolved `{{SLUG}}`s, strict CORS |
+| `ENVIRONMENT_LABEL` | empty | short tag for a non-production instance, e.g. `DEV` or `STAGING`; stripped, upper-cased, cut to 12 characters. When set, the app and admin headers and the login page show it as a badge (amber for `DEV…`, purple for `STAG…`, neutral otherwise) and every tab title starts `[DEV] `. Empty shows nothing. Served on the public `/api/app/about/login-info` and the admin about endpoint as `environmentLabel`. Independent of `PRODUCTION` (runtime mode) and `IS_DEMO` (public demo). Chart: `config.environmentLabel` |
 | `BASE_URL` | `http://localhost:8080` | public API URL |
 | `FRONTEND_URL` | `http://localhost:4322` | public admin URL; `FRONTEND_PORT` is derived from it. When set to anything but the default, entry links that AI tools hand back are absolute |
 | `API_HOST` / `API_PORT` | `0.0.0.0` / `8080` | bind address |

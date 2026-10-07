@@ -28,6 +28,9 @@ data:
   apiHost: {{ .Values.config.apiHost | quote }}
   publicApiUrl: {{ $publicApiUrl | default "" | quote }}
   corsOrigins: {{ $corsOrigins | default "" | quote }}
+  {{- with .Values.config.environmentLabel }}
+  environmentLabel: {{ . | quote }}
+  {{- end }}
   frontendPort: {{ .Values.config.frontendPort | quote }}
   schedulerInterval: {{ .Values.config.schedulerInterval | quote }}
   webhookRetryAttempts: {{ .Values.config.webhookRetryAttempts | quote }}

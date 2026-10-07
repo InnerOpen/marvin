@@ -202,6 +202,12 @@ config:
   # Environment mode
   production: false
 
+  # Short tag for a non-production instance, e.g. "DEV" or "STAGING" (upper-cased, max 12 chars).
+  # The UI badges the app/admin headers and the login page with it and prefixes tab titles with
+  # "[DEV] ". Empty (the default, and production) renders nothing — the env var is not even set.
+  # Maps to the API's ENVIRONMENT_LABEL. Unrelated to `production` (container runtime mode).
+  environmentLabel: ""
+
   # Application settings
   allowSignup: true
   logLevel: DEBUG
