@@ -159,6 +159,8 @@ Limits: a target appears after its first recorded run, so a new target that neve
 
 API: `GET`/`PUT /api/admin/alerts`, `POST /api/admin/alerts/test` (`{"channel": "email"}` or a route id). Stored in `platform_settings` (`platform_alerts`, and `platform_alerts_status` for the last deliveries).
 
+Each workspace has the same for its own failures — workflows, scheduled tasks, integrations that need attention — under Settings → Automation → [Notifications](whats-new/notifications.md), built on the same code (`services/alerting.py`); platform events never go there, and a workspace's events never come here.
+
 ## Restoring
 
 `restore --target <type> --into DIR` downloads the chosen database object (default: the newest for the engine), checks its checksums (and `integrity_check` for SQLite) before it touches `DIR`, then the config archive, then any assets missing or different locally. It never deletes local files. Into a directory that already has `marvin.db` or `.secret` it refuses unless given `--force`, and with `--force` it moves the existing `marvin.db`, `marvin.db-wal`, `marvin.db-shm`, `.secret`, `scheduler_state.json` and `templates/` aside as `<name>.pre-restore-<stamp>` rather than overwriting them. Moving the `-wal` aside matters: left beside a restored database, SQLite would replay it onto that database. With Postgres it downloads and verifies the dump as `DIR/marvin.dump` and never loads it; load it with `pg_restore` (see [Postgres](#postgres)).

@@ -59,6 +59,7 @@ nav:
       - Marvin as an MCP server: whats-new/marvin-as-mcp-server.md
       - Scheduled tasks: whats-new/scheduled-tasks.md
       - Integrations: whats-new/integrations.md
+      - Notifications: whats-new/notifications.md
       - n8n: whats-new/n8n.md
       - Blueprints: whats-new/blueprints.md
       - Publishing API: whats-new/publishing-api.md

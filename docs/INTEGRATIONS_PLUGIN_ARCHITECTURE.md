@@ -267,10 +267,11 @@ Built 2026-10-04. The provider owns *what a failure means*; the core owns *what 
 - **Precedence.** A workflow's own `on_failure` steps, or `integration_errors: "fail"`, replace the policy;
   only its `notify` still fires. A published entry is never moved to review (it is flagged and the alert
   fires instead).
-- **Alerts out.** `integration_attention_needed` / `_resolved` are audited (bell) and routed through
-  ordinary subscription rows the Integration alerts panel writes (email admins via the `integration_alert`
-  system template; Slack `send_message`, Apprise `notify`). An alert row records the subscription ids it
-  went out through, and the email and integration listeners also deliver the resolved event to those rows.
+- **Alerts out.** `integration_attention_needed` / `_resolved` are audited (bell) and sent by the
+  workspace's notifications (Settings → Automation → Notifications, `services/workspace_alerts.py`: email
+  to owners and admins, any message-capable action), plus any subscription rows set up on the Events page.
+  An alert row records the channels it went out through (`channels.notify`, and the subscription ids), and
+  the resolved event goes back through exactly those.
   Loop guard: alert delivery never opens, bumps or resolves alerts (contextvar + listener check), and
   neither event is a workflow trigger.
 - **Degrades.** With SDK 0.4.0 there is no `resolve_policy`: no policy, no resume/seed fields passed,
