@@ -19,6 +19,17 @@ export interface NotificationEmail {
   lastDelivery: AlertDelivery | null;
 }
 
+export interface NotificationPush {
+  /** The server has Web Push (VAPID); without it push isn't a channel and the page hides it. */
+  configured: boolean;
+  enabled: boolean;
+  /** The kinds push takes; null: every kind that is on. */
+  kinds: string[] | null;
+  /** Who push reaches right now: owners and admins with a device and "Workspace alerts" on. */
+  people: string[];
+  lastDelivery: AlertDelivery | null;
+}
+
 export interface NotificationRoute {
   id: string;
   integrationId: string;
@@ -36,6 +47,7 @@ export interface NotificationRoute {
 export interface WorkspaceNotifications {
   types: AlertKind[];
   email: NotificationEmail;
+  push: NotificationPush;
   routes: NotificationRoute[];
   targets: AlertTarget[];
   integrationsAvailable: boolean;
@@ -45,6 +57,8 @@ export interface WorkspaceNotifications {
 export interface WorkspaceNotificationsUpdate {
   types: Record<string, boolean>;
   email: { enabled: boolean; recipients: string[] | null; kinds: string[] | null };
+  /** Left out: push stays as it is. */
+  push?: { enabled: boolean; kinds: string[] | null };
   routes: {
     id?: string;
     integrationId: string;
@@ -73,7 +87,7 @@ export async function updateNotifications(
   );
 }
 
-/** Send "Test notification from Marvin" through one saved channel: `email` or a route id. */
+/** Send "Test notification from Marvin" through one saved channel: `email`, `push` or a route id. */
 export async function testNotification(
   channel: string,
   authToken?: string,

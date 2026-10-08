@@ -1,7 +1,8 @@
 ---
 // Settings → Automation → Notifications: which of the workspace's failures — a workflow, a scheduled task, a
 // connection that needs attention — reach people outside Marvin, and how. Email to the workspace's owners and
-// admins is built in; any message-capable action on one of its connections can be added as a route, and each
+// admins is built in, and so is push to the owners' and admins' devices when the server has Web Push; any
+// message-capable action on one of its connections can be added as a route, and each
 // channel takes every kind or only some. Admins and owners only (the API enforces it). Server strings render
 // through Astro's escaping ({...}); the script builds route rows with textContent only.
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -30,6 +31,8 @@ try {
 
 const email = data?.email;
 const emailBadge = deliveryBadge(email?.lastDelivery);
+const push = data?.push?.configured ? data.push : null;
+const pushBadge = deliveryBadge(push?.lastDelivery);
 const ADD_CHANNEL = `${navHref("settings.integrations")}?category=notify`;
 ---
 
@@ -38,7 +41,7 @@ const ADD_CHANNEL = `${navHref("settings.integrations")}?category=notify`;
     <div>
       <p>
         The bell and the <a href={navHref("automation.event-log")}>Event Log</a> always get the workspace's events. Choose
-        which failures also go out by email or through a chat integration, so a broken workflow reaches someone who isn't
+        which failures also go out by email, push or through a chat integration, so a broken workflow reaches someone who isn't
         looking at Marvin. Something that keeps failing alerts once, and says so when it works again.
       </p>
     </div>
@@ -114,6 +117,33 @@ const ADD_CHANNEL = `${navHref("settings.integrations")}?category=notify`;
           <button type="button" class="button secondary small-btn" data-test-channel="email">Send test</button>
         </div>
       </section>
+
+      {push && (
+        <section class="card" data-testid="push-channel">
+          <div class="channel-head">
+            <h3>Push</h3>
+            <label class="switch"><input type="checkbox" id="wn-push-enabled" checked={push.enabled} /> On</label>
+          </div>
+          <p class="lead">
+            Built in. To the phones and browsers of owners and admins who turned notifications on with “Workspace alerts”
+            in their <a href="/user/profile#notifications">Profile</a>.{" "}
+            <span class="muted small" data-testid="push-people">
+              {push.people.length ? `Reaches: ${push.people.join(", ")}.` : "Nobody has turned it on yet."}
+            </span>
+          </p>
+          <fieldset class="takes" data-testid="push-kinds">
+            <legend>Takes</legend>
+            {data.types.map((k) => (
+              <label><input type="checkbox" name="push-kind" value={k.key} checked={takes(push.kinds, k.key)} /> {k.label}</label>
+            ))}
+          </fieldset>
+          <div class="channel-foot">
+            <span class:list={["pill", pushBadge.tone]} id="wn-push-status">{pushBadge.label}</span>
+            <span class="muted small" id="wn-push-detail">{pushBadge.detail}</span>
+            <button type="button" class="button secondary small-btn" data-test-channel="push">Send test</button>
+          </div>
+        </section>
+      )}
 
       <section class="card" data-testid="integration-routes">
         <h3>Integrations</h3>
@@ -296,6 +326,7 @@ const ADD_CHANNEL = `${navHref("settings.integrations")}?category=notify`;
         if (pill && detail) setStatus(pill, detail, res.delivery);
         if (state) {
           if (channel === "email") state.email.lastDelivery = res.delivery;
+          else if (channel === "push") state.push.lastDelivery = res.delivery;
           else {
             const r = state.routes.find((x) => x.id === channel);
             if (r) r.lastDelivery = res.delivery;
@@ -323,12 +354,15 @@ const ADD_CHANNEL = `${navHref("settings.integrations")}?category=notify`;
         [...form.querySelectorAll<HTMLInputElement>('input[name="kind"]')].map((box) => [box.value, box.checked]),
       );
       const emailTicked = [...form.querySelectorAll<HTMLInputElement>('input[name="email-kind"]:checked')].map((b) => b.value);
+      const pushSwitch = document.getElementById("wn-push-enabled") as HTMLInputElement | null;
+      const pushTicked = [...form.querySelectorAll<HTMLInputElement>('input[name="push-kind"]:checked')].map((b) => b.value);
       const update = buildUpdate({
         types,
         emailEnabled: (document.getElementById("wn-email-enabled") as HTMLInputElement).checked,
         everyAdmin: (form.querySelector<HTMLInputElement>('input[name="wn-recipients"]:checked')?.value ?? "all") === "all",
         recipientsText: (document.getElementById("wn-recipients-text") as HTMLTextAreaElement).value,
         emailKinds: channelKinds(emailTicked, kindKeys()),
+        push: pushSwitch ? { enabled: pushSwitch.checked, kinds: channelKinds(pushTicked, kindKeys()) } : null,
         routes,
         reminderHours: reminderHours(
           (document.getElementById("wn-reminder") as HTMLInputElement | null)?.value ?? "",

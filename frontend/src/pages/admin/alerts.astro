@@ -24,6 +24,8 @@ try {
 
 const email = data?.email;
 const emailBadge = deliveryBadge(email?.lastDelivery);
+const push = data?.push?.configured ? data.push : null;
+const pushBadge = deliveryBadge(push?.lastDelivery);
 const workspace = data?.platformWorkspace ?? null;
 const INTEGRATIONS_PATH = "/workspace/settings/integrations";
 ---
@@ -34,7 +36,7 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
       <h2>Platform Alerts</h2>
       <p>
         Platform events always show in a super admin's bell and on <a href="/admin/events">Events</a>. Choose which of them
-        also go out by email or through a chat integration, so a failed backup reaches someone who isn't looking at Marvin.
+        also go out by email, push or through a chat integration, so a failed backup reaches someone who isn't looking at Marvin.
         See <a href="/admin/backup-health">Backup health</a> for what the backup alerts mean.
       </p>
     </div>
@@ -94,6 +96,27 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
           <button type="button" class="button secondary small-btn" data-test-channel="email">Send test</button>
         </div>
       </section>
+
+      {push && (
+        <section class="card" data-testid="push-channel">
+          <div class="channel-head">
+            <h3>Push</h3>
+            <label class="switch"><input type="checkbox" id="pa-push-enabled" checked={push.enabled} /> On</label>
+          </div>
+          <p class="lead">
+            Built in. To the phones and browsers of super admins who turned notifications on with “Platform alerts” in
+            their <a href="/user/profile#notifications">Profile</a>.{" "}
+            <span class="muted small" data-testid="push-people">
+              {push.people.length ? `Reaches: ${push.people.join(", ")}.` : "Nobody has turned it on yet."}
+            </span>
+          </p>
+          <div class="channel-foot">
+            <span class:list={["pill", pushBadge.tone]} id="pa-push-status">{pushBadge.label}</span>
+            <span class="muted small" id="pa-push-detail">{pushBadge.detail}</span>
+            <button type="button" class="button secondary small-btn" data-test-channel="push">Send test</button>
+          </div>
+        </section>
+      )}
 
       <section class="card" data-testid="integration-routes">
         <h3>Integrations</h3>
@@ -284,6 +307,7 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
         if (pill && detail) setStatus(pill, detail, res.delivery);
         if (state) {
           if (channel === "email") state.email.lastDelivery = res.delivery;
+          else if (channel === "push") state.push.lastDelivery = res.delivery;
           else {
             const r = state.routes.find((x) => x.id === channel);
             if (r) r.lastDelivery = res.delivery;
@@ -313,6 +337,7 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
         emailEnabled: (document.getElementById("pa-email-enabled") as HTMLInputElement).checked,
         everySuperAdmin: (form.querySelector<HTMLInputElement>('input[name="pa-recipients"]:checked')?.value ?? "all") === "all",
         recipientsText: (document.getElementById("pa-recipients-text") as HTMLTextAreaElement).value,
+        pushEnabled: (document.getElementById("pa-push-enabled") as HTMLInputElement | null)?.checked ?? null,
         routes,
       });
       const save = document.getElementById("pa-save") as HTMLButtonElement;

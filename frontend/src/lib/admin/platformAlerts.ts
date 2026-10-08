@@ -31,6 +31,8 @@ export function buildUpdate(input: {
   emailEnabled: boolean;
   everySuperAdmin: boolean;
   recipientsText: string;
+  /** Push on/off; null when the page doesn't show it (no Web Push on the server), which leaves it as it is. */
+  pushEnabled?: boolean | null;
   routes: RouteDraft[];
 }): PlatformAlertsUpdate {
   return {
@@ -39,6 +41,7 @@ export function buildUpdate(input: {
       enabled: input.emailEnabled,
       recipients: input.everySuperAdmin ? null : parseRecipients(input.recipientsText),
     },
+    ...(typeof input.pushEnabled === "boolean" ? { push: { enabled: input.pushEnabled } } : {}),
     routes: input.routes.map((r) => ({
       ...(r.id ? { id: r.id } : {}),
       integrationId: r.integrationId,

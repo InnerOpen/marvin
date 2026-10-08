@@ -70,6 +70,24 @@ describe("buildUpdate", () => {
     assert.deepEqual(buildUpdate({ ...base, everyAdmin: false }).email.recipients, ["a@x.test"]);
   });
 
+  test("push goes in only when the page shows it (the server has Web Push)", () => {
+    const base = {
+      types: {},
+      emailEnabled: true,
+      everyAdmin: true,
+      recipientsText: "",
+      emailKinds: null,
+      routes: [],
+      reminderHours: 24,
+    };
+    assert.equal("push" in buildUpdate(base), false);
+    assert.equal("push" in buildUpdate({ ...base, push: null }), false);
+    assert.deepEqual(buildUpdate({ ...base, push: { enabled: false, kinds: ["workflow_failed"] } }).push, {
+      enabled: false,
+      kinds: ["workflow_failed"],
+    });
+  });
+
   test("routes keep their id and kinds, empty arguments left out; a new route has no id", () => {
     const update = buildUpdate({
       types: { ai_operation_failed: true },

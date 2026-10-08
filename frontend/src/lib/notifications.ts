@@ -50,13 +50,15 @@ export function reminderHours(text: string, fallback: number): number {
   return Number.isFinite(n) ? Math.min(720, Math.max(0, n)) : fallback;
 }
 
-/** The PUT body. Empty arguments are left out; "every owner and admin" sends recipients null. */
+/** The PUT body. Empty arguments are left out; "every owner and admin" sends recipients null; push is sent
+ * only when the page shows it (the server has Web Push), else left as it is. */
 export function buildUpdate(input: {
   types: Record<string, boolean>;
   emailEnabled: boolean;
   everyAdmin: boolean;
   recipientsText: string;
   emailKinds: string[] | null;
+  push?: { enabled: boolean; kinds: string[] | null } | null;
   routes: RouteDraft[];
   reminderHours: number;
 }): WorkspaceNotificationsUpdate {
@@ -67,6 +69,7 @@ export function buildUpdate(input: {
       recipients: input.everyAdmin ? null : parseRecipients(input.recipientsText),
       kinds: input.emailKinds,
     },
+    ...(input.push ? { push: { enabled: input.push.enabled, kinds: input.push.kinds } } : {}),
     routes: input.routes.map((r) => ({
       ...(r.id ? { id: r.id } : {}),
       integrationId: r.integrationId,

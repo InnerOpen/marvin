@@ -25,6 +25,15 @@ export interface PlatformAlertEmail {
   lastDelivery: AlertDelivery | null;
 }
 
+export interface PlatformAlertPush {
+  /** The server has Web Push (VAPID); without it push isn't a channel and the page hides it. */
+  configured: boolean;
+  enabled: boolean;
+  /** Who push reaches right now: super admins with a device and "Platform alerts" on. */
+  people: string[];
+  lastDelivery: AlertDelivery | null;
+}
+
 export interface PlatformAlertRoute {
   id: string;
   integrationId: string;
@@ -40,6 +49,7 @@ export interface PlatformAlertRoute {
 export interface PlatformAlerts {
   types: AlertKind[];
   email: PlatformAlertEmail;
+  push: PlatformAlertPush;
   routes: PlatformAlertRoute[];
   targets: AlertTarget[];
   platformWorkspace: { id: string; name: string; slug: string | null } | null;
@@ -49,6 +59,8 @@ export interface PlatformAlerts {
 export interface PlatformAlertsUpdate {
   types: Record<string, boolean>;
   email: { enabled: boolean; recipients: string[] | null };
+  /** Left out: push stays as it is. */
+  push?: { enabled: boolean };
   routes: { id?: string; integrationId: string; action: string; args: Record<string, unknown>; enabled: boolean }[];
 }
 

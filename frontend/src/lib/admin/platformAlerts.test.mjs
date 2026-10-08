@@ -97,4 +97,11 @@ describe("routes", () => {
       { enabled: false, recipients: ["a@example.test"] },
     );
   });
+
+  test("push goes in only when the page shows it (the server has Web Push)", () => {
+    const base = { types: {}, emailEnabled: true, everySuperAdmin: true, recipientsText: "", routes: [] };
+    assert.equal("push" in buildUpdate(base), false);
+    assert.equal("push" in buildUpdate({ ...base, pushEnabled: null }), false);
+    assert.deepEqual(buildUpdate({ ...base, pushEnabled: false }).push, { enabled: false });
+  });
 });
