@@ -2085,13 +2085,19 @@ class AIOperationsController(BaseUserController):
         if "read_attachment" in names:
             how.append("read_attachment to read a document (text, PDF, Word)")
         if how:
-            use = f"Use {' and '.join(how)} when the question needs a file's contents."
+            use = (
+                f"Use {' and '.join(how)}. A question that doesn't name something else is about these files "
+                '("what do you think?", "like it?"): look at them before you answer. If you already looked at one '
+                "earlier in this conversation, answer from what you saw unless the question needs more detail."
+            )
         else:
             use = "Your tools can't open these files: if the question needs their contents, say so."
         return (
             "\n\n## Files the user attached to the question\n"
             + "\n".join(lines)
-            + f'\n{use} When the user says "this file" or "the attachment", they mean these.'
+            + f"\n{use} Each was saved as an asset in this workspace's Assets library when it was attached, so "
+            "there is nothing to import or upload: to put one on an entry, attach that asset id. "
+            'When the user says "this file" or "the attachment", they mean these.'
         )
 
     def _user_turn_meta(self, body: AIAgentRequest) -> dict | None:
