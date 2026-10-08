@@ -47,9 +47,6 @@ if (!authToken) {
 // Create a map of collection ID to collection for quick lookup
 const collectionsMap = new Map(collections.map((c) => [c.id, c]));
 const trashCollection = collections.find((c: any) => c.isSystem && c.slug === "trash");
-// Trashed entries are left out of the entries loaded here, so the Trash never forms a group of its own: list it
-// from its own count, after the rest, whenever it holds something.
-const trashCount = trashCollection?.entryCount ?? 0;
 
 // Sort entry types by sort_order
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -75,6 +72,16 @@ for (const entry of entries) {
     }
   } else {
     uncollected.push(entry);
+  }
+}
+
+// Every entry collection that has entries gets a group, from its own count — not only the ones the loaded entries
+// name: trashed entries aren't loaded here, so the Trash (and a collection whose entries are all in it) would vanish.
+// A group with nothing loaded shows its count and links to the collection.
+for (const col of collections) {
+  const holdsEntries = (col.targetType ?? "entry") === "entry";
+  if (holdsEntries && (col.entryCount ?? 0) > 0 && !collectionGroups.has(col.id)) {
+    collectionGroups.set(col.id, { collection: col, entries: [] });
   }
 }
 
@@ -194,12 +201,18 @@ const sortedGroups = [...collectionGroups.values()].sort(
                       title={`Open ${collection.name}`}
                       onclick="event.stopPropagation()"
                     >{collection.name}</a>
-                    <span class="collection-count">{groupEntries.length}</span>
+                    <span class="collection-count">{Math.max(groupEntries.length, collection.entryCount ?? 0)}</span>
                   </h3>
                   {collection.description && (
                     <p class="collection-desc">{collection.description}</p>
                   )}
                 </summary>
+                {groupEntries.length === 0 && (
+                  <p class="collection-desc">
+                    Its entries aren't listed here{collection.slug === "trash" ? " (deleted entries)" : ""}.{" "}
+                    <a href={`/workspace/collections/${collection.id}`}>Open {collection.name}</a>
+                  </p>
+                )}
                 <section class="grid" aria-label={`${collection.name} entries`}>
                   {groupEntries.map((entry) => (
                     <div class="entry-wrapper"
@@ -237,21 +250,6 @@ const sortedGroups = [...collectionGroups.values()].sort(
                   ))}
                 </section>
               </details>
-            )}
-
-            {trashCollection && trashCount > 0 && (
-              <div class="collection-group trash-group" data-collection-id={trashCollection.id}>
-                <div class="collection-header">
-                  <h3 class="collection-title">
-                    {trashCollection.icon && <span class="collection-icon">{trashCollection.icon}</span>}
-                    <a href={`/workspace/collections/${trashCollection.id}`} class="collection-link" title="Open the Trash">
-                      {trashCollection.name}
-                    </a>
-                    <span class="collection-count">{trashCount}</span>
-                  </h3>
-                  <p class="collection-desc">Deleted entries. Open the Trash to restore them or delete them for good.</p>
-                </div>
-              </div>
             )}
           </div>
         </>
