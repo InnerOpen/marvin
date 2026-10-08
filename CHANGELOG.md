@@ -6,6 +6,31 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.209 (2026-10-08)
+
+### Bug Fixes
+
+- **frontend**: Email template Save buttons were invisible
+  ([`3ccd959`](https://github.com/InnerOpen/marvin/commit/3ccd959777e4d63990bb9dde60b90f1d3ef685a6))
+
+- **frontend**: Email templates and SMTP fit a phone
+  ([`b5cf152`](https://github.com/InnerOpen/marvin/commit/b5cf1529280b42d1b02e2dc0ed95438271147793))
+
+- **frontend**: Phone-wide fixes for title rows, page modals and iOS field zoom
+  ([`0d00957`](https://github.com/InnerOpen/marvin/commit/0d00957e203de9ecac2118c9dcdbb6823d0d91f0))
+
+- **frontend**: Submission protection fits a phone
+  ([`de46b27`](https://github.com/InnerOpen/marvin/commit/de46b2712272e772f9233cc5ce6623a3bcb1f92e))
+
+- **frontend**: The rest of Settings and Automation fit a phone
+  ([`293d1db`](https://github.com/InnerOpen/marvin/commit/293d1db0242b09a1eadcaea653ddd69bd61945a9))
+
+### Documentation
+
+- Getting platform alerts outside Marvin
+  ([`58a0ae0`](https://github.com/InnerOpen/marvin/commit/58a0ae0bc7b41efbf94440c28942fc4a00b1f97b))
+
+
 ## v1.0.0-rc.208 (2026-10-07)
 
 ### Bug Fixes
