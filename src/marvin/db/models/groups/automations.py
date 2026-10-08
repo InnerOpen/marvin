@@ -131,6 +131,9 @@ class WorkspaceAutomationModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     trigger_ref: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     trigger_config: Mapped[dict | None] = mapped_column(sa.JSON(none_as_null=True), nullable=True)
     created_by: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Drafted by an agent and not saved by a person since: the only workflows an agent may revise
+    # (update_workflow_draft). A save from the editor or REST makes it the person's work.
+    agent_draft: Mapped[bool] = mapped_column(sa.Boolean, default=False, server_default=sa.false(), nullable=False)
 
     __table_args__ = (sa.UniqueConstraint("group_id", "slug", name="uq_automations_group_slug"),)
 

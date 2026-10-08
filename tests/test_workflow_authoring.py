@@ -494,3 +494,32 @@ def test_asking_marvin_for_the_incidents_workflow_creates_it_switched_off(ws, mo
     assert plan["status"] == "dry_run" and plan["ok"], plan
     assert [(p["target"]["id"], p["resolved"]["would_set_status"]) for p in plan["plan"]] == [(pictured, "draft")]
     assert plain not in json.dumps(plan)
+
+
+# ── An agent revises only its own untouched drafts ───────────────────────────
+
+
+def test_revising_its_own_draft_says_it_changed_the_existing_one(ws):
+    _tool(ws, "draft_workflow", {"name": "Mine", "definition": GOOD})
+    out = _tool(ws, "update_workflow_draft", {"workflow": "mine", "definition": {**GOOD, "actions": [{"kind": "entry", "op": "archive"}]}})
+    assert out["updated"] and "changed the existing workflow “Mine”" in out["next"]
+    assert _rows(ws)[0].agent_draft is True  # still the agent's draft: it may revise it again
+
+
+def test_a_persons_switched_off_workflow_is_never_revised_by_the_agent(ws):
+    """Made in the editor, off, same name as the agent's next draft: the agent can't overwrite it, and isn't told to try."""
+    rest = gates._sign_in(ws.workspace, AD).post("/api/automations", json={"name": "Hand made", "definition": GOOD, "enabled": False})
+    assert rest.status_code == 201
+    out = _tool(ws, "draft_workflow", {"name": "Hand made", "definition": GOOD})
+    assert "already exists" in out["error"] and "update_workflow_draft" not in out["error"]
+    out = _tool(ws, "update_workflow_draft", {"workflow": "hand-made", "definition": {**GOOD, "actions": []}})
+    assert "user's own work" in out["error"] and "editLink" in out
+    assert _rows(ws)[0].definition == GOOD
+
+
+def test_a_draft_the_person_saved_since_is_theirs(ws):
+    made = _tool(ws, "draft_workflow", {"name": "Edited by hand", "definition": GOOD})["workflow"]
+    saved = gates._sign_in(ws.workspace, AD).patch(f"/api/automations/{made['id']}", json={"name": "Edited by hand"})
+    assert saved.status_code == 200 and _rows(ws)[0].agent_draft is False
+    out = _tool(ws, "update_workflow_draft", {"workflow": made["id"], "definition": {**GOOD, "actions": []}})
+    assert "user's own work" in out["error"]

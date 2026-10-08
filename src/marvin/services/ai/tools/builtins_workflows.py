@@ -192,6 +192,8 @@ def _saved(ctx: ToolContext, row, parsed, *, created: bool) -> str:
     warnings = [w["message"] for w in validate_definition(row.definition)]
     if warnings:
         out["warnings"] = warnings
+    if not created:
+        out["next"] += f" Say plainly that you changed the existing workflow “{row.name}” — it is not a new one."
     if parsed.ignored:
         out["ignored"] = parsed.ignored
     return json.dumps(out)
@@ -256,10 +258,11 @@ def draft_workflow(ctx: ToolContext, args: dict) -> str:
     # Never enabled from here, whatever was passed: switching it on is the user's call.
     data = AutomationCreate(name=name, slug=parsed.slug, enabled=False, definition=parsed.definition)
     try:
-        row = create_workflow(ctx.session, ctx.group_id, getattr(ctx.user, "id", None), data)
+        row = create_workflow(ctx.session, ctx.group_id, getattr(ctx.user, "id", None), data, agent_draft=True)
     except SlugConflict as e:
         taken = _find_workflow(ctx.session, ctx.group_id, e.slug)
-        revise = ", or revise that one with update_workflow_draft (it is switched off)" if taken and not taken.enabled else ""
+        revisable = taken is not None and not taken.enabled and taken.agent_draft
+        revise = ", or revise that one with update_workflow_draft (an agent's draft, still switched off)" if revisable else ""
         error = f"A workflow with the slug '{e.slug}' already exists. Pick another name{revise}."
         return _refused(error, existing=_workflow_ref(taken) if taken else None)
     except WorkflowError as e:  # the gate draft_issues already ran; kept so a refusal never surfaces as a crash
@@ -270,8 +273,9 @@ def draft_workflow(ctx: ToolContext, args: dict) -> str:
 @register_tool(
     name="update_workflow_draft",
     description=(
-        "Revise a workflow that is switched OFF: a new name and/or a whole new definition (checked like "
-        "draft_workflow). An enabled workflow is refused — the user must switch it off first or edit it themselves. "
+        "Revise a workflow an agent drafted that is still switched OFF and unedited by the user: a new name and/or a whole "
+        "new definition (checked like draft_workflow). Anything else — enabled, or the user's own work — is refused: ask "
+        "the user, who can edit it themselves. "
         "Never enables or runs it. get_workflow gives the current definition to start from."
     ),
     input_schema={
@@ -300,6 +304,12 @@ def update_workflow_draft(ctx: ToolContext, args: dict) -> str:
             f"“{row.name}” is enabled, so it can't be changed from here. The user can switch it off first, or edit it themselves.",
             editLink=workflow_edit_link(row),
         )
+    if not row.agent_draft:
+        return _refused(
+            f"“{row.name}” is the user's own work (they made it, or saved it since an agent drafted it), so it can't be "
+            "changed from here. Ask them first — they can edit it themselves — or draft a new workflow under another name.",
+            editLink=workflow_edit_link(row),
+        )
     changes: dict = {}
     parsed = ParsedWorkflow()
     if args.get("definition") is not None:
@@ -316,7 +326,7 @@ def update_workflow_draft(ctx: ToolContext, args: dict) -> str:
     if not changes:
         return _refused("Nothing to change: pass a name and/or a definition.")
     try:
-        row = update_workflow(ctx.session, ctx.group_id, row, AutomationUpdate(**changes))
+        row = update_workflow(ctx.session, ctx.group_id, row, AutomationUpdate(**changes), by_agent=True)
     except WorkflowError as e:
         return _refused(str(e), getattr(e, "issues", None))
     return _saved(ctx, row, parsed, created=False)

@@ -53,8 +53,8 @@ def require_valid_definition(definition: dict | None) -> None:
         raise InvalidDefinition(issues)
 
 
-def create_workflow(session, group_id, user_id, data: AutomationCreate) -> WorkspaceAutomationModel:
-    """Create a workflow as `user_id` — its author, whose role its steps run with."""
+def create_workflow(session, group_id, user_id, data: AutomationCreate, *, agent_draft: bool = False) -> WorkspaceAutomationModel:
+    """Create a workflow as `user_id` — its author, whose role its steps run with. `agent_draft`: an agent drafted it."""
     slug = data.slug or slugify(data.name)
     if session.query(WorkspaceAutomationModel).filter_by(group_id=group_id, slug=slug).first():
         raise SlugConflict(slug)
@@ -62,7 +62,7 @@ def create_workflow(session, group_id, user_id, data: AutomationCreate) -> Works
 
     payload = data.model_dump()
     payload["slug"] = slug
-    row = WorkspaceAutomationModel(session=session, group_id=group_id, created_by=user_id, **payload)
+    row = WorkspaceAutomationModel(session=session, group_id=group_id, created_by=user_id, agent_draft=agent_draft, **payload)
     session.add(row)
     session.commit()
     session.refresh(row)
@@ -70,11 +70,13 @@ def create_workflow(session, group_id, user_id, data: AutomationCreate) -> Works
     return row
 
 
-def update_workflow(session, group_id, row: WorkspaceAutomationModel, data: AutomationUpdate) -> WorkspaceAutomationModel:
+def update_workflow(session, group_id, row: WorkspaceAutomationModel, data: AutomationUpdate, *, by_agent: bool = False) -> WorkspaceAutomationModel:
+    """Apply an update. Unless an agent made it (revising its own draft), the workflow is now the person's work."""
     if data.definition is not None:
         require_valid_definition(data.definition)
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(row, field, value)
+    row.agent_draft = bool(row.agent_draft) and by_agent
     session.commit()
     session.refresh(row)
     sync_schedule(session, group_id, row)
