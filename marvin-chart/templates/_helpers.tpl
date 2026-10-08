@@ -205,6 +205,9 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
 {{- with include "marvin.postgresEnv" . | trim }}
 {{ . }}
 {{- end }}
+{{- with include "marvin.webPushEnv" . | trim }}
+{{ . }}
+{{- end }}
 {{- end -}}
 
 {{/*
@@ -250,6 +253,27 @@ sqlite render is unchanged. Keys default to CloudNativePG's <cluster>-app Secret
     secretKeyRef:
       name: {{ $secret }}
       key: {{ $key }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+VAPID_* for Web Push (the installable admin app's notifications) from webPush.existingSecret — nothing
+without it, so push stays off and the render is unchanged. Optional refs: a values file may name the
+Secret before the operator creates it; until then the pod starts with push off.
+*/}}
+{{- define "marvin.webPushEnv" -}}
+{{- $push := .Values.webPush | default dict }}
+{{- with $push.existingSecret }}
+{{- $secret := . }}
+{{- $k := $push.secretKeys | default dict }}
+{{- range $env, $key := dict "VAPID_PUBLIC_KEY" ($k.publicKey | default "VAPID_PUBLIC_KEY") "VAPID_PRIVATE_KEY" ($k.privateKey | default "VAPID_PRIVATE_KEY") "VAPID_SUBJECT" ($k.subject | default "VAPID_SUBJECT") }}
+- name: {{ $env }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ $secret }}
+      key: {{ $key }}
+      optional: true
 {{- end }}
 {{- end }}
 {{- end -}}

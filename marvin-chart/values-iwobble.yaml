@@ -179,6 +179,11 @@ extraEnv:
   - {name: STORAGE_S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_ACCESS_KEY}}}
   - {name: STORAGE_S3_SECRET_KEY, valueFrom: {secretKeyRef: {name: marvin-r2-assets, key: STORAGE_S3_SECRET_KEY}}}
 
+# Web Push for the installable admin app: VAPID keys from this Secret (create it first — see
+# docs/manual/app-and-push.md; until it exists the backend starts with push off).
+webPush:
+  existingSecret: marvin-vapid
+
 # Postgres (CloudNativePG cluster `marvin-pg`, Secret `marvin-pg-app`) — production's database since the
 # cutover (docs/manual/postgres.md, "Production cutover"). NFS is the only storage class on this cluster — see the runbook's "Storage".
 postgres:

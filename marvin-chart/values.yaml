@@ -358,6 +358,22 @@ backup:
   #       subPath: prod
   targets: []
 
+# Web Push — notifications for the installable admin app (phones and browsers that turned them on in
+# Profile → Notifications). The backend's VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT come from an
+# existing Secret, never rendered by this chart. Empty = push off: the app hides its push controls and the
+# alert pages have no Push channel. Generate the pair once per installation (a new pair means every device
+# has to turn notifications on again):
+#   python -m marvin.scripts.vapid --subject mailto:ops@example.com
+#   oc create secret generic marvin-vapid -n <namespace> --from-env-file=<the three lines it printed>
+# Runbook: docs/manual/app-and-push.md.
+webPush:
+  existingSecret: ""
+  # Key names inside that Secret.
+  secretKeys:
+    publicKey: VAPID_PUBLIC_KEY
+    privateKey: VAPID_PRIVATE_KEY
+    subject: VAPID_SUBJECT
+
 # PostgreSQL — used when config.dbEngine is postgres, ignored with sqlite. The app's POSTGRES_SERVER,
 # _PORT, _USER, _PASSWORD and _DB come from an existing Secret: by default the one CloudNativePG keeps
 # for a cluster's owner, `<cluster>-app`. The data PVC (persistence) stays either way: it holds the

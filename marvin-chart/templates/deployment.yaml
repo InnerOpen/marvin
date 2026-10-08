@@ -182,6 +182,9 @@ spec:
         {{- with include "marvin.postgresEnv" . | trim }}
         {{- . | nindent 8 }}
         {{- end }}
+        {{- with include "marvin.webPushEnv" . | trim }}
+        {{- . | nindent 8 }}
+        {{- end }}
         {{- include "marvin.shutdownEnv" . | nindent 8 }}
         {{- with include "marvin.plugins.env" . }}
         {{- . | nindent 8 }}

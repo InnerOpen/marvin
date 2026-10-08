@@ -33,6 +33,11 @@ config:
   publicApiUrl: https://api-dev.iwobble.com
   corsOrigins: "https://admin-dev.iwobble.com,https://marvin-marvin-dev.apps.ocp4.iwobble.com"
 
+# Web Push for the installable admin app: VAPID keys from this Secret (create it first — see
+# docs/manual/app-and-push.md; until it exists the backend starts with push off).
+webPush:
+  existingSecret: marvin-vapid
+
 # Postgres: CloudNativePG cluster `marvin-dev-pg` (Secret `marvin-dev-pg-app` → POSTGRES_*).
 postgres:
   cluster:

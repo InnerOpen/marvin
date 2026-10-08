@@ -173,6 +173,27 @@ every secret Marvin stores: keep it private and its token scoped to it. One-off 
 `backup.enabled` is the retired single-target job (`<release>-offsite-backup`,
 `marvin.scripts.offsite_backup`, S3 only), kept off as the rollback until it is removed.
 
+#### Web Push (app notifications)
+
+The admin UI installs as an app; push notifications to people's phones and browsers need a VAPID key
+pair on the backend. The chart reads it from a Secret it never renders:
+
+```yaml
+webPush:
+  existingSecret: marvin-vapid   # keys VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT
+```
+
+Create it once per installation (a new pair means every device turns notifications on again):
+
+```bash
+uv run python -m marvin.scripts.vapid --subject mailto:ops@example.com > vapid.env
+oc create secret generic marvin-vapid -n <namespace> --from-env-file=vapid.env && rm vapid.env
+```
+
+The references are optional: until the Secret exists the backend starts with push off (the app hides its
+push controls). Restart the backend after creating it. Key names are configurable (`webPush.secretKeys`);
+runbook: [docs/manual/app-and-push.md](../docs/manual/app-and-push.md).
+
 #### OpenShift Route
 
 ```yaml
