@@ -137,12 +137,15 @@ const personalNote = presetCounts ? ` (${presetCounts.personal} domains bundled)
 </div>
 
 <style>
+  /* minmax(0, …): a long option in the Mode select must not widen the column past a phone screen. */
   .sp-fields {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 22px;
   }
   .sp-field {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
     gap: 8px;
   }
   .sp-head {
@@ -206,5 +209,11 @@ const personalNote = presetCounts ? ` (${presetCounts.personal} domains bundled)
   }
   .sp-field.is-inherited .sp-check {
     color: var(--muted);
+  }
+  /* Phones: the "Use platform default" toggles are the main control here — give them a finger-sized row. */
+  @media (max-width: 640px) {
+    .sp-inherit {
+      min-height: 32px;
+    }
   }
 </style>
