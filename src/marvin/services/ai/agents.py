@@ -91,7 +91,9 @@ TAGGING_RULE = (
 TRASH_RULE = (
     "Deleting or removing entries, assets (images, files) or resources: call trash_entries (its `entries`, `assets` and "
     "`resources` lists) — what Delete does in Marvin — and tell the user they are in the Trash, where they can restore "
-    "them, and that only a person can empty it. To bring trashed items back, call restore_entries. Never use "
+    "them, and that only a person can empty it. To bring trashed items back, call restore_entries. For 'all X' or "
+    "'every X that …' pass `match` (its kind, and all: true or a query) instead of names — never * or 'all' as a "
+    "name, and don't list them first to name them; the user is asked to approve it. Never use "
     "revise_entry or compose_entry to 'delete' or blank an entry, and never detach an asset to 'delete' it."
 )
 ARCHIVE_RULE = "Retiring or archiving entries (kept, but out of the active pipeline): call archive_entries."

@@ -41,6 +41,14 @@ from typing import Any
 SCAN_CAP = 5000
 """Most rows read into memory for where / sort-by-field / group_by; a workspace bigger than this gets `scan_capped`."""
 
+SPEC_KEYS = (
+    *("entry_type", "entry_types", "status", "statuses", "text", "query", "tags", "collection", "collections"),
+    *("has_images", "has_assets", "has_resources", "fields", "data", "metadata", "where", "sort", "group_by"),
+    *(f"{name}_{edge}" for name in ("created", "updated", "published") for edge in ("after", "before")),
+)
+"""Every key a spec understands. Unknown keys are ignored, so a caller that must never widen a selection (the
+agent's trash_entries `match`) rejects any key not here instead."""
+
 WHERE_OPS = ("eq", "neq", "in", "contains", "exists", "missing", "gt", "gte", "lt", "lte")
 COLUMN_SORTS = ("title", "created_at", "updated_at", "published_at")
 _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
