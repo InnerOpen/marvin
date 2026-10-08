@@ -2,15 +2,26 @@
 which kinds of push they take. Everything is the caller's own — another user's devices are never listed,
 changed or reached. Without VAPID settings push is off: GET says so and nothing can be subscribed or sent.
 See services/web_push.py.
+
+One route takes no session: a notification's Approve / Deny (``public_router``), authorised by the single-use
+token that notification carries (services/push_actions.py).
 """
 
-from fastapi import BackgroundTasks, HTTPException, Request, status
-from pydantic import UUID4
+from typing import Literal
+from urllib.parse import quote
 
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
+from pydantic import UUID4
+from sqlalchemy.orm import Session
+
+from marvin.core.root_logger import get_logger
+from marvin.db.db_setup import generate_session
 from marvin.db.models.users import Users
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.routers import UserAPIRouter
 from marvin.schemas.user.push import (
+    PushApprovalAction,
+    PushApprovalResult,
     PushCategoryRead,
     PushDeviceRead,
     PushPreferencesUpdate,
@@ -18,9 +29,13 @@ from marvin.schemas.user.push import (
     PushSubscriptionCreate,
     PushTestResult,
 )
-from marvin.services import web_push
+from marvin.services import push_actions, web_push
+from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+logger = get_logger(__name__)
 
 router = UserAPIRouter(prefix="/self/push", tags=["User: Self Service"])
+public_router = APIRouter(prefix="/self/push", tags=["User: Self Service"])
 
 TEST_MESSAGE = web_push.PushMessage(
     title="Test notification from Marvin",
@@ -105,3 +120,48 @@ class UserPushController(BaseUserController):
         if count:
             bg_tasks.add_task(_send_test, self.user.id)
         return PushTestResult(devices=count)
+
+
+def _as_owner(session: Session, claim: push_actions.Claim):
+    """The approval's owner, in the approval's workspace — who the Ask page's resume runs as."""
+    from marvin.repos.all_repositories import get_repositories
+
+    user = get_repositories(session, group_id=None).users.get_one(claim.user_id, "id", any_case=False)
+    group_id = claim.thread.group_id
+    if user is None or not (user.admin or any(str(m.group_id) == str(group_id) for m in user.workspace_memberships)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You're no longer a member of that workspace.")
+    return user, user.model_copy(update={"active_group_id": group_id})
+
+
+@public_router.post("/approvals/{approval_id}/{decision}", response_model=PushApprovalResult, summary="Approve or Deny from a Notification")
+def decide_from_notification(
+    approval_id: UUID4,
+    decision: Literal["approve", "deny"],
+    data: PushApprovalAction,
+    session: Session = Depends(generate_session),
+    event_bus: EventBusService = Depends(EventBusService.as_dependency),
+) -> PushApprovalResult:
+    """The Approve / Deny buttons of an AI-approval notification: the token it carries, no session. Runs the
+    Ask page's resume as the approval's owner; results land in the conversation."""
+    from marvin.routes.ai.operations_controller import AIOperationsController
+    from marvin.schemas.group.ai_thread import AIThreadResumeRequest
+    from marvin.services.push_notifications import ASK_PATH
+
+    try:
+        claim = push_actions.claim(session, approval_id, data.token, decision)
+    except push_actions.Refused as e:
+        logger.info(f"Push action refused for approval {approval_id}: {e.message}")
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+    user, as_owner = _as_owner(session, claim)
+    thread_id = str(claim.thread.id)
+    logger.info(f"Push action: {decision} approval {thread_id} by user {user.id}")
+    controller_ = AIOperationsController(session=session, user=as_owner, event_bus=event_bus)
+    resume = AIThreadResumeRequest(decisions={str(c["id"]): decision for c in claim.calls}, source="ask_page")
+    response = controller_.decide_parked(thread_id, resume, surface=push_actions.SURFACE)
+    current = str(user.active_group_id or user.group_id) == str(claim.thread.group_id)
+    return PushApprovalResult(
+        decision=decision,
+        message=push_actions.confirmation(decision, claim.calls, response),
+        url=f"{ASK_PATH}?thread={quote(thread_id)}",
+        badge=push_actions.inbox_count(session, claim.thread.group_id) if current else None,
+    )

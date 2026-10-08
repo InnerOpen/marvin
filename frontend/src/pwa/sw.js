@@ -77,23 +77,46 @@ self.addEventListener("push", (event) => {
   event.waitUntil(Promise.all(work));
 });
 
+async function openOrFocus(target) {
+  const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
+  if (!open) return self.clients.openWindow(target);
+  await open.focus();
+  if (open.url === target) return undefined;
+  try {
+    return await open.navigate(target);
+  } catch {
+    return self.clients.openWindow(target); // an uncontrolled window can't be navigated from here
+  }
+}
+
+// Approve / Deny on an AI approval (Chromium): the token in the notification decides it, then a confirmation
+// replaces the notification; when it can't (expired, decided already…), the conversation opens instead.
+async function decide(action, request, target, tag) {
+  let ok = false;
+  let body = null;
+  try {
+    const response = await fetch(request.url, request.init);
+    ok = response.ok;
+    body = await response.json().catch(() => null);
+  } catch {
+    body = { detail: "No connection to Marvin." };
+  }
+  const outcome = approvalOutcome(action, ok, body, target, self.location.origin, tag);
+  const work = [self.registration.showNotification(outcome.title, outcome.options)];
+  if (outcome.badge !== null && "setAppBadge" in self.navigator) {
+    work.push(self.navigator.setAppBadge(outcome.badge).catch(() => {}));
+  }
+  if (outcome.open) work.push(openOrFocus(outcome.url));
+  await Promise.all(work);
+}
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = safeTarget(event.notification.data?.url, self.location.origin);
-  event.waitUntil(
-    (async () => {
-      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
-      if (!open) return self.clients.openWindow(target);
-      await open.focus();
-      if (open.url === target) return undefined;
-      try {
-        return await open.navigate(target);
-      } catch {
-        return self.clients.openWindow(target); // an uncontrolled window can't be navigated from here
-      }
-    })(),
-  );
+  const data = event.notification.data ?? {};
+  const target = safeTarget(data.url, self.location.origin);
+  const request = approvalRequest(event.action, data, self.location.origin);
+  event.waitUntil(request ? decide(event.action, request, target, event.notification.tag) : openOrFocus(target));
 });
 
 self.addEventListener("pushsubscriptionchange", (event) => {

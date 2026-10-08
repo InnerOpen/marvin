@@ -6,6 +6,9 @@ import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
 import {
+  approvalOf,
+  approvalOutcome,
+  approvalRequest,
   cacheable,
   cacheNames,
   notificationFromPush,
@@ -103,6 +106,85 @@ describe("notifications", () => {
     assert.deepEqual(parsePush('{"title":"x"}'), { title: "x" });
     assert.deepEqual(parsePush("hello"), { body: "hello" });
     assert.deepEqual(parsePush(""), {});
+  });
+});
+
+describe("Approve / Deny on an AI approval", () => {
+  const ID = "0b6c1f7e-6a43-4b8e-9d41-2f0c9a7d5e11";
+  const TOKEN = "tok_abcdefghijklmnopqrstuvwxyz-0123456789";
+
+  test("a well-formed approval gets the two buttons and keeps its id and token", () => {
+    const n = notificationFromPush(
+      { title: "Waiting", url: `/workspace/settings/ai-ask?thread=${ID}`, approval: { id: ID, token: TOKEN } },
+      ORIGIN,
+    );
+    assert.deepEqual(
+      n.options.actions.map((a) => a.action),
+      ["approve", "deny"],
+    );
+    assert.deepEqual(n.options.data.approval, { id: ID, token: TOKEN });
+  });
+
+  test("anything else gets no buttons: a plain push, a malformed id or token, extra fields dropped", () => {
+    assert.equal(notificationFromPush({ title: "x" }, ORIGIN).options.actions, undefined);
+    for (const bad of [
+      { id: "../../admin", token: TOKEN },
+      { id: ID, token: "short" },
+      { id: ID, token: "has spaces in it, not base64url" },
+      { id: ID },
+      "string",
+      null,
+    ]) {
+      const n = notificationFromPush({ approval: bad }, ORIGIN);
+      assert.equal(n.options.actions, undefined, JSON.stringify(bad));
+      assert.equal(n.options.data.approval, undefined);
+    }
+    assert.deepEqual(approvalOf({ id: ID, token: TOKEN, extra: "x" }), { id: ID, token: TOKEN });
+  });
+
+  test("a button posts the token, without cookies, to that approval's decision", () => {
+    const data = { url: `${ORIGIN}/x`, approval: { id: ID, token: TOKEN } };
+    const approve = approvalRequest("approve", data, ORIGIN);
+    assert.equal(approve.url, `${ORIGIN}/api/self/push/approvals/${ID}/approve`);
+    assert.equal(approve.init.method, "POST");
+    assert.equal(approve.init.credentials, "omit");
+    assert.deepEqual(JSON.parse(approve.init.body), { token: TOKEN });
+    assert.equal(approvalRequest("deny", data, ORIGIN).url, `${ORIGIN}/api/self/push/approvals/${ID}/deny`);
+  });
+
+  test("a plain tap, an unknown button or no approval opens the page instead", () => {
+    const data = { approval: { id: ID, token: TOKEN } };
+    assert.equal(approvalRequest("", data, ORIGIN), null);
+    assert.equal(approvalRequest("delete", data, ORIGIN), null);
+    assert.equal(approvalRequest("approve", {}, ORIGIN), null);
+    assert.equal(approvalRequest("approve", { approval: { id: "x", token: TOKEN } }, ORIGIN), null);
+  });
+
+  test("success: the server's line, the badge, the conversation on tap, nothing opened", () => {
+    const o = approvalOutcome(
+      "approve",
+      true,
+      { message: "Approved — moved 78 entries to the Trash", url: `/workspace/settings/ai-ask?thread=${ID}`, badge: 4 },
+      `${ORIGIN}/`,
+      ORIGIN,
+      `approval:${ID}`,
+    );
+    assert.equal(o.title, "Approved — moved 78 entries to the Trash");
+    assert.equal(o.badge, 4);
+    assert.equal(o.open, false);
+    assert.equal(o.options.tag, `approval:${ID}`);
+    assert.equal(o.options.data.url, `${ORIGIN}/workspace/settings/ai-ask?thread=${ID}`);
+  });
+
+  test("failure: says why and opens the conversation; a foreign link in the answer is ignored", () => {
+    const thread = `${ORIGIN}/workspace/settings/ai-ask?thread=${ID}`;
+    const o = approvalOutcome("approve", false, { detail: "This approval was already decided." }, thread, ORIGIN);
+    assert.equal(o.title, "Couldn't approve: This approval was already decided.");
+    assert.equal(o.open, true);
+    assert.equal(o.url, thread);
+    assert.equal(o.badge, null);
+    assert.equal(approvalOutcome("deny", false, null, thread, ORIGIN).title, "Couldn't deny: Marvin didn't answer.");
+    assert.equal(approvalOutcome("approve", true, { url: "https://evil.example/" }, thread, ORIGIN).url, `${ORIGIN}/`);
   });
 });
 

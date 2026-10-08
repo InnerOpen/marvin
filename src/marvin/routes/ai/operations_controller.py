@@ -1323,6 +1323,12 @@ class AIOperationsController(BaseUserController):
         Permissions are taken at decision time, never widened: the owner of every thread involved, the
         caller may still talk to each agent, and each run's tools rebound at the caller's current role.
         """
+        return self.decide_parked(thread_id, data, surface=data.source)
+
+    def decide_parked(self, thread_id: str, data: AIThreadResumeRequest, *, surface: str) -> dict:
+        """`resume_thread`, recorded under `surface` (the approvals audit and the approval events): the Ask
+        surface that sent it, or `push` for a notification's Approve / Deny (routes/users/push_controller.py),
+        which is gated as the Ask page."""
         from marvin.core.config import get_app_settings
         from marvin.services.ai.agent import DECISION_APPROVE, DECISION_DENY, flatten_pending
         from marvin.services.ai.agents import may_talk
@@ -1380,12 +1386,12 @@ class AIOperationsController(BaseUserController):
         for kind, event_type in ((DECISION_APPROVE, EventTypes.approval_granted), (DECISION_DENY, EventTypes.approval_rejected)):
             subset = [c for c in flat if decisions[str(c["id"])] == kind]
             if subset:
-                self._emit_approval_event(event_type, root, execution, subset, decisions, surface=data.source)
+                self._emit_approval_event(event_type, root, execution, subset, decisions, surface=surface)
 
         body = self._resume_body(root, run, client_run_id=data.client_run_id)
         run_id, on_event = self._start_progress(body, root, execution)
         try:
-            return self._resume_leg(root, pending, decisions, depth=0, on_event=on_event, run_id=run_id, surface=data.source, chain=())
+            return self._resume_leg(root, pending, decisions, depth=0, on_event=on_event, run_id=run_id, surface=surface, chain=())
         except HTTPException as e:
             self._finish_progress(run_id, "failed", self._http_error_text(e))
             raise

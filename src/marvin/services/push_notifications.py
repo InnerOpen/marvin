@@ -4,7 +4,8 @@ The bell (the activity toasts) shows a workspace's events as they happen; most a
 person, and those also go to the phones and browsers of people who turned push on (Profile → Notifications):
 
   * **AI approvals** — an agent run parked on "ask first" (``approval_requested``) goes to the person whose
-    run it is, and only them, linking to the Ask thread where they decide;
+    run it is, and only them, linking to the Ask thread where they decide; when everything it waits on can be
+    undone, with Approve / Deny buttons (services/push_actions.py);
   * **workspace activity** — a form submission (not one flagged as spam) and a scheduled publish that's
     waiting (``entry_scheduled_publish_blocked``) go to the workspace's editors and above, except whoever
     caused it.
@@ -64,8 +65,12 @@ def _workspace_name(session: Session, group_id, data: dict) -> str | None:
     return getattr(group, "name", None)
 
 
-def approval_message(event, data: dict) -> web_push.PushMessage:
-    thread_id = data.get("thread_id") or (event.entity_id if getattr(event, "entity_type", None) == "ai_thread" else None)
+def _thread_id(event, data: dict):
+    return data.get("thread_id") or (event.entity_id if getattr(event, "entity_type", None) == "ai_thread" else None)
+
+
+def approval_message(event, data: dict, token: str | None = None) -> web_push.PushMessage:
+    thread_id = _thread_id(event, data)
     url = f"{ASK_PATH}?thread={quote(str(thread_id))}" if thread_id else ASK_PATH
     return web_push.PushMessage(
         title="Waiting for your approval",
@@ -73,7 +78,25 @@ def approval_message(event, data: dict) -> web_push.PushMessage:
         url=url,
         tag=f"approval:{thread_id}" if thread_id else "approval",
         urgency="high",
+        approval={"id": str(thread_id), "token": token} if token and thread_id else None,
     )
+
+
+def _approval_token(session: Session, event, data: dict, owner) -> str | None:
+    """The one-tap token, when the parked run is one a tap may approve and its owner takes the push."""
+    from marvin.db.models.groups.ai_threads import AIThreadModel
+    from marvin.services import push_actions
+
+    thread_id = push_actions._uuid(_thread_id(event, data))
+    if thread_id is None or not web_push.push_ready_users(session, [owner], web_push.APPROVALS):
+        return None
+    try:
+        root = session.get(AIThreadModel, thread_id)
+        return push_actions.mint(session, root, owner) if root is not None else None
+    except Exception:  # noqa: BLE001 — without a token the push still opens the thread
+        session.rollback()
+        logger.exception("Web Push: could not mint an approval action token")
+        return None
 
 
 def activity_message(session: Session, group_id, event, data: dict) -> web_push.PushMessage:
@@ -101,7 +124,8 @@ def deliver(session: Session, group_id, event) -> web_push.SendResult:
         owner = getattr(event, "user_id", None)
         if owner is None:
             return web_push.SendResult()
-        return web_push.send_to_users(session, [owner], web_push.APPROVALS, approval_message(event, data))
+        token = _approval_token(session, event, data, owner)
+        return web_push.send_to_users(session, [owner], web_push.APPROVALS, approval_message(event, data, token))
     if name == "form_submission_received" and data.get("flagged"):
         return web_push.SendResult()  # suspected spam waits in review without waking anyone
     from marvin.db.models.users.roles import WorkspaceRole

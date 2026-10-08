@@ -61,3 +61,18 @@ class PushPreferencesUpdate(_MarvinModel):
 class PushTestResult(_MarvinModel):
     devices: int
     """How many of your devices the test is going to (sent in the background)."""
+
+
+class PushApprovalAction(_MarvinModel):
+    token: str = Field(min_length=1, max_length=128)
+    """The single-use token the approval's notification carries."""
+
+
+class PushApprovalResult(_MarvinModel):
+    decision: str
+    message: str
+    """The confirmation notification's line ("Approved — moved 78 entries to the Trash")."""
+    url: str
+    """The conversation, for the notification to open."""
+    badge: int | None = None
+    """The workspace's inbox count, for the app icon (when it is the person's current workspace)."""

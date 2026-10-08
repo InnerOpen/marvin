@@ -7,7 +7,8 @@ every kind on). What sends one is services/push_notifications.py (the bell's ite
 approvals) and services/alerting.py (the Push channel of workspace notifications and platform alerts).
 
 A message is small and carries no content beyond a title, one line and a same-origin link — the app shows
-the rest after sign-in. Each device is one attempt with a short timeout: a device the push service says is
+the rest after sign-in — and, on an AI approval one tap may decide, that approval's single-use token
+(services/push_actions.py). Each device is one attempt with a short timeout: a device the push service says is
 gone (404/410) is deleted, any other failure counts on it (``failure_count``, reset by the next success).
 Nothing here ever raises into its caller.
 """
@@ -160,6 +161,8 @@ class PushMessage:
     urgency: str = "normal"
     """very-low | low | normal | high — how eagerly a phone wakes for it."""
     ttl: int = TTL_S
+    approval: dict | None = None
+    """``{id, token}``: the Approve / Deny buttons of an AI approval (services/push_actions.py), else none."""
 
     def payload(self) -> str:
         data: dict = {"title": _clip(self.title, MAX_TITLE) or "Marvin", "body": _clip(self.body, MAX_BODY), "url": safe_path(self.url)}
@@ -167,6 +170,8 @@ class PushMessage:
             data["tag"] = _clip(self.tag, MAX_TAG)
         if isinstance(self.badge, int) and self.badge >= 0:
             data["badge"] = self.badge
+        if self.approval and self.approval.get("id") and self.approval.get("token"):
+            data["approval"] = {"id": str(self.approval["id"]), "token": str(self.approval["token"])}
         return json.dumps(data, separators=(",", ":"), ensure_ascii=False)
 
 
