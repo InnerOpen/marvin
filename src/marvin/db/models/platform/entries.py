@@ -94,6 +94,8 @@ class Entries(SqlAlchemyBase, BaseMixins):
         foreign_keys="EntryResources.entry_id",
         overlaps="entries,resources",
         cascade="all, delete-orphan",
+        # In placement order: unordered, Postgres may hand a site the gallery before the hero.
+        order_by="EntryResources.position",
         doc="Direct access to entry-resource associations with placement info",
     )
 
@@ -110,6 +112,8 @@ class Entries(SqlAlchemyBase, BaseMixins):
         foreign_keys="EntryAssets.entry_id",
         overlaps="assets,entries",
         cascade="all, delete-orphan",
+        # In placement order: unordered, Postgres may hand a site the gallery before the hero.
+        order_by="EntryAssets.position",
         doc="Direct access to entry-asset associations with placement info",
     )
 
