@@ -10,7 +10,8 @@
     "check": "astro check",
     "test": "node --test \"src/**/*.test.mjs\"",
     "lint": "biome lint .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "icons": "node scripts/pwa-icons.mjs"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",

@@ -5,6 +5,7 @@ import ActivityToaster from "@/components/ActivityToaster.astro";
 import EnvironmentBadge from "@/components/EnvironmentBadge.astro";
 import NavDrawerToggle from "@/components/NavDrawerToggle.astro";
 import NavTrail from "@/components/NavTrail.astro";
+import Pwa from "@/components/Pwa.astro";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
 import UpdateBanner from "@/components/UpdateBanner.astro";
@@ -116,6 +117,7 @@ function isActive(item: AdminNavItem, currentPath: string): boolean {
     <meta name="description" content="Marvin platform admin" />
     <title>{withEnvironmentPrefix(`${title} | Marvin Admin`, environmentLabel)}</title>
     <RuntimeConfig />
+    <Pwa environmentLabel={environmentLabel} />
   </head>
   <body>
     <div class="app-shell">

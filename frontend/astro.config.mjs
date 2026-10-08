@@ -1,5 +1,6 @@
 import node from "@astrojs/node";
 import { defineConfig } from "astro/config";
+import pwa from "./integrations/pwa.mjs";
 
 // Keep the dev server on the port the backend advertises. FRONTEND_URL is the single knob —
 // AppSettings derives FRONTEND_PORT from it, and docker/start.sh binds the built server to the
@@ -26,6 +27,8 @@ export default defineConfig({
   adapter: node({
     mode: "standalone",
   }),
+  // The service worker (sw.js) is written after the build, from src/pwa/ — see integrations/pwa.mjs.
+  integrations: [pwa()],
   server: {
     host: "localhost",
     port: frontendPort(),

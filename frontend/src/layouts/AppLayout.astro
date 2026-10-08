@@ -10,6 +10,7 @@ import UpdateBanner from "@/components/UpdateBanner.astro";
 import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher.astro";
 import NavTrail from "@/components/NavTrail.astro";
+import Pwa from "@/components/Pwa.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { getEntryCounts } from "@/lib/api/entries";
 import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
@@ -183,6 +184,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
     <meta name="description" content="Marvin platform admin frontend" />
     <title>{withEnvironmentPrefix(`${title} | Marvin`, environmentLabel)}</title>
     <RuntimeConfig />
+    <Pwa environmentLabel={environmentLabel} badgeCount={authToken ? inboxCount : null} />
   </head>
   <body
     data-entity-type={entityType}

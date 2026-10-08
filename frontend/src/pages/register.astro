@@ -1,6 +1,7 @@
 ---
 import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
+import Pwa from "@/components/Pwa.astro";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import type { UserRegistration } from "@/lib/api/auth";
 import { register } from "@/lib/api/auth";
@@ -69,6 +70,7 @@ if (Astro.request.method === "POST") {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{withEnvironmentPrefix("Register | Marvin", environmentLabel)}</title>
     <RuntimeConfig />
+    <Pwa environmentLabel={environmentLabel} />
   </head>
   <body class="register-page">
     <div class="register-container">

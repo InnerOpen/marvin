@@ -1,7 +1,8 @@
 ---
 // "A new version of Marvin is available": detects a deploy (the page's rendered versions vs the live
 // /version.json), offers Reload / Later, and a "What's new" list of the changes in between. Shared by
-// the workspace and the admin layouts so a deploy is announced wherever the admin happens to be.
+// the workspace and the admin layouts so a deploy is announced wherever the admin happens to be. A new
+// service worker waiting to take over (lib/pwaClient.ts) shows the same bar; Reload lets it take over first.
 ---
 
 <div id="update-banner" class="update-banner" role="status" aria-live="polite" hidden>
@@ -19,6 +20,7 @@
 </div>
 <script>
   import { getApiBaseUrl } from "@/lib/api/config";
+  import { activateWaitingWorker, checkForUpdate, SW_UPDATE_EVENT } from "@/lib/pwaClient";
   import { changesUrl, prepareReleases, releaseLabel, type WhatsNewRelease } from "@/lib/whatsNew";
 
   // Deploy detection. The page carries the versions it was rendered with (RuntimeConfig);
@@ -52,9 +54,12 @@
     // A second deploy while the bar is up: the loaded notes no longer cover the gap.
     if (changesFor && changesFor !== key(live)) resetChanges();
     liveKey = key(live);
+    if (changesToggle) changesToggle.hidden = false;
     (banner.querySelector("[data-detail]") as HTMLElement).textContent = changed.join(" · ");
     banner.hidden = false;
+    checkForUpdate(); // fetch the deploy's service worker now, so Reload starts on it
   }
+
 
   // "What's new": release notes between the rendered versions and the live ones, from the live
   // backend (same-origin through the proxy, so the session cookie authenticates it). Fetched on
@@ -156,7 +161,7 @@
       setChangesOpen(open);
       if (open && changesState === "idle") loadChanges();
     }
-    if (act === "reload") location.reload();
+    if (act === "reload" && !activateWaitingWorker()) location.reload();
     if (act === "later") {
       fetch("/version.json", { cache: "no-store" }).then((r) => r.json()).then((live) => {
         try { sessionStorage.setItem(DISMISS_KEY, key(live)); } catch {}
@@ -165,6 +170,15 @@
     }
   });
 
+  // The installed app's new service worker is waiting: offer the same Reload (the deploy may not have been
+  // noticed by this tab yet).
+  function offerWorkerUpdate() {
+    if (!banner || !banner.hidden) return;
+    if (changesToggle && !liveKey) changesToggle.hidden = true; // no version pair to list changes between
+    banner.hidden = false;
+  }
+  window.addEventListener(SW_UPDATE_EVENT, offerWorkerUpdate);
+  if (window.__MARVIN_SW_WAITING__) offerWorkerUpdate();
   setInterval(check, POLL_MS);
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
 </script>
@@ -194,6 +208,7 @@
   .update-banner-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
   .update-banner-detail { opacity: 0.7; font-size: 12px; }
   .update-banner .button { padding: 5px 10px; font-size: 13px; }
+  .update-banner .button[hidden] { display: none; }
   .update-banner-caret { display: inline-block; transition: transform 0.15s; }
   [aria-expanded="true"] > .update-banner-caret { transform: rotate(180deg); }
   .update-banner-changes {

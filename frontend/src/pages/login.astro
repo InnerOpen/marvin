@@ -2,6 +2,7 @@
 import ThemeInit from "@/components/ThemeInit.astro";
 import "../styles/global.css";
 import EnvironmentBadge from "@/components/EnvironmentBadge.astro";
+import Pwa from "@/components/Pwa.astro";
 import RuntimeConfig from "@/components/RuntimeConfig.astro";
 import { getBrowserApiBaseUrl, getServerApiBaseUrl } from "@/lib/api/config";
 import { isAuthenticated } from "@/lib/auth";
@@ -52,6 +53,7 @@ if (shouldAutoRedirectToOidc(info, error)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{withEnvironmentPrefix("Login | Marvin", environmentLabel)}</title>
     <RuntimeConfig />
+    <Pwa environmentLabel={environmentLabel} />
   </head>
   <body class="login-page">
     <div class="login-container">

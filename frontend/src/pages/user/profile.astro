@@ -1,6 +1,9 @@
 ---
+import InstallApp from "@/components/InstallApp.astro";
+import PushSettings from "@/components/PushSettings.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
+import { getPushSettings, type PushSettings as PushSettingsData } from "@/lib/api/push";
 import { changePassword, getUserProfile, updateUserProfile } from "@/lib/api/users";
 
 const authToken = getAuthToken(Astro.cookies);
@@ -53,6 +56,14 @@ try {
 } catch (e) {
   error = e instanceof Error ? e.message : "Failed to load profile";
   console.error("[Profile] Failed to load profile:", error);
+}
+
+// Web Push: shown only when the server has it configured (VAPID). Best-effort — a failed read hides it.
+let push: PushSettingsData | null = null;
+try {
+  push = await getPushSettings(authToken);
+} catch (e) {
+  console.error("[Profile] Failed to load push settings:", e);
 }
 ---
 
@@ -181,6 +192,25 @@ try {
             </div>
           </form>
         </section>
+
+        <!-- The installable app -->
+        <section class="profile-section">
+          <div class="section-header">
+            <h3>Install the app</h3>
+            <p>Marvin on your home screen or dock, in its own window</p>
+          </div>
+          <InstallApp />
+        </section>
+
+        {push?.enabled && (
+          <section class="profile-section" id="notifications">
+            <div class="section-header">
+              <h3>Notifications</h3>
+              <p>Push notifications on this phone or computer, even when Marvin isn't open</p>
+            </div>
+            <PushSettings settings={push} />
+          </section>
+        )}
 
         <!-- API Tokens -->
         <section class="profile-section">

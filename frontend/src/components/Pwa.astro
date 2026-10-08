@@ -1,0 +1,46 @@
+---
+// The installable app's <head> tags and browser wiring, for every page shell (both layouts, login,
+// register, forgot): the manifest, icons, theme colour and Apple home-screen tags, and the script that
+// registers the service worker (production builds only), keeps the install prompt for Profile, announces a
+// waiting update to the update banner and cleans up on logout (lib/pwaClient.ts). A non-production
+// instance (ENVIRONMENT_LABEL) gets its own name, icons and colour (lib/pwa.ts).
+import { appName, iconPaths, themeColors, COLORS } from "@/lib/pwa";
+
+interface Props {
+  /** The backend ENVIRONMENT_LABEL the page already read ("" in production). */
+  environmentLabel?: string;
+  /** Shown on the installed app's icon: the inbox count the sidebar badges. */
+  badgeCount?: number | null;
+}
+
+const { environmentLabel = "", badgeCount = null } = Astro.props;
+const name = appName(environmentLabel);
+const icons = iconPaths(environmentLabel);
+const theme = themeColors(environmentLabel);
+// Production follows the chosen theme (light/dark page background); a labelled instance keeps its colour.
+const dark = environmentLabel ? theme.dark : COLORS.dark;
+const light = environmentLabel ? theme.light : COLORS.light;
+---
+
+<link rel="manifest" href="/manifest.webmanifest" />
+<link rel="icon" href={icons.svg} type="image/svg+xml" />
+<link rel="apple-touch-icon" href={icons.apple} />
+<meta name="theme-color" content={light} media="(prefers-color-scheme: light)" data-light={light} data-dark={dark} />
+<meta name="theme-color" content={dark} media="(prefers-color-scheme: dark)" data-light={light} data-dark={dark} />
+<meta name="application-name" content={name} />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content={name} />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+{badgeCount !== null && <meta name="marvin-badge" content={String(badgeCount)} />}
+
+<script>
+  import { captureInstallPrompt, guardLogout, registerServiceWorker, setBadge, syncThemeColor } from "@/lib/pwaClient";
+
+  captureInstallPrompt();
+  syncThemeColor();
+  guardLogout();
+  const badge = document.querySelector<HTMLMetaElement>('meta[name="marvin-badge"]');
+  if (badge) setBadge(Number(badge.content) || 0);
+  if (import.meta.env.PROD) registerServiceWorker();
+</script>

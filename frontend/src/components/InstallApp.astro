@@ -1,0 +1,65 @@
+---
+// Profile → "Install the app": the browser's own install prompt where it offers one (Chrome, Edge, Android),
+// Share → Add to Home Screen on iPhone and iPad, a pointer to the browser menu elsewhere — and nothing to do
+// once Marvin runs as the installed app. The prompt is caught early by components/Pwa.astro. The page
+// supplies the section and its heading.
+---
+
+<div class="install-app" id="install" data-testid="install-app">
+  <div data-mode="prompt" hidden>
+    <p class="hint">Install Marvin for quick access and notifications on this device.</p>
+    <button type="button" class="button small" id="install-app-button">Install app</button>
+  </div>
+  <div data-mode="ios" hidden>
+    <p class="hint">
+      On iPhone or iPad: tap <strong>Share</strong> <span aria-hidden="true">(□↑)</span>, then <strong>Add to Home Screen</strong>.
+      Open Marvin from the Home Screen to get notifications (iOS 16.4 or later).
+    </p>
+  </div>
+  <div data-mode="menu" hidden>
+    <p class="hint">
+      Use your browser's menu to install it (<em>Install app</em> or <em>Add to Home screen</em>). Not every browser
+      can install web apps; Chrome, Edge and Safari can.
+    </p>
+  </div>
+  <div data-mode="installed" hidden>
+    <p class="hint">You're using the installed app on this device.</p>
+  </div>
+</div>
+
+<script>
+  import { installMode } from "@/lib/pwa";
+  import { INSTALLABLE_EVENT, installPrompt, isStandalone } from "@/lib/pwaClient";
+
+  const section = document.getElementById("install");
+  function render() {
+    if (!section) return;
+    const mode = installMode({
+      standalone: isStandalone(),
+      hasPrompt: installPrompt() !== null,
+      userAgent: navigator.userAgent,
+      maxTouchPoints: navigator.maxTouchPoints,
+    });
+    section.dataset.state = mode;
+    for (const el of section.querySelectorAll<HTMLElement>("[data-mode]")) el.hidden = el.dataset.mode !== mode;
+  }
+  render();
+  window.addEventListener(INSTALLABLE_EVENT, render);
+  document.getElementById("install-app-button")?.addEventListener("click", async () => {
+    const prompt = installPrompt();
+    if (!prompt) return render();
+    await prompt.prompt();
+    await prompt.userChoice.catch(() => null);
+    window.__MARVIN_INSTALL_PROMPT__ = null; // a prompt can be used once
+    render();
+  });
+</script>
+
+<style>
+  .hint {
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+</style>

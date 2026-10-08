@@ -1,0 +1,259 @@
+---
+// Profile → Notifications: push on this device (the browser asks for permission only when "Turn on" is
+// clicked, never on page load), which kinds of push to get, a test, and every device push is on for, with
+// Remove. Rendered only when the server has Web Push configured (VAPID); everything is the signed-in user's
+// own (/api/self/push). Server strings render through Astro's escaping; the script builds rows with textContent.
+// The page supplies the section and its heading.
+import type { PushSettings } from "@/lib/api/push";
+
+interface Props {
+  settings: PushSettings;
+}
+
+const { settings } = Astro.props;
+---
+
+<div class="push-settings" data-testid="push-settings">
+  <div class="push-device">
+    <p class="push-state" id="push-state" role="status">Checking this device…</p>
+    <div class="push-actions">
+      <button type="button" class="button small" id="push-enable" hidden>Turn on for this device</button>
+      <button type="button" class="button secondary small" id="push-disable" hidden>Turn off for this device</button>
+      <button type="button" class="button secondary small" id="push-test" disabled={settings.devices.length === 0}>Send a test</button>
+    </div>
+  </div>
+
+  <fieldset class="push-categories">
+    <legend>Send me</legend>
+    {settings.categories.map((c) => (
+      <label class="push-category">
+        <input type="checkbox" name="push-category" value={c.key} checked={c.enabled} data-testid={`push-category-${c.key}`} />
+        <span><strong>{c.label}</strong><span class="push-desc">{c.description}</span></span>
+      </label>
+    ))}
+  </fieldset>
+
+  <h4 class="push-devices-title">Devices with notifications on</h4>
+  <ul class="push-devices" id="push-devices" aria-label="Devices with notifications on"></ul>
+  <p class="push-note">Logging out turns notifications off on that device.</p>
+
+  <script is:inline type="application/json" id="push-data" set:html={JSON.stringify(settings).replace(/</g, "\\u003c")} />
+</div>
+
+<script>
+  import { getPushSettings, removePushDevice, sendTestPush, type PushSettings, updatePushPreferences } from "@/lib/api/push";
+  import { pushSupport } from "@/lib/pwa";
+  import { currentSubscription, disablePush, enablePush, isStandalone } from "@/lib/pwaClient";
+
+  const raw = document.getElementById("push-data")?.textContent;
+  let state: PushSettings | null = raw ? JSON.parse(raw) : null;
+  const stateEl = document.getElementById("push-state")!;
+  const enableBtn = document.getElementById("push-enable") as HTMLButtonElement;
+  const disableBtn = document.getElementById("push-disable") as HTMLButtonElement;
+  const testBtn = document.getElementById("push-test") as HTMLButtonElement;
+  const list = document.getElementById("push-devices") as HTMLUListElement;
+  let myEndpoint: string | null = null;
+
+  const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : null);
+
+  function renderDevices() {
+    list.replaceChildren();
+    const devices = state?.devices ?? [];
+    testBtn.disabled = devices.length === 0;
+    if (devices.length === 0) {
+      const li = document.createElement("li");
+      li.className = "push-note";
+      li.textContent = "None yet.";
+      list.append(li);
+      return;
+    }
+    for (const d of devices) {
+      const li = document.createElement("li");
+      li.className = "push-device-row";
+      li.dataset.testid = "push-device";
+      const name = document.createElement("strong");
+      name.textContent = d.label || "Browser";
+      const meta = document.createElement("span");
+      meta.className = "push-meta";
+      const bits = [];
+      if (d.endpoint === myEndpoint) bits.push("This device");
+      const ok = when(d.lastSuccessAt);
+      bits.push(ok ? `Last delivered ${ok}` : `Added ${when(d.createdAt) ?? "recently"}`);
+      if (d.failureCount > 0) bits.push(`${d.failureCount} failed since`);
+      meta.textContent = bits.join(" · ");
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "button secondary small";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", async () => {
+        remove.disabled = true;
+        try {
+          if (d.endpoint === myEndpoint) await disablePush();
+          else await removePushDevice(d.id);
+          await refresh();
+        } catch (err) {
+          stateEl.textContent = `Couldn't remove it: ${err instanceof Error ? err.message : String(err)}`;
+          remove.disabled = false;
+        }
+      });
+      li.append(name, meta, remove);
+      list.append(li);
+    }
+  }
+
+  async function renderThisDevice() {
+    const support = pushSupport({
+      hasPushManager: "PushManager" in window,
+      hasServiceWorker: "serviceWorker" in navigator,
+      permission: "Notification" in window ? Notification.permission : null,
+      standalone: isStandalone(),
+      userAgent: navigator.userAgent,
+      maxTouchPoints: navigator.maxTouchPoints,
+    });
+    const subscription = support === "ok" ? await currentSubscription().catch(() => null) : null;
+    const known = subscription ? (state?.devices ?? []).some((d) => d.endpoint === subscription.endpoint) : false;
+    myEndpoint = known ? subscription!.endpoint : null;
+    enableBtn.hidden = support !== "ok" || known;
+    disableBtn.hidden = !known;
+    stateEl.textContent =
+      support === "ios-install"
+        ? "On iPhone and iPad, notifications work in the installed app: add Marvin to your Home Screen (iOS 16.4 or later), open it from there and turn them on."
+        : support === "unsupported"
+          ? "This browser can't receive push notifications."
+          : support === "denied"
+            ? "Notifications are blocked for this site. Allow them in your browser's site settings, then reload."
+            : known
+              ? "Notifications are on for this device."
+              : "Notifications are off for this device.";
+    renderDevices();
+  }
+
+  async function refresh() {
+    state = await getPushSettings();
+    await renderThisDevice();
+  }
+
+  enableBtn.addEventListener("click", async () => {
+    if (!state?.publicKey) return;
+    enableBtn.disabled = true;
+    stateEl.textContent = "Turning on…";
+    try {
+      await enablePush(state.publicKey);
+      await refresh();
+    } catch (err) {
+      stateEl.textContent = `Couldn't turn them on: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      enableBtn.disabled = false;
+    }
+  });
+
+  disableBtn.addEventListener("click", async () => {
+    disableBtn.disabled = true;
+    try {
+      await disablePush();
+      await refresh();
+    } finally {
+      disableBtn.disabled = false;
+    }
+  });
+
+  testBtn.addEventListener("click", async () => {
+    testBtn.disabled = true;
+    try {
+      const { devices } = await sendTestPush();
+      stateEl.textContent = `Test sent to ${devices} device${devices === 1 ? "" : "s"}.`;
+      setTimeout(() => refresh().catch(() => {}), 4000); // show who it reached
+    } catch (err) {
+      stateEl.textContent = `Test failed: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      testBtn.disabled = false;
+    }
+  });
+
+  document.querySelector(".push-categories")?.addEventListener("change", async (event) => {
+    const box = event.target as HTMLInputElement;
+    if (box.name !== "push-category") return;
+    box.disabled = true;
+    try {
+      state = await updatePushPreferences({ [box.value]: box.checked });
+    } catch (err) {
+      box.checked = !box.checked;
+      stateEl.textContent = `Not saved: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      box.disabled = false;
+    }
+  });
+
+  renderThisDevice();
+</script>
+
+<style>
+  .push-device {
+    display: grid;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .push-state {
+    margin: 0;
+  }
+  .push-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .push-categories {
+    display: grid;
+    gap: 10px;
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .push-category {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  .push-desc {
+    display: block;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .push-note,
+  .push-devices :global(.push-note) {
+    margin: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .push-devices :global(.push-meta) {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  /* .button sets display, which outranks the browser's [hidden] rule; restate it. */
+  .push-actions [hidden] {
+    display: none;
+  }
+  .push-devices-title {
+    margin: 0 0 8px;
+    font-size: 14px;
+  }
+  .push-devices {
+    display: grid;
+    gap: 8px;
+    margin: 0 0 8px;
+    padding: 0;
+    list-style: none;
+  }
+  .push-devices :global(.push-device-row) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .push-devices :global(.push-device-row .button) {
+    margin-left: auto;
+  }
+</style>
