@@ -158,7 +158,10 @@ def test_one_reminder_per_workspace_per_day(ws):
     assert (data.total, data.entries, data.assets, data.resources, data.days) == (3, 1, 1, 1, 30)
     assert data.trash_collection_id == ws.trash_id and _reminded_on(ws) == now.date()
 
-    for later in (now, now + timedelta(hours=5)):  # the next ticks, another replica: already reminded today
+    # The next ticks, another replica, later the same UTC day: already reminded today. (Not now + 5 h: from 19:00 UTC
+    # on, that is tomorrow, when a new reminder is right.)
+    end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    for later in (now, end_of_day):
         assert ws.gid not in T.remind_auto_empty(ws.session, event_bus=bus, now=later)
     assert len(_mine(bus, ws)) == 1
     assert T.remind_auto_empty(ws.session, event_bus=bus, now=now + DAY).get(ws.gid)  # tomorrow: again, while something is due
