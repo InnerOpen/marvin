@@ -47,6 +47,9 @@ if (!authToken) {
 // Create a map of collection ID to collection for quick lookup
 const collectionsMap = new Map(collections.map((c) => [c.id, c]));
 const trashCollection = collections.find((c: any) => c.isSystem && c.slug === "trash");
+// Trashed entries are left out of the entries loaded here, so the Trash never forms a group of its own: list it
+// from its own count, after the rest, whenever it holds something.
+const trashCount = trashCollection?.entryCount ?? 0;
 
 // Sort entry types by sort_order
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -234,6 +237,21 @@ const sortedGroups = [...collectionGroups.values()].sort(
                   ))}
                 </section>
               </details>
+            )}
+
+            {trashCollection && trashCount > 0 && (
+              <div class="collection-group trash-group" data-collection-id={trashCollection.id}>
+                <div class="collection-header">
+                  <h3 class="collection-title">
+                    {trashCollection.icon && <span class="collection-icon">{trashCollection.icon}</span>}
+                    <a href={`/workspace/collections/${trashCollection.id}`} class="collection-link" title="Open the Trash">
+                      {trashCollection.name}
+                    </a>
+                    <span class="collection-count">{trashCount}</span>
+                  </h3>
+                  <p class="collection-desc">Deleted entries. Open the Trash to restore them or delete them for good.</p>
+                </div>
+              </div>
             )}
           </div>
         </>
