@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.211 (2026-10-08)
+
+### Bug Fixes
+
+- **deploy**: A release commit doesn't supersede the push that cut it
+  ([`973928d`](https://github.com/InnerOpen/marvin/commit/973928d87f440f4bbb458a22fb9a8097996dd158))
+
+- **secrets**: Store a secret in the caller's transaction
+  ([`bd59f88`](https://github.com/InnerOpen/marvin/commit/bd59f88010c8893eda51a19683fda3116ac5eaa2))
+
+
 ## v1.0.0-rc.210 (2026-10-08)
 
 ### Features
