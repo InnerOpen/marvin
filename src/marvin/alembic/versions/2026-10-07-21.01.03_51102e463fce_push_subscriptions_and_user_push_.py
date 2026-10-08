@@ -7,7 +7,7 @@ Schema (additive):
   - ``users.push_preferences`` — which kinds of push the user takes; null takes the defaults.
 
 Revision ID: 51102e463fce
-Revises: cfbbd1cc67e4
+Revises: f5cd32b5a3ff
 Create Date: 2026-10-07 21:01:03.929492
 
 """
@@ -20,7 +20,7 @@ import marvin.db.migration_types
 
 # revision identifiers, used by Alembic.
 revision: str = "51102e463fce"
-down_revision: str | None = "cfbbd1cc67e4"
+down_revision: str | None = "f5cd32b5a3ff"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
