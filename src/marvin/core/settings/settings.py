@@ -776,6 +776,23 @@ class AppSettings(BaseSettings):
         return FeatureDetails(enabled=not_none, description=description)
 
     # ===============================================
+    # Web Push (VAPID)
+
+    VAPID_PUBLIC_KEY: str | None = None
+    """The VAPID public key (base64url, uncompressed P-256 point) browsers subscribe with. Generate a pair
+    with ``python -m marvin.scripts.vapid``."""
+    VAPID_PRIVATE_KEY: MaskedNoneString = None
+    """The VAPID private key (base64url) push messages are signed with (masked in logs/output)."""
+    VAPID_SUBJECT: str | None = None
+    """Who push services contact about this server: ``mailto:ops@example.com`` or an https URL."""
+
+    @property
+    def WEB_PUSH_ENABLED(self) -> bool:
+        """Web Push is on: all three VAPID settings are set (and the subject is a mailto: or https: URL)."""
+        subject = (self.VAPID_SUBJECT or "").strip()
+        return bool((self.VAPID_PUBLIC_KEY or "").strip() and (self.VAPID_PRIVATE_KEY or "").strip() and subject.startswith(("mailto:", "https://")))
+
+    # ===============================================
     # LDAP Configuration
 
     LDAP_AUTH_ENABLED: bool = False

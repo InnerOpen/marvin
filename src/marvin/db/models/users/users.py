@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from pydantic import ConfigDict
-from sqlalchemy import Boolean, ForeignKey, Integer, String, orm, select
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String, orm, select
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, Session, mapped_column
 from sqlalchemy.types import Enum as SqlAlchemyEnum  # Explicit import for sqlalchemy Enum type
@@ -29,6 +29,7 @@ from .roles import PlatformRole
 if TYPE_CHECKING:
     from ..groups import Groups
     from .password_reset import PasswordResetModel
+    from .push_subscriptions import PushSubscriptionModel
     from .roles import WorkspaceRole
     from .workspace_members import WorkspaceMembers
 
@@ -197,6 +198,10 @@ class Users(SqlAlchemyBase, BaseMixins):
     )
     # `can_organize` is used in `_set_permissions` but not a mapped column. This implies it might be a transient or calculated permission.
 
+    push_preferences: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True), nullable=True, doc="Which kinds of push notification the user takes ({category: on}); null takes the defaults."
+    )
+
     # Common arguments for one-to-many relationships from User to token-like models
     _token_relationship_args = {
         "back_populates": "user",  # Assumes 'user' field on LongLiveToken and PasswordResetToken
@@ -216,6 +221,10 @@ class Users(SqlAlchemyBase, BaseMixins):
         back_populates="user",
         cascade="all, delete, delete-orphan",
     )
+    # The devices the user turned Web Push on in (one-to-many; deleted with the user).
+    push_subscriptions: Mapped[list["PushSubscriptionModel"]] = orm.relationship(
+        "PushSubscriptionModel", back_populates="user", cascade="all, delete, delete-orphan", passive_deletes=True
+    )
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
@@ -229,6 +238,7 @@ class Users(SqlAlchemyBase, BaseMixins):
             "group",  # Group details might be fetched separately or via a nested schema.
             "tokens",  # Tokens should generally not be listed directly with user details.
             "password_reset_tokens",  # These are internal and should not be serialized.
+            "push_subscriptions",  # Self-service only (/api/self/push).
             "locked_at",  # Internal security detail.
             "login_attemps",  # Internal security detail.
             "cache_key",  # Internal detail.
