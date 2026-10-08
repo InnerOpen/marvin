@@ -41,6 +41,7 @@ from marvin.services.webhooks.all_webhooks import AllWebhooks, get_webhooks  # F
 from .event_types import (  # Core event system types
     Event,
     EventOperation,
+    EventScheduledTaskData,
     EventTypes,
     EventWebhookData,
     WebhookMode,
@@ -607,14 +608,14 @@ class ScheduledTaskListener(BuiltinReaction):
             except ValueError as e:
                 # Handler not found
                 self.logger.error(f"Scheduled task handler error: {e}")
-                self._handle_task_failure(repos, task, start_time, str(e), None, event_bus, event)
+                self._handle_task_failure(repos, task, start_time, str(e), None, event_bus, event, e)
 
             except Exception as e:
                 # Handler execution failed
                 error_msg = str(e)
                 error_trace = traceback.format_exc()
                 self.logger.error(f"Scheduled task '{task.name}' failed: {error_msg}\n{error_trace}")
-                self._handle_task_failure(repos, task, start_time, error_msg, error_trace, event_bus, event)
+                self._handle_task_failure(repos, task, start_time, error_msg, error_trace, event_bus, event, e)
 
     def _handle_task_failure(
         self,
@@ -625,8 +626,13 @@ class ScheduledTaskListener(BuiltinReaction):
         error_traceback: str | None,
         event_bus,
         event: Event,
+        exc: BaseException | None = None,
     ) -> None:
         """Helper to handle task execution failures."""
+        from marvin.services.integrations.http_client import is_transient_network_error
+
+        in_a_row = task.failure_count + 1  # read before the update below, which may change `task` in place
+
         end_time = datetime.now(UTC)
         duration_ms = int((end_time - start_time).total_seconds() * 1000)
 
@@ -647,7 +653,7 @@ class ScheduledTaskListener(BuiltinReaction):
             last_run_at=start_time,
             last_status="failed",
             last_duration_ms=duration_ms,
-            failure_count=task.failure_count + 1,
+            failure_count=in_a_row,
         )
 
         # Still recalculate next_run_at so the task keeps retrying on schedule
@@ -655,12 +661,18 @@ class ScheduledTaskListener(BuiltinReaction):
         if next_run:
             repos.scheduled_tasks.update_next_run(task.id, next_run)
 
-        # Emit failed event
+        # Emit failed event — saying how many runs in a row have failed and whether this was a network blip, so
+        # alerts (workspace_alerts, the bell) can wait out a passing timeout instead of announcing every one.
+        document_data = event.document_data
+        if isinstance(document_data, EventScheduledTaskData):
+            document_data = document_data.model_copy(
+                update={"consecutive_failures": in_a_row, "transient": is_transient_network_error(exc), "last_status": "failed"}
+            )
         event_bus.dispatch(
             integration_id="scheduled_tasks",
             group_id=task.group_id,
             event_type=EventTypes.scheduled_task_failed,
-            document_data=event.document_data,
+            document_data=document_data,
             message=f"Scheduled task '{task.name}' failed: {error_message}",
             entity_id=task.id,
             entity_type="scheduled_task",

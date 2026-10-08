@@ -166,8 +166,8 @@ TASK_CONFIG = {
 }
 
 
-def _run(gid, config=TASK_CONFIG):
-    task = SimpleNamespace(group_id=gid, task_config=config)
+def _run(gid, config=TASK_CONFIG, failure_count=0):
+    task = SimpleNamespace(group_id=gid, task_config=config, failure_count=failure_count)
     return RunIntegrationActionHandler().execute(task, SimpleNamespace(dispatch=lambda **_: None))
 
 
@@ -306,3 +306,36 @@ def test_handler_is_registered_but_not_automation_allowed():
     assert TaskHandlerRegistry.is_registered("run_integration_action")
     assert "run_integration_action" not in AUTOMATION_ALLOWED_HANDLERS
     assert handler_mod.RunIntegrationActionHandler.config_schema["required"] == ["integration", "action"]
+
+
+@pytest.mark.parametrize(("failed_before", "alerts"), [(0, False), (1, False), (2, True)])
+def test_a_network_blip_needs_attention_only_once_it_keeps_happening(db_session, workspace, provider, secrets, monkeypatch, failed_before, alerts):
+    """A timeout on a two-minute poll fails the run (recorded as such) but raises "needs attention" only on the third
+    failure in a row; a real error still does on the first."""
+    from marvin.services.integrations import errors
+
+    calls = []
+    monkeypatch.setattr(errors, "connection_failed", lambda *a, **k: calls.append(a))
+
+    def slow(key, args, ctx):
+        raise TimeoutError("The read operation timed out")
+
+    provider.run_action = slow
+    with pytest.raises(TimeoutError):
+        _run(workspace, failure_count=failed_before)
+    assert bool(calls) is alerts
+
+
+def test_a_real_error_needs_attention_on_the_first_failure(db_session, workspace, provider, secrets, monkeypatch):
+    from marvin.services.integrations import errors
+
+    calls = []
+    monkeypatch.setattr(errors, "connection_failed", lambda *a, **k: calls.append(a))
+
+    def unauthorized(key, args, ctx):
+        raise ValueError("Instagram API error: HTTP 401")
+
+    provider.run_action = unauthorized
+    with pytest.raises(ValueError):
+        _run(workspace)
+    assert len(calls) == 1

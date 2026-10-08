@@ -253,14 +253,14 @@ def _handler(result):
     return _Handler
 
 
-def test_a_scheduled_task_alerts_once_and_even_a_quiet_recovery_says_so(db_session, world, monkeypatch):
-    """Through the real scheduled task listener: two failed runs, then a run with nothing to report."""
+def _task_runner(db_session, world, monkeypatch):
+    """A scheduled task in the world's workspace, and a function that runs it once through the real listener with
+    its handler returning (or raising) a result."""
     from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
     from marvin.services.event_bus_service.event_bus_listener import ScheduledTaskListener
     from marvin.services.event_bus_service.event_types import Event, EventBusMessage
     from marvin.services.scheduled_tasks import TaskHandlerRegistry
 
-    _configure(db_session, world, recipients=["ops@example.test"])
     task = ScheduledTaskModel(
         session=db_session,
         group_id=world.gid,
@@ -286,6 +286,14 @@ def test_a_scheduled_task_alerts_once_and_even_a_quiet_recovery_says_so(db_sessi
         )
         ScheduledTaskListener(world.gid).publish_to_subscribers(event, ["scheduled_task_handler"])
 
+    return run
+
+
+def test_a_scheduled_task_alerts_once_and_even_a_quiet_recovery_says_so(db_session, world, monkeypatch):
+    """Through the real scheduled task listener: two failed runs, then a run with nothing to report."""
+    _configure(db_session, world, recipients=["ops@example.test"])
+    run = _task_runner(db_session, world, monkeypatch)
+
     run(RuntimeError("inbox unreachable"))
     run(RuntimeError("inbox unreachable"))
     assert _subjects(world) == ["Scheduled task failed: Poll the inbox"]
@@ -295,6 +303,24 @@ def test_a_scheduled_task_alerts_once_and_even_a_quiet_recovery_says_so(db_sessi
     assert _subjects(world) == ["Scheduled task failed: Poll the inbox", "Scheduled task working again: Poll the inbox"]
     run(None)
     assert len(world.sent) == 2
+
+
+def test_a_network_blip_alerts_only_on_the_third_failure_in_a_row(db_session, world, monkeypatch):
+    """A timeout on a two-minute poll (the Instagram auto-reply's slow API) isn't announced — nor its recovery — until
+    it has failed three times in a row; then it alerts once, and recovers once."""
+    _configure(db_session, world, recipients=["ops@example.test"])
+    run = _task_runner(db_session, world, monkeypatch)
+
+    run(TimeoutError("The read operation timed out"))
+    run(None)
+    run(TimeoutError("The read operation timed out"))
+    run(TimeoutError("The read operation timed out"))
+    assert world.sent == []  # two blips, a recovery nobody was told about, two more blips
+
+    run(TimeoutError("The read operation timed out"))  # the third in a row
+    assert _subjects(world) == ["Scheduled task failed: Poll the inbox"]
+    run(None)
+    assert _subjects(world) == ["Scheduled task failed: Poll the inbox", "Scheduled task working again: Poll the inbox"]
 
 
 # ── integration alerts ──────────────────────────────────────────────────────────

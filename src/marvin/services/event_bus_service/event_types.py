@@ -1320,6 +1320,11 @@ class EventScheduledTaskData(EventDocumentDataBase):
     """Next scheduled execution time."""
     last_status: str | None = None
     """Status of last execution."""
+    consecutive_failures: int | None = None
+    """On a failure: how many runs in a row have now failed (1 = the first)."""
+    transient: bool | None = None
+    """On a failure: a network blip (a timeout, a dropped connection) rather than a real error. Alerts wait for
+    several of those in a row (services.alerting.TRANSIENT_FAILURES_BEFORE_ALERT)."""
 
     @classmethod
     def from_model(cls, task: "ScheduledTaskModel", workspace_name: str | None = None) -> "EventScheduledTaskData":

@@ -7,8 +7,10 @@ Enforces timeouts, a response-size cap (INTEGRATION_HTTP_MAX_BYTES), and an SSRF
 link-local/reserved hosts, and re-checks on redirect). Providers get safe outbound HTTP for free.
 """
 
+import http.client
 import ipaddress
 import socket
+import time
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
@@ -83,6 +85,27 @@ class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+RETRY_PAUSE_SECONDS = 2.0
+"""How long a GET waits before its one retry after a network blip."""
+
+_TRANSIENT = (TimeoutError, ConnectionResetError, ConnectionAbortedError, http.client.RemoteDisconnected, http.client.IncompleteRead)
+
+
+def is_transient_network_error(exc: BaseException | None) -> bool:
+    """A network blip rather than a real failure: the remote didn't answer in time or dropped the connection —
+    directly, wrapped in urllib's URLError, or as the cause of what a provider raised. Not an HTTP error status, a
+    refused connection, a DNS failure or an SSRF refusal: those say something is actually wrong."""
+    seen = 0
+    while exc is not None and seen < 5:
+        if isinstance(exc, _TRANSIENT):
+            return True
+        if isinstance(exc, urllib.error.URLError) and isinstance(exc.reason, _TRANSIENT):
+            return True
+        exc = exc.__cause__ or exc.__context__
+        seen += 1
+    return False
+
+
 class MarvinHttpHelper:
     """Implements ``marvin_integration_sdk.http.HttpHelper``."""
 
@@ -106,8 +129,15 @@ class MarvinHttpHelper:
             return Response(status_code=e.code, headers=dict(e.headers or {}), content=body)
 
     def get(self, url: str, *, headers: dict[str, str] | None = None, timeout: float = 15) -> Response:
-        req = urllib.request.Request(url, method="GET", headers=headers or {})
-        return self._send(req, timeout)
+        """A GET, retried once after a short pause when the network blips (a timeout, a dropped connection): GETs
+        are safe to repeat, and an API that is slow for one request is usually fine the next second."""
+        try:
+            return self._send(urllib.request.Request(url, method="GET", headers=headers or {}), timeout)
+        except Exception as e:
+            if not is_transient_network_error(e):
+                raise
+            time.sleep(RETRY_PAUSE_SECONDS)
+            return self._send(urllib.request.Request(url, method="GET", headers=headers or {}), timeout)
 
     def _with_body(self, method: str, url: str, json, data: bytes | None, headers: dict[str, str] | None, timeout: float) -> Response:
         hdrs = dict(headers or {})

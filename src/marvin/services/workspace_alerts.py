@@ -299,6 +299,11 @@ def _close_incident(session: Session, group_id, key: str) -> SimpleNamespace | N
     return ended if gone else None  # closed concurrently: that one sends the note
 
 
+def passing_blip(data: dict) -> bool:
+    """A scheduled run that failed on a network blip, not yet often enough in a row to alert about."""
+    return bool(data.get("transient")) and int(data.get("consecutive_failures") or 0) < alerting.TRANSIENT_FAILURES_BEFORE_ALERT
+
+
 def _incident_key(kind: str, data: dict) -> str | None:
     prefix = INCIDENTS[kind][0]
     subject_id = data.get("automation_id") if kind == WORKFLOW_FAILED else data.get("task_id")
@@ -406,6 +411,8 @@ def deliver(session: Session, group_id, event) -> dict[str, dict]:
         return {}
     if kind.key == WORKFLOW_FAILED and data.get("handled"):
         return {}  # the integration's error policy took it in hand; its own alert says what a person must do
+    if kind.key == SCHEDULED_TASK_FAILED and passing_blip(data):
+        return {}  # a network blip: no incident yet, so a success next run sends no "working again" either
     channels = settings.channels_for(kind.key)
     if kind.key in INCIDENTS:
         key = _incident_key(kind.key, data)

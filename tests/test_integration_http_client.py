@@ -115,3 +115,55 @@ def test_response_within_the_cap_is_returned(monkeypatch):
     h._opener.open.return_value = _BigResponse(11)
 
     assert len(h.get("https://cms.example/picture.jpg").content) == 11
+
+
+# ── One retry on a network blip ───────────────────────────────────────────────
+
+
+def test_a_get_that_times_out_is_retried_once(helper, monkeypatch):
+    monkeypatch.setattr("marvin.services.integrations.http_client.RETRY_PAUSE_SECONDS", 0)
+    helper._opener.open.side_effect = [TimeoutError("The read operation timed out"), _FakeResponse()]
+    assert helper.get("https://api.example.com/media").status_code == 200
+    assert helper._opener.open.call_count == 2
+
+
+def test_a_second_timeout_is_raised_and_a_refused_connection_is_not_retried(helper, monkeypatch):
+    import urllib.error
+
+    monkeypatch.setattr("marvin.services.integrations.http_client.RETRY_PAUSE_SECONDS", 0)
+    helper._opener.open.side_effect = [TimeoutError("slow"), TimeoutError("slow again")]
+    with pytest.raises(TimeoutError):
+        helper.get("https://api.example.com/media")
+    helper._opener.open.reset_mock()
+    helper._opener.open.side_effect = urllib.error.URLError(ConnectionRefusedError("refused"))
+    with pytest.raises(urllib.error.URLError):
+        helper.get("https://api.example.com/media")
+    assert helper._opener.open.call_count == 1
+
+
+def test_posts_are_never_retried(helper, monkeypatch):
+    monkeypatch.setattr("marvin.services.integrations.http_client.RETRY_PAUSE_SECONDS", 0)
+    helper._opener.open.side_effect = TimeoutError("slow")
+    with pytest.raises(TimeoutError):
+        helper.post("https://api.example.com/reply", json={"text": "hi"})
+    assert helper._opener.open.call_count == 1
+
+
+def test_what_counts_as_a_network_blip():
+    import http.client
+    import socket
+    import urllib.error
+
+    from marvin.services.integrations.http_client import is_transient_network_error as blip
+
+    try:
+        try:
+            raise TimeoutError("read timed out")
+        except TimeoutError as e:
+            raise ValueError("Instagram API error") from e
+    except ValueError as wrapped:
+        assert blip(wrapped)  # a provider's own error, caused by a timeout
+    assert blip(TimeoutError()) and blip(ConnectionResetError()) and blip(http.client.RemoteDisconnected())
+    assert blip(urllib.error.URLError(TimeoutError()))
+    assert not blip(ConnectionRefusedError()) and not blip(urllib.error.URLError(socket.gaierror())) and not blip(ValueError("HTTP 401"))
+    assert not blip(None)

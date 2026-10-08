@@ -109,7 +109,14 @@ class RunIntegrationActionHandler(ScheduledTaskHandler):
             try:
                 result = provider.run_action(action, args, ctx) or {}
             except Exception as e:
-                errors.connection_failed(gid, row.id, provider, action, e, source="scheduled_task", session=session, secrets=(secret,))
+                # A network blip on a frequent poll is not "needs attention" until it keeps happening; the run is
+                # still recorded failed, and alerts once it has failed TRANSIENT_FAILURES_BEFORE_ALERT times in a row.
+                from marvin.services.alerting import TRANSIENT_FAILURES_BEFORE_ALERT
+                from marvin.services.integrations.http_client import is_transient_network_error
+
+                in_a_row = (getattr(task, "failure_count", 0) or 0) + 1
+                if not (is_transient_network_error(e) and in_a_row < TRANSIENT_FAILURES_BEFORE_ALERT):
+                    errors.connection_failed(gid, row.id, provider, action, e, source="scheduled_task", session=session, secrets=(secret,))
                 raise
             errors.connection_succeeded(gid, row.id, session=session)
 

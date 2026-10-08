@@ -36,6 +36,11 @@ from sqlalchemy.orm import Session
 
 from marvin.core.root_logger import get_logger
 
+TRANSIENT_FAILURES_BEFORE_ALERT = 3
+"""A scheduled run that fails on a network blip (services/integrations/http_client.is_transient_network_error)
+alerts only once it has failed this many times in a row — about six minutes on a two-minute poll. Any other
+failure alerts on the first. Every failure is still in the event log and the task's runs."""
+
 logger = get_logger(__name__)
 
 EMAIL_CHANNEL = "email"

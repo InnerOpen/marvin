@@ -178,3 +178,21 @@ def test_a_queued_rebuild_carries_its_windows(db_session, workspace):
 
     assert (event.quiet_seconds, event.max_wait_seconds) == (45, 300)
     assert event.model_dump(by_alias=True)["quietSeconds"] == 45
+
+
+def test_the_bell_leaves_out_a_scheduled_tasks_passing_network_blip():
+    """The same rule as notifications (workspace_alerts.passing_blip): the third timeout in a row shows, a real error
+    on the first."""
+    from types import SimpleNamespace
+
+    from marvin.routes.platform.events_controller import _passing_blip
+
+    def failed(**doc):
+        return SimpleNamespace(event_type="scheduled_task_failed", event_data={"documentData": doc})
+
+    assert _passing_blip(failed(transient=True, consecutiveFailures=1))
+    assert _passing_blip(failed(transient=True, consecutiveFailures=2))
+    assert not _passing_blip(failed(transient=True, consecutiveFailures=3))
+    assert not _passing_blip(failed(transient=False, consecutiveFailures=1))
+    assert not _passing_blip(failed())  # recorded before this change: shown as before
+    assert not _passing_blip(SimpleNamespace(event_type="automation_failed", event_data={"documentData": {"transient": True}}))
