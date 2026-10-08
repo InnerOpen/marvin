@@ -4,6 +4,8 @@
 //
 // Privacy: only static files are ever cached. Pages are signed-in HTML and API responses are personal, so
 // neither is stored — a shared device keeps nothing of one person for the next, and logout clears the caches.
+// The one exception is what someone shares to the app: kept in its own cache until the Share page has used it
+// (or for an hour), and cleared on logout with the rest.
 
 const VERSION = "__MARVIN_SW_VERSION__";
 const PRECACHE = __MARVIN_SW_PRECACHE__;
@@ -61,7 +63,53 @@ async function fromCacheFirst(request) {
   return response;
 }
 
+async function dropStaleShares(cache) {
+  const keys = await cache.keys();
+  const ids = [...new Set(keys.map((r) => shareIdOf(r.url)).filter(Boolean))];
+  const origin = self.location.origin;
+  for (const id of ids) {
+    const meta = await cache
+      .match(shareKeys(id, origin).meta)
+      .then((r) => r?.json())
+      .catch(() => null);
+    if (!shareExpired(meta)) continue;
+    await Promise.all(keys.filter((r) => shareIdOf(r.url) === id).map((r) => cache.delete(r)));
+  }
+}
+
+// A share from another app (Android's share sheet, desktop Chrome's Share): keep its files here for the
+// Share page — never on the network until the person chooses what to make of them, signed in.
+async function receiveShare(request) {
+  const origin = self.location.origin;
+  try {
+    const form = await request.formData();
+    const files = form.getAll("files").filter((f) => typeof f !== "string");
+    const share = shareFrom({ title: form.get("title"), text: form.get("text"), url: form.get("url"), files });
+    const kept = files.filter((f) => acceptedType(f.type)).slice(0, SHARE_MAX_FILES);
+    const id = self.crypto.randomUUID();
+    const keys = shareKeys(id, origin);
+    const cache = await caches.open(SHARE_CACHE);
+    await dropStaleShares(cache).catch(() => {});
+    await Promise.all(
+      kept.map((f, i) =>
+        cache.put(keys.file(i), new Response(f, { headers: { "Content-Type": f.type || "application/octet-stream" } })),
+      ),
+    );
+    await cache.put(
+      keys.meta,
+      new Response(JSON.stringify(share), { headers: { "Content-Type": "application/json" } }),
+    );
+    return Response.redirect(sharePageUrl(origin, id), 303);
+  } catch {
+    return Response.redirect(sharePageUrl(origin, "", "unreadable"), 303);
+  }
+}
+
 self.addEventListener("fetch", (event) => {
+  if (isShareTarget(event.request, self.location.origin)) {
+    event.respondWith(receiveShare(event.request));
+    return;
+  }
   const kind = strategy(event.request, self.location.origin);
   if (kind === "navigate") event.respondWith(fromNetworkOrOffline(event));
   else if (kind === "asset") event.respondWith(fromCacheFirst(event.request));

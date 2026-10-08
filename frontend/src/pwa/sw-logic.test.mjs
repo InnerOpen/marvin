@@ -6,14 +6,25 @@ import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
 
 import {
+  acceptedType,
   approvalOf,
   approvalOutcome,
   approvalRequest,
   cacheable,
   cacheNames,
+  httpUrl,
+  isShareTarget,
   notificationFromPush,
   parsePush,
+  SHARE_CACHE,
+  SHARE_MAX_FILES,
+  SHARE_TTL_MS,
   safeTarget,
+  shareExpired,
+  shareFrom,
+  shareIdOf,
+  shareKeys,
+  sharePageUrl,
   staleCaches,
   strategy,
 } from "./sw-logic.js";
@@ -185,6 +196,67 @@ describe("Approve / Deny on an AI approval", () => {
     assert.equal(o.badge, null);
     assert.equal(approvalOutcome("deny", false, null, thread, ORIGIN).title, "Couldn't deny: Marvin didn't answer.");
     assert.equal(approvalOutcome("approve", true, { url: "https://evil.example/" }, thread, ORIGIN).url, `${ORIGIN}/`);
+  });
+});
+
+describe("Share to Marvin", () => {
+  const ID = "6f1c2a8e-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+
+  test("only a same-origin POST to the share target is taken", () => {
+    assert.ok(isShareTarget(req("/share-target", { method: "POST" }), ORIGIN));
+    assert.ok(!isShareTarget(req("/share-target"), ORIGIN));
+    assert.ok(!isShareTarget(req("/share-target/x", { method: "POST" }), ORIGIN));
+    assert.ok(!isShareTarget(req("/share-target", { method: "POST", origin: "https://evil.example" }), ORIGIN));
+    assert.ok(!isShareTarget({ url: "nonsense", method: "POST" }, ORIGIN));
+  });
+
+  test("images, videos and PDFs come along; the rest is dropped and counted; at most SHARE_MAX_FILES", () => {
+    const files = [
+      { name: "a.jpg", type: "image/jpeg", size: 10 },
+      { name: "b.mp4", type: "video/mp4", size: 20 },
+      { name: "c.pdf", type: "application/pdf", size: 30 },
+      { name: "d.exe", type: "application/x-msdownload", size: 40 },
+      { name: "e.html", type: "text/html", size: 50 },
+    ];
+    const s = shareFrom({ title: " Trip ", text: "notes", url: "", files }, 1000);
+    assert.deepEqual(
+      s.files.map((f) => f.name),
+      ["a.jpg", "b.mp4", "c.pdf"],
+    );
+    assert.equal(s.dropped, 2);
+    assert.equal(s.title, "Trip");
+    assert.equal(s.createdAt, 1000);
+    const many = Array.from({ length: 15 }, (_, i) => ({ name: `${i}.png`, type: "image/png", size: 1 }));
+    const capped = shareFrom({ files: many });
+    assert.equal(capped.files.length, SHARE_MAX_FILES);
+    assert.equal(capped.dropped, 15 - SHARE_MAX_FILES);
+    assert.ok(acceptedType("IMAGE/PNG") && !acceptedType("image") && !acceptedType(undefined));
+  });
+
+  test("the link: the url field, else the first http(s) URL in the text — never another scheme", () => {
+    assert.equal(shareFrom({ url: "https://e.com/a" }).url, "https://e.com/a");
+    assert.equal(shareFrom({ text: "look at this https://e.com/b, nice" }).url, "https://e.com/b");
+    assert.equal(shareFrom({ url: "javascript:alert(1)", text: "no link" }).url, null);
+    assert.equal(shareFrom({ url: "data:text/html,x" }).url, null);
+    assert.equal(httpUrl("http://e.com"), "http://e.com/");
+    assert.equal(httpUrl("file:///etc/passwd"), null);
+  });
+
+  test("its parts live under its id in the share cache, which outlives a new build but not its hour", () => {
+    const keys = shareKeys(ID, ORIGIN);
+    assert.equal(shareIdOf(keys.meta), ID);
+    assert.equal(shareIdOf(keys.file(3)), ID);
+    assert.equal(shareIdOf(`${ORIGIN}/__share/../x/meta.json`), null);
+    assert.deepEqual(staleCaches([SHARE_CACHE, "marvin-shell-v1"], "v2"), ["marvin-shell-v1"]);
+    const now = 10 * SHARE_TTL_MS;
+    assert.ok(!shareExpired({ createdAt: now - 1000 }, now));
+    assert.ok(shareExpired({ createdAt: now - SHARE_TTL_MS - 1 }, now));
+    assert.ok(shareExpired(null, now) && shareExpired({ createdAt: "x" }, now));
+  });
+
+  test("then the Share page, for that share or with why not", () => {
+    assert.equal(sharePageUrl(ORIGIN, ID), `${ORIGIN}/share?id=${ID}`);
+    assert.equal(sharePageUrl(ORIGIN, "", "unreadable"), `${ORIGIN}/share?error=unreadable`);
   });
 });
 

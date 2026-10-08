@@ -1,0 +1,357 @@
+---
+// Share to Marvin: where a share from another app lands (Chromium on Android and desktop, with Marvin installed;
+// iOS has no share targets for web apps). The service worker kept the shared files on the device
+// (src/pwa/sw.js, `?id=`); this page shows them and, signed in, adds them to the workspace through the normal
+// APIs — asset upload, entry create, resource create — so the same roles, validation, size limits, storage and
+// events apply. Nothing leaves the device until a button is pressed; the share is dropped once used (or after
+// an hour). Shared text renders as text only (textContent); a shared link only as an http(s) link.
+import AppLayout from "@/layouts/AppLayout.astro";
+import { requireAuth } from "@/lib/auth";
+import { getAuthToken } from "@/lib/api/client";
+import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
+import { getContentAccess, listWorkspaces } from "@/lib/api/workspaces";
+import { bodyFieldOf, isShareId } from "@/lib/share";
+import { AUTHORS_ONLY } from "@/lib/workspaceRole";
+
+// Signed out → login → back here, the share id included.
+await requireAuth(Astro.cookies, Astro.redirect, `${Astro.url.pathname}${Astro.url.search}`);
+const authToken = getAuthToken(Astro.cookies);
+
+const shareId = Astro.url.searchParams.get("id") ?? "";
+const errorKey = Astro.url.searchParams.get("error") ?? "";
+const ERRORS: Record<string, string> = {
+  "no-worker": "Marvin's app wasn't running when you shared, so nothing was kept. Open Marvin once, then share again.",
+  unreadable: "Marvin couldn't read what was shared. Try sharing it again.",
+};
+const errorText = errorKey ? (ERRORS[errorKey] ?? ERRORS.unreadable) : null;
+
+let workspaces: Awaited<ReturnType<typeof listWorkspaces>> = [];
+let entryTypes: EntryTypeRead[] = [];
+let canAuthor = false;
+let canEdit = false;
+try {
+  let access: Awaited<ReturnType<typeof getContentAccess>>;
+  [workspaces, entryTypes, access] = await Promise.all([listWorkspaces(authToken), listEntryTypes(authToken), getContentAccess(authToken)]);
+  ({ canAuthor, canEdit } = access);
+} catch (e) {
+  console.error("[share] Failed to load the workspace:", e);
+}
+const current = workspaces.find((w) => w.isActive);
+const types = [...entryTypes]
+  .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+  .map((t) => ({ id: t.id, name: t.name, bodyField: bodyFieldOf((t as any).schemaJson ?? (t as any).schema) ?? "" }));
+const here = `/share${isShareId(shareId) ? `?id=${shareId}` : ""}`;
+---
+
+<AppLayout title="Share to Marvin" eyebrow="Shared from another app">
+  {errorText && <div class="error-banner" role="alert">{errorText}</div>}
+
+  <section class="card share-where">
+    <div class="card-body">
+      <form method="POST" action="/api/workspace/activate" class="share-workspace">
+        <label for="share-workspace">Add to</label>
+        <select id="share-workspace" name="workspace_id">
+          {workspaces.map(({ workspace, isActive }) => (
+            <option value={workspace.id} selected={isActive}>{workspace.name}</option>
+          ))}
+        </select>
+        <input type="hidden" name="next" value={here} />
+        <button type="submit" class="button secondary" id="share-switch">Switch</button>
+      </form>
+      {!canAuthor && <p class="muted small">{AUTHORS_ONLY}</p>}
+    </div>
+  </section>
+
+  <section class="card" id="share-root" data-share-id={isShareId(shareId) ? shareId : ""} data-can-author={canAuthor ? "1" : ""} data-can-edit={canEdit ? "1" : ""} data-workspace={current?.workspace.name ?? ""}>
+    <div class="card-body">
+      <p id="share-empty" class="muted" hidden>
+        Nothing to add here: this share was used already, or it expired (Marvin keeps a share for an hour).
+      </p>
+      <div id="share-content" hidden>
+        <h3 id="share-title"></h3>
+        <p id="share-text" class="share-text"></p>
+        <p id="share-link-row" hidden><a id="share-link" rel="noopener noreferrer" target="_blank"></a></p>
+        <p id="share-dropped" class="muted small" hidden></p>
+        <ul id="share-files" class="share-files"></ul>
+
+        <div class="share-actions">
+          <button type="button" class="button" id="share-assets" hidden>Add to assets</button>
+          <div class="share-entry">
+            <label for="share-type">New entry</label>
+            <select id="share-type">
+              {types.map((t) => <option value={t.id} data-body-field={t.bodyField}>{t.name}</option>)}
+            </select>
+            <button type="button" class="button secondary" id="share-entry">New entry with these</button>
+          </div>
+          <button type="button" class="button secondary" id="share-resource" title={canEdit ? undefined : "Adding resources takes an editor role."} hidden>Add as resource (link)</button>
+          <button type="button" class="button secondary" id="share-discard">Discard</button>
+        </div>
+        <p id="share-status" role="status" class="share-status"></p>
+        <ul id="share-results" class="share-results"></ul>
+      </div>
+    </div>
+  </section>
+</AppLayout>
+
+<style>
+  .share-workspace {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .share-workspace select {
+    min-width: 12rem;
+    flex: 1 1 12rem;
+  }
+  .share-text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .share-files {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.75rem;
+  }
+  .share-files :global(li) {
+    border: 1px solid var(--border, #e7e5e4);
+    border-radius: 8px;
+    padding: 0.5rem;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+  }
+  .share-files :global(img),
+  .share-files :global(video) {
+    width: 100%;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 6px;
+    display: block;
+    margin-bottom: 0.35rem;
+  }
+  .share-files :global(.share-doc) {
+    height: 120px;
+    display: grid;
+    place-items: center;
+    font-size: 2rem;
+    background: var(--surface-2, #f5f5f4);
+    border-radius: 6px;
+    margin-bottom: 0.35rem;
+  }
+  .share-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-top: 1rem;
+  }
+  /* `hidden` is only the UA's display: none; .button and the flex row set display, so say it again. */
+  .share-actions[hidden],
+  .share-actions :global([hidden]) {
+    display: none;
+  }
+  .share-entry {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .share-results {
+    padding-left: 1.1rem;
+    font-size: 0.9rem;
+  }
+  .share-status:empty {
+    display: none;
+  }
+</style>
+
+<script>
+  import { createSdkClient } from "@/lib/sdk";
+  import {
+    assetName,
+    assetSlug,
+    entryDraft,
+    fileKind,
+    filesSummary,
+    isShareId,
+    readShare,
+    resourceDraft,
+    SHARE_CACHE,
+    type Share,
+    shareKeys,
+  } from "@/lib/share";
+
+  const root = document.getElementById("share-root") as HTMLElement;
+  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const status = $("share-status");
+  const results = $("share-results");
+  const canAuthor = root.dataset.canAuthor === "1";
+  const canEdit = root.dataset.canEdit === "1"; // resources are an editor's
+  const id = root.dataset.shareId ?? "";
+  const sdk = createSdkClient();
+  const suffix = () => Math.random().toString(36).slice(2, 8);
+  let files: File[] = [];
+  let share: Share | null = null;
+
+  const errorText = (e: unknown) => {
+    const err = e as { message?: string; detail?: unknown };
+    return (typeof err?.detail === "string" && err.detail) || err?.message || "Something went wrong.";
+  };
+
+  function result(text: string, href?: string) {
+    const li = document.createElement("li");
+    if (href) {
+      const a = document.createElement("a");
+      a.href = href;
+      a.textContent = text;
+      li.append(a);
+    } else li.textContent = text;
+    results.append(li);
+  }
+
+  function busy(on: boolean) {
+    for (const b of root.querySelectorAll<HTMLButtonElement>(".share-actions button:not(#share-discard)")) b.disabled = on || !canAuthor;
+    $<HTMLButtonElement>("share-resource").disabled = on || !canEdit;
+  }
+
+  async function forget() {
+    if (!isShareId(id) || !("caches" in window)) return;
+    const cache = await caches.open(SHARE_CACHE);
+    const keys = await cache.keys();
+    await Promise.all(keys.filter((r) => r.url.includes(`/__share/${id}/`)).map((r) => cache.delete(r)));
+  }
+
+  async function load(): Promise<boolean> {
+    if (!isShareId(id) || !("caches" in window)) return false;
+    const keys = shareKeys(id, location.origin);
+    const cache = await caches.open(SHARE_CACHE);
+    share = readShare(await (await cache.match(keys.meta))?.json().catch(() => null));
+    if (!share) return false;
+    files = [];
+    for (const [i, f] of share.files.entries()) {
+      const blob = await (await cache.match(keys.file(i)))?.blob();
+      if (blob) files.push(new File([blob], f.name, { type: f.type || blob.type }));
+    }
+    return true;
+  }
+
+  function render(s: Share) {
+    $("share-title").textContent = s.title || (files.length ? filesSummary(s.files) : "Shared text");
+    $("share-text").textContent = s.text;
+    if (s.url) {
+      const link = $<HTMLAnchorElement>("share-link");
+      link.href = s.url; // http(s) only (readShare)
+      link.textContent = s.url;
+      $("share-link-row").hidden = false;
+    }
+    if (s.dropped) {
+      $("share-dropped").textContent = `${s.dropped} other file${s.dropped === 1 ? "" : "s"} couldn't come along: Marvin takes images, videos and PDFs.`;
+      $("share-dropped").hidden = false;
+    }
+    const list = $("share-files");
+    for (const file of files) {
+      const li = document.createElement("li");
+      const kind = fileKind(file.type);
+      if (kind === "image" || kind === "video") {
+        const media = document.createElement(kind === "image" ? "img" : "video");
+        media.src = URL.createObjectURL(file);
+        if (media instanceof HTMLImageElement) media.alt = file.name;
+        else media.muted = true;
+        li.append(media);
+      } else {
+        const doc = document.createElement("div");
+        doc.className = "share-doc";
+        doc.textContent = kind === "pdf" ? "📄" : "📎";
+        li.append(doc);
+      }
+      li.append(`${file.name} · ${Math.max(1, Math.round(file.size / 1024))} KB`);
+      list.append(li);
+    }
+    $("share-assets").hidden = !files.length;
+    $("share-resource").hidden = !s.url;
+    $("share-entry").textContent = files.length ? "New entry with these" : "New entry";
+    $("share-content").hidden = false;
+    busy(false);
+  }
+
+  // Each file through the normal asset upload; returns the ids that made it (the rest are listed with why).
+  async function upload(): Promise<string[]> {
+    const ids: string[] = [];
+    for (const [i, file] of files.entries()) {
+      status.textContent = `Uploading ${i + 1} of ${files.length}…`;
+      try {
+        const asset = await sdk.assets.upload(file, { slug: assetSlug(file.name, suffix()), name: assetName(file.name) });
+        ids.push(String(asset.id));
+        result(`${file.name}: added`, `/workspace/assets/${asset.id}`);
+      } catch (e) {
+        result(`${file.name}: not added — ${errorText(e)}`);
+      }
+    }
+    return ids;
+  }
+
+  $("share-assets").addEventListener("click", async () => {
+    busy(true);
+    results.replaceChildren();
+    const ids = await upload();
+    status.textContent = ids.length === files.length ? `Added ${ids.length} to Assets.` : `Added ${ids.length} of ${files.length}.`;
+    if (ids.length === files.length) {
+      await forget();
+      (root.querySelector(".share-actions") as HTMLElement).hidden = true; // used: nothing left to add
+      result("Open Assets", "/workspace/assets");
+    } else busy(false);
+  });
+
+  $("share-entry").addEventListener("click", async () => {
+    if (!share) return;
+    const select = $<HTMLSelectElement>("share-type");
+    const option = select.selectedOptions[0];
+    if (!option) {
+      status.textContent = "This workspace has no entry types yet.";
+      return;
+    }
+    busy(true);
+    results.replaceChildren();
+    const ids = files.length ? await upload() : [];
+    status.textContent = "Creating the entry…";
+    try {
+      const entry = await sdk.entries.create(entryDraft(share, option.value, option.dataset.bodyField || null, ids) as any);
+      await forget();
+      location.href = `/workspace/entries/${entry.id}`;
+    } catch (e) {
+      status.textContent = `The entry wasn't created: ${errorText(e)}`;
+      busy(false);
+    }
+  });
+
+  $("share-resource").addEventListener("click", async () => {
+    if (!share) return;
+    const draft = resourceDraft(share, suffix());
+    if (!draft) return;
+    busy(true);
+    try {
+      const resource = await sdk.resources.create(draft as any);
+      await forget();
+      location.href = `/workspace/resources/${resource.id}`;
+    } catch (e) {
+      status.textContent = `The link wasn't added: ${errorText(e)}`;
+      busy(false);
+    }
+  });
+
+  $("share-discard").addEventListener("click", async () => {
+    await forget();
+    location.href = "/";
+  });
+
+  load()
+    .then((ok) => {
+      if (ok && share) render(share);
+      else $("share-empty").hidden = false;
+    })
+    .catch(() => {
+      $("share-empty").hidden = false;
+    });
+</script>

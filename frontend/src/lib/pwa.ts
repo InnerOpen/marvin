@@ -16,6 +16,8 @@ export const COLORS = {
 } as const;
 
 export const ASK_PATH = "/workspace/settings/ai-ask";
+/** Where a share from another app is posted (the service worker keeps it) — src/pwa/sw-logic.js SHARE_TARGET. */
+export const SHARE_TARGET_PATH = "/share-target";
 export const NEW_ENTRY_PATH = "/workspace/entries/new";
 export const REVIEW_QUEUE_PATH = "/workspace/entries?status=needs_review,approved";
 
@@ -69,6 +71,19 @@ export function buildManifest(label: string | null | undefined) {
       { src: icons.maskable192, sizes: "192x192", type: "image/png", purpose: "maskable" },
       { src: icons.maskable512, sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
+    // Share to Marvin from another app's share sheet (Chromium on Android and desktop; iOS has no share targets
+    // for web apps). Multipart, so files come along; the service worker answers the POST (pages/share.astro).
+    share_target: {
+      action: SHARE_TARGET_PATH,
+      method: "POST",
+      enctype: "multipart/form-data",
+      params: {
+        title: "title",
+        text: "text",
+        url: "url",
+        files: [{ name: "files", accept: ["image/*", "video/*", "application/pdf"] }],
+      },
+    },
     shortcuts: [
       {
         name: "Ask",

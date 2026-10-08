@@ -16,6 +16,30 @@ from marvin.services.storage.keys import new_key, object_metadata, workspace_cod
 from .metadata_extractor import AssetMetadataExtractor
 
 
+class AssetRejected(ValueError):
+    """The file isn't taken here: too big (ASSET_MAX_FILE_SIZE, 413) or of a type ASSET_ALLOWED_MIME_TYPES leaves
+    out (415)."""
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def check_allowed(size: int, mime_type: str) -> None:
+    """Raise AssetRejected unless the server's upload settings take a file of this size and (detected) type."""
+    from fnmatch import fnmatch
+
+    from marvin.core.config import get_app_settings
+
+    settings = get_app_settings()
+    limit = settings.ASSET_MAX_FILE_SIZE
+    if limit and size > limit:
+        raise AssetRejected(f"The file is {size / 1048576:.1f} MB; uploads are limited to {limit / 1048576:.0f} MB.", 413)
+    allowed = settings.ASSET_ALLOWED_MIME_TYPES
+    if allowed and not any(fnmatch(mime_type or "", pattern) for pattern in allowed):
+        raise AssetRejected(f"Files of type {mime_type or 'unknown'} can't be uploaded here.", 415)
+
+
 class AssetStorageService(BaseService):
     """Business logic for asset upload and storage."""
 
@@ -43,7 +67,7 @@ class AssetStorageService(BaseService):
         Complete upload pipeline for a new asset.
 
         Steps:
-        1. Validate file
+        1. Validate file (size and detected type against the upload settings: AssetRejected)
         2. Save to temporary location
         3. Extract metadata
         4. Generate storage key
@@ -84,6 +108,7 @@ class AssetStorageService(BaseService):
             try:
                 # Extract metadata from temporary file
                 metadata = self.metadata_extractor.extract_metadata(temp_path)
+                check_allowed(metadata.size, metadata.mime_type)
 
                 # Generate storage key (opaque: no workspace slug, no filename)
                 storage_key = self.generate_storage_key(group_id, original_filename, metadata.mime_type)

@@ -36,6 +36,18 @@ describe("buildManifest", () => {
     for (const icon of m.icons) assert.ok(existsSync(`${PUBLIC}${icon.src}`), icon.src);
   });
 
+  test("a share target the worker answers: POST, multipart, images, videos and PDFs plus title/text/url", async () => {
+    const { share_target: target } = buildManifest("");
+    const { SHARE_TARGET, SHARE_ACCEPT } = await import("../pwa/sw-logic.js");
+    assert.equal(target.action, SHARE_TARGET);
+    assert.equal(target.method, "POST");
+    assert.equal(target.enctype, "multipart/form-data");
+    assert.deepEqual([target.params.title, target.params.text, target.params.url], ["title", "text", "url"]);
+    assert.deepEqual(target.params.files, [{ name: "files", accept: SHARE_ACCEPT }]);
+    assert.ok(existsSync(new URL("../pages/share.astro", import.meta.url)), "the Share page");
+    assert.ok(existsSync(new URL("../pages/share-target.ts", import.meta.url)), "the share target's fallback");
+  });
+
   test("shortcuts go to real pages", () => {
     const urls = buildManifest("").shortcuts.map((s) => s.url);
     assert.deepEqual(urls, [

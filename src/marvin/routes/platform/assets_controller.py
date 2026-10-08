@@ -10,7 +10,7 @@ from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_editor, require_workspace_role
 from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
 from marvin.services import trash
-from marvin.services.assets.asset_storage_service import AssetStorageService
+from marvin.services.assets.asset_storage_service import AssetRejected, AssetStorageService
 from marvin.services.event_bus_service.event_types import EventAssetData, EventTypes
 from marvin.services.storage import StorageConfigError
 from marvin.services.storage.keys import content_disposition
@@ -58,6 +58,8 @@ class AssetsController(BaseUserController):
         - MIME type, file size, checksum
         - Image dimensions (width, height, orientation)
         - Asset type classification
+
+        Refused when bigger than ASSET_MAX_FILE_SIZE (413) or of a type ASSET_ALLOWED_MIME_TYPES leaves out (415).
         """
         require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
         # Parse metadata JSON if provided
@@ -82,12 +84,15 @@ class AssetsController(BaseUserController):
         asset_service = AssetStorageService(self.repos, storage_provider)
 
         # Upload through service
-        asset = asset_service.upload_asset(
-            upload_file=file,
-            upload_request=upload_request,
-            group_id=self.group_id,
-            user_id=self.user.id,
-        )
+        try:
+            asset = asset_service.upload_asset(
+                upload_file=file,
+                upload_request=upload_request,
+                group_id=self.group_id,
+                user_id=self.user.id,
+            )
+        except AssetRejected as e:
+            raise HTTPException(status_code=e.status_code, detail=str(e)) from e
 
         # Emit event
         self.event_bus.dispatch(

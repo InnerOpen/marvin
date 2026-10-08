@@ -4,15 +4,18 @@
 
 export const CACHE_PREFIX = "marvin-";
 export const OFFLINE_URL = "/offline.html";
+/** Files shared to the app, until the Share page has used them (or an hour has passed). */
+export const SHARE_CACHE = `${CACHE_PREFIX}share`;
 
 /** The two caches one build owns: the precached app shell and assets fetched later. */
 export function cacheNames(version) {
   return { shell: `${CACHE_PREFIX}shell-${version}`, assets: `${CACHE_PREFIX}assets-${version}` };
 }
 
-/** Caches to delete on activate: Marvin's from any other build. Other caches on the origin are left alone. */
+/** Caches to delete on activate: Marvin's from any other build (a share in progress outlives an update). Other
+ * caches on the origin are left alone. */
 export function staleCaches(keys, version) {
-  const keep = Object.values(cacheNames(version));
+  const keep = [...Object.values(cacheNames(version)), SHARE_CACHE];
   return keys.filter((k) => k.startsWith(CACHE_PREFIX) && !keep.includes(k));
 }
 
@@ -157,4 +160,97 @@ export function parsePush(textValue) {
   } catch {
     return { body: textValue };
   }
+}
+
+// ── Share to Marvin (Web Share Target: Chromium on Android and desktop) ──────────────────────────────────
+
+export const SHARE_TARGET = "/share-target";
+export const SHARE_PAGE = "/share";
+export const SHARE_TTL_MS = 60 * 60 * 1000;
+export const SHARE_MAX_FILES = 10;
+/** What the manifest's share_target accepts; anything else shared along is dropped (and counted). */
+export const SHARE_ACCEPT = ["image/*", "video/*", "application/pdf"];
+
+/** The share POST the manifest points at (the worker answers it; the network never sees it). */
+export function isShareTarget(request, origin) {
+  if (request.method !== "POST") return false;
+  try {
+    const url = new URL(request.url);
+    return url.origin === origin && url.pathname === SHARE_TARGET;
+  } catch {
+    return false;
+  }
+}
+
+export function acceptedType(type) {
+  const t = typeof type === "string" ? type.toLowerCase() : "";
+  return t.startsWith("image/") || t.startsWith("video/") || t === "application/pdf";
+}
+
+/** An http(s) URL, or null — never javascript:, data: or anything else a share might carry. */
+export function httpUrl(value) {
+  if (typeof value !== "string" || value.trim() === "") return null;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The shared link: the `url` field, or the first http(s) URL in the text (Android often sends it there). */
+export function sharedLink(url, textValue) {
+  const direct = httpUrl(url);
+  if (direct) return direct;
+  const found = typeof textValue === "string" ? textValue.match(/https?:\/\/[^\s<>"]+/) : null;
+  return found ? httpUrl(found[0].replace(/[.,;:!?)\]]+$/, "")) : null;
+}
+
+/**
+ * What a share keeps: title, text and link (bounded, the link validated) and the files of accepted types, at
+ * most SHARE_MAX_FILES; `dropped` counts the rest. `files` are {name, type, size} (File-like).
+ */
+export function shareFrom({ title, text: body, url, files }, now = Date.now()) {
+  const list = Array.isArray(files) ? files.filter((f) => f && typeof f === "object") : [];
+  const accepted = list.filter((f) => acceptedType(f.type)).slice(0, SHARE_MAX_FILES);
+  return {
+    title: text(title, 300).trim(),
+    text: text(body, 5000).trim(),
+    url: sharedLink(url, body),
+    files: accepted.map((f) => ({
+      name: text(f.name, 255) || "shared-file",
+      type: text(f.type, 100),
+      size: Number(f.size) || 0,
+    })),
+    dropped: list.length - accepted.length,
+    createdAt: now,
+  };
+}
+
+const SHARE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isShareId(id) {
+  return typeof id === "string" && SHARE_ID.test(id);
+}
+
+/** Where a share's parts live in SHARE_CACHE: its record and each file, as same-origin URLs. */
+export function shareKeys(id, origin) {
+  return { meta: `${origin}/__share/${id}/meta.json`, file: (i) => `${origin}/__share/${id}/file-${i}` };
+}
+
+/** The share id a cache key belongs to, or null. */
+export function shareIdOf(key) {
+  const match = /\/__share\/([^/]+)\//.exec(typeof key === "string" ? key : "");
+  return match && isShareId(match[1]) ? match[1] : null;
+}
+
+/** Whether a share's record is past its hour (or unreadable): its parts can go. */
+export function shareExpired(meta, now = Date.now()) {
+  const created = Number(meta?.createdAt);
+  return !Number.isFinite(created) || now - created > SHARE_TTL_MS || created > now + 60_000;
+}
+
+/** Where the worker sends the browser after a share: the Share page for it, or with why it couldn't keep it. */
+export function sharePageUrl(origin, id, error = "") {
+  return error ? `${origin}${SHARE_PAGE}?error=${encodeURIComponent(error)}` : `${origin}${SHARE_PAGE}?id=${id}`;
 }
