@@ -32,6 +32,9 @@
   const banner = document.getElementById("update-banner");
   const POLL_MS = 60_000;
   const DISMISS_KEY = "marvin.update-dismissed";
+  // "Later" on a waiting service worker: it stays waiting until Reload or every Marvin tab closes, so without this
+  // every page opened afterwards would offer it again. A newer deploy still shows through the version check.
+  const DISMISS_WORKER_KEY = "marvin.update-dismissed-worker";
   const key = (v: { frontend: string; backend: string }) => `${v.frontend}|${v.backend}`;
 
   async function check() {
@@ -166,6 +169,7 @@
       fetch("/version.json", { cache: "no-store" }).then((r) => r.json()).then((live) => {
         try { sessionStorage.setItem(DISMISS_KEY, key(live)); } catch {}
       }).catch(() => {});
+      try { sessionStorage.setItem(DISMISS_WORKER_KEY, "1"); } catch {}
       banner.hidden = true;
     }
   });
@@ -174,6 +178,7 @@
   // noticed by this tab yet).
   function offerWorkerUpdate() {
     if (!banner || !banner.hidden) return;
+    try { if (sessionStorage.getItem(DISMISS_WORKER_KEY)) return; } catch {}
     if (changesToggle && !liveKey) changesToggle.hidden = true; // no version pair to list changes between
     banner.hidden = false;
   }
