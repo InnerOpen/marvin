@@ -10,13 +10,15 @@ function to run the application using Uvicorn, primarily for development purpose
 import asyncio  # Delayed startup sweep of interrupted AI runs
 import copy  # Deep-copy Uvicorn's logging config before customizing it
 import logging  # Access-log filtering (silence health probes)
-from collections.abc import AsyncGenerator  # For async generator type hint
+from collections.abc import AsyncGenerator, Mapping  # Type hints
 from contextlib import asynccontextmanager  # For creating async context managers (lifespan)
 
 import uvicorn  # ASGI server for running FastAPI
 from fastapi import FastAPI  # The main FastAPI class
 from fastapi.middleware.cors import CORSMiddleware  # Middleware for CORS
 from fastapi.middleware.gzip import GZipMiddleware  # Middleware for GZip compression
+from fastapi.responses import JSONResponse  # Default response class (subclassed below)
+from fastapi.utils import is_body_allowed_for_status_code  # 204/304/1xx carry no body
 
 # Marvin core components
 from marvin.core.config import get_app_dirs, get_app_settings  # Access application settings and data directories
@@ -203,6 +205,20 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
     logger.info("------ SYSTEM SHUTDOWN COMPLETE ------")
 
 
+class MarvinJSONResponse(JSONResponse):
+    """FastAPI's JSON response, except that a status with no body (204 No Content) gets no Content-Type.
+
+    FastAPI empties a 204's body but leaves ``content-type: application/json`` on it. A client that
+    trusts the header parses the empty body and fails: SDK 3.x took that for a network error and sent
+    the DELETE again, so a delete that had worked surfaced as "Resource not found".
+    """
+
+    def init_headers(self, headers: Mapping[str, str] | None = None) -> None:
+        if not is_body_allowed_for_status_code(self.status_code):
+            self.media_type = None
+        super().init_headers(headers)
+
+
 # Initialize the FastAPI application instance
 app = FastAPI(
     title="Marvin API",  # Title for OpenAPI documentation
@@ -211,6 +227,7 @@ app = FastAPI(
     docs_url=settings.DOCS_URL,  # URL for Swagger UI (None if disabled in settings)
     redoc_url=settings.REDOC_URL,  # URL for ReDoc (None if disabled in settings)
     lifespan=lifespan_fn,  # Register the lifespan context manager
+    default_response_class=MarvinJSONResponse,  # JSON, minus the Content-Type on a 204
 )
 
 # Add GZip middleware to compress responses for supported clients
