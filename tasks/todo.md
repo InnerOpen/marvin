@@ -2644,3 +2644,53 @@ environment stays on the prod job so a required reviewer can be added later with
 - [ ] Rollback drill: `-f smoke_expect=<older sha>` → dev rolls back, prod never starts.
 - [x] Retired `dev-then-prod.sh`, `ship-when-green.sh`, `*-dev-check.sh` (moved to the job's `retired-deploy-scripts/`)
       and their settings.json allow rules; the Brain's deploy notes now say "push to develop".
+
+# Ask files · core OpenAI removal · PWA badge, deep links, offline uploads (2026-10-08)
+
+Jared 2026-10-08: "Do 2 [remove core openai/azure], finish 4 [PWA follow-ups] except the logo. Keep M for now.
+Keep the slug [Copy JSON — already shipped `20a7aa2f`]. There should be a different spot for uploaded Ask
+files. But AI should be able to move them to Assets."
+
+## A. Ask files: their own place, not the Assets library
+- [ ] `assets.scope` column ('library' | 'ask', default 'library', indexed; migration after `c4e8a1f05b27`, backfill
+      `slug LIKE 'ask-%'` or `metadata_json.attachedVia`). Upload sets 'ask' when `metadata.attachedVia` is
+      bubble/ask_page (no SDK change).
+- [ ] Library-only everywhere a library is listed or counted: REST list (`?scope=ask` lists Ask files), stats, tag
+      counts, `item_query` base (list_assets, attach_tag filter, trash `match`, workflow targets), workspace_overview,
+      ContextBuilder.with_assets, smart collections + collection pickers, publishing API (list / by slug / file —
+      today a privacy leak), search index gate, orphaned-assets sweeper. No `asset_uploaded` event for an Ask file
+      (workflows/webhooks would act on chat files); moving it fires `asset_uploaded`, so it arrives as new.
+- [ ] Moving to the library: `POST /assets/{id}/move-to-library` (EDITOR); tool `move_to_assets(assets, name?)`
+      (category `assets_import`, EDITOR, no ask-first: reversible, in-workspace). Attaching an Ask file to an entry
+      (REST or `attach_asset`) moves it first, so a site never links a file the site API hides.
+- [ ] Prompt block: "attached files are Ask files, not in the library; `move_to_assets` files one there,
+      `attach_asset` moves it too".
+- [ ] UI: Assets page gets an **Ask files** tab (name, thread, date, Move to Assets, Move to Trash).
+- [ ] Deleting a thread trashes (restorable) its Ask files that no other thread (incl. hand-off children) uses.
+- [ ] Tests: each exclusion, move (REST + tool + attach), thread delete, migration backfill.
+
+## B. Remove core's built-in openai / azure
+- [ ] Delete `providers/openai.py`, `azure.py`, `openai_api.py`; registry `_builtins()`; `openai` dependency + extras.
+- [ ] Startup: a default provider that isn't installed warns ("AI not configured") instead of refusing to start;
+      other misconfigurations still refuse.
+- [ ] Chart `values.yaml` default `plugins.packages` installs marvin-ai-openai (so a plain install keeps OpenAI);
+      local dev: `uv pip install -e ../MarvinAIOpenAI` like the integration plugins (document).
+- [ ] Tests: delete `test_openai_api.py` + openai/azure cases in `test_provider_tool_calling.py`; rewrite the
+      registry tests that assert five built-ins; keep core's PRICING fallback (tests use it).
+- [ ] Docs: AI_PROVIDER_PLUGINS.md, operations.md `AI_DEFAULT_PROVIDER`, whats-new.
+
+## C. PWA: badge and deep links
+- [ ] Badge = inbox (current workspace, as today) + the user's runs awaiting approval (all workspaces).
+      `push_actions.badge_count(user)`; page-load meta uses it; `approval_message` and the Approve/Deny result set it.
+- [ ] Workspace-scoped pushes (approvals, trash reminders, activity, workspace alerts) carry `workspace` (group id);
+      the SW, on click, switches the active workspace (same-origin PUT) when it differs, then opens the URL.
+- [ ] Tests: sw-logic (payload → click target), backend payload + badge count.
+
+## D. PWA: offline upload queue
+- [ ] Assets → New and the share page: an upload that fails for the network (not 4xx: 413/415/403 are final) is
+      queued in Cache Storage `marvin-uploads` (file + fields + workspace id) and replayed on `online` / app open,
+      for the workspace it was meant for (waits while another is active); a "N uploads waiting" note with cancel.
+- [ ] Logout keeps clearing it (privacy) after asking? → clears, and says how many were dropped.
+- [ ] Tests: queue logic DOM-free (`lib/uploadQueue.ts`) under node --test.
+
+Order: B (small, separate) → A → C → D. Commits `feat(assets):`, `refactor(ai)!:`/`feat(ai):`, `feat(pwa):`.

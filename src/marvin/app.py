@@ -90,8 +90,9 @@ async def lifespan_fn(_app: FastAPI) -> AsyncGenerator[None, None]:  # Renamed a
         raise
 
     # AI providers: core's built-ins plus installed `marvin.ai_providers` plugins (a plugin replaces the
-    # built-in of the same slug). AI_DEFAULT_PROVIDER naming a provider nothing provides stops startup,
-    # like an unknown STORAGE_PROVIDER, rather than failing every platform-mode workspace's AI call.
+    # built-in of the same slug). AI_DEFAULT_PROVIDER set to a provider nothing provides stops startup, like
+    # an unknown STORAGE_PROVIDER, rather than failing every platform-mode workspace's AI call; left at its
+    # default without the OpenAI plugin it only warns (validate_ai_config).
     from marvin.services.ai.factory import AIConfigError, validate_ai_config
 
     try:

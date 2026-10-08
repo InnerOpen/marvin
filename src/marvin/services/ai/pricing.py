@@ -3,8 +3,8 @@ Approximate AI provider pricing for cost estimation.
 
 Prices live with the provider (``AIProvider.prices`` / ``self_hosted``, see the plugin SDK): an installed
 provider plugin ships its own table, so a new model's price is a plugin release. This table is core's
-fallback while the built-in providers are still in core — consulted when the provider has no price for
-a model. Per 1M tokens (input/output separately); used only for estimates stored on executions.
+fallback (OpenAI and Azure included, though their provider is now the marvin-ai-openai plugin) — consulted
+when the provider has no price for a model. Per 1M tokens (input/output separately); used only for estimates stored on executions.
 """
 
 from marvin_integration_sdk.ai import ModelPrice, price_for

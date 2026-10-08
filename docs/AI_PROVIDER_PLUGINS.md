@@ -43,15 +43,18 @@ The SDK README has a full example.
 
 `services/ai/registry.py` holds what this platform has:
 
-1. **Core's built-ins**: `openai`, `azure`, `anthropic`, `google`, `ollama`. They stay in core until
-   their plugins are installed everywhere, so nothing changes the day a plugin arrives.
+1. **Core's built-ins**: `anthropic`, `google`, `ollama`. OpenAI and Azure OpenAI (`openai`, `azure`)
+   left core on 2026-10-08: they are the `marvin-ai-openai` plugin, which the chart installs by default
+   (`plugins.packages` in `values.yaml`; an environment's own list must keep it). For local development,
+   `uv pip install -e ../MarvinAIOpenAI` (re-run after `uv sync`, like the integration plugins).
 2. **Installed plugins**, from the `marvin.ai_providers` entry points (the shared plugin loader,
    `services/plugin_loader.py`). A plugin whose slug matches a built-in **replaces** it: the startup log
-   says `AI provider plugin 'openai' replaces core's built-in 'openai'`. Two plugins can't share a
+   says, for example, `AI provider plugin 'ollama' replaces core's built-in 'ollama'`. Two plugins can't share a
    slug (the first one stays; the other is reported as failed). A plugin that fails to import is
    logged and listed on **Admin → Plugins** as failed, and never stops startup.
 3. **Unknown slugs are refused**, naming what is installed. Startup stops when `AI_DEFAULT_PROVIDER`
-   names a provider nothing provides (like an unknown `STORAGE_PROVIDER`). AI Settings and the
+   is set to a provider nothing provides (like an unknown `STORAGE_PROVIDER`); left at its default
+   (`openai`) without the OpenAI plugin, startup only logs a warning and platform AI is off until it is installed. AI Settings and the
    Providers config refuse to *choose* one (422). A workspace already set to a provider that has since
    been uninstalled gets a clear error on its next AI call, never a silent switch to another vendor.
 
@@ -69,8 +72,8 @@ so on the first call, and **Test connection** reports it.
 
 ## Prices
 
-`estimate_cost` asks the provider first (its `prices`, or 0 when `self_hosted`). While the built-ins
-are still in core, core's `pricing.py` table is the fallback for a model the provider has no price for.
+`estimate_cost` asks the provider first (its `prices`, or 0 when `self_hosted`). Core's `pricing.py`
+table (OpenAI and Azure included) is the fallback for a model the provider has no price for.
 A model with no price anywhere is shown as "—" (unpriced), never as free. Still to come (the plan's
 Pricing section): admin overrides, a daily price feed, and reconciling with what the vendor billed.
 

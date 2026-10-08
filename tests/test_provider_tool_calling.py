@@ -5,110 +5,27 @@ agnostic → provider message translation (assistant tool_calls, role="tool" res
 parsing of provider responses back into CompletionResult.tool_calls.
 """
 
-import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 from marvin.services.ai.base import (
-    CompletionResult,
     Message,
     ToolCall,
     ToolDefinition,
 )
 from marvin.services.ai.providers.anthropic import AnthropicProvider
-from marvin.services.ai.providers.azure import AzureOpenAIProvider
 from marvin.services.ai.providers.ollama import OllamaProvider
-from marvin.services.ai.providers.openai import OpenAIProvider
 
 TOOLS = [ToolDefinition(name="get_entry", description="Fetch an entry", input_schema={"type": "object"})]
 
 
 def test_tool_calling_capability_flags():
-    assert OpenAIProvider.supports_tool_calls is True
     assert AnthropicProvider.supports_tool_calls is True
-    assert AzureOpenAIProvider.supports_tool_calls is True
     assert OllamaProvider.supports_tool_calls is True
     # Google intentionally not implemented yet.
     from marvin.services.ai.providers.google import GoogleProvider
 
     assert GoogleProvider.supports_tool_calls is False
-
-
-# ── OpenAI message translation ──────────────────────────────────────────────
-
-
-def test_openai_translates_tool_roundtrip():
-    provider = OpenAIProvider(api_key="x")
-    messages = [
-        Message(role="system", content="You are Marvin."),
-        Message(role="user", content="What's in the about page?"),
-        Message(
-            role="assistant",
-            content="",
-            tool_calls=[ToolCall(id="call_1", name="get_entry", arguments={"slug": "about"})],
-        ),
-        Message(role="tool", content='{"title":"About"}', tool_call_id="call_1"),
-    ]
-    api = provider._to_api_tool_messages(messages)
-
-    assistant = api[2]
-    assert assistant["role"] == "assistant"
-    assert assistant["content"] is None  # no text alongside the tool call
-    assert assistant["tool_calls"][0]["id"] == "call_1"
-    assert assistant["tool_calls"][0]["function"]["name"] == "get_entry"
-    assert json.loads(assistant["tool_calls"][0]["function"]["arguments"]) == {"slug": "about"}
-
-    tool_result = api[3]
-    assert tool_result == {"role": "tool", "tool_call_id": "call_1", "content": '{"title":"About"}'}
-
-
-COMPATIBLE = "http://localhost:8000/v1"  # an OpenAI-compatible server keeps Chat Completions
-
-
-def test_openai_complete_with_tools_parses_tool_calls():
-    provider = OpenAIProvider(api_key="x", base_url=COMPATIBLE)
-    tc = SimpleNamespace(
-        id="call_9",
-        type="function",
-        function=SimpleNamespace(name="get_entry", arguments='{"slug":"home"}'),
-    )
-    resp = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tc]), finish_reason="tool_calls")],
-        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=4, total_tokens=14),
-        model="gpt-4o",
-        model_dump=lambda: {},
-    )
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.return_value = resp
-    provider._client = MagicMock(return_value=fake_client)
-
-    result = provider.complete_with_tools([Message(role="user", content="hi")], "gpt-4o", TOOLS)
-
-    assert isinstance(result, CompletionResult)
-    assert result.stop_reason == "tool_calls"
-    assert len(result.tool_calls) == 1
-    assert result.tool_calls[0] == ToolCall(id="call_9", name="get_entry", arguments={"slug": "home"})
-    # tools payload was forwarded in OpenAI's function shape
-    sent = fake_client.chat.completions.create.call_args.kwargs
-    assert sent["tools"][0]["function"]["name"] == "get_entry"
-    assert sent["tool_choice"] == "auto"
-
-
-def test_openai_complete_with_tools_plain_answer():
-    provider = OpenAIProvider(api_key="x", base_url=COMPATIBLE)
-    resp = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content="Done.", tool_calls=None), finish_reason="stop")],
-        usage=SimpleNamespace(prompt_tokens=5, completion_tokens=2, total_tokens=7),
-        model="gpt-4o",
-        model_dump=lambda: {},
-    )
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.return_value = resp
-    provider._client = MagicMock(return_value=fake_client)
-
-    result = provider.complete_with_tools([Message(role="user", content="hi")], "gpt-4o", TOOLS)
-    assert result.content == "Done."
-    assert result.tool_calls == []
 
 
 # ── Anthropic message translation ───────────────────────────────────────────
@@ -192,31 +109,6 @@ def test_anthropic_complete_with_tools_parses_tool_use():
     assert sent["tool_choice"] == {"type": "auto"}
 
 
-# ── Azure (OpenAI-shaped) ───────────────────────────────────────────────────
-
-
-def test_azure_complete_with_tools_parses_tool_calls():
-    provider = AzureOpenAIProvider(api_key="x", base_url="https://ex.openai.azure.com")
-    tc = SimpleNamespace(
-        id="call_az",
-        type="function",
-        function=SimpleNamespace(name="get_entry", arguments='{"slug":"about"}'),
-    )
-    resp = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[tc]), finish_reason="tool_calls")],
-        usage=SimpleNamespace(prompt_tokens=8, completion_tokens=3, total_tokens=11),
-        model="gpt-4o",
-        model_dump=lambda: {},
-    )
-    fake_client = MagicMock()
-    fake_client.chat.completions.create.return_value = resp
-    provider._client = MagicMock(return_value=fake_client)
-
-    result = provider.complete_with_tools([Message(role="user", content="hi")], "gpt-4o", TOOLS)
-    assert result.tool_calls == [ToolCall(id="call_az", name="get_entry", arguments={"slug": "about"})]
-    assert fake_client.chat.completions.create.call_args.kwargs["tools"][0]["function"]["name"] == "get_entry"
-
-
 # ── Ollama (native /api/chat) ───────────────────────────────────────────────
 
 
@@ -266,23 +158,9 @@ def test_ollama_complete_with_tools_synthesizes_ids():
     assert sent_payload["tools"][0]["function"]["name"] == "get_entry"
 
 
-def test_tool_choice_required_maps_per_provider():
-    openai = OpenAIProvider(api_key="x")
+def test_tool_choice_required_maps_for_anthropic():
+    """OpenAI's mapping is tested in the marvin-ai-openai plugin."""
     anthropic = AnthropicProvider(api_key="x")
-
-    oai_resp = SimpleNamespace(
-        output=[],
-        output_text="x",
-        usage=SimpleNamespace(input_tokens=1, output_tokens=1, total_tokens=2),
-        model="gpt-4o",
-        incomplete_details=None,
-        model_dump=lambda: {},
-    )
-    oai_client = MagicMock()
-    oai_client.responses.create.return_value = oai_resp
-    openai._client = MagicMock(return_value=oai_client)
-    openai.complete_with_tools([Message(role="user", content="hi")], "gpt-4o", TOOLS, tool_choice="required")
-    assert oai_client.responses.create.call_args.kwargs["tool_choice"] == "required"
 
     ant_resp = SimpleNamespace(
         content=[SimpleNamespace(type="text", text="x")],

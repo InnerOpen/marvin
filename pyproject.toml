@@ -24,7 +24,6 @@ dependencies = [
     "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60",
     "mcp[cli]>=1.28.1",
     "numpy>=2.2.6",
-    "openai>=2.46.0",
     "pillow>=11.1.0",
     "pre-commit>=4.2.0",
     "pydantic-core>=2.33.2",
@@ -51,15 +50,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# AI provider SDKs — install only the providers you use, e.g. `uv sync --extra openai`
-# or `pip install 'marvin[openai]'`. Providers lazy-import these, so an undeclared SDK only
+# AI provider SDKs — install only the providers you use, e.g. `uv sync --extra anthropic`
+# or `pip install 'marvin[anthropic]'`. OpenAI and Azure OpenAI are the marvin-ai-openai plugin, not an extra. Providers lazy-import these, so an undeclared SDK only
 # fails when that provider is actually selected. See docs/AI-ARCHITECTURE-PLAN.md §6.
-openai = ["openai>=1.50.0"]          # also powers the Azure OpenAI provider
 anthropic = ["anthropic>=0.40.0"]
 google = ["google-generativeai>=0.8.0"]
 ollama = ["httpx>=0.27.0"]
 all-ai = [
-    "openai>=1.50.0",
     "anthropic>=0.40.0",
     "google-generativeai>=0.8.0",
     "httpx>=0.27.0",

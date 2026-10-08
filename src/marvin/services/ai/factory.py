@@ -9,6 +9,7 @@ Which class a type means comes from the registry (registry.py): core's built-ins
 plugin that replaced one. Each provider declares the credentials it needs; this module fills them.
 """
 
+import logging
 from typing import Any
 
 from pydantic import UUID4
@@ -119,12 +120,21 @@ def get_workspace_ai_provider(session: Session, group_id: UUID4) -> AIProvider:
 
 def validate_ai_config(app=None) -> list[str]:
     """Startup: load the AI provider plugins and check that ``AI_DEFAULT_PROVIDER`` names an installed
-    provider. Raises ``AIConfigError`` otherwise (every platform-mode workspace would fail). Returns one
-    line per provider for the startup log."""
+    provider. Returns one line per provider for the startup log.
+
+    Set explicitly to a provider nothing provides, it raises ``AIConfigError``: a misconfigured platform, where
+    every platform-mode workspace would fail. Left at its default (``openai``) without the marvin-ai-openai
+    plugin, it only warns: an install that hasn't set up AI still starts, and AI says it isn't configured."""
     app = app or get_app_settings()
     reports = registry.load_plugins()
-    registry.provider_class(getattr(app, "AI_DEFAULT_PROVIDER", "openai") or "openai")
+    default = getattr(app, "AI_DEFAULT_PROVIDER", "openai") or "openai"
     lines = []
+    try:
+        registry.provider_class(default)
+    except AIConfigError as e:
+        if "AI_DEFAULT_PROVIDER" in getattr(app, "model_fields_set", set()):
+            raise
+        logging.getLogger(__name__).warning(f"AI_DEFAULT_PROVIDER: platform AI is off until a plugin provides '{default}': {e}")
     for slug in sorted(registry.plugins()):
         report = registry.report_for(slug)
         lines.append(f"{slug} ({'built in' if report is None else f'{report.distribution} {report.version}'})")

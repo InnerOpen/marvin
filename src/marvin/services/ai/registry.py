@@ -2,11 +2,10 @@
 
 A model vendor is a site-wide plugin (``marvin.ai_providers`` entry points, the contract in
 ``marvin_integration_sdk.ai``), installed by the platform operator; every workspace can then choose it.
-Core still ships built-in providers (openai, azure, anthropic, google, ollama) so nothing changes on the
-day the plugins arrive: an installed plugin with the same slug **replaces** the built-in (the
-``marvin-ai-openai`` package replaces ``openai`` and ``azure``), and the built-in leaves core once the
-plugin is installed everywhere. Two plugins can't share a slug (the first one stays). An unknown slug is
-refused, naming what is installed — never a silent fallback to another vendor.
+Core ships built-in providers for anthropic, google and ollama; OpenAI and Azure OpenAI come only from the
+``marvin-ai-openai`` plugin (the chart installs it by default). An installed plugin with a built-in's slug
+**replaces** it. Two plugins can't share a slug (the first one stays). An unknown slug is refused, naming
+what is installed — never a silent fallback to another vendor.
 """
 
 import logging
@@ -30,12 +29,10 @@ _reports: list[PluginLoadReport] | None = None
 
 def _builtins() -> Iterator[AIProviderPlugin]:
     from .providers.anthropic import AnthropicProvider
-    from .providers.azure import AzureOpenAIProvider
     from .providers.google import GoogleProvider
     from .providers.ollama import OllamaProvider
-    from .providers.openai import OpenAIProvider
 
-    for cls in (OpenAIProvider, AzureOpenAIProvider, AnthropicProvider, GoogleProvider, OllamaProvider):
+    for cls in (AnthropicProvider, GoogleProvider, OllamaProvider):
         yield AIProviderPlugin(slug=cls.provider_type, name=cls.display_name, provider=cls)
 
 

@@ -461,7 +461,10 @@ initContainers: []
 #     - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
 #     - https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
 plugins:
-  packages: []
+  # OpenAI and Azure OpenAI are a plugin, not part of core: installed by default so a plain install keeps them.
+  # An environment's own list replaces this one, so keep it there too.
+  packages:
+    - https://github.com/InnerOpen/marvin-ai-openai/archive/refs/heads/main.tar.gz
   # Empty = the backend image, so the install can pin to and drop what the image already has.
   image: ""
   resources: {}
