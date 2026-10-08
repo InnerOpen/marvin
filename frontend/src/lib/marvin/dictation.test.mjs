@@ -121,6 +121,25 @@ describe("createDictation", () => {
     assert.deepEqual(t.errors, ["Didn't hear anything — try again."]);
   });
 
+  test("cancel (on send) drops results that arrive after it; stop keeps them", () => {
+    const { Fake, made } = fakeRecognition();
+    const t = target("");
+    const d = createDictation(Fake, t);
+    d.toggle();
+    made[0].onresult({ results: results("talk talk talk") });
+    d.cancel();
+    t.value = ""; // the input is cleared as the message goes
+    made[0].onresult({ results: results("talk talk talk") }); // Chrome's late final result
+    assert.equal(t.value, "");
+    assert.equal(d.listening, false);
+
+    d.toggle(); // a new dictation hears again
+    made[1].onresult({ results: results("again") });
+    d.stop();
+    made[1].onresult({ results: results("again, finished") });
+    assert.equal(t.value, "again, finished");
+  });
+
   test("an error a new session would repeat ends it with a message", () => {
     const { Fake, made } = fakeRecognition();
     const t = target();

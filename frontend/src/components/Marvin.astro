@@ -726,7 +726,7 @@ try {
       e.preventDefault();
       const text = input.value.trim();
       if (!text || busy || !navigator.onLine) return;
-      dictation?.stop();
+      dictation?.cancel(); // what's in the input is what goes; late results mustn't refill it
       const { cap, arg, help } = resolveCapability(text);
       addMsg('user', esc(text) + (cap?.id === 'agent' ? newlyAttachedHtml() : ''));
       input.value = '';

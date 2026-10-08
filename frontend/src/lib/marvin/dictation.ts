@@ -81,7 +81,10 @@ export interface DictationTarget {
 export interface Dictation {
   /** Start listening, or stop when already listening. */
   toggle(): void;
+  /** Stop listening; words still being recognised land in the input. */
   stop(): void;
+  /** Stop listening and drop anything still being recognised: the text was just sent and cleared. */
+  cancel(): void;
   readonly listening: boolean;
 }
 
@@ -103,6 +106,8 @@ export function createDictation(Recognition: RecognitionCtor, target: DictationT
   let lastHeard = 0;
   let heardAny = false;
   let fatal = false;
+  // The browser delivers its last results just after stop(); after cancel() they would refill a cleared input.
+  let muted = false;
 
   function session() {
     const before = target.read();
@@ -112,6 +117,7 @@ export function createDictation(Recognition: RecognitionCtor, target: DictationT
     r.interimResults = true;
     r.continuous = target.continuous ?? true;
     r.onresult = (ev) => {
+      if (muted) return;
       lastHeard = now();
       heardAny = true;
       target.write(dictatedText(before, ev.results));
@@ -151,6 +157,11 @@ export function createDictation(Recognition: RecognitionCtor, target: DictationT
     rec?.stop();
   }
 
+  function cancel() {
+    muted = true;
+    stop();
+  }
+
   return {
     toggle() {
       if (wanted || rec) {
@@ -158,12 +169,14 @@ export function createDictation(Recognition: RecognitionCtor, target: DictationT
         return;
       }
       wanted = true;
+      muted = false;
       fatal = false;
       heardAny = false;
       lastHeard = now();
       session();
     },
     stop,
+    cancel,
     get listening() {
       return active;
     },

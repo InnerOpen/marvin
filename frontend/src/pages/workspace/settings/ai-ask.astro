@@ -191,7 +191,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     withAttachment,
     withoutAttachment,
   } from "@/lib/marvin/attachments";
-  import { createDictation, speechRecognition } from "@/lib/marvin/dictation";
+  import { createDictation, type Dictation, speechRecognition } from "@/lib/marvin/dictation";
 
   const root = document.querySelector<HTMLElement>(".chat");
   if (root) {
@@ -666,21 +666,24 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
 
     // ── Voice input (@/lib/marvin/dictation; Chrome/Edge/Safari, none on Firefox) ──
     const Recognition = speechRecognition(window);
+    let dictation: Dictation | null = null;
     if (Recognition) {
       micBtn.hidden = false;
-      const dictation = createDictation(Recognition, {
+      const d = createDictation(Recognition, {
         lang: navigator.language,
         continuous: !/Android/i.test(navigator.userAgent),
         read: () => questionEl.value,
         write: (text) => (questionEl.value = text),
         onState: (listening) => {
           micBtn.textContent = listening ? "■ Stop" : "🎙 Speak";
-          setStatus(listening ? "Listening…" : "");
+          if (listening) setStatus("Listening…");
+          else if (statusEl.textContent === "Listening…") setStatus(""); // not over a send's "Thinking…"
           if (!listening) questionEl.focus();
         },
         onError: (message) => setStatus(message, "error"),
       });
-      micBtn.addEventListener("click", () => dictation.toggle());
+      micBtn.addEventListener("click", () => d.toggle());
+      dictation = d;
     }
 
     // ── Live steps: a placeholder bubble that fills in while the run is in flight ──
@@ -878,6 +881,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       transcript.querySelectorAll<HTMLElement>(".turn.approval:not(.resolved)").forEach((card) => setCardResolved(card, true));
       addTurn("user", esc(message) + attachedHtml(attachments.filter((a) => !a.sent)));
       attachments = attachments.map((a) => ({ ...a, sent: true }));
+      dictation?.cancel(); // late results mustn't refill the cleared box
       questionEl.value = "";
       const register = registerSel.value || undefined;
       const wasNew = !threadId;
