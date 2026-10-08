@@ -413,8 +413,7 @@ class _RoleSession:
         return self._user
 
 
-def _fake_user(*, admin=False, role_value=None, group_id="G"):
-    role = SimpleNamespace(value=role_value) if role_value is not None else None
+def _fake_user(*, admin=False, role=None, group_id="G"):
     return SimpleNamespace(admin=admin, get_workspace_role=lambda gid: role if str(gid) == str(group_id) else None)
 
 
@@ -438,16 +437,18 @@ class TestResolveAuthorizerRole:
         assert resolve_authorizer_role(s, "G", uuid4()) == ROLE_OWNER
 
     def test_member_gets_their_role_value(self):
+        from marvin.db.models.users.roles import WorkspaceRole
         from marvin.services.automation.authz import ROLE_AUTHOR, resolve_authorizer_role
 
-        s = _RoleSession(user=_fake_user(role_value=ROLE_AUTHOR))
+        # The membership holds the enum (its value is the name, "AUTHOR"); the gates compare its rank.
+        s = _RoleSession(user=_fake_user(role=WorkspaceRole.AUTHOR))
         assert resolve_authorizer_role(s, "G", uuid4()) == ROLE_AUTHOR
 
     def test_non_member_author_fails_closed(self):
         from marvin.services.automation.authz import resolve_authorizer_role
 
         # A real user, but not a member of THIS workspace → 0.
-        s = _RoleSession(user=_fake_user(role_value=None))
+        s = _RoleSession(user=_fake_user(role=None))
         assert resolve_authorizer_role(s, "G", uuid4()) == 0
 
 

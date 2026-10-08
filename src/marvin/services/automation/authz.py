@@ -70,8 +70,10 @@ def resolve_authorizer_role(session, group_id, author_id) -> int:
         return 0
     if getattr(author, "admin", False):
         return ROLE_OWNER
-    role = author.get_workspace_role(group_id)  # str-normalized membership lookup
-    return role.value if role is not None else 0
+    from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
+
+    # A WorkspaceRole's value is its name ("ADMIN"); the number the gates compare is its rank.
+    return WORKSPACE_ROLE_HIERARCHY.get(author.get_workspace_role(group_id), 0)
 
 
 def require_role(authorizer_role: int, needed: int, what: str) -> None:
