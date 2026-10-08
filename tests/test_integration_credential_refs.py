@@ -44,7 +44,7 @@ def test_only_its_own_copy_counts_as_owned():
 
 def test_delete_leaves_a_referenced_secret_alone(monkeypatch):
     deleted = []
-    monkeypatch.setattr(ic, "_delete_secret_quietly", lambda ref, gid: deleted.append(ref))
+    monkeypatch.setattr(ic, "_delete_secret_quietly", lambda ref, gid, session: deleted.append(ref))
     row = SimpleNamespace(slug="square", secret_ref="SQUARE_TOKEN")
     session = SimpleNamespace(delete=lambda r: None, commit=lambda: None)
     ctrl = SimpleNamespace(_get_or_404=lambda i: row, session=session, group_id="G", user=ADMIN)
@@ -56,7 +56,7 @@ def test_delete_leaves_a_referenced_secret_alone(monkeypatch):
 
 def test_delete_removes_its_own_copy(monkeypatch):
     deleted = []
-    monkeypatch.setattr(ic, "_delete_secret_quietly", lambda ref, gid: deleted.append(ref))
+    monkeypatch.setattr(ic, "_delete_secret_quietly", lambda ref, gid, session: deleted.append(ref))
     row = SimpleNamespace(slug="square", secret_ref="INTEGRATION_SQUARE")
     ctrl = SimpleNamespace(_get_or_404=lambda i: row, session=SimpleNamespace(delete=lambda r: None, commit=lambda: None), group_id="G", user=ADMIN)
 

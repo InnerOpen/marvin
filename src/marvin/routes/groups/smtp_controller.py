@@ -75,7 +75,7 @@ class SMTPProfilesController(BaseUserController):
         managed = smtp_secret_ref(profile.id)
         if profile.secret_ref == managed:
             try:
-                get_secret_backend().delete(managed, self.group_id)
+                get_secret_backend().delete(managed, self.group_id, session=self.session)
             except Exception as e:
                 self.logger.warning(f"[smtp] could not delete secret {managed}: {e}")
 
@@ -87,7 +87,7 @@ class SMTPProfilesController(BaseUserController):
             profile.secret_ref = ref
         else:
             managed = smtp_secret_ref(profile.id)
-            get_secret_backend().set(managed, value, self.group_id)
+            get_secret_backend().set(managed, value, self.group_id, session=self.session)
             profile.secret_ref = managed
 
     def _deactivate_others(self, keep_id: UUID4 | None) -> None:

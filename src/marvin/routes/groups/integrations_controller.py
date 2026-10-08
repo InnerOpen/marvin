@@ -337,7 +337,7 @@ class IntegrationsController(BaseUserController):
             secret_ref = _referenced_secret(value, self.group_id)
             if secret_ref is None:
                 secret_ref = _secret_ref(slug)
-                get_secret_backend().set(secret_ref, value, self.group_id)
+                get_secret_backend().set(secret_ref, value, self.group_id, session=self.session)
 
         row = IntegrationModel(
             session=self.session,
@@ -382,12 +382,12 @@ class IntegrationsController(BaseUserController):
             referenced = _referenced_secret(value, self.group_id)
             if referenced is not None:
                 if _owns_secret(row):  # switching from an own copy to a shared secret: drop the copy
-                    _delete_secret_quietly(row.secret_ref, self.group_id)
+                    _delete_secret_quietly(row.secret_ref, self.group_id, self.session)
                 row.secret_ref = referenced
             else:
                 # A new value always lands in the integration's own slot — never over a shared secret it referenced.
                 ref = _secret_ref(row.slug)
-                get_secret_backend().set(ref, value, self.group_id)
+                get_secret_backend().set(ref, value, self.group_id, session=self.session)
                 row.secret_ref = ref
 
         self.session.commit()
@@ -402,7 +402,7 @@ class IntegrationsController(BaseUserController):
         require_workspace_admin(self.user, self.group_id)
         row = self._get_or_404(integration_id)
         if row.secret_ref and _owns_secret(row):  # a referenced workspace secret is shared — leave it
-            _delete_secret_quietly(row.secret_ref, self.group_id)
+            _delete_secret_quietly(row.secret_ref, self.group_id, self.session)
         self.session.delete(row)
         self.session.commit()
 
@@ -605,8 +605,8 @@ def provider_logo(slug: str, request: Request):
     return Response(content=logo.data, media_type=logo.content_type, headers=headers)
 
 
-def _delete_secret_quietly(ref: str, group_id) -> None:
+def _delete_secret_quietly(ref: str, group_id, session) -> None:
     try:
-        get_secret_backend().delete(ref, group_id)
+        get_secret_backend().delete(ref, group_id, session=session)
     except Exception as e:  # noqa: BLE001 — best-effort cleanup, never block the caller
         logger.warning(f"[integrations] could not delete secret {ref}: {e}")

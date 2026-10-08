@@ -194,7 +194,7 @@ def _rotate_secret(session, row, gid, value: str) -> None:
     from marvin.services.secrets import get_secret_backend
 
     ref = row.secret_ref or f"INTEGRATION_{row.slug.upper()}"
-    get_secret_backend().set(ref, value, gid)
+    get_secret_backend().set(ref, value, gid, session=session)
     row.secret_ref = ref
     session.commit()
     logger.info("Integration '%s': credential rotated by provider", row.slug)

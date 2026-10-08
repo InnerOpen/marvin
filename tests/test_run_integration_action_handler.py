@@ -48,7 +48,7 @@ class _RecordingSecrets:
     def get(self, slug, group_id=None):
         return "tok"
 
-    def set(self, slug, value, group_id=None):
+    def set(self, slug, value, group_id=None, session=None):
         self.written.append((slug, value, group_id))
 
 

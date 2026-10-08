@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 from pydantic import UUID4
+from sqlalchemy.orm import Session
 
 from marvin.core.config import get_app_dirs, get_app_settings
 from marvin.core.root_logger import get_logger
@@ -56,12 +57,12 @@ class DiskSecretBackend(SecretBackend):
     def get(self, slug: str, group_id: UUID4 | None = None) -> str | None:
         return _read(group_id).get(slug)
 
-    def set(self, slug: str, value: str, group_id: UUID4 | None = None) -> None:
+    def set(self, slug: str, value: str, group_id: UUID4 | None = None, session: Session | None = None) -> None:
         data = _read(group_id)
         data[slug] = value
         _write(data, group_id)
 
-    def delete(self, slug: str, group_id: UUID4 | None = None) -> None:
+    def delete(self, slug: str, group_id: UUID4 | None = None, session: Session | None = None) -> None:
         data = _read(group_id)
         data.pop(slug, None)
         _write(data, group_id)

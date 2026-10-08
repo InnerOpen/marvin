@@ -11,6 +11,7 @@ Slugs are resolved directly: {{MY_SECRET}} -> os.environ.get("MY_SECRET")
 import os
 
 from pydantic import UUID4
+from sqlalchemy.orm import Session
 
 from ..base import SecretBackend
 
@@ -48,12 +49,12 @@ class EnvSecretBackend(SecretBackend):
         ws_prefix = _workspace_prefix(group_id)
         return os.environ.get(f"{ws_prefix}{slug}") or os.environ.get(f"{GLOBAL_PREFIX}{slug}") or os.environ.get(slug)
 
-    def set(self, slug: str, value: str, group_id: UUID4 | None = None) -> None:
+    def set(self, slug: str, value: str, group_id: UUID4 | None = None, session: Session | None = None) -> None:
         raise NotImplementedError(
             "EnvSecretBackend is read-only. Set secrets in your environment (Docker secrets, Kubernetes secrets, .env file, etc.)"
         )
 
-    def delete(self, slug: str, group_id: UUID4 | None = None) -> None:
+    def delete(self, slug: str, group_id: UUID4 | None = None, session: Session | None = None) -> None:
         raise NotImplementedError("EnvSecretBackend is read-only.")
 
     def list_slugs(self, group_id: UUID4 | None = None) -> list[str]:

@@ -11,6 +11,7 @@ Settings:
 """
 
 from pydantic import UUID4
+from sqlalchemy.orm import Session
 
 from marvin.core.config import get_app_settings
 from marvin.core.root_logger import get_logger
@@ -59,7 +60,7 @@ class VaultSecretBackend(SecretBackend):
             logger.debug(f"Vault get '{slug}': {e}")
             return None
 
-    def set(self, slug: str, value: str, group_id: UUID4 | None = None) -> None:
+    def set(self, slug: str, value: str, group_id: UUID4 | None = None, session: Session | None = None) -> None:
         settings = get_app_settings()
         mount = settings.VAULT_MOUNT or "secret"
         client = _get_client()
@@ -69,7 +70,7 @@ class VaultSecretBackend(SecretBackend):
             mount_point=mount,
         )
 
-    def delete(self, slug: str, group_id: UUID4 | None = None) -> None:
+    def delete(self, slug: str, group_id: UUID4 | None = None, session: Session | None = None) -> None:
         settings = get_app_settings()
         mount = settings.VAULT_MOUNT or "secret"
         client = _get_client()
