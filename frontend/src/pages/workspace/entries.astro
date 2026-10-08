@@ -3,7 +3,7 @@ import EntryCard from "@/components/EntryCard.astro";
 import FilterBar from "@/components/FilterBar.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { type CollectionRead, listCollections } from "@/lib/api/collections";
+import { type CollectionRead, getCollectionEntries, listCollections } from "@/lib/api/collections";
 import { type EntryRead, listEntries } from "@/lib/api/entries";
 import { type EntryTypeRead, listEntryTypes } from "@/lib/api/entryTypes";
 import { listTags, type TagRead } from "@/lib/api/tags";
@@ -47,6 +47,12 @@ if (!authToken) {
 // Create a map of collection ID to collection for quick lookup
 const collectionsMap = new Map(collections.map((c) => [c.id, c]));
 const trashCollection = collections.find((c: any) => c.isSystem && c.slug === "trash");
+// Trashed entries aren't in the list above: load the Trash's own, so the Trash group lists them and "In the Trash"
+// in the status filter shows them. "All statuses" leaves them out (the filter script), as everywhere else.
+let trashedEntries: EntryRead[] = [];
+if (trashCollection && (trashCollection.entryCount ?? 0) > 0 && authToken) {
+  trashedEntries = await getCollectionEntries(trashCollection.id, authToken).catch(() => []);
+}
 
 // Sort entry types by sort_order
 const sortedTypes = entryTypes.sort((a, b) => a.sortOrder - b.sortOrder);
@@ -73,6 +79,10 @@ for (const entry of entries) {
   } else {
     uncollected.push(entry);
   }
+}
+
+if (trashCollection && trashedEntries.length > 0) {
+  collectionGroups.set(trashCollection.id, { collection: trashCollection, entries: trashedEntries });
 }
 
 // Every entry collection that has entries gets a group, from its own count — not only the ones the loaded entries
@@ -122,10 +132,11 @@ const sortedGroups = [...collectionGroups.values()].sort(
                 options: [
                   { value: "inbox", label: "Inbox" },
                   { value: "draft", label: "Draft" },
-                  { value: "in_progress", label: "In Progress" },
-                  { value: "in_review", label: "In Review" },
+                  { value: "needs_review", label: "Needs Review" },
+                  { value: "approved", label: "Approved" },
                   { value: "published", label: "Published" },
-                  { value: "archived", label: "Archived" }
+                  { value: "archived", label: "Archived" },
+                  { value: "trashed", label: "In the Trash" }
                 ]
               },
               ...(filterTags.length > 0 ? [{
@@ -170,7 +181,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
 
           {/* Flat grid view */}
           <section class="grid view-section" id="grid-view" aria-label="Entries">
-            {entries.map((entry) => {
+            {[...entries, ...trashedEntries].map((entry) => {
               const matchesStatusFilter = statusFilters.length === 0 || statusFilters.includes(entry.status);
               return (
                 <div class="entry-wrapper"
@@ -216,6 +227,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
                 <section class="grid" aria-label={`${collection.name} entries`}>
                   {groupEntries.map((entry) => (
                     <div class="entry-wrapper"
+                      data-in-trash={collection.id === trashCollection?.id ? "" : undefined}
                       data-type={entry.entryTypeId}
                       data-status={entry.status}
                       data-title={entry.title.toLowerCase()}
@@ -331,7 +343,9 @@ const sortedGroups = [...collectionGroups.values()].sort(
       const matchesType = !typeQuery || type === typeQuery;
       const matchesTag = !tagQuery || tags.includes(tagQuery);
 
-      let matchesStatus = true;
+      // "All statuses" means everything but the Trash — except inside the Trash group, which lists it; pick
+      // "In the Trash" (or ?status=trashed) to see trashed entries anywhere.
+      let matchesStatus = status !== 'trashed' || wrapper.hasAttribute('data-in-trash');
       if (statusQuery) {
         matchesStatus = status === statusQuery;
       } else if (urlStatusFilters.length > 0) {
@@ -341,10 +355,13 @@ const sortedGroups = [...collectionGroups.values()].sort(
       (wrapper as HTMLElement).style.display = (matchesSearch && matchesType && matchesStatus && matchesTag) ? '' : 'none';
     });
 
-    // Hide collection groups where all entries are filtered out
+    // Hide collection groups where all entries are filtered out. A group with none listed here (only its count and
+    // a link) shows while nothing is filtered.
+    const filtering = Boolean(searchQuery || typeQuery || tagQuery || statusQuery || urlStatusFilters.length);
     document.querySelectorAll('.collection-group').forEach(group => {
+      const listed = group.querySelectorAll('.entry-wrapper').length;
       const visibleEntries = group.querySelectorAll('.entry-wrapper:not([style*="display: none"])');
-      (group as HTMLElement).style.display = visibleEntries.length > 0 ? '' : 'none';
+      (group as HTMLElement).style.display = visibleEntries.length > 0 || (listed === 0 && !filtering) ? '' : 'none';
     });
   }
 
