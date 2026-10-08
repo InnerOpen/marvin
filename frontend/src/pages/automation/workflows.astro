@@ -67,12 +67,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <button id="wf-json-toggle" type="button" class="linkish">Edit as JSON</button>
       </div>
 
-      <div id="wf-guided">
-        <div class="form-field">
-          <label class="label" for="wf-name">Name</label>
-          <input class="input" id="wf-name" placeholder="Summarize published bench notes" />
-        </div>
+      <div class="form-field">
+        <label class="label" for="wf-name">Name</label>
+        <input class="input" id="wf-name" placeholder="Summarize published bench notes" />
+      </div>
 
+      <div id="wf-guided">
         <div class="form-field">
           <label class="label" for="wf-trigger-type">Trigger</label>
           <select class="input" id="wf-trigger-type"></select>
@@ -162,19 +162,25 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <button type="button" class="linkish" id="wf-add-action">+ Add step</button>
           <p id="wf-on-failure-note" class="hint small" hidden></p>
         </div>
-
-        <label class="check"><input type="checkbox" id="wf-enabled" /> Enabled</label>
       </div>
 
       <div id="wf-json-editor" hidden>
         <div class="form-field">
-          <label class="label" for="wf-json">Definition (JSON)</label>
+          <label class="label" for="wf-json">Workflow JSON</label>
           <textarea class="input mono" id="wf-json" rows="16" spellcheck="false"></textarea>
-          <span class="hint">Advanced: the raw <code>{`{ trigger, conditions, actions }`}</code> definition.</span>
+          <span class="hint">
+            The definition — <code>{`{"trigger": {…}, "conditions": […], "actions": […]}`}</code> — or a whole workflow:
+            <code>{`{"name": "Archive old drafts", "definition": {…}}`}</code>. A pasted <code>name</code> fills the
+            Name field; <code>enabled</code> is ignored, so a new workflow stays off until you tick Enabled.
+          </span>
+          <span class="hint" id="wf-json-note" hidden></span>
         </div>
       </div>
 
+      <label class="check"><input type="checkbox" id="wf-enabled" /> Enabled</label>
+
       <div id="wf-warnings" class="banner warn" hidden></div>
+      <div id="wf-error" class="banner error" hidden></div>
 
       <div class="builder-actions">
         <button id="wf-save" class="button">Save workflow</button>
@@ -212,6 +218,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { getArg, hintedInputs, optionsHint, setArg } from "@/lib/integrationOptions";
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
+  import { describeSaveError } from "@/lib/saveError";
+  import { definitionDifferences, parseWorkflowJson } from "@/lib/workflowJson";
 
   const read = (id: string) => JSON.parse(document.getElementById(id)!.textContent || "null");
   const OPTIONS = read("wf-options-data") || { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
@@ -228,6 +236,16 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const statusEl = $("wf-status");
   let editingId: string | null = null; // null = creating
   let jsonMode = false;
+  let pastedSlug: string | null = null; // a slug from pasted workflow JSON; only a new workflow can use it
+
+  // A blocking problem (bad JSON, a refused save), listed under the builder.
+  function showError(message: string, issues: string[] = []) {
+    const el = $("wf-error");
+    el.innerHTML = `${esc(message)}${issues.length ? `<ul>${issues.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : ""}`;
+    el.removeAttribute("hidden");
+    statusEl.textContent = "";
+  }
+  function clearError() { $("wf-error").setAttribute("hidden", ""); }
 
   // ── Option-driven controls ────────────────────────────────────────────────
   const prettyEvent = (e: string) => e.replace(/_/g, " ");
@@ -813,11 +831,23 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   // ── Open / close the builder ──────────────────────────────────────────────
   function openBuilder(wf: any = null) {
     editingId = wf?.id ?? null;
+    pastedSlug = null;
     $("wf-builder-title").textContent = wf ? `Edit: ${wf.name}` : "New workflow";
     ($("wf-name") as HTMLInputElement).value = wf?.name ?? "";
     ($("wf-enabled") as HTMLInputElement).checked = wf?.enabled ?? false;
-    fillTriggers();
     const def = wf?.definition ?? {};
+    loadDefinition(def);
+    ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(def, null, 2);
+    showJsonNote("");
+    showMode(false);
+    statusEl.textContent = "";
+    clearError();
+    builder.removeAttribute("hidden");
+    builder.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  // Put a definition into the guided builder's fields.
+  function loadDefinition(def: any) {
+    fillTriggers();
     const trig = def.trigger ?? {};
     ($("wf-trigger-type") as HTMLSelectElement).value = trig.type || "event";
     if (trig.event) ($("wf-trigger") as HTMLSelectElement).value = trig.event;
@@ -860,12 +890,6 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     (def.actions?.length ? def.actions : [{}]).forEach((a: any) => actWrap.appendChild(actionRow(a)));
     originalExtras = Object.fromEntries(Object.entries(def).filter(([key]) => !BUILDER_KEYS.has(key)));
     showOnFailureNote(def.on_failure);
-
-    ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(def, null, 2);
-    setJsonMode(false);
-    statusEl.textContent = "";
-    builder.removeAttribute("hidden");
-    builder.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   // The builder has no fields for `on_failure` steps; say they're there (they're kept on save).
   function showOnFailureNote(steps: any) {
@@ -880,38 +904,100 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   }
   function closeBuilder() { builder.setAttribute("hidden", ""); editingId = null; }
 
+  // Switch views, carrying the workflow across. Neither direction drops anything silently: guided → JSON
+  // stays put if a step's JSON field can't be read, and JSON → guided stays in JSON (or asks first) when
+  // the JSON is broken or holds something the builder can't show.
   function setJsonMode(on: boolean) {
+    clearError();
     if (on) {
-      // keep them in sync when switching — a malformed target-query textarea can't be serialized,
-      // so stay in the guided view and point at it instead.
       let def: any;
-      try { def = readDefinition(); } catch (e: any) { statusEl.textContent = e.message; return; }
+      try { def = readDefinition(); } catch (e: any) { showError(e.message); return; }
       ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(def, null, 2);
+      showJsonNote("");
+    } else {
+      const def = absorbJson();
+      if (!def) return;
+      loadDefinition(def);
+      let rebuilt: any;
+      try { rebuilt = readDefinition(); } catch (e: any) { showError(e.message); return; }
+      const lost = definitionDifferences(def, rebuilt);
+      if (lost.length) {
+        const list = lost.slice(0, 8).join(", ") + (lost.length > 8 ? `, and ${lost.length - 8} more` : "");
+        const drop = confirm(
+          `The guided builder can't show everything in this JSON. Switching would change or drop: ${list}.\n\n` +
+            "Switch anyway? (Cancel keeps the JSON as it is.)",
+        );
+        if (!drop) {
+          showError("Stayed in JSON — the guided builder can't show these parts of it:", lost);
+          return;
+        }
+      }
     }
+    showMode(on);
+  }
+  function showMode(on: boolean) {
     jsonMode = on;
     guided.toggleAttribute("hidden", on);
     jsonEditor.toggleAttribute("hidden", !on);
     $("wf-json-toggle").textContent = on ? "Use guided builder" : "Edit as JSON";
   }
+  function showJsonNote(text: string) {
+    const note = $("wf-json-note");
+    note.textContent = text;
+    note.toggleAttribute("hidden", !text);
+  }
+
+  // Read the JSON view. A whole workflow document ({name, slug?, definition}) moves its name into the Name
+  // field and leaves only the definition in the box; `enabled` is never taken from it. Returns the
+  // definition, or null after showing why the JSON can't be used.
+  function absorbJson(): any {
+    const box = $("wf-json") as HTMLTextAreaElement;
+    const parsed = parseWorkflowJson(box.value);
+    if ("error" in parsed) { showError(parsed.error); return null; }  // (`in`: narrows without strictNullChecks)
+    const filled: string[] = [];
+    if (parsed.name) {
+      ($("wf-name") as HTMLInputElement).value = parsed.name;
+      filled.push(`the name “${parsed.name}”`);
+    }
+    // A pasted name or slug is a new workflow identity: forget the slug of anything pasted before.
+    if (parsed.name || parsed.slug) pastedSlug = (!editingId && parsed.slug) || null;
+    if (pastedSlug && parsed.slug) filled.push(`the slug “${parsed.slug}”`);
+    const ignored = parsed.ignored.filter((key) => key !== "enabled");
+    if (parsed.slug && editingId) ignored.push("slug (a saved workflow keeps its slug)");
+    box.value = JSON.stringify(parsed.definition, null, 2);
+    if (filled.length || parsed.ignored.length) {
+      showJsonNote([
+        filled.length ? `Took ${filled.join(" and ")} from the JSON.` : "",
+        parsed.ignored.includes("enabled") ? "Ignored “enabled” — tick Enabled below to turn the workflow on." : "",
+        ignored.length ? `Ignored: ${ignored.join(", ")}.` : "",
+      ].filter(Boolean).join(" "));
+    }
+    return parsed.definition;
+  }
 
   // ── Save ──────────────────────────────────────────────────────────────────
   async function save() {
-    const name = ($("wf-name") as HTMLInputElement).value.trim();
-    if (!name) { statusEl.textContent = "Name is required."; return; }
+    clearError();
     let definition: any;
-    try {
-      definition = jsonMode ? JSON.parse(($("wf-json") as HTMLTextAreaElement).value) : readDefinition();
-    } catch (e: any) { statusEl.textContent = `Invalid JSON: ${e.message}`; return; }
-    if (!definition.actions?.length) { statusEl.textContent = "Add at least one step."; return; }
+    if (jsonMode) {
+      definition = absorbJson();  // first, so a pasted document's name counts
+      if (!definition) return;
+    } else {
+      try { definition = readDefinition(); } catch (e: any) { showError(e.message); return; }
+    }
+    const name = ($("wf-name") as HTMLInputElement).value.trim();
+    if (!name) { showError("Name is required."); return; }
+    if (!definition.actions?.length) { showError("Add at least one step."); return; }
 
     const enabled = ($("wf-enabled") as HTMLInputElement).checked;
     statusEl.textContent = "Saving…";
     try {
       if (editingId) await updateAutomation(editingId, { name, enabled, definition });
-      else await createAutomation({ name, enabled, definition });
+      else await createAutomation({ name, enabled, definition, ...(pastedSlug ? { slug: pastedSlug } : {}) });
       location.reload();
     } catch (e: any) {
-      statusEl.textContent = e?.message || "Save failed.";
+      const { message, issues } = describeSaveError(e);
+      showError(message, issues);
     }
   }
 
@@ -1230,6 +1316,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   builder.addEventListener("input", revalidate);
   builder.addEventListener("change", revalidate);
   $("wf-json-toggle").addEventListener("click", () => setJsonMode(!jsonMode));
+  // Pasting a whole workflow fills the Name field straight away (once the paste lands in the box). JSON that
+  // doesn't parse yet (a fragment pasted mid-edit) is left alone until a switch or save.
+  $("wf-json").addEventListener("paste", () => setTimeout(() => {
+    if (parseWorkflowJson(($("wf-json") as HTMLTextAreaElement).value).ok) { clearError(); absorbJson(); }
+  }));
 
   // Condition-field datalist — repopulated per trigger so the picker offers the fields the
   // trigger's context actually exposes (entry.* for entry triggers, event.payload.* for webhooks).
@@ -1308,8 +1399,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.banner a) { color: var(--accent); }
   .workflows-page :global(.banner.warn) { background: color-mix(in srgb, #d9a441 13%, transparent); border: 1px solid color-mix(in srgb, #d9a441 42%, transparent); color: var(--ink); }
   .workflows-page :global(.banner.warn[hidden]) { display: none; }
-  .workflows-page :global(.banner.warn ul) { margin: 6px 0 4px; padding-left: 18px; }
-  .workflows-page :global(.banner.warn li) { margin: 2px 0; }
+  .workflows-page :global(.banner.warn ul), .workflows-page :global(.banner.error ul) { margin: 6px 0 4px; padding-left: 18px; }
+  .workflows-page :global(.banner.warn li), .workflows-page :global(.banner.error li) { margin: 2px 0; }
   .workflows-page :global(.banner.warn .warn-note) { display: block; margin-top: 4px; color: var(--muted); font-size: 12.5px; }
 
   /* "Run on" target selector + dry-run preview */
