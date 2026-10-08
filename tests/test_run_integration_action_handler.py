@@ -166,8 +166,15 @@ TASK_CONFIG = {
 }
 
 
-def _run(gid, config=TASK_CONFIG, failure_count=0):
-    task = SimpleNamespace(group_id=gid, task_config=config, failure_count=failure_count)
+def _run(gid, config=TASK_CONFIG, failure_count=0, schedule=None):
+    task = SimpleNamespace(
+        id=None,
+        group_id=gid,
+        task_config=config,
+        failure_count=failure_count,
+        schedule_type="interval" if schedule else None,
+        schedule_config={"interval_seconds": schedule} if schedule else None,
+    )
     return RunIntegrationActionHandler().execute(task, SimpleNamespace(dispatch=lambda **_: None))
 
 
@@ -308,10 +315,10 @@ def test_handler_is_registered_but_not_automation_allowed():
     assert handler_mod.RunIntegrationActionHandler.config_schema["required"] == ["integration", "action"]
 
 
-@pytest.mark.parametrize(("failed_before", "alerts"), [(0, False), (1, False), (2, True)])
-def test_a_network_blip_needs_attention_only_once_it_keeps_happening(db_session, workspace, provider, secrets, monkeypatch, failed_before, alerts):
-    """A timeout on a two-minute poll fails the run (recorded as such) but raises "needs attention" only on the third
-    failure in a row; a real error still does on the first."""
+@pytest.mark.parametrize(("schedule", "alerts"), [(120, False), (30 * 24 * 3600, True), (None, True)], ids=["2-min poll", "monthly", "once"])
+def test_a_network_blip_needs_attention_unless_the_next_run_is_soon(db_session, workspace, provider, secrets, monkeypatch, schedule, alerts):
+    """A timeout fails the run (recorded as such). On a two-minute poll it isn't "needs attention" yet — the next run
+    is minutes away (scheduled_tasks/blips.py); on a monthly or one-off task nothing retries it soon, so it is."""
     from marvin.services.integrations import errors
 
     calls = []
@@ -322,7 +329,7 @@ def test_a_network_blip_needs_attention_only_once_it_keeps_happening(db_session,
 
     provider.run_action = slow
     with pytest.raises(TimeoutError):
-        _run(workspace, failure_count=failed_before)
+        _run(workspace, schedule=schedule)
     assert bool(calls) is alerts
 
 

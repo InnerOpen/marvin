@@ -253,9 +253,9 @@ def _handler(result):
     return _Handler
 
 
-def _task_runner(db_session, world, monkeypatch):
-    """A scheduled task in the world's workspace, and a function that runs it once through the real listener with
-    its handler returning (or raising) a result."""
+def _task_runner(db_session, world, monkeypatch, interval_seconds: int = 120):
+    """A scheduled task in the world's workspace (every ``interval_seconds``), and a function that runs it once through
+    the real listener with its handler returning (or raising) a result; ``run.task`` is the task."""
     from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
     from marvin.services.event_bus_service.event_bus_listener import ScheduledTaskListener
     from marvin.services.event_bus_service.event_types import Event, EventBusMessage
@@ -267,7 +267,7 @@ def _task_runner(db_session, world, monkeypatch):
         name="Poll the inbox",
         slug=f"poll-{world.marker}",
         schedule_type="interval",
-        schedule_config={"minutes": 2},
+        schedule_config={"interval_seconds": interval_seconds},
         task_type="test_notify_task",
         task_config={},
     )
@@ -286,6 +286,7 @@ def _task_runner(db_session, world, monkeypatch):
         )
         ScheduledTaskListener(world.gid).publish_to_subscribers(event, ["scheduled_task_handler"])
 
+    run.task = task
     return run
 
 
@@ -305,22 +306,40 @@ def test_a_scheduled_task_alerts_once_and_even_a_quiet_recovery_says_so(db_sessi
     assert len(world.sent) == 2
 
 
-def test_a_network_blip_alerts_only_on_the_third_failure_in_a_row(db_session, world, monkeypatch):
-    """A timeout on a two-minute poll (the Instagram auto-reply's slow API) isn't announced — nor its recovery — until
-    it has failed three times in a row; then it alerts once, and recovers once."""
+def test_a_network_blip_on_a_frequent_poll_alerts_once_it_has_lasted_ten_minutes(db_session, world, monkeypatch):
+    """A timeout on a two-minute poll (the Instagram auto-reply's slow API) isn't announced — nor its recovery — while
+    it's a blip; once the task has been failing for ten minutes it alerts once, and recovers once."""
+    from datetime import UTC, datetime, timedelta
+
+    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskExecutionLogModel as Log
+
     _configure(db_session, world, recipients=["ops@example.test"])
-    run = _task_runner(db_session, world, monkeypatch)
+    run = _task_runner(db_session, world, monkeypatch, interval_seconds=120)
 
     run(TimeoutError("The read operation timed out"))
     run(None)
     run(TimeoutError("The read operation timed out"))
     run(TimeoutError("The read operation timed out"))
-    assert world.sent == []  # two blips, a recovery nobody was told about, two more blips
+    assert world.sent == []  # blips, a recovery nobody was told about, more blips
 
-    run(TimeoutError("The read operation timed out"))  # the third in a row
+    # The streak has now lasted eleven minutes.
+    db_session.query(Log).filter(Log.task_id == run.task.id, Log.status == "failed").update(
+        {"executed_at": datetime.now(UTC) - timedelta(minutes=11)}
+    )
+    db_session.commit()
+    run(TimeoutError("The read operation timed out"))
     assert _subjects(world) == ["Scheduled task failed: Poll the inbox"]
     run(None)
     assert _subjects(world) == ["Scheduled task failed: Poll the inbox", "Scheduled task working again: Poll the inbox"]
+
+
+def test_a_slow_tasks_first_network_blip_alerts(db_session, world, monkeypatch):
+    """A monthly task (the Instagram token refresh) isn't retried for a month: its first blip alerts, not its third."""
+    _configure(db_session, world, recipients=["ops@example.test"])
+    run = _task_runner(db_session, world, monkeypatch, interval_seconds=30 * 24 * 3600)
+
+    run(TimeoutError("The read operation timed out"))
+    assert _subjects(world) == ["Scheduled task failed: Poll the inbox"]
 
 
 # ── integration alerts ──────────────────────────────────────────────────────────

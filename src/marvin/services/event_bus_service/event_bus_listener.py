@@ -630,8 +630,11 @@ class ScheduledTaskListener(BuiltinReaction):
     ) -> None:
         """Helper to handle task execution failures."""
         from marvin.services.integrations.http_client import is_transient_network_error
+        from marvin.services.scheduled_tasks.blips import defer_alert
 
         in_a_row = task.failure_count + 1  # read before the update below, which may change `task` in place
+        # Decided before this failure is logged: the streak so far is the runs that failed before it.
+        deferred = defer_alert(repos.session, task, exc)
 
         end_time = datetime.now(UTC)
         duration_ms = int((end_time - start_time).total_seconds() * 1000)
@@ -666,7 +669,12 @@ class ScheduledTaskListener(BuiltinReaction):
         document_data = event.document_data
         if isinstance(document_data, EventScheduledTaskData):
             document_data = document_data.model_copy(
-                update={"consecutive_failures": in_a_row, "transient": is_transient_network_error(exc), "last_status": "failed"}
+                update={
+                    "consecutive_failures": in_a_row,
+                    "transient": is_transient_network_error(exc),
+                    "alert_deferred": deferred,
+                    "last_status": "failed",
+                }
             )
         event_bus.dispatch(
             integration_id="scheduled_tasks",

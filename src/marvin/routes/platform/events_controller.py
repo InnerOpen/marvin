@@ -88,13 +88,13 @@ def _feed_item(event) -> EventFeedItem:
 
 def _passing_blip(event) -> bool:
     """A scheduled task's network blip that notifications don't announce yet (workspace_alerts.passing_blip): the
-    bell leaves it out too. It is still in the event log, and the third failure in a row shows."""
+    bell leaves it out too. It is still in the event log, and shows once the blip has lasted ten minutes."""
     if getattr(event, "event_type", None) != "scheduled_task_failed":
         return False
     from marvin.services.workspace_alerts import passing_blip
 
     doc = _document(event.event_data or {})
-    return passing_blip({"transient": doc.get("transient"), "consecutive_failures": doc.get("consecutiveFailures", doc.get("consecutive_failures"))})
+    return passing_blip({"alert_deferred": doc.get("alertDeferred", doc.get("alert_deferred"))})
 
 
 def _feed_start(since: datetime | None, now: datetime) -> datetime:

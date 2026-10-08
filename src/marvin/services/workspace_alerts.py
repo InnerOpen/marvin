@@ -300,8 +300,8 @@ def _close_incident(session: Session, group_id, key: str) -> SimpleNamespace | N
 
 
 def passing_blip(data: dict) -> bool:
-    """A scheduled run that failed on a network blip, not yet often enough in a row to alert about."""
-    return bool(data.get("transient")) and int(data.get("consecutive_failures") or 0) < alerting.TRANSIENT_FAILURES_BEFORE_ALERT
+    """A scheduled run's network blip not announced yet (services/scheduled_tasks/blips.py decided, at the failure)."""
+    return data.get("alert_deferred") is True
 
 
 def _incident_key(kind: str, data: dict) -> str | None:

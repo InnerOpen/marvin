@@ -181,8 +181,8 @@ def test_a_queued_rebuild_carries_its_windows(db_session, workspace):
 
 
 def test_the_bell_leaves_out_a_scheduled_tasks_passing_network_blip():
-    """The same rule as notifications (workspace_alerts.passing_blip): the third timeout in a row shows, a real error
-    on the first."""
+    """The same decision as notifications (workspace_alerts.passing_blip, made at the failure by
+    scheduled_tasks/blips.py): a deferred blip is left out, everything else shows."""
     from types import SimpleNamespace
 
     from marvin.routes.platform.events_controller import _passing_blip
@@ -190,9 +190,8 @@ def test_the_bell_leaves_out_a_scheduled_tasks_passing_network_blip():
     def failed(**doc):
         return SimpleNamespace(event_type="scheduled_task_failed", event_data={"documentData": doc})
 
-    assert _passing_blip(failed(transient=True, consecutiveFailures=1))
-    assert _passing_blip(failed(transient=True, consecutiveFailures=2))
-    assert not _passing_blip(failed(transient=True, consecutiveFailures=3))
-    assert not _passing_blip(failed(transient=False, consecutiveFailures=1))
+    assert _passing_blip(failed(transient=True, alertDeferred=True))
+    assert not _passing_blip(failed(transient=True, alertDeferred=False))  # lasted ten minutes, or nothing retries it soon
+    assert not _passing_blip(failed(transient=False))
     assert not _passing_blip(failed())  # recorded before this change: shown as before
-    assert not _passing_blip(SimpleNamespace(event_type="automation_failed", event_data={"documentData": {"transient": True}}))
+    assert not _passing_blip(SimpleNamespace(event_type="automation_failed", event_data={"documentData": {"alertDeferred": True}}))
