@@ -17,22 +17,17 @@ export class ApiRequestError extends Error {
 const DEV_MODE = import.meta.env.DEV;
 const MAX_RETRIES = 2;
 const RETRY_DELAY_MS = 1000;
+/** Retried after a 5xx answer: reads only. The server may already have acted on anything else, and a
+ *  retried DELETE then answers 404 — "not found" for a delete that worked. */
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+/** Retried when no answer arrived at all (the request failed on the network): methods a server may see twice. */
+const IDEMPOTENT_METHODS = new Set([...SAFE_METHODS, "PUT", "DELETE"]);
 
 /**
  * Sleep for specified milliseconds
  */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
- * Check if error is retryable (network errors or 5xx)
- */
-function isRetryable(error: unknown): boolean {
-  if (error instanceof ApiRequestError) {
-    return error.status >= 500;
-  }
-  return true; // Network errors are retryable
 }
 
 /**
@@ -78,9 +73,11 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
     credentials: "include", // Send cookies with cross-origin requests
   };
 
+  const method = (init.method || "GET").toUpperCase();
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    let answered = false;
     try {
       if (DEV_MODE && attempt === 0) {
         const context = typeof window === "undefined" ? "SSR" : "Client";
@@ -92,6 +89,7 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
 
       const startTime = DEV_MODE ? Date.now() : 0;
       const response = await fetch(url, fetchInit);
+      answered = true;
 
       if (DEV_MODE && attempt === 0) {
         const duration = Date.now() - startTime;
@@ -153,8 +151,8 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
 
         const error = new ApiRequestError(errorMessage, response.status, url.toString(), errorBody);
 
-        // Retry on 5xx errors
-        if (attempt < MAX_RETRIES && error.status >= 500) {
+        // Retry a read on 5xx errors
+        if (attempt < MAX_RETRIES && error.status >= 500 && SAFE_METHODS.has(method)) {
           if (DEV_MODE) {
             console.warn(`[API] Retrying after ${RETRY_DELAY_MS}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
           }
@@ -169,18 +167,14 @@ export async function fetchApi<T>(path: string, init: RequestInit = {}, authToke
       if (response.status === 204 || response.headers.get("content-length") === "0") {
         return undefined as T;
       }
-      const data = (await response.json()) as T;
-      return data;
+      const text = await response.text();
+      return (text.trim() ? JSON.parse(text) : undefined) as T;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
 
-      // Don't retry on non-retryable errors
-      if (!isRetryable(error)) {
-        throw lastError;
-      }
-
-      // Don't retry on last attempt
-      if (attempt === MAX_RETRIES) {
+      // Once the server has answered, never send the request again (an error answer, or a body that
+      // didn't parse); without an answer, only a method the server may see twice — and not forever.
+      if (answered || !IDEMPOTENT_METHODS.has(method) || attempt === MAX_RETRIES) {
         throw lastError;
       }
 
