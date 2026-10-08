@@ -2628,10 +2628,15 @@ environment stays on the prod job so a required reviewer can be added later with
       named-PV ClusterRole for `marvin-marvin-backup-nas-nightly`. Server dry-run validated.
 - [x] Local: shellcheck + actionlint clean; dry runs for both namespaces; rendered manifests = live releases;
       smoke pass/fail; kubeconfig step verifies the CA; real promote → smoke → rollback on marvin-dev (rev 47/48, no pod churn).
-- [ ] Jared: apply RBAC; `OPENSHIFT_CA` secret (commands in the RBAC file header).
+- [x] Jared: applied RBAC; `OPENSHIFT_CA` secret set. Checked as `deployer` (`oc auth can-i` + both dry runs impersonating it).
 - [ ] Put `promote.yml` + `promote-release.yml` on `main` (a `ci:` commit, like `deploy.yml`'s `e6cd5082`) so they can be dispatched.
 - [ ] `gh workflow run promote.yml --ref develop -f dry_run=true` → both green.
-- [ ] Next develop push: dev deploys, then prod, `helm history` shows `promote develop-<sha>` in both.
+- [x] First real run (`d7adb63b`): CI wait 3m45s, marvin-dev 1m51s ok. Prod's backend surge pod hit `FailedScheduling:
+      Insufficient cpu` and the job rolled prod back to rev 69 as designed. Cause: `worker01` is the only schedulable
+      node (3500m), and with `minRunners: 1` on `github-arc-runners` two runner pods each took 250m (the namespace
+      LimitRange's default request). Runner container now requests 50m / 256Mi (scale-set helm rev 3); a promotion
+      needs ~500m free on worker01 (backend + frontend surge pods). Prod job re-run: 1m28s, rev 72 `promote develop-d7adb63`.
+- [ ] Second run (this commit): dev then prod with no intervention.
 - [ ] Rollback drill: `-f smoke_expect=<older sha>` → dev rolls back, prod never starts.
-- [ ] After two green promotions: retire `dev-then-prod.sh`, `ship-when-green.sh`, `*-dev-check.sh` and their
-      settings.json allow rules.
+- [x] Retired `dev-then-prod.sh`, `ship-when-green.sh`, `*-dev-check.sh` (moved to the job's `retired-deploy-scripts/`)
+      and their settings.json allow rules; the Brain's deploy notes now say "push to develop".
