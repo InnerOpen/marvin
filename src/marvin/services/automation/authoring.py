@@ -203,6 +203,8 @@ def _shape() -> dict:
             "Keys are snake_case exactly as listed; any other key is rejected (there is no `steps`, `for_each` or `type` on a step).",
             "Steps go in `actions`, run in order, each with a `kind`. To act on many entries, give a `target` query: the steps run once per match.",
             "`on_failure` steps run when a step fails, with `${error.*}`. `integration_errors`: policy (default) | fail.",
+            "Use the trigger the user asked for; when they named none, `manual`. Never add a schedule or event they didn't ask "
+            "for — above all to a workflow that trashes, archives or unpublishes a target's matches. A recipe keeps its trigger.",
         ],
     }
 

@@ -185,7 +185,8 @@ def _saved(ctx: ToolContext, row, parsed, *, created: bool) -> str:
         "editLink": workflow_edit_link(row),
         "next": (
             "It is switched off. Give the user the editLink verbatim and say what to check before they enable it: the "
-            "trigger, which entries it acts on (a dry run shows them without changing anything), and each step."
+            "trigger, which entries it acts on (a dry run shows them without changing anything), and each step. Tell them "
+            "every warning in your own words."
         ),
     }
     warnings = [w["message"] for w in validate_definition(row.definition)]
@@ -205,7 +206,8 @@ def _saved(ctx: ToolContext, row, parsed, *, created: bool) -> str:
         "(call it first) — Marvin's format only: trigger / target / conditions / actions with `kind` steps. It is "
         "checked exactly as the workflow editor's save is, plus unknown keys and names this workspace doesn't have; on "
         "problems nothing is saved and `issues` say what to fix at which path — fix them and call again. Never enables "
-        "or runs anything. Give the user the result's editLink verbatim."
+        "or runs anything. Keep the trigger the user asked for (`manual` when they named none). Give the user the "
+        "result's editLink verbatim."
     ),
     input_schema={
         "type": "object",

@@ -440,3 +440,54 @@ def test_asking_marvin_to_trash_published_resources_drafts_a_resource_target(ws,
     assert {s["target"]["name"] for s in plan["plan"]} == {"mill", "hammer"} and all(s["resolved"]["entity_type"] == "resource" for s in plan["plan"])
     ws.session.expire_all()
     assert items.mill.trashed_at is None
+
+
+# ── A trash sweep that runs on its own is said out loud ──────────────────────
+
+DAILY = {"type": "schedule", "schedule_type": "interval", "schedule_config": {"interval_seconds": 86400}}
+SWEEP = {"entity": "asset", "query": {"asset_type": "image", "unattached": True}}
+
+
+def test_a_scheduled_trash_sweep_warns_and_a_manual_one_does_not():
+    from marvin.services.automation.validation import validate_definition
+
+    definition = {"trigger": DAILY, "target": SWEEP, "actions": [{"kind": "entry", "op": "trash"}]}
+    (warning,) = [i for i in validate_definition(definition) if "to the Trash" in i["message"]]
+    assert warning["level"] == "warning" and warning["index"] == 0
+    assert "250 assets" in warning["message"] and "schedule trigger" in warning["message"] and "Manual" in warning["message"]
+    assert not [i for i in validate_definition({**definition, "trigger": MANUAL}) if "to the Trash" in i["message"]]
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        # One item, not a sweep: the triggering upload, or one named by slug.
+        {"trigger": {"type": "event", "event": "asset_uploaded"}, "actions": [{"kind": "entry", "op": "trash"}]},
+        {"trigger": DAILY, "target": SWEEP, "actions": [{"kind": "entry", "op": "trash", "entity_type": "asset", "entity_slug": "logo"}]},
+        # Restoring on a schedule loses nothing.
+        {"trigger": DAILY, "target": {"entity": "resource", "query": {"trashed": True}}, "actions": [{"kind": "entry", "op": "restore"}]},
+    ],
+)
+def test_no_sweep_warning_for_one_item_or_a_restore(definition):
+    from marvin.services.automation.validation import validate_definition
+
+    assert not [i for i in validate_definition(definition) if "to the Trash" in i["message"]]
+
+
+def test_the_agents_daily_sweep_is_saved_off_with_the_warning_for_the_user(ws):
+    """The draft Ask produced on 2026-10-08 for "trash every unattached image": it is saved (sometimes a schedule is the
+    point) but switched off, and the agent is handed the warning to pass on — and told to keep to the asked-for trigger."""
+    from tests.test_workflow_authoring import _tool
+
+    definition = {
+        "trigger": DAILY,
+        "target": {**SWEEP, "query": {**SWEEP["query"], "trashed": False}},
+        "conditions": [],
+        "actions": [{"kind": "entry", "op": "trash"}],
+    }
+    out = _tool(ws, "draft_workflow", {"name": "Trash unattached images", "definition": definition})
+    assert out["workflow"]["enabled"] is False
+    assert any("to the Trash every time the schedule trigger fires" in w for w in out["warnings"])
+    assert "every warning" in out["next"]
+    notes = authoring_guide(ws.session, ws.gid)["shape"]["notes"]
+    assert any("when they named none, `manual`" in n for n in notes)

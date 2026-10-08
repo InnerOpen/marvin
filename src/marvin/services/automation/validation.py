@@ -204,7 +204,35 @@ def validate_definition(definition: dict | None) -> list[dict]:
     # What would certainly go wrong at run time (a query shape nothing reads, an entry op on an asset target) —
     # advisory here, where hand-written JSON is kept lenient; an agent's draft gets the same as errors.
     issues.extend({**issue, "level": "warning"} for issue in query_issues(definition) + item_target_issues(definition))
+    issues.extend(unattended_trash_issues(definition))
     return issues
+
+
+def unattended_trash_issues(definition: dict | None) -> list[dict]:
+    """A Move to Trash step over a whole target under a trigger that fires on its own: one wrong filter trashes every
+    match on every run, with nobody asked (the agent's trash tools always ask first). Advisory — sometimes that is the
+    point — but said out loud in the editor and to the agent."""
+    from .selector import MAX_TARGET_ENTITIES
+
+    definition = definition or {}
+    target = definition.get("target")
+    ttype = (definition.get("trigger") or {}).get("type", "event")
+    if ttype == "manual" or not isinstance(target, dict):
+        return []
+    noun = {"entry": "entries", "asset": "assets", "resource": "resources"}.get(target.get("entity") or "entry", "items")
+    named = ("entity_slug", "entity_id", "entity_query")  # a step that names its own one item isn't the target sweep
+    return [
+        _issue(
+            "warning",
+            f"This step moves up to {MAX_TARGET_ENTITIES} {noun} to the Trash every time the {_pretty(ttype)} trigger fires, "
+            "without asking. Make the trigger Manual (preview, then run it) unless it is meant to run on its own, and keep "
+            "the query narrow.",
+            "action",
+            i,
+        )
+        for i, step in enumerate(definition.get("actions") or [])
+        if isinstance(step, dict) and step.get("kind") == "entry" and step.get("op") == "trash" and not any(step.get(k) for k in named)
+    ]
 
 
 def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool, subject: str = "entry") -> list[dict]:
