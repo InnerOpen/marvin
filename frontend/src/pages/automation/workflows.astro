@@ -1384,7 +1384,15 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const linked = params.get("workflow");
   const linkedRun = params.get("run");
   const linkedCard = linked ? $("wf-list").querySelector(`.wf-card[data-id="${CSS.escape(linked)}"]`) : null;
-  if (linked && linkedCard) {
+  // &edit=1 (the link an agent gives after draft_workflow): open that workflow in the editor, to review it before enabling.
+  const linkedEdit = linked && params.get("edit") ? workflows.find((w) => w.id === linked) : null;
+  if (linkedEdit) {
+    openBuilder(linkedEdit);
+    // Drop the parameter so saving (which reloads) lands on the list, not back in the editor.
+    const url = new URL(location.href);
+    url.searchParams.delete("edit");
+    history.replaceState(history.state, "", url);
+  } else if (linked && linkedCard) {
     linkedCard.classList.add("linked");
     linkedCard.scrollIntoView({ block: "center" });
     toggleHistory(linkedCard, linked).then(() => {

@@ -108,6 +108,26 @@ NO_REMOVE_RULE = (
 )
 
 
+# Asked to create a workflow, an agent said it couldn't author workflow JSON, then wrote some anyway in a format
+# Marvin doesn't have (`steps`, `type: find_entries`, `for_each`, `{{steps[...]}}`). The format comes from the
+# guide (generated from the code), the workflow from draft_workflow — switched off, for the user to enable.
+WORKFLOW_RULE = (
+    "Creating a workflow (automation): when asked to create, build or set up a workflow or automation, make it yourself. "
+    "Call workflow_authoring_guide first (unless its result is already in this conversation; ask it for a section when "
+    "you need detail), then draft_workflow with a definition in exactly that format, using this workspace's own names "
+    "from the guide. Never say you can't create workflows, and never invent another format. If draft_workflow returns "
+    "issues, fix each one and call it again — at most three tries, then tell the user what is still wrong. It is created "
+    "switched off: say so, give the result's editLink verbatim, and say what to check before enabling it (the trigger, "
+    "which entries it acts on — a dry run shows them without changing anything — and each step). Revise a draft with "
+    "update_workflow_draft; never enable or run it yourself."
+)
+WORKFLOW_GUIDE_ONLY_RULE = (
+    "Workflows (automations): you can't save one here. Asked for one, call workflow_authoring_guide and write the "
+    "definition in exactly that format for the user to paste into the workflow editor (New workflow → Edit as JSON); "
+    "never invent another format."
+)
+
+
 def external_servers(tool_names: Iterable[str]) -> dict[str, int]:
     """`{server_prefix: tool_count}` from bound `mcp__<server>__<tool>` names."""
     counts: dict[str, int] = {}
@@ -162,6 +182,10 @@ def workspace_preamble(workspace_name: str | None, tool_names: Iterable[str]) ->
         lines.append(NO_REMOVE_RULE)
     if names.intersection(ENTRY_URL_TOOLS):
         lines.append(entry_links_rule(names))
+    if "draft_workflow" in names:
+        lines.append(WORKFLOW_RULE)
+    elif "workflow_authoring_guide" in names:
+        lines.append(WORKFLOW_GUIDE_ONLY_RULE)
     if names:
         lines.append(
             "Act, don't announce: when a question needs a tool, call it in this same turn. Never reply with "
