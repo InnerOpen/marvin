@@ -133,7 +133,7 @@ const ADD_CHANNEL = `${navHref("settings.integrations")}?category=notify`;
           </p>
           <fieldset class="takes" data-testid="push-kinds">
             <legend>Takes</legend>
-            {data.types.map((k) => (
+            {data.types.filter((k) => k.push !== false).map((k) => (
               <label><input type="checkbox" name="push-kind" value={k.key} checked={takes(push.kinds, k.key)} /> {k.label}</label>
             ))}
           </fieldset>
@@ -203,6 +203,7 @@ const ADD_CHANNEL = `${navHref("settings.integrations")}?category=notify`;
   if (state && form && list) {
     let routes: RouteDraft[] = state.routes.map(draftFrom);
     const kindKeys = () => (state?.types ?? []).map((k) => k.key);
+    const pushKindKeys = () => (state?.types ?? []).filter((k) => k.push !== false).map((k) => k.key);
     const targets = () => new Map<string, AlertTarget>((state?.targets ?? []).map((t) => [targetKey(t), t]));
 
     const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
@@ -362,7 +363,7 @@ const ADD_CHANNEL = `${navHref("settings.integrations")}?category=notify`;
         everyAdmin: (form.querySelector<HTMLInputElement>('input[name="wn-recipients"]:checked')?.value ?? "all") === "all",
         recipientsText: (document.getElementById("wn-recipients-text") as HTMLTextAreaElement).value,
         emailKinds: channelKinds(emailTicked, kindKeys()),
-        push: pushSwitch ? { enabled: pushSwitch.checked, kinds: channelKinds(pushTicked, kindKeys()) } : null,
+        push: pushSwitch ? { enabled: pushSwitch.checked, kinds: channelKinds(pushTicked, pushKindKeys()) } : null,
         routes,
         reminderHours: reminderHours(
           (document.getElementById("wn-reminder") as HTMLInputElement | null)?.value ?? "",

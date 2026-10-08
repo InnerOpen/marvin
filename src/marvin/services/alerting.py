@@ -59,6 +59,8 @@ class AlertKind:
     reasons: frozenset[str] | None = None
     recovered_by: str | None = None
     """The event that ends this kind's incident, when the scope sends a "working again" note for it."""
+    push: bool = True
+    """False: the Push channel never takes it (people choose that push in their Profile instead)."""
 
     def matches(self, event_type: str, data: dict) -> bool:
         return event_type == self.event_type and (self.reasons is None or data.get("reason") in self.reasons)
@@ -113,7 +115,8 @@ class AlertSettings:
         from marvin.services import web_push
 
         found = [EMAIL_CHANNEL] if self.email_enabled and (self.email_kinds is None or kind in self.email_kinds) else []
-        if self.push_enabled and (self.push_kinds is None or kind in self.push_kinds) and web_push.configured():
+        pushable = all(k.push for k in self.catalog if k.key == kind)
+        if pushable and self.push_enabled and (self.push_kinds is None or kind in self.push_kinds) and web_push.configured():
             found.append(PUSH_CHANNEL)
         return found + [r.id for r in self.routes if r.enabled and r.takes(kind)]
 

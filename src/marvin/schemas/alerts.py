@@ -34,6 +34,8 @@ class AlertKindRead(_MarvinModel):
     event_type: str
     enabled: bool
     default: bool
+    push: bool = True
+    """False: the Push channel never takes this kind (people choose it in their Profile instead)."""
 
 
 class AlertActionInput(_MarvinModel):

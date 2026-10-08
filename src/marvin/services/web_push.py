@@ -4,7 +4,7 @@ Off unless the operator set VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT
 signed-in user turns push on per browser or phone in Profile → Notifications, which stores the device's
 subscription (``push_subscriptions``), and chooses the kinds they take (``users.push_preferences``, null takes
 every kind on). What sends one is services/push_notifications.py (the bell's items that need a person, AI
-approvals) and services/alerting.py (the Push channel of workspace notifications and platform alerts).
+approvals, the Trash's day-before reminder) and services/alerting.py (the Push channel of workspace notifications and platform alerts).
 
 A message is small and carries no content beyond a title, one line and a same-origin link — the app shows
 the rest after sign-in — and, on an AI approval one tap may decide, that approval's single-use token
@@ -49,6 +49,7 @@ class PushCategory:
 ACTIVITY = "activity"
 APPROVALS = "approvals"
 WORKSPACE_ALERTS = "workspace_alerts"
+TRASH_REMINDERS = "trash_reminders"
 PLATFORM_ALERTS = "platform_alerts"
 
 CATEGORIES: tuple[PushCategory, ...] = (
@@ -62,6 +63,11 @@ CATEGORIES: tuple[PushCategory, ...] = (
         WORKSPACE_ALERTS,
         "Workspace alerts",
         "Failures from Settings → Automation → Notifications (workflows, scheduled tasks, connections), for owners and admins.",
+    ),
+    PushCategory(
+        TRASH_REMINDERS,
+        "Trash reminders",
+        "The day before the Trash's auto-empty deletes items forever, in a workspace you own or administer.",
     ),
     PushCategory(PLATFORM_ALERTS, "Platform alerts", "Admin → Platform alerts, such as a failed backup.", super_admin_only=True),
 )

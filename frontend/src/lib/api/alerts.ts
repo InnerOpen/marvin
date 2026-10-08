@@ -22,6 +22,8 @@ export interface AlertKind {
   eventType: string;
   enabled: boolean;
   default: boolean;
+  /** False: the Push channel never takes it (people choose that push in their Profile). */
+  push?: boolean;
 }
 
 export interface AlertActionInput {

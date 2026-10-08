@@ -1,9 +1,10 @@
 """A workspace's notifications — Settings → Automation → Notifications.
 
 The bell and the Event Log always get a workspace's events. These settings also send the ones that need a
-person — a workflow or scheduled task failing, a connection that needs attention — somewhere people look
-when they aren't in Marvin: email to the workspace's owners and admins (or a list), push to the devices of the
-owners and admins who turned it on (when the server has Web Push), and any message-capable
+person — a workflow or scheduled task failing, a connection that needs attention, the Trash about to empty —
+somewhere people look when they aren't in Marvin: email to the workspace's owners and admins (or a list), push
+to the devices of the owners and admins who turned it on (when the server has Web Push; not the Trash reminder,
+whose push each person chooses in their Profile), and any message-capable
 action on one of the workspace's own connections (Slack's ``send_message`` with its channel, Apprise's
 ``notify``, any notify plugin). Each channel takes every kind, or only the ones chosen for it. The settings,
 channels and message are services/alerting.py's, shared with platform alerts; this module is the
@@ -44,6 +45,7 @@ TEST_TITLE = "Test notification from Marvin"
 WORKFLOW_FAILED = "workflow_failed"
 SCHEDULED_TASK_FAILED = "scheduled_task_failed"
 INTEGRATION_ATTENTION = "integration_attention"
+TRASH_SOON = "trash_auto_empty_soon"
 
 KINDS: tuple[AlertKind, ...] = (
     AlertKind(
@@ -87,6 +89,16 @@ KINDS: tuple[AlertKind, ...] = (
         "An outgoing webhook couldn't deliver after its retries. Each failure sends one.",
         "/automation/webhooks/log",
         default=False,
+    ),
+    AlertKind(
+        TRASH_SOON,
+        "Trash emptying soon",
+        "trash_auto_empty_soon",
+        "The Trash's auto-empty will delete items forever within a day. At most one a day. By email and connections; "
+        "push for it is each owner's and admin's own choice (Profile → Notifications → Trash reminders).",
+        "/workspace/collections",
+        default=False,
+        push=False,
     ),
 )
 KINDS_BY_KEY: dict[str, AlertKind] = {k.key: k for k in KINDS}
@@ -315,6 +327,8 @@ def _link_path(kind: AlertKind, data: dict) -> str:
         return f"{kind.link_path}?workflow={data['automation_id']}"
     if kind.key == SCHEDULED_TASK_FAILED and data.get("task_id"):
         return f"{kind.link_path}/{data['task_id']}"
+    if kind.key == TRASH_SOON and data.get("trash_collection_id"):
+        return f"{kind.link_path}/{data['trash_collection_id']}"
     return kind.link_path
 
 
@@ -324,6 +338,15 @@ def message_for(scope: WorkspaceScope, session: Session, kind: AlertKind, event,
     subject = _subject(kind.key, data)
     if kind.key == INTEGRATION_ATTENTION:
         title, summary, detail = data.get("title") or kind.label, data.get("summary") or kind.description, None
+    elif kind.key == TRASH_SOON:
+        total = int(data.get("total") or 0)
+        title = f"{total} item{'' if total == 1 else 's'} will be deleted forever tomorrow"
+        summary = (
+            f"{data.get('entries', 0)} entries, {data.get('assets', 0)} assets and {data.get('resources', 0)} resources reach "
+            f"{data.get('days')} days in the Trash within a day, and its auto-empty deletes them then. Restore anything you "
+            "want to keep."
+        )
+        detail = None
     else:
         title = f"{kind.label}: {subject}" if subject else (getattr(message, "title", None) or kind.label)
         summary = getattr(message, "body", None) or kind.description

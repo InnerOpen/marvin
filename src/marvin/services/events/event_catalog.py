@@ -746,6 +746,17 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("resource_name", "Name of the restored resource", "API Docs", type="name"),
         ],
     ),
+    CatalogEntry(
+        event_type="trash_auto_empty_soon",
+        name="Trash Emptying Soon",
+        description="The Trash's auto-empty will delete items forever within a day. Once a day per workspace, while something is about to go.",
+        category="Content",
+        sent_by=["The hourly Trash check, at most once a day per workspace"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("total", "How many items will be deleted forever", "14", type="count"),
+        ],
+    ),
     # ── Assets ──────────────────────────────────────────────────────────────
     CatalogEntry(
         event_type="asset_uploaded",

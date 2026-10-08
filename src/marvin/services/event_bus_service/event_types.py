@@ -332,6 +332,8 @@ class EventTypes(EventTypeBase):
     """Event dispatched when a resource is moved to the Trash."""
     resource_restored = auto()
     """Event dispatched when a resource is restored from the Trash."""
+    trash_auto_empty_soon = auto()
+    """Event dispatched once a day per workspace when the Trash's auto-empty will delete items forever within a day."""
 
     # ==========================================================================
     # Collaboration Events
@@ -1276,6 +1278,24 @@ class EventResourceData(EventDocumentDataBase):
     """The human-readable name of the workspace."""
     url: str | None = None
     """The external URL of the resource."""
+
+
+class EventTrashAutoEmptyData(EventDocumentDataBase):
+    """Data payload for `trash_auto_empty_soon`: what the workspace's Trash auto-empty will delete forever within
+    the next 24 hours (services/trash.py remind_auto_empty), sent at most once a day per workspace."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    workspace_id: UUID4
+    workspace_name: str | None = None
+    total: int
+    """Entries, assets and resources together."""
+    entries: int = 0
+    assets: int = 0
+    resources: int = 0
+    days: int
+    """The workspace's effective auto-empty setting: items go this many days after they were trashed."""
+    trash_collection_id: UUID4 | None = None
+    """The workspace's Trash (the system collection the admin opens)."""
 
 
 class EventScheduledTaskData(EventDocumentDataBase):

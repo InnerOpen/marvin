@@ -158,6 +158,7 @@ def test_kinds_and_their_defaults(db_session, world):
         "integration_attention": True,
         "ai_operation_failed": False,
         "webhook_delivery_failed": False,
+        "trash_auto_empty_soon": False,
     }
     assert (settings.email_enabled, settings.recipients, settings.email_kinds, settings.routes) == (True, None, None, [])
     assert notes.channels_for(db_session, world.gid, "workflow_failed") == ["email"]

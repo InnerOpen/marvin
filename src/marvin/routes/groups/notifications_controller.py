@@ -64,7 +64,13 @@ class WorkspaceNotificationsController(BaseUserController):
         return WorkspaceNotificationsRead(
             types=[
                 AlertKindRead(
-                    key=k.key, label=k.label, description=k.description, event_type=k.event_type, enabled=settings.types[k.key], default=k.default
+                    key=k.key,
+                    label=k.label,
+                    description=k.description,
+                    event_type=k.event_type,
+                    enabled=settings.types[k.key],
+                    default=k.default,
+                    push=k.push,
                 )
                 for k in scope.kinds
             ],

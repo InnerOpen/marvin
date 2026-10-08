@@ -263,9 +263,14 @@ def test_endpoint_must_be_a_public_https_url_in_production(world, vapid, monkeyp
 def test_preferences_default_on_and_platform_alerts_are_for_super_admins(db_session, world, vapid):
     editor = _sign_in(world, "editor")
     cats = {c["key"]: c["enabled"] for c in editor.get(API).json()["categories"]}
-    assert cats == {"activity": True, "approvals": True, "workspace_alerts": True}
+    assert cats == {"activity": True, "approvals": True, "workspace_alerts": True, "trash_reminders": True}
     saved = editor.put(f"{API}/preferences", json={"categories": {"activity": False, "platform_alerts": True, "nonsense": True}}).json()
-    assert {c["key"]: c["enabled"] for c in saved["categories"]} == {"activity": False, "approvals": True, "workspace_alerts": True}
+    assert {c["key"]: c["enabled"] for c in saved["categories"]} == {
+        "activity": False,
+        "approvals": True,
+        "workspace_alerts": True,
+        "trash_reminders": True,
+    }
     supers = {c["key"] for c in _sign_in(world, "super1").get(API).json()["categories"]}
     assert "platform_alerts" in supers
 

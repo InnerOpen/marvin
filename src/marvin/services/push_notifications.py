@@ -8,7 +8,9 @@ person, and those also go to the phones and browsers of people who turned push o
     undone, with Approve / Deny buttons (services/push_actions.py);
   * **workspace activity** — a form submission (not one flagged as spam) and a scheduled publish that's
     waiting (``entry_scheduled_publish_blocked``) go to the workspace's editors and above, except whoever
-    caused it.
+    caused it;
+  * **Trash reminders** — the day before the Trash's auto-empty deletes items forever
+    (``trash_auto_empty_soon``, once a day per workspace) goes to its owners and admins, opening the Trash.
 
 Failures (a workflow, a scheduled task, a connection) are not here: they go through the Push channel of
 Settings → Automation → Notifications (services/workspace_alerts.py), once per incident. Each person's
@@ -38,7 +40,8 @@ ACTIVITY_TITLES = {
     "form_submission_received": "Form submission",
     "entry_scheduled_publish_blocked": "Scheduled publish waiting",
 }
-EVENT_TYPES = frozenset(ACTIVITY_TITLES) | {APPROVAL_REQUESTED}
+TRASH_SOON = "trash_auto_empty_soon"
+EVENT_TYPES = frozenset(ACTIVITY_TITLES) | {APPROVAL_REQUESTED, TRASH_SOON}
 
 
 def wants(group_id, event) -> bool:
@@ -114,6 +117,19 @@ def activity_message(session: Session, group_id, event, data: dict) -> web_push.
     )
 
 
+def trash_message(session: Session, group_id, data: dict) -> web_push.PushMessage:
+    total = int(data.get("total") or 0)
+    workspace = _workspace_name(session, group_id, data)
+    what = f"{total} item{'' if total == 1 else 's'} will be deleted forever tomorrow"
+    trash = data.get("trash_collection_id")
+    return web_push.PushMessage(
+        title=f"{workspace}: {what}" if workspace else what[:1].upper() + what[1:],
+        body="Open the Trash to restore anything you want to keep.",
+        url=f"/workspace/collections/{quote(str(trash))}" if trash else "/workspace/collections",
+        tag=f"trash-reminder:{group_id}",
+    )
+
+
 def deliver(session: Session, group_id, event) -> web_push.SendResult:
     """Push one of the workspace's events to the people it's for. Returns what was sent."""
     if not wants(group_id, event):
@@ -126,9 +142,13 @@ def deliver(session: Session, group_id, event) -> web_push.SendResult:
             return web_push.SendResult()
         token = _approval_token(session, event, data, owner)
         return web_push.send_to_users(session, [owner], web_push.APPROVALS, approval_message(event, data, token))
+    from marvin.db.models.users.roles import WorkspaceRole
+
+    if name == TRASH_SOON:
+        admins = web_push.workspace_member_ids(session, group_id, WorkspaceRole.ADMIN)
+        return web_push.send_to_users(session, admins, web_push.TRASH_REMINDERS, trash_message(session, group_id, data))
     if name == "form_submission_received" and data.get("flagged"):
         return web_push.SendResult()  # suspected spam waits in review without waking anyone
-    from marvin.db.models.users.roles import WorkspaceRole
 
     actor = str(getattr(event, "user_id", None) or "")
     people = [u for u in web_push.workspace_member_ids(session, group_id, WorkspaceRole.EDITOR) if str(u) != actor]

@@ -5,6 +5,7 @@ It includes the `GroupPreferencesModel`, which stores various settings and
 preferences that can be configured for each user group.
 """
 
+from datetime import date
 from typing import TYPE_CHECKING, Optional
 
 import sqlalchemy as sa
@@ -92,6 +93,11 @@ class GroupPreferencesModel(SqlAlchemyBase, BaseMixins):
         nullable=True,
         doc="Days an entry stays in the Trash before it is deleted forever (0 = never). Null inherits the platform "
         "default (services/entries/trash.py).",
+    )
+    trash_reminded_on: Mapped[date | None] = mapped_column(
+        sa.Date,
+        nullable=True,
+        doc="The last day (UTC) the 'Trash emptying soon' reminder went out — at most one a day (services/trash.py).",
     )
     site_social_json: Mapped[dict | None] = mapped_column(
         sa.JSON, nullable=True, doc="Social media links and handles (e.g., {instagram: 'url', facebook: 'url'})."
