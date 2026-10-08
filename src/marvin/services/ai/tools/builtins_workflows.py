@@ -58,9 +58,11 @@ def _last_run(session, row) -> dict | None:
         "How to write a Marvin workflow (automation) definition, read from Marvin's own code: the definition's "
         "shape, trigger types, the events a workflow can start on, the target query keys, condition operators, "
         "step kinds with their fields, entry ops (publish, unpublish → draft, archive, trash, add_to_collection, "
-        "set_data…), template syntax (${event.*}, ${entry.*}, ${steps.<id>.output.*}), and this workspace's "
-        "collections, entry types, integrations and their actions, webhooks and workflows. Call it before "
-        "draft_workflow. Without `section` it gives everything in brief; with one, that part in detail."
+        "set_data…), template syntax (${event.*}, ${entry.*}, ${steps.<id>.output.*}), this workspace's "
+        "collections, entry types, integrations and their actions, webhooks and workflows, and the Library recipes "
+        "this workspace can run (section=examples lists them; recipe=<id> shows one in full with its setup "
+        "variables). Call it before draft_workflow. Without `section` it gives everything in brief; with one, that "
+        "part in detail."
     ),
     input_schema={
         "type": "object",
@@ -68,8 +70,9 @@ def _last_run(session, row) -> dict | None:
             "section": {
                 "type": "string",
                 "enum": ["shape", "triggers", "events", "target", "conditions", "actions", "templates", "workspace", "examples"],
-                "description": "one part in detail (event descriptions, field types, integration action args, examples)",
-            }
+                "description": "one part in detail (event descriptions, field types, integration action args, the recipes)",
+            },
+            "recipe": {"type": "string", "description": "a Library recipe id (from section=examples): its full definition and setup variables"},
         },
     },
     min_role=ROLE_ADMIN,  # it names the workspace's webhooks and integrations, which only admins see
@@ -77,8 +80,9 @@ def _last_run(session, row) -> dict | None:
 def workflow_authoring_guide(ctx: ToolContext, args: dict) -> str:
     from marvin.services.automation.authoring import authoring_guide
 
+    section = args.get("section") or ("examples" if args.get("recipe") else None)
     try:
-        return json.dumps(authoring_guide(ctx.session, ctx.group_id, args.get("section") or None))
+        return json.dumps(authoring_guide(ctx.session, ctx.group_id, section, args.get("recipe") or None))
     except ValueError as e:
         return json.dumps({"error": str(e)})
 
@@ -145,6 +149,33 @@ def _check(ctx: ToolContext, definition: dict) -> str | None:
     return _refused("The workflow definition has problems.", issues) if issues else None
 
 
+def _from_recipe(ctx: ToolContext, recipe_id: str, values) -> tuple[dict | None, str | None]:
+    """A Library recipe instantiated with `vars`: the whole workflow document, or the refusal — the recipe
+    isn't offered here (unknown, not runnable, a prerequisite missing) or a value is missing / mistyped."""
+    from marvin.services.automation import recipes
+    from marvin.services.automation.authoring import workspace_refs
+    from marvin.services.automation.library import RecipeConfigError
+
+    refs = workspace_refs(ctx.session, ctx.group_id)
+    offered = {r["id"]: r for r in recipes.offered(refs)}
+    if recipe_id not in offered:
+        known = next((r for r in recipes.entries() if r["id"] == recipe_id), None)
+        if known is None:
+            return None, _refused(f"No recipe “{recipe_id}”.", available=sorted(offered))
+        why = "; ".join(recipes.missing_prerequisites(known, refs)) or f"its status is {known['status']} (not runnable)"
+        return None, _refused(f"Recipe “{recipe_id}” can't be drafted in this workspace: {why}.", available=sorted(offered))
+    if values is not None and not isinstance(values, dict):
+        return None, _refused("vars must be an object of setup variable values.")
+    try:
+        return recipes.instantiate(recipe_id, dict(values or {})), None
+    except RecipeConfigError as e:
+        return None, _refused(
+            f"Recipe “{recipe_id}”: {e}",
+            setup_variables=recipes.load_vars(recipe_id),
+            fix="Pass every setup variable in vars, typed as described, and call again.",
+        )
+
+
 def _saved(ctx: ToolContext, row, parsed, *, created: bool) -> str:
     from marvin.services.automation.validation import validate_definition
 
@@ -168,20 +199,31 @@ def _saved(ctx: ToolContext, row, parsed, *, created: bool) -> str:
 @register_tool(
     name="draft_workflow",
     description=(
-        "Create a workflow (automation) from a definition, switched OFF, for the user to review and enable. Write the "
-        "definition from workflow_authoring_guide (call it first) — Marvin's format only: trigger / target / "
-        "conditions / actions with `kind` steps. It is checked exactly as the workflow editor's save is, plus "
-        "unknown keys and names this workspace doesn't have; on problems nothing is saved and `issues` say what to fix "
-        "at which path — fix them and call again. Never enables or runs anything. Give the user the result's editLink "
-        "verbatim."
+        "Create a workflow (automation), switched OFF, for the user to review and enable — either from a Library recipe "
+        "(`recipe` + `vars`: the recipe's {{placeholders}} are filled with typed values from this workspace, see "
+        "workflow_authoring_guide section=examples) or from a `definition` you write from workflow_authoring_guide "
+        "(call it first) — Marvin's format only: trigger / target / conditions / actions with `kind` steps. It is "
+        "checked exactly as the workflow editor's save is, plus unknown keys and names this workspace doesn't have; on "
+        "problems nothing is saved and `issues` say what to fix at which path — fix them and call again. Never enables "
+        "or runs anything. Give the user the result's editLink verbatim."
     ),
     input_schema={
         "type": "object",
         "properties": {
-            "name": {"type": "string", "description": "the workflow's name, e.g. 'Move entries with images to draft'"},
+            "name": {
+                "type": "string",
+                "description": "the workflow's name, e.g. 'Move entries with images to draft' (a recipe's title when omitted)",
+            },
             "definition": _DEFINITION_SCHEMA,
+            "recipe": {"type": "string", "description": "a Library recipe id to instantiate instead of writing a definition"},
+            "vars": {
+                "type": "object",
+                "description": (
+                    "the recipe's setup variables by name, typed as its setup_variables say (an entry type slug, a collection slug, "
+                    "an integration slug, a webhook id, a number…)"
+                ),
+            },
         },
-        "required": ["name", "definition"],
     },
     # ADMIN, like POST /automations: the workflow runs with its author's role.
     min_role=ROLE_ADMIN,
@@ -192,7 +234,15 @@ def draft_workflow(ctx: ToolContext, args: dict) -> str:
     from marvin.services.automation.authoring import parse_workflow
     from marvin.services.automation.workflows import SlugConflict, WorkflowError, create_workflow
 
-    parsed = parse_workflow(args.get("definition"))
+    if args.get("recipe"):
+        document, refusal = _from_recipe(ctx, str(args["recipe"]), args.get("vars"))
+        if refusal:
+            return refusal
+    elif args.get("definition") is not None:
+        document = args["definition"]
+    else:
+        return _refused("Pass a definition, or a recipe id (with vars) from workflow_authoring_guide section=examples.")
+    parsed = parse_workflow(document)
     if parsed.error:
         return _refused(parsed.error, [{"path": "definition", "message": parsed.error}])
     name = str(args.get("name") or "").strip() or parsed.name

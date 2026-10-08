@@ -19,7 +19,7 @@ from pytest import fixture
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
 from marvin.db.models.users.roles import WorkspaceRole
 from marvin.services.ai.tools import get_tool
-from marvin.services.automation.authoring import EXAMPLES, SECTIONS, authoring_guide, draft_issues, guide_size
+from marvin.services.automation.authoring import SECTIONS, authoring_guide, draft_issues, guide_size
 from tests import test_content_role_gates as gates
 
 workspace = gates.workspace  # fixture: a workspace with a signed-in user (gates._sign_in)
@@ -184,9 +184,7 @@ def test_template_namespaces_are_what_a_run_can_read(ws):
         assert key in TEMPLATE_NAMESPACES["entry"], key
 
 
-@pytest.mark.parametrize("title", list(EXAMPLES))
-def test_every_example_drafts_cleanly(ws, title):
-    assert draft_issues(ws.session, ws.gid, EXAMPLES[title]) == []
+# Every worked example is a Library recipe now; tests/test_workflow_library.py drafts each one.
 
 
 # ── draft_workflow ───────────────────────────────────────────────────────────
@@ -208,7 +206,7 @@ def test_draft_creates_what_rest_creates_but_switched_off(ws):
 def test_draft_with_a_schedule_trigger_gets_its_backing_task_like_rest(ws):
     from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
 
-    out = _tool(ws, "draft_workflow", {"name": "Hourly rebuild", "definition": EXAMPLES["Every hour, rebuild the site"]})
+    out = _tool(ws, "draft_workflow", {"name": "Hourly rebuild", "recipe": "hourly-site-rebuild", "vars": {"interval_seconds": 3600}})
     task = ws.session.query(ScheduledTaskModel).filter_by(group_id=ws.gid, slug=f"wf-{out['workflow']['id']}").one()
     assert task.enabled is False and task.task_type == "run_automation"
 

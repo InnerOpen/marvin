@@ -331,40 +331,47 @@ def _workspace(refs: WorkspaceRefs, detail: bool) -> dict:
     }
 
 
-# Worked definitions — kept honest by a test that drafts each one (structure, keys and references).
-EXAMPLES: dict[str, dict] = {
-    "Move every entry with an image back to draft": {
-        "trigger": {"type": "manual"},
-        "target": {"entity": "entry", "query": {"has_images": True, "status": "published"}},
-        "actions": [{"kind": "entry", "op": "unpublish"}],
-    },
-    "When a recipe is published, summarise it and add it to a collection": {
-        "trigger": {"type": "event", "event": "entry_published"},
-        "conditions": [{"field": "entry.entry_type", "op": "eq", "value": "recipe"}],
-        "actions": [
-            {"kind": "operation", "op": "generate-summary", "write_back": True},
-            {"kind": "entry", "op": "add_to_collection", "collection_slug": "featured"},
-        ],
-    },
-    "Every hour, rebuild the site": {
-        "trigger": {"type": "schedule", "schedule_type": "interval", "schedule_config": {"interval_seconds": 3600}},
-        "actions": [{"kind": "handler", "task": "request_site_rebuild"}],
-    },
-    "A webhook call finds an entry by slug and archives it": {
-        "trigger": {"type": "incoming_webhook", "webhook": "any"},
-        "actions": [{"kind": "entry", "op": "archive", "entity_slug": "${event.payload.slug}", "id": "archive"}],
-        "on_failure": [{"kind": "entry", "op": "request_review", "entity_slug": "${event.payload.slug}", "reason": "${error.message}"}],
-    },
-}
+# Worked definitions are the Workflow Library's recipes (services/automation/recipes): one store for the
+# guide, the Library and draft_workflow(recipe=…). Only recipes that validate and run today, and whose
+# prerequisites this workspace meets, are offered; tests/test_workflow_library.py drafts every one.
+def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
+    from . import recipes
+
+    offered = recipes.offered(refs)
+    if recipe:
+        item = next((r for r in offered if r["id"] == recipe), None)
+        if item is None:
+            known = recipes.entry(recipe) if recipe in {r["id"] for r in recipes.entries()} else None
+            why = "; ".join(recipes.missing_prerequisites(known, refs)) or f"its status is {known['status']}" if known else "no such recipe"
+            return {"error": f"recipe “{recipe}” isn't available here ({why}).", "available": [r["id"] for r in offered]}
+        return {"note": _EXAMPLES_NOTE, recipe: recipes.example(item)}
+    if detail:
+        return {
+            "note": _EXAMPLES_NOTE + " Call again with recipe=<id> for one recipe's full definition and setup variables.",
+            "recipes": [
+                {"recipe": r["id"], "title": r["title"], "outcome": r["outcome"], "setup_variables": [v["name"] for v in r["setup_variables"]]}
+                for r in offered
+            ],
+        }
+    first = recipes.example(offered[0]) if offered else None
+    return {"note": _EXAMPLES_NOTE, "available": [r["id"] for r in offered], **({first["recipe"]: first} if first else {})}
 
 
-def authoring_guide(session, group_id, section: str | None = None) -> dict:
-    """The guide: every section in brief, or one in detail. Raises ValueError for an unknown section."""
+_EXAMPLES_NOTE = (
+    "Library recipes this workspace can run. `{{name}}` is a setup placeholder (its type and meaning in setup_variables): "
+    "fill it from the workspace's own names, or pass recipe + vars to draft_workflow. `${…}` is a run-time template — leave it."
+)
+
+
+def authoring_guide(session, group_id, section: str | None = None, recipe: str | None = None) -> dict:
+    """The guide: every section in brief, or one in detail; ``recipe`` names one Library recipe to show in full
+    (the examples section). Raises ValueError for an unknown section."""
     if section and section not in SECTIONS:
         raise ValueError(f"unknown section '{section}' — one of: {', '.join(SECTIONS)}")
     detail = section is not None
     want = (section,) if section else SECTIONS
     out: dict[str, Any] = {}
+    refs: WorkspaceRefs | None = None
     if "shape" in want:
         out["shape"] = _shape()
     if "triggers" in want:
@@ -379,17 +386,19 @@ def authoring_guide(session, group_id, section: str | None = None) -> dict:
         out["actions"] = _actions(detail)
     if "templates" in want:
         out["templates"] = _templates()
+    if "workspace" in want or "examples" in want:
+        refs = workspace_refs(session, group_id)
     if "workspace" in want:
-        out["workspace"] = _workspace(workspace_refs(session, group_id), detail)
+        assert refs is not None
+        out["workspace"] = _workspace(refs, detail)
     if "examples" in want:
-        out["examples"] = {
-            "note": "Patterns, not this workspace: swap in its own event, collection, entry type and operation names.",
-            **(EXAMPLES if detail else dict(list(EXAMPLES.items())[:1])),
-        }
+        assert refs is not None
+        out["examples"] = _examples(refs, detail, recipe)
     if not detail:
         out["more"] = (
             "Call again with section= one of " + ", ".join(SECTIONS) + " for detail: event descriptions, field types, what each entry op "
-            "sends, integration action args, more examples. Then call draft_workflow."
+            "sends, integration action args, the Library recipes this workspace can run (section=examples, then recipe=<id>). "
+            "Then call draft_workflow — with recipe + vars to instantiate a recipe, or with a definition."
         )
     return out
 
