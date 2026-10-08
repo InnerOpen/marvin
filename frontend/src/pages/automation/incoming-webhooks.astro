@@ -98,10 +98,16 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   const schemes: any[] = JSON.parse($("iw-schemes-data").textContent || "[]");
   // What the sender must do, in the selected scheme's own words (its notes), so the hint never
   // describes a different scheme than the one picked.
+  // Whether the sender makes the key and shows it (Stripe, Slack, Square…): then there is nothing to generate,
+  // only the sender's key to paste into the secret.
+  const senderIssuesKey = (name: string) => Boolean(schemes.find((x) => x.name === name)?.sender_issues_key);
   const signingHint = (name: string) => {
     if (name === "custom") return "The sender signs as described in the JSON below.";
     const notes = schemes.find((x) => x.name === name)?.notes;
-    return notes ? `The sender must sign: ${notes}.` : "The sender must sign each request with this scheme.";
+    const how = notes ? `The sender must sign: ${notes}.` : "The sender must sign each request with this scheme.";
+    return senderIssuesKey(name)
+      ? `${how} The sender gives you the signing key: store it as the secret named above (Settings → Secrets), then Save.`
+      : how;
   };
   const schemeLabel = (name) => {
     const s = schemes.find((x) => x.name === name);
@@ -170,7 +176,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         <input class="input url" data-signing-url placeholder="Signed URL — only for schemes that sign the URL (the exact URL you gave the sender)" value="${esc(w.signatureUrl || (w.token ? hookUrl(w.token) : ""))}" />
         <textarea class="input mono" data-signing-config rows="5" spellcheck="false" ${w.signatureScheme === "custom" ? "" : "hidden"} placeholder='{"algorithm": "sha256", "encoding": "base64", "message": "{url}{body}", "header": "X-Signature"}'>${esc(w.signatureConfig ? JSON.stringify(w.signatureConfig, null, 2) : "")}</textarea>
         <button class="button sm" data-act="save-signing">Save</button>
-        <button class="button ghost sm" data-act="gen-signing" title="Create a random key, store it as that secret, and show it once so you can paste it into the sender">Generate key</button>
+        <button class="button ghost sm" data-act="gen-signing" title="Create a random key, store it as that secret, and show it once so you can paste it into the sender" ${senderIssuesKey(w.signatureScheme || "hmac_sha256_hex") ? "hidden" : ""}>Generate key</button>
         <button class="button ghost sm" data-act="cancel-signing">Cancel</button>
         <span class="hint">Leave the secret blank to turn verification off. <span data-signing-hint>${esc(signingHint(w.signatureScheme || "hmac_sha256_hex"))}</span></span>
         <div class="signing-reveal" hidden>
@@ -233,6 +239,7 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
     box?.querySelector("[data-signing-config]")?.toggleAttribute("hidden", picked !== "custom");
     const hint = box?.querySelector("[data-signing-hint]");
     if (hint) hint.textContent = signingHint(picked);
+    box?.querySelector('[data-act="gen-signing"]')?.toggleAttribute("hidden", senderIssuesKey(picked));
   });
 
   // ── Per-card actions (event delegation) ─────────────────────────────────────
@@ -273,7 +280,19 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
         const bytes = new Uint8Array(32); crypto.getRandomValues(bytes);
         const value = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
         setStatus("Creating secret…");
-        await sdk().secrets.create({ name: `${w.name} signing key`, slug, description: `HMAC signing key for incoming webhook "${w.slug}"`, value });
+        try {
+          await sdk().secrets.create({ name: `${w.name} signing key`, slug, description: `HMAC signing key for incoming webhook "${w.slug}"`, value });
+        } catch (err) {
+          // A secret by that name already exists: replacing its value is the user's call (the old key stops working).
+          if (!/already exists|409/.test(String((err as Error)?.message ?? err))) throw err;
+          if (!confirm(`A secret named ${slug} already exists. Replace its value with a new key? Whatever uses the old key stops verifying.`)) {
+            setStatus("");
+            return;
+          }
+          const existing = (await sdk().secrets.list()).find((x: any) => x.slug === slug);
+          if (!existing) throw err;
+          await sdk().secrets.update(existing.id, { value } as any);
+        }
         const signatureHeader = (box.querySelector("[data-signing-header]") as HTMLInputElement).value.trim() || null;
         const updated = await sdk().incomingWebhooks.update(id, { signingSecretRef: slug, signatureHeader } as any);
         // Re-render would drop the one-time reveal, so patch the card in place instead.

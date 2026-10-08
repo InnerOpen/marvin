@@ -118,7 +118,7 @@ def test_integration_preset_resolves_and_is_listed(monkeypatch):
         slug = "shop"
         name = "Shop"
         signature_schemes = {
-            "shop": {"encoding": "base64", "message": "{url}{body}", "header": "x-shop-sig", "notes": "Shop: URL + body"},
+            "shop": {"encoding": "base64", "message": "{url}{body}", "header": "x-shop-sig", "notes": "Shop: URL + body", "sender_issues_key": True},
             "hmac_sha256_hex": {"header": "x-hijack"},  # a core name: ignored, core wins
             "broken": {"algorithm": "md5"},  # unusable: skipped
         }
@@ -131,6 +131,16 @@ def test_integration_preset_resolves_and_is_listed(monkeypatch):
     assert spec_for("broken") is None
     listed = {(row["name"], row["source"]) for row in available_schemes()}
     assert ("shop", "shop") in listed and ("custom", "core") in listed
+    issued = {row["name"]: row["sender_issues_key"] for row in available_schemes()}
+    assert issued["shop"] is True  # an integration says so for its sender
+
+
+def test_schemes_say_whether_the_sender_issues_the_key():
+    """Stripe, Slack, Shopify and Standard Webhooks show you their key (nothing to generate); for a GitHub-style
+    HMAC or a static token you choose the key, so the editor offers Generate key."""
+    issued = {row["name"]: row["sender_issues_key"] for row in available_schemes()}
+    assert all(issued[n] for n in ("stripe", "slack", "shopify", "standard_webhooks"))
+    assert not any(issued[n] for n in ("hmac_sha256_hex", "static_token", "custom"))
 
 
 def test_a_preset_from_an_uninstalled_integration_fails_closed():

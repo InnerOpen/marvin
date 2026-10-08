@@ -70,11 +70,15 @@ class SignatureSpec:
 
     notes: str = field(default="", compare=False)
 
+    sender_issues_key: bool = field(default=False, compare=False)
+    """The sender makes the signing key and shows it to you (Stripe, Slack, Square…): paste it into the secret.
+    False means you choose the key and give it to the sender, so Marvin can generate one."""
+
 
 PRESETS: dict[str, SignatureSpec] = {
     # GitHub, Buttondown and most others: `sha256=<hex HMAC of the raw body>`. Marvin's original scheme.
     "hmac_sha256_hex": SignatureSpec(prefix=SIGNATURE_PREFIX, notes="sha256=<hex> of the body (GitHub, Buttondown, …)"),
-    "shopify": SignatureSpec(encoding="base64", header="X-Shopify-Hmac-Sha256", notes="Shopify: base64 of the body"),
+    "shopify": SignatureSpec(encoding="base64", header="X-Shopify-Hmac-Sha256", notes="Shopify: base64 of the body", sender_issues_key=True),
     "slack": SignatureSpec(
         message="v0:{header:X-Slack-Request-Timestamp}:{body}",
         header="X-Slack-Signature",
@@ -82,6 +86,7 @@ PRESETS: dict[str, SignatureSpec] = {
         timestamp_header="X-Slack-Request-Timestamp",
         tolerance_seconds=300,
         notes="Slack: v0=<hex> of v0:{timestamp}:{body}",
+        sender_issues_key=True,
     ),
     "stripe": SignatureSpec(
         message="{t}.{body}",
@@ -89,6 +94,7 @@ PRESETS: dict[str, SignatureSpec] = {
         header_format="stripe",
         tolerance_seconds=300,
         notes="Stripe: t=…,v1=<hex> of {t}.{body}",
+        sender_issues_key=True,
     ),
     "standard_webhooks": SignatureSpec(
         encoding="base64",
@@ -100,6 +106,7 @@ PRESETS: dict[str, SignatureSpec] = {
         timestamp_header="webhook-timestamp",
         tolerance_seconds=300,
         notes="Standard Webhooks (Svix, Resend, Clerk, …): v1,<base64> of {id}.{timestamp}.{body}",
+        sender_issues_key=True,
     ),
     # Not a signature: the sender puts the shared secret itself in a header. Set the header per webhook
     # (e.g. cf-webhook-auth for Cloudflare notifications, X-Gitlab-Token for GitLab).
@@ -130,7 +137,7 @@ SPEC_FIELDS = (
 
 def _build(config: dict | None) -> SignatureSpec | None:
     try:
-        spec = SignatureSpec(**{k: v for k, v in (config or {}).items() if k in (*SPEC_FIELDS, "notes")})
+        spec = SignatureSpec(**{k: v for k, v in (config or {}).items() if k in (*SPEC_FIELDS, "notes", "sender_issues_key")})
     except TypeError:
         return None
     return spec if spec_problems(spec) == [] else None
@@ -160,10 +167,15 @@ def provider_presets() -> dict[str, tuple[SignatureSpec, str]]:
 
 
 def available_schemes() -> list[dict]:
-    """Every scheme a webhook can pick: core presets, integration presets, then `custom`."""
-    rows = [{"name": name, "notes": spec.notes, "source": "core"} for name, spec in PRESETS.items()]
-    rows += [{"name": name, "notes": spec.notes, "source": slug} for name, (spec, slug) in provider_presets().items()]
-    rows.append({"name": CUSTOM_SCHEME, "notes": "Describe the sender's construction yourself", "source": "core"})
+    """Every scheme a webhook can pick: core presets, integration presets, then `custom`. `sender_issues_key` tells the
+    editor whether to offer Generate key (you choose the key) or ask for the one the sender shows you."""
+
+    def row(name, spec, source):
+        return {"name": name, "notes": spec.notes, "source": source, "sender_issues_key": spec.sender_issues_key}
+
+    rows = [row(name, spec, "core") for name, spec in PRESETS.items()]
+    rows += [row(name, spec, slug) for name, (spec, slug) in provider_presets().items()]
+    rows.append({"name": CUSTOM_SCHEME, "notes": "Describe the sender's construction yourself", "source": "core", "sender_issues_key": False})
     return rows
 
 
