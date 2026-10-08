@@ -130,21 +130,6 @@ _TAG_SCHEMA = {
 }
 
 
-def _narrow_by_tags(session, group_id, q, Model, Junction, fk: str, filt: dict):
-    """Narrow `q` to rows carrying ANY of filt['tags'] (by slug or name). Returns (q, ok);
-    ok=False means the filter names only tags that don't exist here → no rows can match."""
-    refs = [str(t) for t in (filt.get("tags") or []) if str(t).strip()]
-    if not refs:
-        return q, True
-    from marvin.db.models.platform.tags import Tags
-
-    tag_ids = [r[0] for r in session.query(Tags.id).filter(Tags.group_id == group_id, Tags.slug.in_(refs) | Tags.name.in_(refs)).all()]
-    if not tag_ids:
-        return q, False
-    sub = session.query(getattr(Junction, fk)).filter(Junction.tag_id.in_(tag_ids))
-    return q.filter(Model.id.in_(sub)), True
-
-
 def _resolve_targets(ctx: ToolContext, entity_type: str, args: dict) -> tuple[list, str | None]:
     """Resolve the target entity ids from `entity` / `entities` / `filter`. Returns (ids, error)."""
     import uuid as _uuid
@@ -163,32 +148,13 @@ def _resolve_targets(ctx: ToolContext, entity_type: str, args: dict) -> tuple[li
 
         result = run_entry_query(s, gid, filt, limit=_BULK_CAP)
         return [e.id for e in result.rows], result.note
-    if entity_type == "asset":
-        from marvin.db.models.platform.asset_tags import AssetTags
-        from marvin.db.models.platform.assets import Assets
+    if entity_type in ("asset", "resource"):
+        # The shared asset/resource query (services/item_query.py) — what list_assets / list_resources and
+        # trash_entries' `match` select by. A filter never matches the Trash.
+        from marvin.services import item_query
 
-        q = s.query(Assets.id).filter(Assets.group_id == gid, Assets.trashed_at.is_(None))  # a filter never matches the Trash
-        if filt.get("asset_types"):
-            q = q.filter(Assets.asset_type.in_(list(filt["asset_types"])))
-        if filt.get("mime_types"):
-            q = q.filter(Assets.mime_type.in_(list(filt["mime_types"])))
-        if filt.get("query"):
-            t = f"%{filt['query']}%"
-            q = q.filter(Assets.original_filename.ilike(t) | Assets.name.ilike(t))
-        q, ok = _narrow_by_tags(s, gid, q, Assets, AssetTags, "asset_id", filt)
-        return ([r[0] for r in q.limit(_BULK_CAP).all()] if ok else []), None
-    if entity_type == "resource":
-        from marvin.db.models.platform.resource_tags import ResourceTags
-        from marvin.db.models.platform.resources import Resources
-
-        q = s.query(Resources.id).filter(Resources.group_id == gid, Resources.trashed_at.is_(None))
-        if filt.get("resource_types"):
-            q = q.filter(Resources.resource_type.in_(list(filt["resource_types"])))
-        if filt.get("query"):
-            t = f"%{filt['query']}%"
-            q = q.filter(Resources.name.ilike(t) | Resources.slug.ilike(t))
-        q, ok = _narrow_by_tags(s, gid, q, Resources, ResourceTags, "resource_id", filt)
-        return ([r[0] for r in q.limit(_BULK_CAP).all()] if ok else []), None
+        result = item_query.run(s, gid, entity_type, filt, limit=_BULK_CAP)
+        return [r.id for r in result.rows], None  # a tag that doesn't exist here: no rows, no error
     return [], None  # entity_type is validated upstream; no target given
 
 

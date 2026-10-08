@@ -658,39 +658,42 @@ def list_tags(ctx: ToolContext, _args: dict) -> str:
     return json.dumps({"tags": out, "count": len(out)})
 
 
+# Filters list_assets and list_resources share (services/item_query.py — the same query trash_entries' `match`
+# and attach_tag's `filter` select by).
+_ITEM_LIST_FILTERS = {
+    "collection": {"type": "string", "description": "only items in this collection (slug or name)"},
+    "unattached": {"type": "boolean", "description": "true: only items attached to no entry; false: only attached ones"},
+    "created_after": {"type": "string", "description": "ISO date — created on or after"},
+    "created_before": {"type": "string", "description": "ISO date — created before"},
+}
+
+
 @register_tool(
     name="list_resources",
-    description="List the workspace's reusable resources (materials, tools, suppliers, …), optionally filtered by resource_type and/or tags. Returns `count` (true total) plus a sample. Use for questions about resources, or 'all resources with tag X'.",  # noqa: E501
+    description="List the workspace's reusable resources (materials, tools, suppliers, …), optionally filtered by resource_type, tags, collection, whether they are attached to any entry, and when they were created. Returns `count` (true total) plus a sample. Use for questions about resources, or 'all resources with tag X'.",  # noqa: E501
     input_schema={
         "type": "object",
         "properties": {
             "resource_type": {"type": "string"},
+            "query": {"type": "string", "description": "name/slug substring"},
             "tags": {
                 "type": "array",
                 "items": {"type": "string"},
                 "description": "only resources carrying ANY of these tags (slug or name) — exhaustive, not ranked",
             },
+            **_ITEM_LIST_FILTERS,
             "limit": {"type": "integer"},
         },
     },
 )
 def list_resources(ctx: ToolContext, args: dict) -> str:
-    from marvin.db.models.platform.resource_tags import ResourceTags
+    from marvin.services import item_query
 
-    from .builtins_actions import _narrow_by_tags
-
-    q = ctx.session.query(Resources).filter(Resources.group_id == ctx.group_id, Resources.trashed_at.is_(None))
-    rtype = args.get("resource_type")
-    if rtype:
-        q = q.filter(Resources.resource_type == rtype)
-    if args.get("tags"):
-        q, ok = _narrow_by_tags(ctx.session, ctx.group_id, q, Resources, ResourceTags, "resource_id", args)
-        if not ok:
-            return json.dumps({"resources": [], "count": 0, "returned": 0, "note": "no such tag(s) in this workspace"})
-    total = q.count()
-    rows = q.limit(min(int(args.get("limit") or 20), 50)).all()
-    out = [_resource_ref(r) for r in rows]  # LIST → lean; get_resource returns the full record
-    return json.dumps({"resources": out, "count": total, "returned": len(out)})
+    result = item_query.run(ctx.session, ctx.group_id, "resource", args, limit=min(int(args.get("limit") or 20), 50))
+    if result.note:
+        return json.dumps({"resources": [], "count": 0, "returned": 0, "note": result.note})
+    out = [_resource_ref(r) for r in result.rows]  # LIST → lean; get_resource returns the full record
+    return json.dumps({"resources": out, "count": result.total, "returned": len(out)})
 
 
 @register_tool(
@@ -709,7 +712,7 @@ def list_entry_types(ctx: ToolContext, _args: dict) -> str:
 
 @register_tool(
     name="list_assets",
-    description="List the workspace's assets (images, files), optionally filtered by asset_type (e.g. 'image'), a filename substring (query), and/or tags. Returns `count` (true total) plus a lightweight sample — each with a real displayable `url` for thumbnails; call get_asset for the full record. Use tags for 'all assets with tag X' — exhaustive, not a ranked search.",  # noqa: E501
+    description="List the workspace's assets (images, files), optionally filtered by asset_type (e.g. 'image'), a filename substring (query), tags, collection, whether they are attached to any entry, and when they were created. Returns `count` (true total) plus a lightweight sample — each with a real displayable `url` for thumbnails; call get_asset for the full record. Use tags for 'all assets with tag X' — exhaustive, not a ranked search.",  # noqa: E501
     input_schema={
         "type": "object",
         "properties": {
@@ -720,30 +723,19 @@ def list_entry_types(ctx: ToolContext, _args: dict) -> str:
                 "items": {"type": "string"},
                 "description": "only assets carrying ANY of these tags (slug or name) — exhaustive, not ranked",
             },
+            **_ITEM_LIST_FILTERS,
             "limit": {"type": "integer"},
         },
     },
 )
 def list_assets(ctx: ToolContext, args: dict) -> str:
-    from marvin.db.models.platform.asset_tags import AssetTags
+    from marvin.services import item_query
 
-    from .builtins_actions import _narrow_by_tags
-
-    q = ctx.session.query(Assets).filter(Assets.group_id == ctx.group_id, Assets.trashed_at.is_(None))
-    atype = args.get("asset_type")
-    if atype:
-        q = q.filter(Assets.asset_type == atype)
-    text = args.get("query")
-    if text:
-        q = q.filter((Assets.original_filename.ilike(f"%{text}%")) | (Assets.name.ilike(f"%{text}%")))
-    if args.get("tags"):
-        q, ok = _narrow_by_tags(ctx.session, ctx.group_id, q, Assets, AssetTags, "asset_id", args)
-        if not ok:
-            return json.dumps({"assets": [], "count": 0, "returned": 0, "note": "no such tag(s) in this workspace"})
-    total = q.count()
-    rows = q.limit(min(int(args.get("limit") or 20), 50)).all()
-    out = [_asset_ref(a) for a in rows]  # LIST → lean; get_asset returns the full record
-    return json.dumps({"assets": out, "count": total, "returned": len(out)})
+    result = item_query.run(ctx.session, ctx.group_id, "asset", args, limit=min(int(args.get("limit") or 20), 50))
+    if result.note:
+        return json.dumps({"assets": [], "count": 0, "returned": 0, "note": result.note})
+    out = [_asset_ref(a) for a in result.rows]  # LIST → lean; get_asset returns the full record
+    return json.dumps({"assets": out, "count": result.total, "returned": len(out)})
 
 
 @register_tool(
