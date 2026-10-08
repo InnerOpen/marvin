@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.214 (2026-10-08)
+
+### Bug Fixes
+
+- **ai**: Look at attached files before answering about them, and know they are already assets
+  ([`feb13c5`](https://github.com/InnerOpen/marvin/commit/feb13c51cf1863670e90337601810cd2013f84f8))
+
+- **bubble**: Speak keeps listening until you stop it
+  ([`210b55c`](https://github.com/InnerOpen/marvin/commit/210b55c4dd745903fee28331500ed09879a2edbf))
+
+
 ## v1.0.0-rc.213 (2026-10-08)
 
 ### Features
