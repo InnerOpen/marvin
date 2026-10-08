@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.213 (2026-10-08)
+
+### Features
+
+- **bubble**: Attach files and dictate in the bubble
+  ([`d3c3210`](https://github.com/InnerOpen/marvin/commit/d3c3210e74eb7a8b146f47cac64b679555b7ca5b))
+
+
 ## v1.0.0-rc.212 (2026-10-08)
 
 ### Features
