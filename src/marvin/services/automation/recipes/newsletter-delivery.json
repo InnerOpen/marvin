@@ -1,0 +1,41 @@
+{
+  "name": "Newsletter delivery",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{newsletter_entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "integration",
+        "id": "issue",
+        "integration": "{{newsletter_integration}}",
+        "action": "create_issue_email",
+        "args": {
+          "subject": "${entry.title}",
+          "body": "${entry.data.{{body_field}}}",
+          "description": "${entry.data.{{preview_field}}}",
+          "canonical_url": "${entry.url}",
+          "entry_id": "${entry.id}",
+          "email_id": "${entry.metadata.buttondown_email_id}",
+          "site_url": "${site.url}"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "buttondown_email_id": "${steps.issue.output.email_id}",
+          "buttondown_issue_delivery": "${steps.issue.output.delivery}"
+        }
+      }
+    ]
+  }
+}

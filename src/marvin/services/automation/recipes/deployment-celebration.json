@@ -1,0 +1,21 @@
+{
+  "name": "Deployment celebration",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "site_deployment_completed"
+    },
+    "actions": [
+      {
+        "kind": "integration",
+        "id": "notify",
+        "integration": "{{notify_integration}}",
+        "action": "notify",
+        "args": {
+          "title": "Site deployed",
+          "body": "${event.site_url} is live (deployment ${event.deployment_id})."
+        }
+      }
+    ]
+  }
+}

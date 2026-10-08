@@ -1,0 +1,20 @@
+{
+  "recipe": "utm-librarian",
+  "variables": {
+    "campaign_entry_type": {
+      "type": "entry_type_slug",
+      "description": "Slug of the entry type that represents a campaign draft.",
+      "example": "campaign"
+    },
+    "source_field": {
+      "type": "field_key",
+      "description": "Field holding the UTM source (a URL-safe value, e.g. `newsletter`).",
+      "example": "utm_source"
+    },
+    "medium_field": {
+      "type": "field_key",
+      "description": "Field holding the UTM medium (a URL-safe value, e.g. `email`).",
+      "example": "utm_medium"
+    }
+  }
+}

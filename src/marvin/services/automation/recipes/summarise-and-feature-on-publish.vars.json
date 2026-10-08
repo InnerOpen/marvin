@@ -1,0 +1,15 @@
+{
+  "recipe": "summarise-and-feature-on-publish",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Slug of the entry type whose publications are summarised and featured.",
+      "example": "recipe"
+    },
+    "collection_slug": {
+      "type": "collection_slug",
+      "description": "Slug (or name) of the collection the entry joins.",
+      "example": "featured"
+    }
+  }
+}

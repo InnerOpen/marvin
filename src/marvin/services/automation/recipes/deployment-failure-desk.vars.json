@@ -1,0 +1,10 @@
+{
+  "recipe": "deployment-failure-desk",
+  "variables": {
+    "notify_integration": {
+      "type": "integration_slug",
+      "description": "Slug of a connected Apprise integration (Settings → Integrations) whose `notify` action sends the message.",
+      "example": "alerts"
+    }
+  }
+}

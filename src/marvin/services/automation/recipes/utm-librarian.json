@@ -1,0 +1,34 @@
+{
+  "name": "UTM librarian",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_created"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{campaign_entry_type}}"
+      },
+      {
+        "field": "entry.url",
+        "op": "exists"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "utm": {
+            "source": "${entry.data.{{source_field}}}",
+            "medium": "${entry.data.{{medium_field}}}",
+            "campaign": "${entry.slug}",
+            "link": "${entry.url}?utm_source=${entry.data.{{source_field}}}&utm_medium=${entry.data.{{medium_field}}}&utm_campaign=${entry.slug}"
+          }
+        }
+      }
+    ]
+  }
+}

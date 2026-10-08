@@ -1,0 +1,10 @@
+{
+  "recipe": "editorial-approval-gate",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Slug of the entry type whose approved entries publish automatically.",
+      "example": "article"
+    }
+  }
+}

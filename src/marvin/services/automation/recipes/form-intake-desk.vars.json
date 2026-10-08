@@ -1,0 +1,20 @@
+{
+  "recipe": "form-intake-desk",
+  "variables": {
+    "form_entry_type": {
+      "type": "entry_type_slug",
+      "description": "Slug of the entry type that takes public submissions (capabilities.submittable).",
+      "example": "contact-request"
+    },
+    "message_field": {
+      "type": "field_key",
+      "description": "The submission field quoted in the notification.",
+      "example": "message"
+    },
+    "notify_integration": {
+      "type": "integration_slug",
+      "description": "Slug of a connected Apprise integration (Settings → Integrations) whose `notify` action sends the message.",
+      "example": "alerts"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "Move every entry with an image back to draft",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "entry",
+      "query": {
+        "has_images": true,
+        "status": "published"
+      }
+    },
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "unpublish"
+      }
+    ]
+  }
+}

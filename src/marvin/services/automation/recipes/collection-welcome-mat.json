@@ -1,0 +1,41 @@
+{
+  "name": "Collection welcome mat",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_added_to_collection"
+    },
+    "conditions": [
+      {
+        "field": "event.collection_name",
+        "op": "eq",
+        "value": "{{collection_name}}"
+      },
+      {
+        "any": [
+          {
+            "field": "entry.summary",
+            "op": "exists",
+            "value": false
+          },
+          {
+            "field": "entry.summary",
+            "op": "eq",
+            "value": ""
+          }
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "summary",
+        "op": "generate-summary",
+        "input": {
+          "max_words": 60
+        },
+        "write_back": true
+      }
+    ]
+  }
+}

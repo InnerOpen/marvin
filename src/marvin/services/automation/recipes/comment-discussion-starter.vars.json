@@ -1,0 +1,20 @@
+{
+  "recipe": "comment-discussion-starter",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Slug of the entry type whose publications open a discussion.",
+      "example": "article"
+    },
+    "forum_webhook_id": {
+      "type": "webhook_id",
+      "description": "Id of the outgoing webhook (type `workflow`) that creates a topic in your forum; its headers carry the forum API key as a {{SECRET}} reference.",
+      "example": "<uuid of the outgoing webhook>"
+    },
+    "discussion_url_path": {
+      "type": "text",
+      "description": "Dotted path, inside the forum's JSON response, of the new discussion's URL.",
+      "example": "topic_url"
+    }
+  }
+}

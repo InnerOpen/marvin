@@ -118,6 +118,14 @@ def _typed_like_schema(patch: dict, entry_type) -> dict:
     return out
 
 
+def _json_ready(value):
+    """A templated patch as JSON can hold it: a whole-value template keeps its type, and the event context carries
+    UUIDs (`${event.user_id}`) and datetimes (`${event.publish_at}`) that a JSON column can't store as they are."""
+    from fastapi.encoders import jsonable_encoder
+
+    return jsonable_encoder(value)
+
+
 # `if_none` on an entity_query step: what no match means. Unset / "fail" fails the step; "skip" ends it
 # quietly — for events that may concern no entry here (a newsletter reader who signed up elsewhere).
 # More than one match always fails: acting on a guess is worse than stopping.
@@ -206,7 +214,7 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
 
     # ── Metadata merge ─────────────────────────────────────────────────────────
     if op in METADATA_OPS:
-        patch = interpolate(action.get("metadata") or {}, context)
+        patch = _json_ready(interpolate(action.get("metadata") or {}, context))
         if not isinstance(patch, dict) or not patch:
             raise AutomationActionError("entry set_metadata needs a non-empty `metadata` object")
         # A template that resolved to nothing must not overwrite a real value with null.
@@ -228,7 +236,7 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
 
     # ── Schema-field merge ─────────────────────────────────────────────────────
     if op in DATA_OPS:
-        patch = interpolate(action.get("data") or {}, context)
+        patch = _json_ready(interpolate(action.get("data") or {}, context))
         if not isinstance(patch, dict) or not patch:
             raise AutomationActionError("entry set_data needs a non-empty `data` object")
         patch = {k: v for k, v in patch.items() if v is not None and v != ""}

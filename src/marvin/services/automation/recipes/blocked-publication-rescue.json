@@ -1,0 +1,26 @@
+{
+  "name": "Blocked publication rescue",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_scheduled_publish_blocked"
+    },
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "Scheduled publish is waiting (${event.waiting_for}): ${event.reason}"
+      },
+      {
+        "kind": "integration",
+        "id": "notify",
+        "integration": "{{notify_integration}}",
+        "action": "notify",
+        "args": {
+          "title": "Scheduled publish is waiting: ${entry.title}",
+          "body": "${event.reason}\nFix it here: ${entry.url}"
+        }
+      }
+    ]
+  }
+}

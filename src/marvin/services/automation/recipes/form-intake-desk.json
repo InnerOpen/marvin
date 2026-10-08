@@ -1,0 +1,45 @@
+{
+  "name": "Form intake desk",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "form_submission_received"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{form_entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "intake": {
+            "form": "${event.form_name}",
+            "flagged": "${event.flagged}",
+            "duplicate": "${event.duplicate}",
+            "run": "${event.correlation_id}"
+          }
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "New ${event.form_name} submission awaiting triage"
+      },
+      {
+        "kind": "integration",
+        "id": "notify",
+        "integration": "{{notify_integration}}",
+        "action": "notify",
+        "args": {
+          "title": "New submission: ${entry.title}",
+          "body": "${event.form_name} — ${entry.data.{{message_field}}}"
+        }
+      }
+    ]
+  }
+}

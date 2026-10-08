@@ -1,0 +1,21 @@
+{
+  "name": "Deployment failure desk",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "site_deployment_failed"
+    },
+    "actions": [
+      {
+        "kind": "integration",
+        "id": "notify",
+        "integration": "{{notify_integration}}",
+        "action": "notify",
+        "args": {
+          "title": "Site deployment failed",
+          "body": "${event.error_message}\nDeployment: ${event.deployment_id}\nSite: ${event.site_url}"
+        }
+      }
+    ]
+  }
+}

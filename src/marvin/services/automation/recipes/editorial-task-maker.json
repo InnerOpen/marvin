@@ -1,0 +1,46 @@
+{
+  "name": "Editorial task maker",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "integration",
+        "id": "tasks",
+        "integration": "{{n8n_integration}}",
+        "action": "trigger_workflow",
+        "args": {
+          "path": "{{n8n_webhook_path}}",
+          "entry_id": "${entry.id}",
+          "data": {
+            "title": "${entry.title}",
+            "url": "${entry.url}",
+            "tasks": [
+              "Reply to comments on \"${entry.title}\"",
+              "Follow up on \"${entry.title}\" in a week"
+            ]
+          }
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "editorial_tasks": {
+            "execution_id": "${steps.tasks.output.execution_id}",
+            "status_code": "${steps.tasks.output.status_code}"
+          }
+        }
+      }
+    ]
+  }
+}

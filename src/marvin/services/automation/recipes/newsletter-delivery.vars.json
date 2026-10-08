@@ -1,0 +1,25 @@
+{
+  "recipe": "newsletter-delivery",
+  "variables": {
+    "newsletter_entry_type": {
+      "type": "entry_type_slug",
+      "description": "Slug of the entry type whose published entries become newsletter issues.",
+      "example": "newsletter-issue"
+    },
+    "newsletter_integration": {
+      "type": "integration_slug",
+      "description": "Slug of the connected Buttondown integration (Settings → Integrations).",
+      "example": "buttondown"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "The entry type's field holding the issue body (Markdown).",
+      "example": "body"
+    },
+    "preview_field": {
+      "type": "field_key",
+      "description": "The entry type's field holding the preview / description line.",
+      "example": "preview"
+    }
+  }
+}

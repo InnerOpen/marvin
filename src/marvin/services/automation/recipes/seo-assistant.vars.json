@@ -1,0 +1,10 @@
+{
+  "recipe": "seo-assistant",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Slug of the entry type whose entries get SEO suggestions when sent to review.",
+      "example": "article"
+    }
+  }
+}

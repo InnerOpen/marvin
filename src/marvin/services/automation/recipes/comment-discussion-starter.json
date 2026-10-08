@@ -1,0 +1,35 @@
+{
+  "name": "Comment discussion starter",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "webhook",
+        "id": "discussion",
+        "webhook_id": "{{forum_webhook_id}}",
+        "body": {
+          "title": "${entry.title}",
+          "raw": "${entry.summary}\n\n${entry.url}",
+          "entry_id": "${entry.id}"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "discussion_url": "${steps.discussion.output.body.{{discussion_url_path}}}"
+        }
+      }
+    ]
+  }
+}
