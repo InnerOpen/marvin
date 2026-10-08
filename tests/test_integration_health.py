@@ -26,6 +26,11 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+# "Due now", give or take a wall clock that steps (WSL2 re-syncs its clock and can jump back seconds mid-test):
+# what matters is that the retry moved from its scheduled time (minutes away) to about now.
+NOW_SLACK = timedelta(seconds=30)
+
+
 def _group(db_session, prefix: str):
     from marvin.db.models.groups import Groups
 
@@ -347,10 +352,10 @@ def test_retry_now_makes_a_pending_retry_due_without_running_it(db_session, ws):
 
     db_session.refresh(row)
     assert row.status == "pending" and row.attempt == 1  # nothing ran: the sweep picks it up
-    assert errors._aware(row.next_attempt_at) <= _now()
-    assert read.status == "pending" and read.next_attempt_at <= _now()
-    # …and the sweep's claim takes it on its next tick.
-    claimed = errors.claim_next(db_session)
+    assert abs(errors._aware(row.next_attempt_at) - _now()) < NOW_SLACK  # was _now() + 10 minutes
+    assert read.status == "pending" and abs(read.next_attempt_at - _now()) < NOW_SLACK
+    # …and the sweep's claim takes it on its next tick (about a minute on).
+    claimed = errors.claim_next(db_session, now=_now() + timedelta(minutes=1))
     assert claimed is not None and claimed.id == row.id and claimed.attempt == 2
 
 
@@ -358,7 +363,7 @@ def test_retry_now_unparks_a_retry_waiting_for_recovery(db_session, ws):
     row = _retry(db_session, ws, status="parked")
     health.retry_now(db_session, ws.gid, row.id)
     db_session.refresh(row)
-    assert row.status == "pending" and errors._aware(row.next_attempt_at) <= _now()
+    assert row.status == "pending" and abs(errors._aware(row.next_attempt_at) - _now()) < NOW_SLACK
 
 
 def test_retry_now_refuses_a_running_retry_and_leaves_its_lease_alone(db_session, ws):
