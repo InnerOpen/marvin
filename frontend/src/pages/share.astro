@@ -62,7 +62,7 @@ const here = `/share${isShareId(shareId) ? `?id=${shareId}` : ""}`;
     </div>
   </section>
 
-  <section class="card" id="share-root" data-share-id={isShareId(shareId) ? shareId : ""} data-can-author={canAuthor ? "1" : ""} data-can-edit={canEdit ? "1" : ""} data-workspace={current?.workspace.name ?? ""}>
+  <section class="card" id="share-root" data-share-id={isShareId(shareId) ? shareId : ""} data-can-author={canAuthor ? "1" : ""} data-can-edit={canEdit ? "1" : ""} data-workspace={current?.workspace.name ?? ""} data-workspace-id={current?.workspace.id ?? ""}>
     <div class="card-body">
       <p id="share-empty" class="muted" hidden>
         Nothing to add here: this share was used already, or it expired (Marvin keeps a share for an hour).
@@ -169,6 +169,8 @@ const here = `/share${isShareId(shareId) ? `?id=${shareId}` : ""}`;
 
 <script>
   import { createSdkClient } from "@/lib/sdk";
+  import { isRetryable } from "@/lib/uploadQueue";
+  import { queueUpload } from "@/lib/uploadQueueClient";
   import {
     assetName,
     assetSlug,
@@ -276,28 +278,38 @@ const here = `/share${isShareId(shareId) ? `?id=${shareId}` : ""}`;
     busy(false);
   }
 
-  // Each file through the normal asset upload; returns the ids that made it (the rest are listed with why).
-  async function upload(): Promise<string[]> {
+  // Each file through the normal asset upload; returns the ids that made it (the rest are listed with why). With
+  // `keep`, a file that fails for want of a connection waits on this device and uploads later (lib/uploadQueue.ts):
+  // counted in `kept`, since the share has then done its job for it.
+  async function upload(keep = false): Promise<{ ids: string[]; kept: number }> {
     const ids: string[] = [];
+    let kept = 0;
     for (const [i, file] of files.entries()) {
       status.textContent = `Uploading ${i + 1} of ${files.length}…`;
+      const fields = { slug: assetSlug(file.name, suffix()), name: assetName(file.name) };
       try {
-        const asset = await sdk.assets.upload(file, { slug: assetSlug(file.name, suffix()), name: assetName(file.name) });
+        const asset = await sdk.assets.upload(file, fields);
         ids.push(String(asset.id));
         result(`${file.name}: added`, `/workspace/assets/${asset.id}`);
       } catch (e) {
-        result(`${file.name}: not added — ${errorText(e)}`);
+        if (keep && isRetryable(e, navigator.onLine) && (await queueUpload(file, fields, root.dataset.workspaceId ?? ""))) {
+          kept += 1;
+          result(`${file.name}: no connection — kept on this device, it uploads when you're back online`);
+        } else result(`${file.name}: not added — ${errorText(e)}`);
       }
     }
-    return ids;
+    return { ids, kept };
   }
 
   $("share-assets").addEventListener("click", async () => {
     busy(true);
     results.replaceChildren();
-    const ids = await upload();
-    status.textContent = ids.length === files.length ? `Added ${ids.length} to Assets.` : `Added ${ids.length} of ${files.length}.`;
-    if (ids.length === files.length) {
+    const { ids, kept } = await upload(true);
+    status.textContent =
+      ids.length === files.length
+        ? `Added ${ids.length} to Assets.`
+        : `Added ${ids.length} of ${files.length}${kept ? `; ${kept} will upload when you're back online` : ""}.`;
+    if (ids.length + kept === files.length) {
       await forget();
       (root.querySelector(".share-actions") as HTMLElement).hidden = true; // used: nothing left to add
       result("Open Assets", "/workspace/assets");
@@ -314,7 +326,7 @@ const here = `/share${isShareId(shareId) ? `?id=${shareId}` : ""}`;
     }
     busy(true);
     results.replaceChildren();
-    const ids = files.length ? await upload() : [];
+    const { ids } = files.length ? await upload() : { ids: [] as string[] };
     status.textContent = "Creating the entry…";
     try {
       const entry = await sdk.entries.create(entryDraft(share, option.value, option.dataset.bodyField || null, ids) as any);

@@ -6,16 +6,18 @@ export const CACHE_PREFIX = "marvin-";
 export const OFFLINE_URL = "/offline.html";
 /** Files shared to the app, until the Share page has used them (or an hour has passed). */
 export const SHARE_CACHE = `${CACHE_PREFIX}share`;
+/** Uploads that failed for want of a connection, until they're sent (lib/uploadQueue.ts). */
+export const UPLOAD_CACHE = `${CACHE_PREFIX}uploads`;
 
 /** The two caches one build owns: the precached app shell and assets fetched later. */
 export function cacheNames(version) {
   return { shell: `${CACHE_PREFIX}shell-${version}`, assets: `${CACHE_PREFIX}assets-${version}` };
 }
 
-/** Caches to delete on activate: Marvin's from any other build (a share in progress outlives an update). Other
- * caches on the origin are left alone. */
+/** Caches to delete on activate: Marvin's from any other build (a share in progress and waiting uploads outlive an
+ * update). Other caches on the origin are left alone. */
 export function staleCaches(keys, version) {
-  const keep = [...Object.values(cacheNames(version)), SHARE_CACHE];
+  const keep = [...Object.values(cacheNames(version)), SHARE_CACHE, UPLOAD_CACHE];
   return keys.filter((k) => k.startsWith(CACHE_PREFIX) && !keep.includes(k));
 }
 

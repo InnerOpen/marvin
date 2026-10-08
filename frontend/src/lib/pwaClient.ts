@@ -4,6 +4,7 @@
  * the browser chrome colour on the chosen theme, shows the inbox count on the app icon, and cleans up on
  * logout (the caches and the icon badge). Pure decisions live in lib/pwa.ts.
  */
+import { waitingUploads } from "@/lib/uploadQueueClient";
 import { removePushEndpoint, savePushSubscription } from "./api/push";
 import { urlBase64ToUint8Array } from "./pwa";
 
@@ -156,8 +157,8 @@ async function clearCaches(): Promise<void> {
 }
 
 /**
- * Logging out empties the app's caches (they only ever hold static files, but a clean slate is the rule) and
- * clears the icon badge. Push stays on: it belongs to the device, and the person turns it off in Profile (or
+ * Logging out empties the app's caches (static files, a share in progress, uploads waiting for a connection — after
+ * asking when any wait) and clears the icon badge. Push stays on: it belongs to the device, and the person turns it off in Profile (or
  * removes the device there from anywhere). Capped so a slow network never holds up the logout.
  */
 export function guardLogout(): void {
@@ -170,11 +171,17 @@ export function guardLogout(): void {
     )
       return;
     event.preventDefault();
-    const cleanup = Promise.allSettled([clearCaches(), Promise.resolve(setBadge(0))]);
-    const timeout = new Promise((resolve) => setTimeout(resolve, LOGOUT_TIMEOUT_MS));
-    Promise.race([cleanup, timeout]).finally(() => {
-      form.dataset.pwaCleaned = "1";
-      form.submit();
-    });
+    void (async () => {
+      // Uploads waiting for a connection live in a marvin-* cache too: say so before they go.
+      const waiting = (await waitingUploads()).length;
+      const lose = `${waiting} upload${waiting === 1 ? " hasn't" : "s haven't"} been sent yet and will be discarded.`;
+      if (waiting && !confirm(`${lose} Log out anyway?`)) return;
+      const cleanup = Promise.allSettled([clearCaches(), Promise.resolve(setBadge(0))]);
+      const timeout = new Promise((resolve) => setTimeout(resolve, LOGOUT_TIMEOUT_MS));
+      Promise.race([cleanup, timeout]).finally(() => {
+        form.dataset.pwaCleaned = "1";
+        form.submit();
+      });
+    })();
   });
 }

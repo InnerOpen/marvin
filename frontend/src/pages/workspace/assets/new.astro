@@ -3,12 +3,19 @@ import ImageCropper from "@/components/ImageCropper.astro";
 import SlugInput from "@/components/SlugInput.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
-import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { FULL_CONTENT_ACCESS, getContentAccess, getCurrentWorkspace } from "@/lib/api/workspaces";
 import { AUTHORS_ONLY } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
 // Uploading is AUTHOR+ (the API answers a VIEWER with 403).
 const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+// The workspace an upload is meant for: one that waits for a connection is sent there only (lib/uploadQueue.ts).
+let workspaceId = "";
+try {
+  if (authToken) workspaceId = (await getCurrentWorkspace(authToken))?.id ?? "";
+} catch {
+  /* without it a failed upload just fails, as before */
+}
 ---
 
 <AppLayout restrictedNote={access.canAuthor ? null : AUTHORS_ONLY} title="Upload Asset" eyebrow="Assets">
@@ -21,7 +28,7 @@ const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCE
   </div>
 
   <section class="form-section">
-    <form id="uploadForm" enctype="multipart/form-data" class="form">
+    <form id="uploadForm" enctype="multipart/form-data" class="form" data-workspace={workspaceId}>
       <!-- File Upload Area -->
       <div class="form-group">
         <label for="file">File *</label>
@@ -267,6 +274,8 @@ const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCE
 
 <script>
   import { createSdkClient } from '@/lib/sdk';
+  import { isRetryable } from '@/lib/uploadQueue';
+  import { queueUpload } from '@/lib/uploadQueueClient';
 
   const sdk = createSdkClient();
   const form = document.getElementById('uploadForm') as HTMLFormElement;
@@ -465,15 +474,16 @@ const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCE
     submitButton.textContent = 'Uploading...';
     progressContainer.style.display = 'block';
 
+    // Prepare metadata for SDK
+    const uploadData = {
+      slug: slugInput.value,
+      name: nameInput.value,
+      altText: altText || undefined,
+      description: description || undefined,
+      metadata: metadata ? JSON.parse(metadata) : undefined,
+    };
+
     try {
-      // Prepare metadata for SDK
-      const uploadData = {
-        slug: slugInput.value,
-        name: nameInput.value,
-        altText: altText || undefined,
-        description: description || undefined,
-        metadata: metadata ? JSON.parse(metadata) : undefined,
-      };
 
       // Use SDK to upload
       // Note: SDK uses fetch which doesn't support upload progress tracking
@@ -495,6 +505,14 @@ const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCE
         window.location.href = '/workspace/assets';
       }, 1000);
     } catch (error: any) {
+      if (progressInterval) { clearInterval(progressInterval); progressInterval = null; }
+      // No connection (or a passing server error): keep it on this device and send it when the app is back online.
+      if (isRetryable(error, navigator.onLine) && await queueUpload(selectedFile as File, uploadData, form.dataset.workspace ?? '')) {
+        progressFill.style.width = '100%';
+        progressText.textContent = "No connection — it's kept on this device and uploads when you're back online.";
+        submitButton.textContent = 'Saved for later';
+        return;
+      }
       const message = error?.message || error?.detail || 'Upload failed';
       showError(message);
       resetForm();
