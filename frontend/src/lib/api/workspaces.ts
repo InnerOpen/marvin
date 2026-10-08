@@ -88,14 +88,6 @@ export async function createWorkspace(data: WorkspaceCreate, authToken: string):
 }
 
 /**
- * Update workspace settings (requires ADMIN or OWNER)
- */
-export async function updateWorkspace(id: string, data: WorkspaceUpdate, authToken: string): Promise<Workspace> {
-  const sdk = createSdkClient(authToken);
-  return sdk.workspaces.update(id, data);
-}
-
-/**
  * Delete a workspace (requires SUPER_ADMIN)
  */
 export async function deleteWorkspace(id: string, authToken: string, force: boolean = false): Promise<void> {

@@ -81,31 +81,22 @@ const success = urlParams.get("success") === "1";
 
       <section class="settings-section">
         <h3>General Settings</h3>
-        <form
-          id="workspace-settings-form"
-          data-workspace-id={workspace.id}
-          class="settings-form"
-        >
-          <div class="form-grid">
-            <label>
-              <span>Workspace Name</span>
-              <input
-                type="text"
-                name="name"
-                value={workspace.name}
-                disabled={!canManage}
-              />
-              <small>Slug is auto-generated from the name</small>
-            </label>
-          </div>
-
-          {canManage && (
-            <div class="form-actions">
-              <button type="submit" id="submit-btn" class="button">Save Changes</button>
-              <button type="reset" class="button secondary">Reset</button>
-            </div>
-          )}
-        </form>
+        {/* Renaming changes the slug sites read content by (the old one stays an alias), so only a platform admin
+            renames a workspace — in Admin → Workspaces, which handles the alias. */}
+        <div class="form-grid">
+          <label>
+            <span>Workspace Name</span>
+            <input type="text" value={workspace.name} readonly />
+            <small>
+              Slug <code>{workspace.slug}</code>.{" "}
+              {isPlatformAdmin ? (
+                <a href={`/admin/groups/${workspace.id}`}>Rename in Admin → Workspaces</a>
+              ) : (
+                "Only a platform admin can rename a workspace: it changes the slug your site uses."
+              )}
+            </small>
+          </label>
+        </div>
       </section>
 
       <section class="settings-section">
@@ -379,42 +370,9 @@ const success = urlParams.get("success") === "1";
   // HttpOnly cookie is automatically sent with credentials: 'include'
   import { createSdkClient } from '@/lib/sdk';
   const sdk = createSdkClient();
-  const form = document.getElementById('workspace-settings-form') as HTMLFormElement;
-  const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
   const siteForm = document.getElementById('site-settings-form') as HTMLFormElement;
   const submitSiteBtn = document.getElementById('submit-site-btn') as HTMLButtonElement;
   const deleteBtn = document.getElementById('delete-workspace-btn') as HTMLButtonElement;
-
-  // Settings form submission
-  if (form && submitBtn) {
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-
-      const workspaceId = form.dataset.workspaceId;
-      if (!workspaceId) {
-        alert('Workspace ID not found');
-        return;
-      }
-
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Saving...';
-
-      try {
-        const formData = new FormData(form);
-        const data = {
-          name: formData.get('name') as string,
-        };
-
-        await sdk.workspaces.updatePreferences(workspaceId, data);
-
-        window.location.href = '/workspace/settings?success=1';
-      } catch (err) {
-        alert('Error: ' + (err instanceof Error ? err.message : 'Failed to update workspace settings'));
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Save Changes';
-      }
-    });
-  }
 
   // Trash settings: "" = inherit the platform default (null), else 0 (never) / 7 / 30 / 90 days.
   const trashForm = document.getElementById('trash-settings-form') as HTMLFormElement | null;
