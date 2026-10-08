@@ -1607,4 +1607,78 @@ function isSuperseded(template: any): boolean {
     margin-bottom: 10px;
     font-style: italic;
   }
+
+  /* Phones: a template card stacks its name, badges and actions instead of squeezing them into one
+     row (the row couldn't shrink, so the cards ran off the screen). */
+  @media (max-width: 640px) {
+    .settings-section {
+      padding: 16px;
+    }
+
+    .template-card {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      padding: 14px 16px;
+    }
+
+    .template-header {
+      flex-wrap: wrap;
+      gap: 6px 8px;
+    }
+
+    .template-header strong {
+      flex-basis: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    .template-actions {
+      flex-wrap: wrap;
+    }
+
+    .template-search-row .input {
+      max-width: none;
+    }
+
+    /* The × on a connected-event tag: a 32px hit area, mostly inside the tag's own padding, with
+       enough row gap that two wrapped tags' targets don't overlap. */
+    .connected-events-list {
+      gap: 8px;
+    }
+
+    .connected-event-tag {
+      padding: 4px 4px 4px 8px;
+    }
+
+    .disconnect-event-btn {
+      min-width: 32px;
+      min-height: 32px;
+      margin: -8px -4px -8px 0;
+      font-size: 16px;
+    }
+
+    .checkbox-label {
+      min-height: 32px;
+    }
+
+    .modal-header,
+    .form-section {
+      padding: 16px;
+    }
+
+    .modal-close {
+      width: 40px;
+      height: 40px;
+      margin: -8px -8px -8px 0;
+    }
+
+    .body-tab {
+      min-height: 36px;
+    }
+
+    .modal-actions {
+      flex-wrap: wrap;
+      padding: 16px;
+    }
+  }
 </style>

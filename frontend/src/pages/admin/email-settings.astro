@@ -1259,4 +1259,62 @@ try {
   .button.primary:hover {
     opacity: 0.9;
   }
+
+  /* Phones: a template card stacks its name, badges and actions (the one-row layout ran past the
+     card, which clipped the buttons); the card header and the modal rows wrap. */
+  @media (max-width: 640px) {
+    .card {
+      padding: 16px;
+    }
+
+    .card-header {
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .setting-item {
+      flex-wrap: wrap;
+    }
+
+    .setting-value {
+      overflow-wrap: anywhere;
+    }
+
+    .template-card {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 12px;
+      padding: 14px 16px;
+    }
+
+    .template-header {
+      flex-wrap: wrap;
+      gap: 6px 8px;
+    }
+
+    .template-header strong {
+      flex-basis: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    .template-actions {
+      flex-wrap: wrap;
+    }
+
+    .modal-header,
+    .form-section {
+      padding: 16px;
+    }
+
+    .modal-close {
+      width: 40px;
+      height: 40px;
+      margin: -8px -8px -8px 0;
+    }
+
+    .modal-actions {
+      flex-wrap: wrap;
+      padding: 16px;
+    }
+  }
 </style>

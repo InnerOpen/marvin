@@ -517,4 +517,33 @@ const apiUrl = getBrowserFetchBaseUrl();
   .test-result.error {
     background: var(--color-error-bg); color: var(--color-error); border: 1px solid var(--color-error);
   }
+
+  /* Phones: each profile row becomes a stacked card (name, server, from, security, then the
+     actions), since five columns with a nowrap button group can't fit; the modal form goes to one column. */
+  @media (max-width: 640px) {
+    .smtp-page :global(.profiles-table),
+    .smtp-page :global(.profiles-table tbody),
+    .smtp-page :global(.profiles-table tr),
+    .smtp-page :global(.profiles-table td) {
+      display: block;
+    }
+    .smtp-page :global(.profiles-table thead) { display: none; }
+    .smtp-page :global(.profiles-table tr) { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    .smtp-page :global(.profiles-table tbody tr:last-child) { border-bottom: none; }
+    .smtp-page :global(.profiles-table td) { padding: 3px 0; border-bottom: none; overflow-wrap: anywhere; }
+    .smtp-page :global(.profiles-table td.row-actions) {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-start;
+      gap: 8px;
+      margin-top: 10px;
+      white-space: normal;
+    }
+    .smtp-page :global(.button.small) { min-height: 36px; }
+    .modal-header { padding: 16px; }
+    .modal-close { width: 40px; height: 40px; margin: -8px -8px -8px 0; }
+    .modal-content > form { padding: 16px; }
+    .form-grid { grid-template-columns: minmax(0, 1fr); }
+    .modal-actions { flex-wrap: wrap; }
+  }
 </style>

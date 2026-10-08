@@ -1105,4 +1105,21 @@ for (const evtType of connectedEventTypes) {
   /* Toast */
   .toast { position: fixed; bottom: 24px; right: 24px; background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: var(--radius); font-size: 14px; font-weight: 500; z-index: 9999; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
   .toast-visible { opacity: 1; }
+
+  /* Phones: section headers and the action row wrap instead of squeezing their text, and the small
+     controls (body tabs, Select All / Clear All, the modal ×) get finger-sized hit areas. */
+  @media (max-width: 640px) {
+    .form-section { padding: 16px; }
+    .section-header { flex-wrap: wrap; gap: 8px 16px; }
+    .link-button { min-height: 36px; }
+    .body-tab { min-height: 36px; }
+    .var-chip { min-height: 32px; }
+    .events-checklist { padding: 8px; }
+    .form-actions { flex-wrap: wrap; }
+    .form-actions .button { flex: 1 1 auto; min-height: 40px; }
+    .modal-header { padding: 16px; }
+    .modal-close { width: 40px; height: 40px; margin: -8px -8px -8px 0; }
+    .modal-actions { flex-wrap: wrap; padding: 16px; }
+    .toast { left: 16px; right: 16px; bottom: 16px; text-align: center; }
+  }
 </style>
