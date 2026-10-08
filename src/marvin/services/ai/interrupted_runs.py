@@ -41,7 +41,9 @@ STATUS_FAILED = "failed"
 
 
 def _naive_utc(value: datetime | None) -> datetime | None:
-    """Timestamps are stored naive UTC; an aware value (e.g. the process start) is converted."""
+    """Timestamps are stored naive UTC, but read back mixed: `NaiveDateTime` columns (e.g. a thread's
+    last_message_at) come back aware, plain `DateTime` ones (an execution's started_at) naive. Compare
+    them, and the process start, only after this."""
     if value is None or value.tzinfo is None:
         return value
     return value.astimezone(UTC).replace(tzinfo=None)
@@ -64,8 +66,9 @@ def _close_thread(session: Session, execution: AIExecutionModel) -> bool:
     thread = _thread_of(session, execution)
     if thread is None:
         return False
-    started = _naive_utc(execution.started_at) or execution.created_at
-    if thread.last_message_at is not None and started is not None and thread.last_message_at > started:
+    started = _naive_utc(execution.started_at or execution.created_at)
+    last_message_at = _naive_utc(thread.last_message_at)
+    if last_message_at is not None and started is not None and last_message_at > started:
         return False
     # The user's turn is stored when a run ends, so a killed run never stored it. Restore it when the
     # execution logged it, keeping the thread's turns alternating.

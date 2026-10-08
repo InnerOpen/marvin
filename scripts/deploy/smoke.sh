@@ -60,9 +60,14 @@ expect_url "api /readyz" "$api/readyz" is_ok || failed=1
 
 if [[ -n "$expect" ]]; then
   expect_url "ui /version.json is ${expect:0:12}" "$ui/version.json" is_expected_build || failed=1
-  # The pods are new since the rollout, so their whole log is this release's.
-  errors="$("$kubectl" -n "$namespace" logs --tail=-1 --prefix --all-containers \
-    -l "app.kubernetes.io/instance=$release,app.kubernetes.io/component=backend" | grep -E 'ERROR|Traceback' || true)"
+  # The serving pods started with the rollout, so their whole log is this release's. Pods still draining
+  # (deletionTimestamp set, up to the grace period) are the previous release's and are left out.
+  serving="$("$kubectl" -n "$namespace" get pods -l "app.kubernetes.io/instance=$release,app.kubernetes.io/component=backend" \
+    -o go-template='{{range .items}}{{if not .metadata.deletionTimestamp}}{{.metadata.name}}{{"\n"}}{{end}}{{end}}')"
+  errors=""
+  for pod in $serving; do
+    errors+="$("$kubectl" -n "$namespace" logs "$pod" --tail=-1 --prefix --all-containers | grep -E 'ERROR|Traceback' || true)"
+  done
   if [[ -n "$errors" ]]; then
     echo "FAIL backend logged errors since the rollout:" >&2
     head -20 <<<"$errors" >&2

@@ -2636,7 +2636,11 @@ environment stays on the prod job so a required reviewer can be added later with
       node (3500m), and with `minRunners: 1` on `github-arc-runners` two runner pods each took 250m (the namespace
       LimitRange's default request). Runner container now requests 50m / 256Mi (scale-set helm rev 3); a promotion
       needs ~500m free on worker01 (backend + frontend surge pods). Prod job re-run: 1m28s, rev 72 `promote develop-d7adb63`.
-- [ ] Second run (this commit): dev then prod with no intervention.
+- [x] Second run (`88114d9c`): dev ok; prod smoke failed on a *draining* old pod's log and rolled back (rev 74). Two
+      fixes: smoke.sh reads only serving pods (no deletionTimestamp); and the error it saw was real — the
+      interrupted-run sweep compared NaiveDateTime's aware `last_message_at` with naive `started_at` and raised on
+      every prod start that found a run with a thread (6 min after start, so the old 3-minute log check never saw it).
+- [ ] Third run (this commit): dev then prod with no intervention.
 - [ ] Rollback drill: `-f smoke_expect=<older sha>` → dev rolls back, prod never starts.
 - [x] Retired `dev-then-prod.sh`, `ship-when-green.sh`, `*-dev-check.sh` (moved to the job's `retired-deploy-scripts/`)
       and their settings.json allow rules; the Brain's deploy notes now say "push to develop".

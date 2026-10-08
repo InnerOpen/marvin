@@ -105,6 +105,20 @@ def test_mark_interrupted_runs_skips_a_thread_that_moved_on(db_session, ws):
     assert [m.content for m in thread.messages] == ["newer question"]
 
 
+def test_mark_interrupted_runs_compares_a_thread_read_back_from_the_database(db_session, ws):
+    # last_message_at is a NaiveDateTime column, which reads back timezone-aware, while started_at
+    # reads back naive: the comparison must not mix the two (it raised on prod, 2026-10-08).
+    thread = thread_svc.create_thread(db_session, ws.group_id, ws.user, "marvin", "hi")
+    run = _execution(db_session, ws, "running", BEFORE, thread=thread, message="hi")
+    thread.last_message_at = BEFORE - timedelta(minutes=1)
+    db_session.flush()
+    db_session.expire_all()
+    assert thread.last_message_at.tzinfo is not None and run.started_at.tzinfo is None
+    mark_interrupted_runs(db_session, PROCESS_START)
+    assert run.status == "failed"
+    assert [m.role for m in sorted(thread.messages, key=lambda m: m.seq)] == ["user", "assistant"]
+
+
 # ── Wiring: startup schedules the sweep ──────────────────────────────────────
 
 
