@@ -11,8 +11,7 @@ import ThemeSwitcher from "@/components/ThemeSwitcher.astro";
 import WorkspaceSwitcher from "@/components/WorkspaceSwitcher.astro";
 import NavTrail from "@/components/NavTrail.astro";
 import Pwa from "@/components/Pwa.astro";
-import { getAuthToken } from "@/lib/api/client";
-import { getEntryCounts } from "@/lib/api/entries";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLabel";
 import { sourceAllowed } from "@/lib/marvin/gate";
 import { navTitle, navTrail } from "@/lib/navTree";
@@ -93,12 +92,16 @@ try {
 
 // Entries badge: how many entries wait in `inbox` (agents and forms drop drafts there). Best-effort —
 // a failed count just hides the badge.
+// The installed app's icon adds the approvals waiting for you in any workspace (GET /api/self/push/badge).
 let inboxCount = 0;
+let appBadge = 0;
 if (authToken) {
   try {
-    inboxCount = Number((await getEntryCounts(authToken)).inbox ?? 0);
+    const badge = await fetchApi<{ inbox: number; count: number }>("/api/self/push/badge", {}, authToken);
+    inboxCount = Number(badge.inbox ?? 0);
+    appBadge = Number(badge.count ?? inboxCount);
   } catch {
-    inboxCount = 0;
+    inboxCount = appBadge = 0;
   }
 }
 
@@ -184,7 +187,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
     <meta name="description" content="Marvin platform admin frontend" />
     <title>{withEnvironmentPrefix(`${title} | Marvin`, environmentLabel)}</title>
     <RuntimeConfig />
-    <Pwa environmentLabel={environmentLabel} badgeCount={authToken ? inboxCount : null} />
+    <Pwa environmentLabel={environmentLabel} badgeCount={authToken ? appBadge : null} />
   </head>
   <body
     data-entity-type={entityType}

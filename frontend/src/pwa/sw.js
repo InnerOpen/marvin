@@ -138,9 +138,24 @@ async function openOrFocus(target) {
   }
 }
 
+// A notification about another workspace opens there: switch first (the active workspace is the person's, kept
+// server-side), then open. A failed switch still opens the page, which then says what it can't find.
+async function openIn(workspace, target) {
+  if (workspace) {
+    try {
+      const current = await fetch("/api/self/workspaces/current", { credentials: "same-origin" });
+      const request = switchRequest(workspace, current.ok ? (await current.json())?.id : null);
+      if (request) await fetch(request.url, request.init);
+    } catch {
+      /* offline or signed out: open as is */
+    }
+  }
+  return openOrFocus(target);
+}
+
 // Approve / Deny on an AI approval (Chromium): the token in the notification decides it, then a confirmation
 // replaces the notification; when it can't (expired, decided already…), the conversation opens instead.
-async function decide(action, request, target, tag) {
+async function decide(action, request, target, tag, workspace) {
   let ok = false;
   let body = null;
   try {
@@ -150,12 +165,12 @@ async function decide(action, request, target, tag) {
   } catch {
     body = { detail: "No connection to Marvin." };
   }
-  const outcome = approvalOutcome(action, ok, body, target, self.location.origin, tag);
+  const outcome = approvalOutcome(action, ok, body, target, self.location.origin, tag, workspace);
   const work = [self.registration.showNotification(outcome.title, outcome.options)];
   if (outcome.badge !== null && "setAppBadge" in self.navigator) {
     work.push(self.navigator.setAppBadge(outcome.badge).catch(() => {}));
   }
-  if (outcome.open) work.push(openOrFocus(outcome.url));
+  if (outcome.open) work.push(openIn(outcome.workspace, outcome.url));
   await Promise.all(work);
 }
 
@@ -164,7 +179,10 @@ self.addEventListener("notificationclick", (event) => {
   const data = event.notification.data ?? {};
   const target = safeTarget(data.url, self.location.origin);
   const request = approvalRequest(event.action, data, self.location.origin);
-  event.waitUntil(request ? decide(event.action, request, target, event.notification.tag) : openOrFocus(target));
+  const workspace = workspaceOf(data.workspace);
+  event.waitUntil(
+    request ? decide(event.action, request, target, event.notification.tag, workspace) : openIn(workspace, target),
+  );
 });
 
 self.addEventListener("pushsubscriptionchange", (event) => {

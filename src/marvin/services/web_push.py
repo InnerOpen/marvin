@@ -169,6 +169,8 @@ class PushMessage:
     ttl: int = TTL_S
     approval: dict | None = None
     """``{id, token}``: the Approve / Deny buttons of an AI approval (services/push_actions.py), else none."""
+    workspace: str | None = None
+    """The workspace (group id) the notification is about: tapping it switches to that workspace first."""
 
     def payload(self) -> str:
         data: dict = {"title": _clip(self.title, MAX_TITLE) or "Marvin", "body": _clip(self.body, MAX_BODY), "url": safe_path(self.url)}
@@ -176,6 +178,8 @@ class PushMessage:
             data["tag"] = _clip(self.tag, MAX_TAG)
         if isinstance(self.badge, int) and self.badge >= 0:
             data["badge"] = self.badge
+        if self.workspace:
+            data["workspace"] = str(self.workspace)
         if self.approval and self.approval.get("id") and self.approval.get("token"):
             data["approval"] = {"id": str(self.approval["id"]), "token": str(self.approval["token"])}
         return json.dumps(data, separators=(",", ":"), ensure_ascii=False)

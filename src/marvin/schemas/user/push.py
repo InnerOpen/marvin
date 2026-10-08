@@ -75,4 +75,17 @@ class PushApprovalResult(_MarvinModel):
     url: str
     """The conversation, for the notification to open."""
     badge: int | None = None
-    """The workspace's inbox count, for the app icon (when it is the person's current workspace)."""
+    """The app icon's count after the decision: the current workspace's inbox plus approvals still waiting."""
+    workspace: str | None = None
+    """The conversation's workspace: opening it switches there first."""
+
+
+class PushBadgeRead(_MarvinModel):
+    """The installed app's icon count and what it's made of."""
+
+    inbox: int
+    """Entries waiting in the current workspace's inbox."""
+    approvals: int
+    """My conversations waiting for my approval, in every workspace."""
+    count: int
+    """inbox + approvals: what the icon shows."""

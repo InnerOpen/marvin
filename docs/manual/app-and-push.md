@@ -13,7 +13,7 @@ The admin is an installable web app (a PWA): it can sit on a phone's home screen
 | Safari on macOS (Sonoma and later) | **File → Add to Dock**. |
 | Firefox | Desktop Firefox doesn't install web apps; Firefox on Android does, from its menu. The admin works in a tab either way. |
 
-Once Marvin runs as the installed app, Profile says so and the install entry goes away. The app opens on the dashboard; its shortcuts (long-press or right-click the icon) go to **Ask**, **New entry** and the **Review queue**. On an installed app the icon shows how many entries wait in the inbox (the number on the Entries badge), where the system supports app badges.
+Once Marvin runs as the installed app, Profile says so and the install entry goes away. The app opens on the dashboard; its shortcuts (long-press or right-click the icon) go to **Ask**, **New entry** and the **Review queue**. On an installed app the icon shows how many entries wait in the current workspace's inbox (the number on the Entries badge) plus how many of your conversations wait for your approval in any workspace, where the system supports app badges (`GET /api/self/push/badge` gives both parts). An approval's notification and its Approve/Deny confirmation update the count too.
 
 A non-production instance (the backend's `ENVIRONMENT_LABEL`, e.g. `DEV`) installs as **Marvin DEV**, with a dark icon and an amber title bar, so it can't be mistaken for the real one on a home screen.
 
@@ -43,7 +43,7 @@ Push is off until the server has VAPID keys (see [Setting up push](#setting-up-p
 
 **Notifications stay on after you log out** — they belong to the device, so you keep getting them without staying signed in. On a shared or borrowed device, turn them off in **Profile** before you hand it back, or remove the device from Profile on any other device later. If someone else turns notifications on in that browser, the device moves to their account.
 
-A notification carries a title, one line and a link into the admin — never a submission's fields, an agent's tool arguments or anything secret. Clicking it focuses an open Marvin window (or opens one) on that page; links only ever lead into the admin itself.
+A notification carries a title, one line and a link into the admin — never a submission's fields, an agent's tool arguments or anything secret. Clicking it focuses an open Marvin window (or opens one) on that page; links only ever lead into the admin itself. A notification about a workspace (an approval, the Trash reminder, new activity, a workspace alert) switches to that workspace first when another one is active, so the page opens where the thing is. The active workspace is yours, not the device's, so this switches it in your other tabs too, as the workspace switcher does; platform alerts open under **Admin** without switching.
 
 ### Approve or deny from the notification
 

@@ -75,6 +75,30 @@ export const APPROVAL_ACTIONS = [
   { action: "deny", title: "Deny" },
 ];
 
+/** A push's `workspace` (the group id it is about) when it is well-formed, else null: open where the app is. */
+export function workspaceOf(value) {
+  return typeof value === "string" && UUID.test(value) ? value : null;
+}
+
+/**
+ * The request that makes `workspace` the active one before a notification's page opens, or null when there is
+ * nothing to switch (no workspace, or it is already `current`). The active workspace is the person's (server-side),
+ * so this switches it everywhere, as the workspace switcher does.
+ */
+export function switchRequest(workspace, current) {
+  const target = workspaceOf(workspace);
+  if (!target || (typeof current === "string" && current.toLowerCase() === target.toLowerCase())) return null;
+  return {
+    url: "/api/self/workspaces/current",
+    init: {
+      method: "PUT",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspace: target }),
+    },
+  };
+}
+
 /** A push's `approval` ({id, token}) when it is well-formed, else null: no buttons. */
 export function approvalOf(value) {
   if (!value || typeof value !== "object") return null;
@@ -84,19 +108,20 @@ export function approvalOf(value) {
     : null;
 }
 
-/** The notification a push payload shows ({title, body, url, tag, badge, approval} from the server; anything else ignored). */
+/** The notification a push payload shows ({title, body, url, tag, badge, approval, workspace} from the server; anything else ignored). */
 export function notificationFromPush(payload, origin) {
   const data = payload && typeof payload === "object" ? payload : {};
   const tag = text(data.tag, 64);
   const badge = Number.isInteger(data.badge) && data.badge >= 0 ? data.badge : null;
   const approval = approvalOf(data.approval);
+  const workspace = workspaceOf(data.workspace);
   return {
     title: text(data.title, 120) || "Marvin",
     options: {
       body: text(data.body, 240),
       icon: "/icons/icon-192.png",
       badge: "/icons/badge-72.png",
-      data: { url: safeTarget(data.url, origin), ...(approval ? { approval } : {}) },
+      data: { url: safeTarget(data.url, origin), ...(approval ? { approval } : {}), ...(workspace ? { workspace } : {}) },
       ...(tag ? { tag, renotify: true } : {}),
       ...(approval ? { actions: APPROVAL_ACTIONS } : {}),
     },
@@ -128,9 +153,10 @@ export function approvalRequest(action, data, origin) {
  * why not — then (`open`) the conversation, so the person can decide there. Replaces the approval's
  * notification (same tag); tapping it opens the conversation.
  */
-export function approvalOutcome(action, ok, body, fallbackUrl, origin, tag = "") {
+export function approvalOutcome(action, ok, body, fallbackUrl, origin, tag = "", fallbackWorkspace = null) {
   const answer = body && typeof body === "object" ? body : {};
   const url = safeTarget(typeof answer.url === "string" ? answer.url : fallbackUrl, origin);
+  const workspace = workspaceOf(answer.workspace) ?? workspaceOf(fallbackWorkspace);
   const verb = action === "deny" ? "deny" : "approve";
   const title = ok
     ? text(answer.message, 120) || (verb === "deny" ? "Denied" : "Approved")
@@ -142,12 +168,13 @@ export function approvalOutcome(action, ok, body, fallbackUrl, origin, tag = "")
       body: ok ? "The results are in the conversation." : "Opening the conversation to decide there.",
       icon: "/icons/icon-192.png",
       badge: "/icons/badge-72.png",
-      data: { url },
+      data: { url, ...(workspace ? { workspace } : {}) },
       ...(tag ? { tag: text(tag, 64) } : {}),
     },
     badge,
     open: !ok,
     url,
+    workspace,
   };
 }
 

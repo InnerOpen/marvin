@@ -613,6 +613,8 @@ def send_push(scope: AlertScope, session: Session, message: AlertMessage, *, tes
     push = web_push.PushMessage(
         title=message.title, body=message.summary, url=message.path or message.link, tag="alert-test" if test else None, urgency="high"
     )
+    if getattr(scope, "group_id", None):  # a workspace alert opens in its workspace; platform alerts are /admin
+        push.workspace = str(scope.group_id)
     result = web_push.send_to_users(session, [u.id for u in people], scope.push_category, push)
     gone = f"; {result.removed} device(s) no longer subscribed were removed" if result.removed else ""
     if result.sent == 0:

@@ -260,6 +260,33 @@ def confirmation(decision: str, calls: list[dict], response: dict | None) -> str
     return line[:1].upper() + line[1:]
 
 
+def awaiting_count(session: Session, user_id) -> int:
+    """How many of the person's conversations wait for their approval, in every workspace (a hand-off's specialist
+    parks with its parent, so only top-level threads count)."""
+    from sqlalchemy import func
+
+    from marvin.db.models.groups.ai_threads import THREAD_STATUS_AWAITING, AIThreadModel
+
+    try:
+        return int(
+            session.query(func.count(AIThreadModel.id))
+            .filter(AIThreadModel.created_by == user_id, AIThreadModel.status == THREAD_STATUS_AWAITING, AIThreadModel.parent_thread_id.is_(None))
+            .scalar()
+            or 0
+        )
+    except Exception:  # noqa: BLE001 — the badge is a nicety
+        session.rollback()
+        return 0
+
+
+def badge_counts(session: Session, user) -> dict:
+    """The installed app's icon count: the current workspace's inbox plus the person's approvals waiting anywhere."""
+    group_id = getattr(user, "active_group_id", None) or getattr(user, "group_id", None)
+    inbox = (inbox_count(session, group_id) or 0) if group_id else 0
+    approvals = awaiting_count(session, user.id)
+    return {"inbox": inbox, "approvals": approvals, "count": inbox + approvals}
+
+
 def inbox_count(session: Session, group_id) -> int | None:
     """The workspace's inbox count — what the installed app's icon badge shows."""
     from sqlalchemy import func

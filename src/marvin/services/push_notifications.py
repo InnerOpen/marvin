@@ -141,15 +141,31 @@ def deliver(session: Session, group_id, event) -> web_push.SendResult:
         if owner is None:
             return web_push.SendResult()
         token = _approval_token(session, event, data, owner)
-        return web_push.send_to_users(session, [owner], web_push.APPROVALS, approval_message(event, data, token))
+        message = approval_message(event, data, token)
+        message.badge = _badge(session, owner)
+        return _send(session, group_id, [owner], web_push.APPROVALS, message)
     from marvin.db.models.users.roles import WorkspaceRole
 
     if name == TRASH_SOON:
         admins = web_push.workspace_member_ids(session, group_id, WorkspaceRole.ADMIN)
-        return web_push.send_to_users(session, admins, web_push.TRASH_REMINDERS, trash_message(session, group_id, data))
+        return _send(session, group_id, admins, web_push.TRASH_REMINDERS, trash_message(session, group_id, data))
     if name == "form_submission_received" and data.get("flagged"):
         return web_push.SendResult()  # suspected spam waits in review without waking anyone
 
     actor = str(getattr(event, "user_id", None) or "")
     people = [u for u in web_push.workspace_member_ids(session, group_id, WorkspaceRole.EDITOR) if str(u) != actor]
-    return web_push.send_to_users(session, people, web_push.ACTIVITY, activity_message(session, group_id, event, data))
+    return _send(session, group_id, people, web_push.ACTIVITY, activity_message(session, group_id, event, data))
+
+
+def _send(session: Session, group_id, people, category: str, message: web_push.PushMessage) -> web_push.SendResult:
+    """Every workspace push names its workspace, so a tap opens the page there whatever the device has open."""
+    message.workspace = str(group_id) if group_id else None
+    return web_push.send_to_users(session, people, category, message)
+
+
+def _badge(session: Session, user_id) -> int | None:
+    from marvin.db.models.users.users import Users
+    from marvin.services import push_actions
+
+    user = session.get(Users, user_id)
+    return push_actions.badge_counts(session, user)["count"] if user is not None else None

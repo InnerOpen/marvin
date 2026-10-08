@@ -27,6 +27,8 @@ import {
   sharePageUrl,
   staleCaches,
   strategy,
+  switchRequest,
+  workspaceOf,
 } from "./sw-logic.js";
 
 const ORIGIN = "https://marvin.example.com";
@@ -264,4 +266,33 @@ test("the worker template has every marker the build fills in", () => {
   const source = readFileSync(new URL("./sw.js", import.meta.url), "utf8");
   for (const marker of ["__MARVIN_SW_VERSION__", "__MARVIN_SW_PRECACHE__", "/* __MARVIN_SW_LOGIC__ */"])
     assert.ok(source.includes(marker), marker);
+});
+
+describe("notifications open in their workspace", () => {
+  const WS = "3f2c1b6e-0d4a-4c1e-9b7a-2e5f8c9d0a11";
+  const OTHER = "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d";
+
+  test("a push names its workspace in the notification's data; a malformed one is dropped", () => {
+    assert.equal(notificationFromPush({ url: "/x", workspace: WS }, ORIGIN).options.data.workspace, WS);
+    assert.equal(notificationFromPush({ url: "/x", workspace: "../admin" }, ORIGIN).options.data.workspace, undefined);
+    assert.equal(workspaceOf(42), null);
+  });
+
+  test("switching happens only when the workspace differs from the current one", () => {
+    const request = switchRequest(WS, OTHER);
+    assert.equal(request.url, "/api/self/workspaces/current");
+    assert.equal(request.init.method, "PUT");
+    assert.deepEqual(JSON.parse(request.init.body), { workspace: WS });
+    assert.equal(switchRequest(WS, WS.toUpperCase()), null);
+    assert.equal(switchRequest(null, OTHER), null);
+    assert.notEqual(switchRequest(WS, null), null); // current unknown: switch to be sure
+  });
+
+  test("an approval that can't be decided opens its conversation in the conversation's workspace", () => {
+    const fromServer = approvalOutcome("approve", false, { workspace: WS }, "/a", ORIGIN);
+    assert.equal(fromServer.workspace, WS);
+    const fromPush = approvalOutcome("approve", false, null, "/a", ORIGIN, "", OTHER);
+    assert.equal(fromPush.workspace, OTHER);
+    assert.equal(fromPush.options.data.workspace, OTHER);
+  });
 });

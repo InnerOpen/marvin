@@ -202,7 +202,9 @@ def test_a_restorable_approval_push_carries_buttons_and_a_token_others_dont(env,
     push_notifications.deliver(env.session, env.gid, _event(env, thread))
     [payload] = env.pushes
     assert payload["approval"]["id"] == str(thread.id) and len(payload["approval"]["token"]) >= 40
-    assert set(payload) == {"title", "body", "url", "tag", "approval"} and len(json.dumps(payload)) < 400
+    # + the icon count and the workspace a tap switches to; still far under Web Push's ~4 KB
+    assert set(payload) == {"title", "body", "url", "tag", "approval", "badge", "workspace"} and len(json.dumps(payload)) < 500
+    assert payload["workspace"] == str(env.gid)
     row = env.session.query(PushActionTokenModel).filter_by(thread_id=thread.id).one()
     assert row.token_hash != payload["approval"]["token"] and row.user_id == env.uid  # only the hash is kept
 

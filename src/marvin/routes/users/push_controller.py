@@ -22,6 +22,7 @@ from marvin.routes._base.routers import UserAPIRouter
 from marvin.schemas.user.push import (
     PushApprovalAction,
     PushApprovalResult,
+    PushBadgeRead,
     PushCategoryRead,
     PushDeviceRead,
     PushPreferencesUpdate,
@@ -80,6 +81,11 @@ class UserPushController(BaseUserController):
     @router.get("", response_model=PushSettingsRead, summary="Get My Push Settings")
     def get_push(self) -> PushSettingsRead:
         return self._read()
+
+    @router.get("/badge", response_model=PushBadgeRead, summary="My App Icon Count")
+    def get_badge(self) -> PushBadgeRead:
+        """What the installed app's icon shows: the current workspace's inbox plus my approvals waiting anywhere."""
+        return PushBadgeRead(**push_actions.badge_counts(self.session, self.user))
 
     @router.put("/preferences", response_model=PushSettingsRead, summary="Choose Which Pushes I Get")
     def update_preferences(self, data: PushPreferencesUpdate) -> PushSettingsRead:
@@ -158,10 +164,10 @@ def decide_from_notification(
     controller_ = AIOperationsController(session=session, user=as_owner, event_bus=event_bus)
     resume = AIThreadResumeRequest(decisions={str(c["id"]): decision for c in claim.calls}, source="ask_page")
     response = controller_.decide_parked(thread_id, resume, surface=push_actions.SURFACE)
-    current = str(user.active_group_id or user.group_id) == str(claim.thread.group_id)
     return PushApprovalResult(
         decision=decision,
         message=push_actions.confirmation(decision, claim.calls, response),
         url=f"{ASK_PATH}?thread={quote(thread_id)}",
-        badge=push_actions.inbox_count(session, claim.thread.group_id) if current else None,
+        badge=push_actions.badge_counts(session, user)["count"],
+        workspace=str(claim.thread.group_id),
     )
