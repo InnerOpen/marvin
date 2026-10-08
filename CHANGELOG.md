@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.212 (2026-10-08)
+
+### Features
+
+- **ai**: Files attached to an agent question, and read_attachment
+  ([`ec12810`](https://github.com/InnerOpen/marvin/commit/ec12810ffc65cdd5498650d2fe0cd775e9b2963b))
+
+
 ## v1.0.0-rc.211 (2026-10-08)
 
 ### Bug Fixes
