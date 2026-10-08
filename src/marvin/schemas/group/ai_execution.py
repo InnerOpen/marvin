@@ -99,6 +99,9 @@ class AIReviseEntryRequest(_MarvinModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+MAX_AGENT_ATTACHMENTS = 4
+
+
 class AIAgentTurn(_MarvinModel):
     """One prior turn of the conversation, replayed to give the agent short-term memory."""
 
@@ -114,6 +117,9 @@ class AIAgentRequest(_MarvinModel):
     message: str  # the user's request / question
     entity_type: str | None = None  # optional grounding: what the caller is looking at
     entity_id: str | None = None  # UUID or slug — resolved server-side
+    # Files the user attached to the question: asset ids in this workspace, at most MAX_AGENT_ATTACHMENTS. Separate
+    # from the page context above (the bubble sends both). Clients re-send them every turn they stay attached.
+    attachments: list[UUID4] = Field(default_factory=list, max_length=MAX_AGENT_ATTACHMENTS)
     # Prior turns, oldest first, EXCLUDING the current message. The client is stateless as far as
     # the model is concerned — it replays what it has. Bounded server-side (turn count + chars) so
     # a long transcript can't blow the context window or the token budget.

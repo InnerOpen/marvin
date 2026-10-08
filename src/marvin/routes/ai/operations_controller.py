@@ -57,6 +57,16 @@ DELEGATED_MAX_STEPS_CAP = 8
 PARKED_THREAD_ON_NEW_MESSAGE = "deny"
 
 
+def _human_size(size: int | None) -> str:
+    """A file size for the model to read: 812 B, 34 KB, 2.1 MB."""
+    size = size or 0
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size // 1024} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
 @controller(router)
 class AIOperationsController(BaseUserController):
     # ── Operations catalogue ───────────────────────────────────────────
@@ -1680,7 +1690,7 @@ class AIOperationsController(BaseUserController):
         if referrals:
             meta["referrals"] = referrals
         if record_user:
-            append_turn(self.session, thread, "user", body.message)
+            append_turn(self.session, thread, "user", body.message, meta=self._user_turn_meta(body))
         append_turn(
             self.session,
             thread,
@@ -1941,6 +1951,7 @@ class AIOperationsController(BaseUserController):
         # (title/status/fields/attachments) so the agent can answer immediately; fall back to the
         # bare id hint when we can't assemble one, so it can still fetch the entity itself.
         context_block = self._agent_context_block(body.entity_type, entity_id)
+        attached = self._attached_assets(body.attachments)
         # Environment facts come first, the agent's own persona after: what "the RAG" means here and which
         # of the bound tools answers which kind of question.
         system = self._framed(system, *self._system_frame(names, agent_slug))
@@ -1955,6 +1966,8 @@ class AIOperationsController(BaseUserController):
             )
         elif body.entity_type and entity_id:
             user_msg += f"\n\n(Context: the user is currently looking at {body.entity_type} {entity_id}.)"
+        if attached:
+            system += self._attachments_block(attached, names)
         messages = [
             Message(role="system", content=system),
             *self._run_history(body, thread),
@@ -2047,6 +2060,45 @@ class AIOperationsController(BaseUserController):
         if thread is None:
             return execution_meta
         return {**(execution_meta or {}), "thread_id": str(thread.id)}
+
+    def _attached_assets(self, ids) -> list:
+        """The run's attachments as asset rows, in the order sent. 422 when one isn't a live asset of this workspace."""
+        if not ids:
+            return []
+        from marvin.db.models.platform.assets import Assets
+
+        wanted = list(dict.fromkeys(ids))
+        rows = self.session.query(Assets).filter(Assets.group_id == self.group_id, Assets.id.in_(wanted), Assets.trashed_at.is_(None)).all()
+        by_id = {str(r.id): r for r in rows}
+        missing = [str(i) for i in wanted if str(i) not in by_id]
+        if missing:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Attachment {missing[0]} is not a file in this workspace.")
+        return [by_id[str(i)] for i in wanted]
+
+    @staticmethod
+    def _attachments_block(assets: list, names: set[str]) -> str:
+        """The system-prompt section listing the files attached to the question, and which tools open them."""
+        lines = [f'- "{a.name}" ({a.mime_type}, {_human_size(a.file_size)}) — asset id {a.id}' for a in assets]
+        how = []
+        if "view_image" in names:
+            how.append("view_image to look at an image")
+        if "read_attachment" in names:
+            how.append("read_attachment to read a document (text, PDF, Word)")
+        if how:
+            use = f"Use {' and '.join(how)} when the question needs a file's contents."
+        else:
+            use = "Your tools can't open these files: if the question needs their contents, say so."
+        return (
+            "\n\n## Files the user attached to the question\n"
+            + "\n".join(lines)
+            + f'\n{use} When the user says "this file" or "the attachment", they mean these.'
+        )
+
+    def _user_turn_meta(self, body: AIAgentRequest) -> dict | None:
+        """The user turn's meta: the files attached to it, so the thread can show them."""
+        if not body.attachments:
+            return None
+        return {"attachments": [{"id": str(a.id), "name": a.name, "mimeType": a.mime_type} for a in self._attached_assets(body.attachments)]}
 
     def _completion_opts(self):
         from marvin.core.config import get_app_settings
@@ -2173,7 +2225,7 @@ class AIOperationsController(BaseUserController):
         if thread is None:
             thread = create_thread(self.session, self.group_id, self.user.id, agent_slug, body.message, body.entity_type, entity_id)
         if record_user:
-            append_turn(self.session, thread, "user", body.message)
+            append_turn(self.session, thread, "user", body.message, meta=self._user_turn_meta(body))
         execution.status = EXECUTION_STATUS_AWAITING
         self._account_execution(execution, result, provider, model, start)
         execution.metadata_json = {**(execution.metadata_json or {}), "thread_id": str(thread.id)}
@@ -2344,6 +2396,7 @@ class AIOperationsController(BaseUserController):
                     register=parent_body.tone_register,
                     entity_type=parent_body.entity_type,
                     entity_id=parent_body.entity_id,
+                    attachments=parent_body.attachments,
                 )
                 meta = {"parent_execution_id": str(parent_execution.id)}
                 if parent_id:
