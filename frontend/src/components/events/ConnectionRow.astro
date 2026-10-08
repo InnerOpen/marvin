@@ -108,5 +108,6 @@ const hasActions = Astro.slots.has("default");
   @media (max-width: 640px) {
     .conn-row { flex-direction: column; align-items: stretch; }
     .conn-actions { justify-content: flex-start; }
+    .conn-actions :global(.button.small) { min-height: 36px; }
   }
 </style>

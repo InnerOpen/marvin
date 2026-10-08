@@ -785,4 +785,9 @@ const success = urlParams.get("success") === "1";
     opacity: 0.6;
     cursor: not-allowed;
   }
+
+  /* Phones: the Trash select has no box styling of its own; give it a finger-sized row. */
+  @media (max-width: 640px) {
+    #trash select { min-height: 40px; }
+  }
 </style>

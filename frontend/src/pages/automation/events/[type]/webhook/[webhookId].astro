@@ -183,4 +183,14 @@ const examplePayload =
   .button.secondary.danger:hover { background: var(--color-error-bg); }
   .wh-link { color: var(--accent); text-decoration: none; font-size: 12px; }
   .wh-link:hover { text-decoration: underline; }
+
+  /* Phones: a long webhook URL wraps instead of pushing the Connected pill off the screen. */
+  @media (max-width: 640px) {
+    .wh-header { flex-wrap: wrap; gap: 8px; padding: 16px; }
+    .wh-header > div { min-width: 0; }
+    .wh-url { overflow-wrap: anywhere; }
+    .wh-body { padding: 16px; }
+    .wh-footer { padding: 16px; }
+    .wh-actions { flex-wrap: wrap; }
+  }
 </style>

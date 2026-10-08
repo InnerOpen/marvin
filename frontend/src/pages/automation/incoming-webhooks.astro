@@ -412,4 +412,17 @@ const hookBase = `${getBrowserApiBaseUrl()}/api/hooks`;
   .iw-list :global(.switch input:checked + .track::before) { transform: translateX(16px); }
   .iw-list :global(.hint) { font-size: 12px; color: var(--muted); }
   .iw-list :global(.hint.error) { color: var(--color-error, #c0392b); }
+
+  /* Phones: the create form's field pairs stack, a long name or slug wraps instead of pushing the
+     toggle and Delete off the card, and the small buttons get finger-sized. */
+  @media (max-width: 640px) {
+    .form-row { flex-wrap: wrap; }
+    .form-field.grow { flex: 1 1 220px; }
+    .create-actions { flex-wrap: wrap; }
+    .iw-list :global(.iw-head > div:first-child) { min-width: 0; overflow-wrap: anywhere; }
+    .iw-list :global(.button.sm),
+    .button.sm { min-height: 36px; }
+    .iw-list :global(.token-live .url) { min-width: 0; flex-basis: 100%; }
+    .iw-list :global(.signing-edit .input) { min-width: 0; flex-basis: 100%; }
+  }
 </style>

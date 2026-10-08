@@ -679,4 +679,19 @@ function fmtRelative(isoStr: string | null | undefined): string {
   .slug-copy { display: flex; align-items: center; gap: 6px; }
   .copy-btn { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 14px; padding: 2px 4px; border-radius: 3px; opacity: 0.6; }
   .copy-btn:hover { opacity: 1; color: var(--accent); background: rgba(79,156,132,0.1); }
+
+  /* Phones: the five-column rows (which the card clipped, hiding Value and Delete) stack — name, slug
+     and value full width, then the date beside the actions. The column header has nothing to label. */
+  @media (max-width: 640px) {
+    .panel-header { flex-wrap: wrap; }
+    .form-row { grid-template-columns: minmax(0, 1fr); }
+    .env-header { display: none; }
+    .var-row,
+    .sec-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; }
+    .env-row > :nth-child(-n + 3) { grid-column: 1 / -1; }
+    .env-slug { max-width: 100%; overflow-wrap: anywhere; }
+    .copy-btn { min-width: 36px; min-height: 36px; }
+    .inline-input { min-height: 36px; }
+    .env-actions .button.small { min-height: 36px; }
+  }
 </style>

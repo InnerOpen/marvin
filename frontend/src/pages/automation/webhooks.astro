@@ -338,4 +338,11 @@ function formatScheduledTime(time: string | null | undefined): string {
   }
 
   .button:disabled { opacity: 0.4; cursor: not-allowed; pointer-events: none; }
+
+  /* Phones: the meta row and the four actions wrap rather than widening the card. */
+  @media (max-width: 640px) {
+    .webhook-card { padding: 16px; }
+    .webhook-meta { flex-wrap: wrap; gap: 12px 24px; }
+    .webhook-actions { flex-wrap: wrap; }
+  }
 </style>

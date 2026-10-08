@@ -694,4 +694,13 @@ const customPayloadStr = existingCustomPayload ? JSON.stringify(existingCustomPa
   :global(.header-sep) { color: var(--muted); flex-shrink: 0; }
   :global(.header-remove) { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 14px; padding: 4px; border-radius: 3px; flex-shrink: 0; }
   :global(.header-remove:hover) { color: var(--color-error); background: var(--color-error-bg); }
+
+  /* Phones: paired fields stack, and the checkbox rows get a finger-sized line. */
+  @media (max-width: 640px) {
+    .form-section { padding: 16px; }
+    .form-row { grid-template-columns: minmax(0, 1fr); }
+    .checkbox-field { min-height: 32px; }
+    .button.small,
+    .link-button { min-height: 36px; }
+  }
 </style>
