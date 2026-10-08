@@ -1,5 +1,5 @@
 /**
- * Dictation — the browser's own speech recognition (Web Speech API) typing into a text box.
+ * Dictation — the browser's own speech recognition (Web Speech API) typing into a text box until stopped.
  *
  * Shared by the bubble and the Ask page. Chrome, Edge and Safari have it; Firefox doesn't, and there the
  * mic button stays hidden. Recognition runs in the browser (Chrome sends the audio to its own speech
@@ -55,20 +55,27 @@ export function dictationError(code: string): string | null {
     case "audio-capture":
       return "No microphone found.";
     case "network":
-      return "Dictation needs a connection to the browser's speech service.";
+      return "Speaking needs a connection to the browser's speech service.";
     default:
-      return `Dictation stopped (${code}).`;
+      return `Listening stopped (${code}).`;
   }
 }
 
 export interface DictationTarget {
   /** BCP 47 language to listen for, e.g. navigator.language. */
   lang: string;
+  /**
+   * Ask the browser for one long session. Desktop Chrome honours it; Android's Chrome repeats earlier words in
+   * that mode, so the bubble passes false there and relies on the restarts alone.
+   */
+  continuous?: boolean;
   read(): string;
   write(text: string): void;
-  /** Listening started (true) or ended (false). */
+  /** Listening started (true) or ended (false) — once each per dictation, however many sessions it took. */
   onState(listening: boolean): void;
   onError(message: string): void;
+  /** Clock for the silence limit (tests pass their own). */
+  now?: () => number;
 }
 
 export interface Dictation {
@@ -78,44 +85,87 @@ export interface Dictation {
   readonly listening: boolean;
 }
 
-/** Dictation into `target` with the browser's recognition. One utterance per start; results stream in as heard. */
-export function createDictation(Recognition: RecognitionCtor, target: DictationTarget): Dictation {
-  let rec: RecognitionLike | null = null;
-  let listening = false;
+/** Stop on our own after this long without hearing anything. */
+export const DICTATION_SILENCE_MS = 20_000;
+/** Errors that a new session would only repeat. */
+const FATAL = new Set(["not-allowed", "service-not-allowed", "audio-capture", "network", "language-not-supported"]);
 
-  function start() {
+/**
+ * Dictation into `target` until the user stops it. Browsers end a recognition session at a pause (Chrome even
+ * mid-sentence), so when one ends on its own a new session starts, continuing from the text as it is then. It
+ * gives up after DICTATION_SILENCE_MS without a word, or on an error a new session would repeat.
+ */
+export function createDictation(Recognition: RecognitionCtor, target: DictationTarget): Dictation {
+  const now = target.now ?? Date.now;
+  let rec: RecognitionLike | null = null;
+  let active = false; // between the user's start and the end of the last session
+  let wanted = false; // the user hasn't stopped it
+  let lastHeard = 0;
+  let heardAny = false;
+  let fatal = false;
+
+  function session() {
     const before = target.read();
-    rec = new Recognition();
-    rec.lang = target.lang || "en-US";
-    rec.interimResults = true;
-    rec.continuous = false;
-    rec.onresult = (ev) => target.write(dictatedText(before, ev.results));
-    rec.onstart = () => {
-      listening = true;
+    const r = new Recognition();
+    rec = r;
+    r.lang = target.lang || "en-US";
+    r.interimResults = true;
+    r.continuous = target.continuous ?? true;
+    r.onresult = (ev) => {
+      lastHeard = now();
+      heardAny = true;
+      target.write(dictatedText(before, ev.results));
+    };
+    r.onstart = () => {
+      if (active) return;
+      active = true;
       target.onState(true);
     };
-    rec.onend = () => {
-      listening = false;
+    r.onerror = (ev) => {
+      if (FATAL.has(ev.error)) {
+        fatal = true;
+        const message = dictationError(ev.error);
+        if (message) target.onError(message);
+      }
+    };
+    r.onend = () => {
+      if (rec !== r) return;
       rec = null;
-      target.onState(false);
+      const silent = now() - lastHeard > DICTATION_SILENCE_MS;
+      if (wanted && !fatal && !silent) {
+        session();
+        return;
+      }
+      if (wanted && silent && !heardAny) target.onError(dictationError("no-speech") as string);
+      wanted = false;
+      if (active) {
+        active = false;
+        target.onState(false);
+      }
     };
-    rec.onerror = (ev) => {
-      const message = dictationError(ev.error);
-      if (message) target.onError(message);
-    };
-    rec.start();
+    r.start();
+  }
+
+  function stop() {
+    wanted = false;
+    rec?.stop();
   }
 
   return {
     toggle() {
-      if (listening || rec) rec?.stop();
-      else start();
+      if (wanted || rec) {
+        stop();
+        return;
+      }
+      wanted = true;
+      fatal = false;
+      heardAny = false;
+      lastHeard = now();
+      session();
     },
-    stop() {
-      rec?.stop();
-    },
+    stop,
     get listening() {
-      return listening;
+      return active;
     },
   };
 }

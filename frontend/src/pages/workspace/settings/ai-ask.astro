@@ -128,7 +128,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
           <div class="composer-left">
             <input id="file" type="file" multiple hidden />
             <button id="attach-btn" class="button secondary small" type="button" title="Attach files (uploaded as assets the agent can open)">📎 Attach</button>
-            <button id="mic-btn" class="button secondary small" type="button" title="Dictate (browser speech recognition)" hidden>🎙 Speak</button>
+            <button id="mic-btn" class="button secondary small" type="button" title="Speak instead of typing (browser speech recognition)" hidden>🎙 Speak</button>
             <span id="status" class="status"></span>
           </div>
           <button id="send-btn" class="button" type="button">Send</button>
@@ -670,6 +670,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       micBtn.hidden = false;
       const dictation = createDictation(Recognition, {
         lang: navigator.language,
+        continuous: !/Android/i.test(navigator.userAgent),
         read: () => questionEl.value,
         write: (text) => (questionEl.value = text),
         onState: (listening) => {

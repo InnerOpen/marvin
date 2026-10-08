@@ -48,7 +48,7 @@ try {
         title="Attach files — or paste or drop them here" hidden>📎</button>
       <textarea id="marvin-input" class="marvin-input" rows="1" autocomplete="off"
         placeholder="Ask Marvin…  (try /help)"></textarea>
-      <button id="marvin-mic" class="marvin-tool" type="button" aria-label="Dictate" title="Dictate" hidden>🎙</button>
+      <button id="marvin-mic" class="marvin-tool" type="button" aria-label="Speak" title="Speak" hidden>🎙</button>
       <button id="marvin-send" type="submit" class="marvin-send" aria-label="Send">➤</button>
     </form>
   </div>
@@ -613,12 +613,13 @@ try {
     const Recognition = speechRecognition(window);
     const dictation = Recognition ? createDictation(Recognition, {
       lang: navigator.language,
+      continuous: !/Android/i.test(navigator.userAgent),
       read: () => input.value,
       write: (text) => { input.value = text; autosize(); },
       onState: (listening) => {
         micBtn.textContent = listening ? '■' : '🎙';
         micBtn.classList.toggle('listening', listening);
-        micBtn.title = listening ? 'Stop dictating' : 'Dictate';
+        micBtn.title = listening ? 'Stop listening' : 'Speak';
         micBtn.setAttribute('aria-label', micBtn.title);
         if (!listening) input.focus();
       },
