@@ -1560,6 +1560,26 @@ class WorkspaceAlertListener(EventListenerBase):
             workspace_alerts.deliver(session, self.group_id, event)
 
 
+class PushNotificationListener(EventListenerBase):
+    """Pushes what the bell asks a person to act on — an AI approval, a form submission, a scheduled publish
+    that's waiting — to the devices of the people it's for (services/push_notifications.py). Inert unless Web
+    Push is configured; any other event type costs one set lookup."""
+
+    def __init__(self, group_id: UUID4) -> None:
+        super().__init__(group_id, cast(Any, None))  # sends directly; no publisher
+
+    def get_subscribers(self, event: Event) -> list[str]:
+        from marvin.services import push_notifications
+
+        return ["web_push"] if push_notifications.wants(self.group_id, event) else []
+
+    def publish_to_subscribers(self, event: Event, subscribers: list[str]) -> None:
+        from marvin.services import push_notifications
+
+        with self.ensure_session() as session:
+            push_notifications.deliver(session, self.group_id, event)
+
+
 BUILTIN_REACTIONS: tuple[type[BuiltinReaction], ...] = (
     ScheduledTaskListener,
     IndexingReactionListener,

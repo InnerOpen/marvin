@@ -1,6 +1,7 @@
 """Settings → Automation → Notifications: which of the workspace's events reach people outside Marvin, and how.
 
-Email to the workspace's owners and admins is built in; any message-capable integration action on one of the
+Email to the workspace's owners and admins is built in, and so is push to the devices of those who turned it
+on (when the server has Web Push); any message-capable integration action on one of the
 workspace's connections can be added as a route, each taking every kind or only some. Workspace ADMIN/OWNER
 only. Saving is audited as ``workspace_settings_changed``; each channel has a test button. See
 services/workspace_alerts.py.
@@ -13,15 +14,20 @@ from marvin.routes._base.checks import require_workspace_admin
 from marvin.schemas.alerts import AlertDelivery, AlertKindRead, AlertTarget, AlertTestRequest
 from marvin.schemas.group.notifications import (
     NotificationEmailRead,
+    NotificationPushRead,
     NotificationRouteRead,
     NotificationTestResult,
     WorkspaceNotificationsRead,
     WorkspaceNotificationsUpdate,
 )
-from marvin.services import alerting, workspace_alerts
+from marvin.services import alerting, web_push, workspace_alerts
 from marvin.services.event_bus_service.event_types import EventOperation, EventTypes, EventWorkspaceSettingsData
 
 router = APIRouter(prefix="/groups/notifications")
+
+
+def _names(users) -> list[str]:
+    return sorted((getattr(u, "full_name", None) or u.username or u.email or "?") for u in users)
 
 
 @controller(router)
@@ -70,6 +76,13 @@ class WorkspaceNotificationsController(BaseUserController):
                 smtp_ready=workspace_alerts.smtp_ready(self.session, self.group_id),
                 last_delivery=AlertDelivery.from_status(last.get(alerting.EMAIL_CHANNEL)),
             ),
+            push=NotificationPushRead(
+                configured=web_push.configured(),
+                enabled=settings.push_enabled,
+                kinds=settings.push_kinds,
+                people=_names(web_push.push_ready_users(self.session, scope.push_people(self.session), scope.push_category)),
+                last_delivery=AlertDelivery.from_status(last.get(alerting.PUSH_CHANNEL)),
+            ),
             routes=routes,
             targets=[AlertTarget.from_target(t) for t in available],
             integrations_available=INTEGRATIONS_AVAILABLE,
@@ -94,6 +107,7 @@ class WorkspaceNotificationsController(BaseUserController):
                 email_enabled=data.email.enabled,
                 recipients=data.email.recipients,
                 email_kinds=data.email.kinds,
+                push=data.push.model_dump() if data.push is not None else None,
                 routes=[r.model_dump(mode="json") for r in data.routes],
             )
         except alerting.InvalidAlertSettings as e:

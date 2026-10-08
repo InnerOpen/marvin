@@ -1,6 +1,7 @@
 """Admin → Platform alerts: which platform events reach people outside Marvin, and how.
 
-Email to super admins is built in; any message-capable integration action on a connection in the
+Email to super admins is built in, and so is push to the devices of those who turned it on (when the server
+has Web Push); any message-capable integration action on a connection in the
 platform workspace can be added as a route. Saving is audited as ``platform_settings_changed`` (platform
 scope, always audited); each channel has a test button. See services/platform_alerts.py.
 """
@@ -12,6 +13,7 @@ from marvin.schemas.admin.platform_alerts import (
     PlatformAlertDelivery,
     PlatformAlertEmailRead,
     PlatformAlertKindRead,
+    PlatformAlertPushRead,
     PlatformAlertRouteRead,
     PlatformAlertsRead,
     PlatformAlertsUpdate,
@@ -20,7 +22,7 @@ from marvin.schemas.admin.platform_alerts import (
     PlatformAlertTestResult,
     PlatformWorkspaceRef,
 )
-from marvin.services import alerting
+from marvin.services import alerting, web_push
 from marvin.services import platform_alerts as alerts
 from marvin.services.event_bus_service.event_types import EventOperation, EventPlatformSettingsChangedData, EventTypes
 
@@ -67,6 +69,15 @@ class AdminPlatformAlertsController(BaseAdminController):
                 smtp_ready=alerts.smtp_ready(),
                 last_delivery=PlatformAlertDelivery.from_status(last.get(alerts.EMAIL_CHANNEL)),
             ),
+            push=PlatformAlertPushRead(
+                configured=web_push.configured(),
+                enabled=settings.push_enabled,
+                people=sorted(
+                    (u.full_name or u.username or u.email or "?")
+                    for u in web_push.push_ready_users(self.session, alerts.PLATFORM.push_people(self.session), alerts.PLATFORM.push_category)
+                ),
+                last_delivery=PlatformAlertDelivery.from_status(last.get(alerts.PUSH_CHANNEL)),
+            ),
             routes=routes,
             targets=[PlatformAlertTarget.from_target(t) for t in available],
             platform_workspace=PlatformWorkspaceRef(id=workspace.id, name=workspace.name, slug=getattr(workspace, "slug", None))
@@ -91,6 +102,7 @@ class AdminPlatformAlertsController(BaseAdminController):
                 email_enabled=data.email.enabled,
                 recipients=data.email.recipients,
                 routes=[r.model_dump(mode="json") for r in data.routes],
+                push=data.push.model_dump() if data.push is not None else None,
             )
         except alerts.InvalidAlertSettings as e:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e

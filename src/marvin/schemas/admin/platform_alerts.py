@@ -29,6 +29,15 @@ class PlatformAlertEmailRead(_MarvinModel):
     last_delivery: PlatformAlertDelivery | None = None
 
 
+class PlatformAlertPushRead(_MarvinModel):
+    configured: bool
+    """The server has Web Push (VAPID); without it push isn't a channel and the page hides it."""
+    enabled: bool
+    people: list[str] = Field(default_factory=list)
+    """Who push reaches right now: super admins with a device and "Platform alerts" on."""
+    last_delivery: PlatformAlertDelivery | None = None
+
+
 class PlatformAlertActionInput(AlertActionInput):
     """One of an action's own inputs the admin fills (the message itself is Marvin's)."""
 
@@ -61,6 +70,7 @@ class PlatformWorkspaceRef(_MarvinModel):
 class PlatformAlertsRead(_MarvinModel):
     types: list[PlatformAlertKindRead]
     email: PlatformAlertEmailRead
+    push: PlatformAlertPushRead
     routes: list[PlatformAlertRouteRead]
     targets: list[PlatformAlertTarget]
     """What a new route can use: every message-capable action in the platform workspace."""
@@ -73,6 +83,10 @@ class PlatformAlertsRead(_MarvinModel):
 class PlatformAlertEmailUpdate(_MarvinModel):
     enabled: bool = True
     recipients: list[str] | None = None
+
+
+class PlatformAlertPushUpdate(_MarvinModel):
+    enabled: bool = True
 
 
 class PlatformAlertRouteUpdate(_MarvinModel):
@@ -88,6 +102,8 @@ class PlatformAlertsUpdate(_MarvinModel):
     types: dict[str, bool] = Field(default_factory=dict)
     """Kind key → on/off; a kind left out keeps its current setting."""
     email: PlatformAlertEmailUpdate = Field(default_factory=PlatformAlertEmailUpdate)
+    push: PlatformAlertPushUpdate | None = None
+    """None keeps the current push setting."""
     routes: list[PlatformAlertRouteUpdate] = Field(default_factory=list)
 
 

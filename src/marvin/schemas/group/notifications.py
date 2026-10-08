@@ -22,6 +22,17 @@ class NotificationEmailRead(_MarvinModel):
     last_delivery: AlertDelivery | None = None
 
 
+class NotificationPushRead(_MarvinModel):
+    configured: bool
+    """The server has Web Push (VAPID); without it push isn't a channel and the page hides it."""
+    enabled: bool
+    kinds: list[str] | None = None
+    """The kinds push takes; None: every kind that is on."""
+    people: list[str] = Field(default_factory=list)
+    """Who push reaches right now: owners and admins with a device and "Workspace alerts" on."""
+    last_delivery: AlertDelivery | None = None
+
+
 class NotificationRouteRead(_MarvinModel):
     id: str
     integration_id: UUID4
@@ -40,6 +51,7 @@ class NotificationRouteRead(_MarvinModel):
 class WorkspaceNotificationsRead(_MarvinModel):
     types: list[AlertKindRead]
     email: NotificationEmailRead
+    push: NotificationPushRead
     routes: list[NotificationRouteRead]
     targets: list[AlertTarget]
     """What a new route can use: every message-capable action on the workspace's connections."""
@@ -52,6 +64,11 @@ class WorkspaceNotificationsRead(_MarvinModel):
 class NotificationEmailUpdate(_MarvinModel):
     enabled: bool = True
     recipients: list[str] | None = None
+    kinds: list[str] | None = None
+
+
+class NotificationPushUpdate(_MarvinModel):
+    enabled: bool = True
     kinds: list[str] | None = None
 
 
@@ -69,6 +86,8 @@ class WorkspaceNotificationsUpdate(_MarvinModel):
     types: dict[str, bool] = Field(default_factory=dict)
     """Kind key → on/off; a kind left out keeps its current setting."""
     email: NotificationEmailUpdate = Field(default_factory=NotificationEmailUpdate)
+    push: NotificationPushUpdate | None = None
+    """None keeps the current push settings."""
     routes: list[NotificationRouteUpdate] = Field(default_factory=list)
     integration_reminder_hours: int | None = Field(default=None, ge=0, le=24 * 30)
     """None keeps the current window."""

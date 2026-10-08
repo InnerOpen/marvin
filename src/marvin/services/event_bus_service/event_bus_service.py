@@ -32,6 +32,7 @@ from marvin.services.event_bus_service.event_bus_listener import (
     IntegrationEventListener,
     MediaEmbedReactionListener,
     PlatformAlertListener,
+    PushNotificationListener,
     ScheduledTaskListener,
     SiteRebuildReactionListener,
     SmartCollectionReactionListener,
@@ -139,7 +140,7 @@ class EventBusService(BaseService):
 
         The order of listeners determines the order in which they might process events.
         AuditLogListener MUST be first to ensure events are persisted even if other listeners fail.
-        Current order: AuditLog (persistence), reactions, Console (debug), Webhook, Integration, Email.
+        Current order: AuditLog (persistence), reactions, Console (debug), Webhook, Integration, Email, alerts, push.
 
         Args:
             group_id (UUID4): The ID of the group for which to get listeners.
@@ -167,6 +168,7 @@ class EventBusService(BaseService):
             EmailEventListener(group_id),  # Fires email templates on matching events.
             PlatformAlertListener(group_id),  # Sends platform alerts past the bell (Admin → Platform alerts).
             WorkspaceAlertListener(group_id),  # Sends the workspace's failures past the bell (Automation → Notifications).
+            PushNotificationListener(group_id),  # Pushes AI approvals and the bell's to-dos to people's devices (Web Push).
         ]
 
     def _publish_event(self, event: Event, group_id: UUID4) -> None:

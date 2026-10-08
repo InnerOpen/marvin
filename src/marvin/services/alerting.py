@@ -9,6 +9,9 @@ which SMTP settings send it, and how its messages are worded. Everything else li
   * **email** — built in and on by default: to everyone the scope names (every super admin; a workspace's
     owners and admins) unless an explicit list is set. Without SMTP nothing is sent, and the channel's last
     delivery says so;
+  * **push** — built in, on by default, and only when the server has Web Push configured (VAPID): to the
+    phones and browsers of everyone the scope names who turned push on and takes the scope's kind of push
+    (Profile → Notifications; services/web_push.py). Without VAPID it isn't a channel at all;
   * **integration routes** — any action that can carry a message (``alert_routing.message_actions``: Slack's
     ``send_message``, Apprise's ``notify``, whatever a plugin declares — never a list of names) on a
     connection in the scope's workspace, with the action's own arguments (a channel…).
@@ -36,6 +39,7 @@ from marvin.core.root_logger import get_logger
 logger = get_logger(__name__)
 
 EMAIL_CHANNEL = "email"
+PUSH_CHANNEL = "push"
 MAX_TEXT = 1500
 
 SENT, FAILED, SKIPPED = "sent", "failed", "skipped"
@@ -95,21 +99,32 @@ class AlertSettings:
     routes: list[Route]
     email_kinds: list[str] | None = None
     """The kinds email takes; None: every kind that is on."""
+    push_enabled: bool = True
+    push_kinds: list[str] | None = None
+    """The kinds push takes; None: every kind that is on."""
     catalog: tuple[AlertKind, ...] = field(default=(), repr=False, compare=False)
 
     def enabled_kind(self, event_type: str, data: dict) -> AlertKind | None:
         return next((k for k in self.catalog if self.types.get(k.key) and k.matches(event_type, data)), None)
 
     def channels_for(self, kind: str) -> list[str]:
-        """The channels an alert of ``kind`` goes to now: email, then each enabled route that takes it."""
+        """The channels an alert of ``kind`` goes to now: email, push (when the server has Web Push), then each
+        enabled route that takes it."""
+        from marvin.services import web_push
+
         found = [EMAIL_CHANNEL] if self.email_enabled and (self.email_kinds is None or kind in self.email_kinds) else []
+        if self.push_enabled and (self.push_kinds is None or kind in self.push_kinds) and web_push.configured():
+            found.append(PUSH_CHANNEL)
         return found + [r.id for r in self.routes if r.enabled and r.takes(kind)]
 
     def as_stored(self) -> dict:
         email: dict[str, Any] = {"enabled": self.email_enabled, "recipients": self.recipients}
         if self.email_kinds is not None:
             email["kinds"] = list(self.email_kinds)
-        return {"types": dict(self.types), "email": email, "routes": [r.as_stored() for r in self.routes]}
+        push: dict[str, Any] = {"enabled": self.push_enabled}
+        if self.push_kinds is not None:
+            push["kinds"] = list(self.push_kinds)
+        return {"types": dict(self.types), "email": email, "push": push, "routes": [r.as_stored() for r in self.routes]}
 
 
 class AlertScope:
@@ -132,6 +147,10 @@ class AlertScope:
     """Whose connections routes use: "the platform workspace"."""
     per_channel_kinds: bool = False
     """Whether a channel may take only some kinds."""
+    push_category: str
+    """The kind of push (services/web_push.py CATEGORIES) a person takes to get this scope's alerts."""
+    push_everyone: str
+    """Who push goes to: "super admins who turned on push with “Platform alerts” in their Profile"."""
 
     @property
     def kinds_by_key(self) -> dict[str, AlertKind]:
@@ -161,6 +180,10 @@ class AlertScope:
         raise NotImplementedError
 
     def email_ready(self, session: Session) -> bool:
+        raise NotImplementedError
+
+    def push_people(self, session: Session) -> list:
+        """The user ids push may go to (each still needs a device and the scope's kind of push on)."""
         raise NotImplementedError
 
     def email_service(self):
@@ -199,12 +222,16 @@ def load(scope: AlertScope, session: Session) -> AlertSettings:
             logger.warning(f"{scope.name}: ignoring a malformed stored route: {raw!r}")
     recipients = email.get("recipients")
     email_kinds = email.get("kinds")
+    push = stored.get("push") or {}
+    push_kinds = push.get("kinds")
     return AlertSettings(
         types={k.key: bool(types.get(k.key, k.default)) for k in scope.kinds},
         email_enabled=bool(email.get("enabled", True)),
         recipients=list(recipients) if isinstance(recipients, list) else None,
         routes=routes,
         email_kinds=[str(k) for k in email_kinds] if isinstance(email_kinds, list) else None,
+        push_enabled=bool(push.get("enabled", True)),
+        push_kinds=[str(k) for k in push_kinds] if isinstance(push_kinds, list) else None,
         catalog=scope.kinds,
     )
 
@@ -365,9 +392,11 @@ def validate(
     recipients: list[str] | None,
     routes: list[dict],
     email_kinds: list[str] | None = None,
+    push: dict | None = None,
 ) -> AlertSettings:
     """What the admin asked for as settings, or InvalidAlertSettings. Routes must name a message-capable
-    action on a connection in the scope's workspace."""
+    action on a connection in the scope's workspace. ``push`` ({enabled, kinds}) left out keeps the current
+    push settings."""
     unknown = sorted(set(types) - set(scope.kinds_by_key))
     if unknown:
         raise InvalidAlertSettings(f"Unknown alert type: {', '.join(unknown)}.")
@@ -396,12 +425,18 @@ def validate(
             route_id = str(uuid.uuid4())
         kinds = _clean_kinds(scope, raw.get("kinds"), f"{target.integration_name} → {target.action.label}")
         cleaned.append(Route(id=route_id, integration_id=key[0], action=key[1], args=args, enabled=bool(raw.get("enabled", True)), kinds=kinds))
+    if push is None:
+        push_enabled, push_kinds = current.push_enabled, current.push_kinds
+    else:
+        push_enabled, push_kinds = bool(push.get("enabled", True)), _clean_kinds(scope, push.get("kinds"), "Push")
     return AlertSettings(
         types=cleaned_types,
         email_enabled=bool(email_enabled),
         recipients=_clean_recipients(scope, recipients),
         routes=cleaned,
         email_kinds=_clean_kinds(scope, email_kinds, "Email"),
+        push_enabled=push_enabled,
+        push_kinds=push_kinds,
         catalog=scope.kinds,
     )
 
@@ -422,6 +457,10 @@ def describe_changes(scope: AlertScope, session: Session, old: AlertSettings, ne
         changes.append("Email recipients: " + (scope.everyone if new.recipients is None else f"{len(new.recipients)} address(es)"))
     if old.email_kinds != new.email_kinds:
         changes.append(f"Email takes: {_kinds_text(scope, new.email_kinds)}")
+    if old.push_enabled != new.push_enabled:
+        changes.append(f"Push: {'on' if new.push_enabled else 'off'}")
+    if old.push_kinds != new.push_kinds:
+        changes.append(f"Push takes: {_kinds_text(scope, new.push_kinds)}")
     names = {t.key: f"{t.integration_name} → {t.action.label}" for t in targets(session, scope.workspace(session))}
 
     def name(route: Route) -> str:
@@ -465,6 +504,8 @@ class AlertMessage:
     link: str
     detail: str = ""
     scope: str = ""
+    path: str = ""
+    """The link as a path in the app (push opens it in the app; ``link`` is the absolute URL email carries)."""
 
     @property
     def body(self) -> str:
@@ -490,6 +531,7 @@ def build_message(*, title: str, summary: str, reason: str, link_path: str, scop
         reason=reason,
         link=_ui_link(link_path),
         scope=scope,
+        path=link_path,
     )
 
 
@@ -556,6 +598,26 @@ def send_email(scope: AlertScope, session: Session, settings: AlertSettings, mes
     return Delivery(SENT, f"Sent to {len(recipients)} recipient(s).")
 
 
+def send_push(scope: AlertScope, session: Session, message: AlertMessage, *, test: bool = False) -> Delivery:
+    """Push to the devices of everyone the scope names who turned push on and takes its kind of push."""
+    from marvin.services import web_push
+
+    if not web_push.configured():
+        return Delivery(SKIPPED, "Not sent: Web Push isn't set up on this server (VAPID keys).")
+    people = web_push.push_ready_users(session, scope.push_people(session), scope.push_category)
+    if not people:
+        return Delivery(SKIPPED, f"No one to send to yet: push goes to {scope.push_everyone}.")
+    push = web_push.PushMessage(
+        title=message.title, body=message.summary, url=message.path or message.link, tag="alert-test" if test else None, urgency="high"
+    )
+    result = web_push.send_to_users(session, [u.id for u in people], scope.push_category, push)
+    gone = f"; {result.removed} device(s) no longer subscribed were removed" if result.removed else ""
+    if result.sent == 0:
+        return Delivery(FAILED, f"Not delivered to any of {result.devices} device(s){gone}.")
+    failed = f", {result.failed} failed" if result.failed else ""
+    return Delivery(SENT, f"Sent to {result.sent} device(s) of {len(result.people)} person(s){failed}{gone}.")
+
+
 def send_route(scope: AlertScope, session: Session, route: Route, message: AlertMessage, workspace=None) -> Delivery:
     """Run the route's action on its connection in the scope's workspace with the message filled in."""
     workspace = workspace if workspace is not None else scope.workspace(session)
@@ -593,8 +655,8 @@ def send_route(scope: AlertScope, session: Session, route: Route, message: Alert
 def send(
     scope: AlertScope, session: Session, settings: AlertSettings, message: AlertMessage, channels: list[str], *, event_type: str | None, test: bool
 ) -> dict[str, dict]:
-    """Send to each named channel (``email`` or a route id) — a named route even when it's off — each
-    isolated; record and return their statuses."""
+    """Send to each named channel (``email``, ``push`` or a route id) — a named route even when it's off —
+    each isolated; record and return their statuses."""
     results: dict[str, dict] = {}
     if EMAIL_CHANNEL in channels:
         try:
@@ -603,6 +665,13 @@ def send(
             logger.exception(f"{scope.name}: email channel failed")
             delivery = Delivery(FAILED, f"Email failed: {scrub(str(e))}")
         results[EMAIL_CHANNEL] = delivery.status(event_type, test)
+    if PUSH_CHANNEL in channels:
+        try:
+            delivery = send_push(scope, session, message, test=test)
+        except Exception as e:  # noqa: BLE001
+            logger.exception(f"{scope.name}: push channel failed")
+            delivery = Delivery(FAILED, f"Push failed: {scrub(str(e))}")
+        results[PUSH_CHANNEL] = delivery.status(event_type, test)
     workspace = None
     for route in settings.routes:
         if route.id not in channels:
@@ -619,10 +688,12 @@ def send(
 
 
 def send_test(scope: AlertScope, session: Session, channel: str, by: str | None = None) -> dict:
-    """Send the test message to one saved channel (``email`` or a route id), even when it's off."""
+    """Send the test message to one saved channel (``email``, ``push`` or a route id), even when it's off."""
     settings = load(scope, session)
     if channel == EMAIL_CHANNEL:
         label = "email"
+    elif channel == PUSH_CHANNEL:
+        label = "push"
     else:
         route = next((r for r in settings.routes if r.id == channel), None)
         if route is None:

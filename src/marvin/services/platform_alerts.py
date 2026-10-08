@@ -6,6 +6,8 @@ settings also send the ones that matter somewhere people look when they aren't i
   * **email** — built in and on by default: the platform SMTP settings (Admin → Email settings), to every
     super admin unless an explicit list is set. Without SMTP nothing is sent, and the channel's last
     delivery says so;
+  * **push** — when the server has Web Push (VAPID): to the devices of the super admins who turned push on
+    with "Platform alerts" in their Profile;
   * **integration routes** — any action that can carry a message (``alert_routing.message_actions``: Slack's
     ``send_message``, Apprise's ``notify``, whatever a plugin declares — never a list of names) on a
     connection in the **platform workspace**. Integrations are connected per workspace and the admin area
@@ -29,11 +31,12 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from marvin.services import alerting
+from marvin.services import alerting, web_push
 from marvin.services.alerting import (  # noqa: F401 — the platform alerts' public names
     EMAIL_CHANNEL,
     FAILED,
     MAX_TEXT,
+    PUSH_CHANNEL,
     SENT,
     SKIPPED,
     AlertKind,
@@ -153,6 +156,8 @@ class PlatformScope(alerting.AlertScope):
     nobody = "no super admin has an email address"
     email_setup = "SMTP isn't configured (Admin → Email settings)"
     where = "the platform workspace"
+    push_category = web_push.PLATFORM_ALERTS
+    push_everyone = "super admins who turned on push with “Platform alerts” in their Profile"
 
     def stored_settings(self, session: Session) -> dict | None:
         return PlatformSettingsService(session).get(SETTINGS_KEY)
@@ -174,6 +179,9 @@ class PlatformScope(alerting.AlertScope):
 
     def email_ready(self, session: Session) -> bool:
         return smtp_ready()
+
+    def push_people(self, session: Session) -> list:
+        return web_push.super_admin_ids(session)
 
     def email_service(self):
         from marvin.services.email.email_service import EmailService
@@ -205,10 +213,12 @@ def statuses(session: Session) -> dict[str, dict]:
     return alerting.statuses(PLATFORM, session)
 
 
-def validate(session: Session, *, types: dict[str, bool], email_enabled: bool, recipients: list[str] | None, routes: list[dict]) -> AlertSettings:
+def validate(
+    session: Session, *, types: dict[str, bool], email_enabled: bool, recipients: list[str] | None, routes: list[dict], push: dict | None = None
+) -> AlertSettings:
     """What the admin asked for as settings, or InvalidAlertSettings. Routes must name a message-capable
-    action on a connection in the platform workspace."""
-    return alerting.validate(PLATFORM, session, types=types, email_enabled=email_enabled, recipients=recipients, routes=routes)
+    action on a connection in the platform workspace. ``push`` ({enabled}) left out keeps it as it is."""
+    return alerting.validate(PLATFORM, session, types=types, email_enabled=email_enabled, recipients=recipients, routes=routes, push=push)
 
 
 def describe_changes(session: Session, old: AlertSettings, new: AlertSettings) -> list[str]:
@@ -253,5 +263,5 @@ def deliver(session: Session, event, data: dict | None = None) -> dict[str, dict
 
 
 def send_test(session: Session, channel: str, by: str | None = None) -> dict:
-    """Send the test message to one saved channel (``email`` or a route id), even when it's off."""
+    """Send the test message to one saved channel (``email``, ``push`` or a route id), even when it's off."""
     return alerting.send_test(PLATFORM, session, channel, by)

@@ -2,7 +2,8 @@
 
 The bell and the Event Log always get a workspace's events. These settings also send the ones that need a
 person — a workflow or scheduled task failing, a connection that needs attention — somewhere people look
-when they aren't in Marvin: email to the workspace's owners and admins (or a list), and any message-capable
+when they aren't in Marvin: email to the workspace's owners and admins (or a list), push to the devices of the
+owners and admins who turned it on (when the server has Web Push), and any message-capable
 action on one of the workspace's own connections (Slack's ``send_message`` with its channel, Apprise's
 ``notify``, any notify plugin). Each channel takes every kind, or only the ones chosen for it. The settings,
 channels and message are services/alerting.py's, shared with platform alerts; this module is the
@@ -32,7 +33,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from marvin.core.root_logger import get_logger
-from marvin.services import alerting
+from marvin.services import alerting, web_push
 from marvin.services.alerting import AlertKind, AlertMessage, AlertSettings, event_data
 
 logger = get_logger(__name__)
@@ -163,6 +164,8 @@ class WorkspaceScope(alerting.AlertScope):
     email_setup = "email isn't set up (Settings → Email → SMTP, or the platform's email settings)"
     where = "this workspace"
     per_channel_kinds = True
+    push_category = web_push.WORKSPACE_ALERTS
+    push_everyone = "owners and admins who turned on push with “Workspace alerts” in their Profile"
 
     def __init__(self, group_id) -> None:
         self.group_id = group_id
@@ -191,6 +194,11 @@ class WorkspaceScope(alerting.AlertScope):
 
     def email_ready(self, session: Session) -> bool:
         return smtp_ready(session, self.group_id)
+
+    def push_people(self, session: Session) -> list:
+        from marvin.db.models.users.roles import WorkspaceRole
+
+        return web_push.workspace_member_ids(session, self.group_id, WorkspaceRole.ADMIN)
 
     def email_service(self):
         from marvin.services.email.email_service import EmailService
