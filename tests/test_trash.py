@@ -622,3 +622,32 @@ def test_workspace_trash_settings_read_and_override(http):
     assert admin.patch(url, json={"trash_auto_empty_days": None}).status_code == 200  # back to inheriting
     assert admin.get(f"{url}/trash").json()["workspace_override_days"] is None
     assert http.sign_in(WorkspaceRole.EDITOR).patch(url, json={"trash_auto_empty_days": 0}).status_code == 403
+
+
+def test_a_collection_whose_entries_are_all_in_the_trash_can_be_deleted(ws):
+    """Deleting an entry trashes it, so counting trashed members as "in use" left such a collection undeletable
+    (the CLI's create-entry / delete-entry / delete-collection run got 409). Entries outside the Trash still block."""
+    from fastapi import HTTPException
+
+    from marvin.db.models.platform.collections import Collections
+    from marvin.db.models.platform.entry_collections import EntryCollections
+    from marvin.repos.repository_factory import AllRepositories
+
+    kept, binned = ws.entry("kept"), ws.entry("binned")
+    col = Collections(session=ws.session, group_id=ws.gid, name="Shelf", slug=f"shelf-{uuid.uuid4().hex[:6]}")
+    ws.session.add(col)
+    ws.session.flush()
+    ws.session.add_all([EntryCollections(entry_id=kept, collection_id=col.id), EntryCollections(entry_id=binned, collection_id=col.id)])
+    ws.session.flush()
+    repo = AllRepositories(ws.session, group_id=ws.gid).collections
+
+    _svc(ws).trash(binned)
+    with pytest.raises(HTTPException) as refused:
+        repo.delete(col.id)
+    assert refused.value.status_code == 409  # `kept` is still in it
+
+    _svc(ws).trash(kept)
+    repo.delete(col.id)
+    assert ws.session.get(Collections, col.id) is None
+    _svc(ws).restore_from_trash(kept)  # comes back, without the collection that's gone
+    assert _row(ws, kept).status == "draft"

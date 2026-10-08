@@ -6,9 +6,10 @@ from fastapi import HTTPException, status
 from pydantic import UUID4
 from sqlalchemy.orm import Session
 
-from marvin.db.models.platform import Collections, EntryCollections
+from marvin.db.models.platform import Collections, Entries, EntryCollections
 from marvin.repos.repository_generic import GroupRepositoryGeneric
 from marvin.schemas.platform import CollectionRead
+from marvin.schemas.platform.entries import TRASHED
 
 
 class CollectionsRepository(GroupRepositoryGeneric[CollectionRead, Collections]):
@@ -132,7 +133,14 @@ class CollectionsRepository(GroupRepositoryGeneric[CollectionRead, Collections])
         return super().delete(value, match_key=match_key)
 
     def _count_entries_in_collection(self, collection_id: Any) -> int:
-        count_query = self.session.query(EntryCollections).filter(EntryCollections.collection_id == collection_id)
+        """Entries outside the Trash: a trashed entry doesn't keep its collection "in use" (deleting an entry trashes
+        it, so a collection whose entries were all deleted would otherwise never be deletable). Its membership row
+        goes with the collection, so a later restore brings the entry back without it."""
+        count_query = (
+            self.session.query(EntryCollections)
+            .join(Entries, Entries.id == EntryCollections.entry_id)
+            .filter(EntryCollections.collection_id == collection_id, Entries.status != TRASHED)
+        )
         return count_query.count()
 
     def _attach_entries(self, collection_id: UUID4, entry_ids: list[UUID4]) -> None:
