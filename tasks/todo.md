@@ -2611,3 +2611,27 @@ makes sense." Runbook: `docs/manual/app-and-push.md`.
 - [ ] Try it on a real Android phone and an iPhone (16.4+, Home Screen) on dev.
 - [ ] Later: a link that opens the right workspace (a push for another workspace than the active one lands on a page
       in the active one); mention push once mentions exist; per-workspace mute.
+
+## Promote develop → marvin-dev → marvin with GitHub Actions (2026-10-08)
+
+Replaces the session-run `dev-then-prod.sh` / `ship-when-green.sh`. Dev deploys on green CI; prod follows as soon as
+dev's smoke check passes — no approval step (Jared, 2026-10-08: "we're deploying a lot"). The `production`
+environment stays on the prod job so a required reviewer can be added later without a code change. Runbook: `docs/manual/operations.md` → Deploying.
+
+- [x] `scripts/deploy/promote.sh` (helm upgrade + rollouts, `--dry-run` = server-side apply dry run of every object),
+      `smoke.sh` (Routes: /healthz, /readyz, /version.json commit, backend log), `rollback.sh`, `wait-for-ci.sh`;
+      `promote-iwobble.sh` is now a wrapper.
+- [x] `.github/workflows/promote.yml` + reusable `promote-release.yml`. Trigger is `push: develop` + dispatch, not
+      `workflow_run`: the default branch is `main` (981 commits behind), and `workflow_run` only runs the default
+      branch's copy of a workflow, with `GITHUB_REF=main`.
+- [x] `.github/deploy/promote-rbac.yaml`: `admin` in marvin-dev + marvin (covers CNPG Clusters via OLM aggregation),
+      named-PV ClusterRole for `marvin-marvin-backup-nas-nightly`. Server dry-run validated.
+- [x] Local: shellcheck + actionlint clean; dry runs for both namespaces; rendered manifests = live releases;
+      smoke pass/fail; kubeconfig step verifies the CA; real promote → smoke → rollback on marvin-dev (rev 47/48, no pod churn).
+- [ ] Jared: apply RBAC; `OPENSHIFT_CA` secret (commands in the RBAC file header).
+- [ ] Put `promote.yml` + `promote-release.yml` on `main` (a `ci:` commit, like `deploy.yml`'s `e6cd5082`) so they can be dispatched.
+- [ ] `gh workflow run promote.yml --ref develop -f dry_run=true` → both green.
+- [ ] Next develop push: dev deploys, then prod, `helm history` shows `promote develop-<sha>` in both.
+- [ ] Rollback drill: `-f smoke_expect=<older sha>` → dev rolls back, prod never starts.
+- [ ] After two green promotions: retire `dev-then-prod.sh`, `ship-when-green.sh`, `*-dev-check.sh` and their
+      settings.json allow rules.

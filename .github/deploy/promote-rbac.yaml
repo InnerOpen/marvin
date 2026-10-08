@@ -1,0 +1,75 @@
+# RBAC for the Promote workflow (.github/workflows/promote.yml): helm upgrade / rollback of release `marvin` in
+# marvin-dev and marvin, as the `deployer` ServiceAccount (namespace github-arc-runners) the in-cluster runner uses.
+#
+# Apply once, as a cluster admin (CI never applies this):
+#   oc apply -f .github/deploy/promote-rbac.yaml
+#
+# What it grants:
+# - `admin` in each namespace: everything the chart renders there (Deployments, Services, Routes, ConfigMaps, Secrets,
+#   PVCs, CronJobs, PDBs, ServiceAccounts), helm's release Secrets, pods/log for the smoke check. OLM aggregates the
+#   CloudNativePG roles into `admin`, so that covers the chart's postgresql.cnpg.io Cluster too.
+# - The one cluster-scoped object the chart renders: production's static NFS PersistentVolume for the `nas-nightly`
+#   backup target. Only that PV, by name; `create` can't be limited by name, so a PV a values change adds must be
+#   created by an admin first (`helm template ... | oc apply` of that one object) or the upgrade fails on it. List the
+#   names with:  helm template marvin marvin-chart -n <ns> -f marvin-chart/values-<env>.yaml | grep -A3 'kind: PersistentVolume$'
+# The manual Redeploy workflow keeps its own narrower Role (redeploy-rbac.yaml).
+#
+# GitHub settings, once:
+# - Repository secret OPENSHIFT_CA: the CA bundle that signs the API server's certificate (public certificates):
+#     oc -n github-arc-runners get configmap kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' | gh secret set OPENSHIFT_CA -R InnerOpen/marvin
+# - OPENSHIFT_SERVER / OPENSHIFT_TOKEN stay as they are (repository secrets; the token is deployer-cd-token from
+#   redeploy-rbac.yaml).
+# - The `development` and `production` environments create themselves on the first run and need no rules: production
+#   deploys as soon as marvin-dev passes. For an approval gate before production, add a required reviewer to the
+#   `production` environment (and limit its deployment branches to `develop`); the workflow needs no change.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer-promotes-marvin
+  namespace: marvin-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: deployer
+    namespace: github-arc-runners
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer-promotes-marvin
+  namespace: marvin
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: admin
+subjects:
+  - kind: ServiceAccount
+    name: deployer
+    namespace: github-arc-runners
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: marvin-promote-volumes
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    resourceNames:
+      - marvin-marvin-backup-nas-nightly # marvin (values-iwobble.yaml); marvin-dev renders none
+    verbs: ["get", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: deployer-promotes-marvin-volumes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: marvin-promote-volumes
+subjects:
+  - kind: ServiceAccount
+    name: deployer
+    namespace: github-arc-runners
