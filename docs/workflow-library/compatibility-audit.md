@@ -21,7 +21,7 @@ Facts derived from the code (paths under `src/marvin/`), against what the starte
 |---|---|---|
 | `event` (43 triggerable events) | exists | `services/events/event_catalog.py` `triggerable=True`; listener gate `event_bus_listener.py:1139-1146` |
 | `manual`, `mcp` | exists | `engine.py:697` `run_automation_now` (skips trigger/condition gates unless a `target`) |
-| `schedule` | exists-with-caveat | creates its own backing `run_automation` scheduled task (`workflows.py:101` `sync_schedule`, slug `wf-<id>`); **interval/once fire, cron never does** (`repos/platform/scheduled_tasks.py:84` returns `None` for cron) |
+| `schedule` | exists-with-caveat | creates its own backing `run_automation` scheduled task (`workflows.py:101` `sync_schedule`, slug `wf-<id>`); interval, once and cron all fire (cron since 2026-10-08: `services/cron.py`, five numeric fields in an IANA timezone; an expression that can't run is refused on save — before, cron computed no next run and never fired) |
 | `chained` / `on_error` | exists | match `automation_ran` / `automation_failed` (`engine.py:391-394`); the failed run's entry is `event.trigger_entity_type/id` (`summary.py:153`) |
 | `incoming_webhook` | exists | body → `${event.payload.*}` (`routes/hooks/hooks_controller.py:77-148`); headers/query not carried; no dedup store; signature presets incl. HMAC |
 | Custom emitted events | needs-engine-capability | `emit_event` sends only `entry_*` and `site_deployment_*` (`EMITTABLE_EVENT_TYPES`); no registration of new names |

@@ -386,7 +386,7 @@ TASKS = f"{P}/scheduled-tasks"
 
 
 def _task(task_type):
-    return {"name": f"Gate {uuid.uuid4().hex[:6]}", "schedule_type": "cron", "schedule_config": {"cron": "0 3 * * *"}, "task_type": task_type}
+    return {"name": f"Gate {uuid.uuid4().hex[:6]}", "schedule_type": "cron", "schedule_config": {"cron_expression": "0 3 * * *"}, "task_type": task_type}
 
 
 def _admin_only_types():

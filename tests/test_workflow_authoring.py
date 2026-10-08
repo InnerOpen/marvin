@@ -525,3 +525,21 @@ def test_a_draft_the_person_saved_since_is_theirs(ws):
     assert saved.status_code == 200 and _rows(ws)[0].agent_draft is False
     out = _tool(ws, "update_workflow_draft", {"workflow": made["id"], "definition": {**GOOD, "actions": []}})
     assert "user's own work" in out["error"]
+
+
+def test_a_cron_workflow_saves_with_a_due_backing_task_and_a_bad_one_is_a_422(ws):
+    from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+
+    client = gates._sign_in(ws.workspace, AD)
+    trigger = {"type": "schedule", "schedule_type": "cron", "schedule_config": {"cron_expression": "0 9 * * 1", "timezone": "America/New_York"}}
+    made = client.post("/api/automations", json={"name": "Monday digest", "definition": {**GOOD, "trigger": trigger}})
+    assert made.status_code == 201, made.text
+    task = ws.session.query(ScheduledTaskModel).filter_by(group_id=ws.gid, slug=f"wf-{made.json()['id']}").one()
+    assert task.schedule_type == "cron" and task.next_run_at is not None
+
+    bad = {**trigger, "schedule_config": {"cron_expression": "every monday"}}
+    refused = client.post("/api/automations", json={"name": "Never", "definition": {**GOOD, "trigger": bad}})
+    assert refused.status_code == 422 and "numbers, not names" in refused.text and "trigger.schedule" in refused.text
+
+    out = _tool(ws, "draft_workflow", {"name": "Agent never", "definition": {**GOOD, "trigger": bad}})
+    assert out.get("workflow") is None and any("numbers, not names" in i["message"] for i in out["issues"])

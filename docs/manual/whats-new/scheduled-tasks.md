@@ -9,8 +9,8 @@ A scheduled task is a row with a schedule and a handler:
 | Field | Meaning |
 |---|---|
 | `name`, `slug`, `description`, `enabled` | slug is generated from the name; `enabled` defaults to `true` on the API, but a task applied from a blueprint is created disabled (`847631de`) |
-| `schedule_type` | `interval` or `once`. The schema also accepts `cron`, but `ScheduledTasksRepository._compute_next_run` returns `None` for it, so a cron task never becomes due |
-| `schedule_config` | `interval`: `{"interval_seconds": 120}` · `once`: `{"run_at": "2026-10-01T09:00:00Z"}` |
+| `schedule_type` | `interval`, `once` or `cron` |
+| `schedule_config` | `interval`: `{"interval_seconds": 120}` · `once`: `{"run_at": "2026-10-01T09:00:00Z"}` · `cron`: `{"cron_expression": "0 9 * * 1", "timezone": "America/New_York"}` — five numeric fields (minute, hour, day of month, month, day of week with 0 = Sunday; `*`, lists, ranges, steps) or `@hourly`/`@daily`/`@weekly`/`@monthly`/`@yearly`, read in the IANA `timezone` (default UTC), so 09:00 stays 09:00 local across daylight-saving changes. Day and month names (`MON`, `JAN`) aren't understood. A cron schedule that can't run — a bad expression, an unknown timezone, a missing `cron_expression` — is refused on save (422) with the reason. |
 | `task_type` | a registered handler name (table below) |
 | `task_config` | handler-specific JSON; the handler's `config_schema` (from `task-types?detailed=true`) describes it, but it is not validated on save |
 | `retry_policy` | stored and exported with the workspace; not consulted by the runner (not verified beyond that) |

@@ -22,9 +22,8 @@ from sqlalchemy.orm import Session
 from marvin.db.models.platform.backup_runs import BackupRunModel
 from marvin.db.models.users.roles import PlatformRole
 from marvin.scripts import backup as backup_cli
-from marvin.services import backup_health
+from marvin.services import backup_health, cron
 from marvin.services.backup_engine import recorder
-from marvin.services.backup_health import cron
 from marvin.services.storage import healthcheck as hc
 from tests.test_storage_providers import _EP, entry_points  # noqa: F401  (fixture)
 

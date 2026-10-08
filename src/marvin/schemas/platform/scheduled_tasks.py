@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import UUID4, ConfigDict, Field, StringConstraints
+from pydantic import UUID4, ConfigDict, Field, StringConstraints, model_validator
 
 from marvin.schemas._marvin import _MarvinModel
 
@@ -52,6 +52,17 @@ class ScheduledTaskCreate(_MarvinModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @model_validator(mode="after")
+    def _cron_can_run(self):
+        # A cron schedule the scheduler can't compute would be saved and then never run.
+        if self.schedule_type == "cron" and self.schedule_config is not None:
+            from marvin.services import cron
+
+            problem = cron.problem(self.schedule_config.get("cron_expression"), self.schedule_config.get("timezone"))
+            if problem:
+                raise ValueError(problem)
+        return self
+
 
 class ScheduledTaskUpdate(_MarvinModel):
     """Schema for updating a scheduled task."""
@@ -78,6 +89,17 @@ class ScheduledTaskUpdate(_MarvinModel):
     """Optional retry policy."""
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def _cron_can_run(self):
+        # A cron schedule the scheduler can't compute would be saved and then never run.
+        if self.schedule_type == "cron" and self.schedule_config is not None:
+            from marvin.services import cron
+
+            problem = cron.problem(self.schedule_config.get("cron_expression"), self.schedule_config.get("timezone"))
+            if problem:
+                raise ValueError(problem)
+        return self
 
 
 class ScheduledTaskSummary(_MarvinModel):

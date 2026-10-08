@@ -81,8 +81,34 @@ class ScheduledTasksRepository(GroupRepositoryGeneric[ScheduledTaskRead, Schedul
             seconds = schedule_config.get("interval_seconds")
             if seconds:
                 return now + timedelta(seconds=int(seconds))
-        # cron: skip for now (croniter not yet a dependency)
+        elif schedule_type == "cron":
+            from marvin.services import cron
+
+            return cron.next_run(schedule_config.get("cron_expression"), schedule_config.get("timezone"))
         return None
+
+    def schedule_unscheduled_cron(self) -> int:
+        """Give enabled cron tasks with no next_run_at their next run; returns how many were scheduled.
+
+        Cron used to compute no next run at all, so those tasks never became due — and only a run recomputes it.
+        A task whose stored cron can't run (see services.cron.problem) stays unscheduled.
+        """
+        stmt = select(ScheduledTaskModel).where(
+            and_(
+                ScheduledTaskModel.enabled == True,  # noqa: E712
+                ScheduledTaskModel.schedule_type == "cron",
+                ScheduledTaskModel.next_run_at.is_(None),
+            )
+        )
+        scheduled = 0
+        for task in self.session.execute(stmt).scalars().all():
+            next_run = self._compute_next_run(task.schedule_type, task.schedule_config)
+            if next_run is not None:
+                task.next_run_at = next_run
+                scheduled += 1
+        if scheduled:
+            self.session.commit()
+        return scheduled
 
     def get_due_tasks(self, now: datetime) -> list[ScheduledTaskRead]:
         """

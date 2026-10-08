@@ -39,8 +39,7 @@ from marvin.db.models.platform.backup_runs import (
     STATUS_PARTIAL,
     BackupRunModel,
 )
-
-from . import cron
+from marvin.services import cron
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session

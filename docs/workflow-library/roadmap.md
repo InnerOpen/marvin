@@ -12,7 +12,7 @@ brief are mapped in the last column.
 | 4 | Media adapters (`media-adapters`) | 24 | P1 | SDK capabilities for resize/crop/convert/OCR/render/TTS/zip; originals untouched; lineage recorded | Provider adapters |
 | 5 | Approval step in a workflow (`workflow-approvals`) | 20 | P1 | durable park, Approve/Deny push reuse, `${steps.<id>.output.decision}`, expiry, version re-check; unlocks `requires_approval` actions | Durable approvals |
 | 6 | Iterate / aggregate (`iterate-aggregate`) | 12 | P1 | reduce a target set into one output; bounded; per-row errors | Iteration / aggregation |
-| 7 | Relative dates + cron (`relative-dates`) | 6 | P1 | `updated_before: "-30d"`; cron computes `next_run_at` with timezone (croniter) | Scheduling and waits / Queries |
+| 7 | Relative dates + cron (`relative-dates`) | 6 | P1 | `updated_before: "-30d"` (still missing); ~~cron computes `next_run_at` with timezone~~ done (`services/cron.py`) | Scheduling and waits / Queries |
 | 8 | Conditional steps (`branches`) | 6 | P0 | `when` on a step against `steps.*`; skipped ≠ failed; dry run shows the branch | Branches |
 | 9 | Social adapters (`social-adapters`) | 6 | P1 | draft/publish/metrics providers, publish `requires_approval` by default | Provider adapters |
 | 10 | Collection-scoped steps (`collection-scope`) | 4 | P1 | `${collection.entries}`; an operation over the set | Queries / relationships |
@@ -44,6 +44,7 @@ brief are mapped in the last column.
 | Typed output contracts | partial: operations declare `output_schema`; outputs are plain dicts, absent vs null not distinguished |
 | Idempotency | partial: integration retries only |
 
-Quick wins surfaced by the audit (not recipes, but cheap): add `croniter` so cron schedules fire; make
+Quick wins surfaced by the audit (not recipes, but cheap): ~~add `croniter` so cron schedules fire~~ done
+without a dependency — Marvin's own `services/cron.py` (moved from Backup health) computes the next run; make
 `resync_smart_collections` either work per workspace or leave the handler allowlist; expose `checksum` as an
 entry-query key for duplicate-asset detection.

@@ -61,6 +61,18 @@ class ScheduleTrigger(_DefnBase):
     schedule_type: str | None = None
     schedule_config: dict[str, Any] | None = None
 
+    @model_validator(mode="after")
+    def _cron_can_run(self):
+        # A cron schedule the scheduler can't compute would be saved and then never run.
+        if self.schedule_type == "cron":
+            from marvin.services import cron
+
+            config = self.schedule_config or {}
+            problem = cron.problem(config.get("cron_expression"), config.get("timezone"))
+            if problem:
+                raise ValueError(problem)
+        return self
+
 
 class ChainedTrigger(_DefnBase):
     """Runs after another workflow ran: `automation` is its slug or id (omitted or "any": every workflow)."""

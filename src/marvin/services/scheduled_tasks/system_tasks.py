@@ -12,10 +12,9 @@ from marvin.core.root_logger import get_logger
 
 logger = get_logger(__name__)
 
-# "daily" expressed as an interval. We intentionally use an `interval` schedule rather
-# than `cron`: ScheduledTasksRepository._compute_next_run only populates next_run_at for
-# 'interval'/'once' schedules — cron support is not yet wired (croniter isn't a
-# dependency), so a cron task would get next_run_at=None and never become due.
+# "daily" expressed as an interval: every 24 h from when the task was created, not at a fixed
+# hour. A cron schedule (`0 3 * * *`) would pin the hour now that cron runs (services/cron.py);
+# these system tasks don't care when in the day they run, so they keep the interval.
 _DAILY_SECONDS = 24 * 60 * 60
 # Scheduled publish/expiry granularity: an entry goes live (or expires) within this of its time.
 _PUBLISHING_INTERVAL_SECONDS = 5 * 60

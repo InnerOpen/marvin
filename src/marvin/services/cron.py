@@ -1,10 +1,11 @@
-"""Just enough of cron to know when a backup CronJob runs next: the five standard fields (minute, hour,
-day of month, month, day of week) with ``*``, lists, ranges and steps, plus the ``@hourly``-style
-shorthands Kubernetes accepts, read in an IANA time zone.
+"""Just enough of cron for Marvin's schedules: the five standard fields (minute, hour, day of month, month,
+day of week) with ``*``, lists, ranges and steps, plus the ``@hourly``-style shorthands Kubernetes accepts,
+read in an IANA time zone.
 
-Marvin has no cron library (croniter isn't a dependency), and the backend only needs "when is the next
-run" and "how far apart are runs" for the schedules the chart passes along (``0 * * * *``,
-``30 2 * * *``), so this stays small. Like Kubernetes (and Vixie cron), when both day fields are
+Two users: scheduled tasks and workflow schedule triggers (``next_run`` / ``problem``: the scheduler polls
+``next_run_at``, so a cron task needs its next match computed), and Backup health (a backup CronJob's next
+run and gap). Marvin needs only "when is the next run" and "how far apart are runs", so this stays small
+rather than a dependency. Like Kubernetes (and Vixie cron), when both day fields are
 restricted a day matches either. Names (``MON``, ``JAN``) and ``?``/``L``/``W`` are not understood:
 ``parse`` raises ``ValueError`` and the caller shows the schedule without a next run.
 """
@@ -138,3 +139,24 @@ def parse(expression: str, time_zone: str | None = None) -> CronSchedule:
         any_weekday=fields[4] == "*",
         zone=zone(time_zone),
     )
+
+
+def problem(expression: object, time_zone: object = None) -> str | None:
+    """Why a cron schedule can't run, or None when it can — said on save, so it never sits there never running."""
+    if not isinstance(expression, str) or not expression.strip():
+        return "a cron schedule needs `cron_expression`, e.g. `0 9 * * 1` (Mondays at 09:00)"
+    if not expression.strip().startswith("@") and any(c.isalpha() for c in expression):
+        return f"`{expression}`: use numbers, not names — day of week 0–6 (0 = Sunday), month 1–12; e.g. `0 9 * * 1` for Mondays"
+    try:
+        parse(expression, str(time_zone) if time_zone else None)
+    except ValueError as e:
+        return f"cron schedule: {e}"
+    return None
+
+
+def next_run(expression: str | None, time_zone: str | None = None, after: datetime | None = None) -> datetime | None:
+    """The next time (aware, UTC) the expression matches after ``after`` (default now); None if it can't run."""
+    try:
+        return parse(expression or "", time_zone).next_after(after or datetime.now(UTC))
+    except ValueError:
+        return None

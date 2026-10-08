@@ -88,7 +88,7 @@ GATED = [
     ("GET", "/api/groups/invitations", None),
     # scheduled tasks
     ("GET", TASKS, None),
-    ("POST", TASKS, {"name": "T", "schedule_type": "cron", "schedule_config": {"cron": "0 0 * * *"}, "task_type": "no_such_type"}),
+    ("POST", TASKS, {"name": "T", "schedule_type": "cron", "schedule_config": {"cron_expression": "0 0 * * *"}, "task_type": "no_such_type"}),
     ("GET", f"{TASKS}/log", None),
     ("GET", f"{TASKS}/no-such-task", None),
     ("PATCH", f"{TASKS}/no-such-task", {}),

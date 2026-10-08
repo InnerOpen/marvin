@@ -34,6 +34,9 @@ def check_scheduled_tasks() -> None:
             repos = AllRepositories(session, group_id=None)
             event_bus = EventBusService(bg_tasks=None)
 
+            if scheduled := repos.scheduled_tasks.schedule_unscheduled_cron():
+                logger.info(f"Scheduled {scheduled} cron task(s) that had no next run")
+
             now = datetime.now(UTC)
             due_tasks = repos.scheduled_tasks.get_due_tasks(now)
 
