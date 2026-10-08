@@ -51,6 +51,35 @@ agent's trash_entries `match`) rejects any key not here instead."""
 
 WHERE_OPS = ("eq", "neq", "in", "contains", "exists", "missing", "gt", "gte", "lt", "lte")
 COLUMN_SORTS = ("title", "created_at", "updated_at", "published_at")
+
+# What each of SPEC_KEYS means, in a line — the agent's workflow authoring guide lists these for a workflow's
+# `target.query` (test_entry_query keeps both matching what `build` / `run` read).
+SPEC_KEY_NOTES: dict[str, str] = {
+    "entry_type": "entry type slug (`entry_types`: a list)",
+    "entry_types": "entry type slugs, any of",
+    "status": "publish status (`statuses`: a list); the Trash is left out unless `trashed` is asked for",
+    "statuses": "publish statuses, any of",
+    "text": "title or slug contains (same as `query`)",
+    "query": "title or slug contains (same as `text`)",
+    "tags": "has any of these tags (slug or name)",
+    "collection": "in this collection (slug or name; `collections`: a list)",
+    "collections": "in any of these collections",
+    "has_images": "true: has an image asset attached",
+    "has_assets": "true: has any asset attached",
+    "has_resources": "true: has a resource linked",
+    "fields": "exact match on the entry type's own fields, {field_key: value}",
+    "data": "same as `fields`",
+    "metadata": "exact match on metadata_json keys, {key: value}",
+    "where": f"comparisons [{{field, op, value}}]; field = a field key or metadata.<key>; op: {', '.join(WHERE_OPS)}",
+    "created_after": "ISO date/datetime (UTC); also created_before",
+    "created_before": "ISO date/datetime (UTC)",
+    "updated_after": "ISO date/datetime (UTC); also updated_before",
+    "updated_before": "ISO date/datetime (UTC)",
+    "published_after": "ISO date/datetime (UTC); also published_before",
+    "published_before": "ISO date/datetime (UTC)",
+    "sort": f"{{by: {' | '.join(COLUMN_SORTS)} | <field key>, direction: asc | desc}}",
+    "group_by": "a field key, publish_status or entry_type: counts per value",
+}
 _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
 
 

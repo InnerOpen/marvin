@@ -5,7 +5,7 @@ The `/options` endpoint advertises the builder's vocabulary — trigger events, 
 action kinds, and the operations available as actions — so the UI is backend-driven.
 """
 
-import re
+from contextlib import contextmanager
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -35,16 +35,12 @@ from marvin.schemas.group.automation import (
     AutomationWebhookOption,
     IntegrationRetryRead,
 )
+from marvin.services.automation.workflows import WorkflowError, create_workflow, delete_workflow, update_workflow
 
 router = APIRouter(prefix="/automations", route_class=MarvinCrudRoute)
 
 
 _require_admin = require_workspace_admin
-
-
-def _slugify(name: str) -> str:
-    s = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
-    return s or "automation"
 
 
 def _retry_chain(session, row, limit: int = 50) -> list:
@@ -78,19 +74,13 @@ def _get_or_404(session, automation_id: UUID4, group_id: UUID4) -> WorkspaceAuto
     return row
 
 
-def _require_valid_definition(definition: dict | None) -> None:
-    """Gate the write path on the definition's *structure* (the Pydantic source of truth). Rejects a
-    malformed definition — unknown action kind / trigger type, missing required field, wrong type —
-    with a 422 carrying the structured issues. Semantic 'won't match anything' warnings are advisory
-    (POST /validate) and do NOT block here."""
-    from marvin.services.automation.validation import structural_issues
-
-    issues = structural_issues(definition)
-    if issues:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={"message": "The workflow definition is not well-formed.", "issues": issues},
-        )
+@contextmanager
+def _as_http():
+    """The shared write path's refusals (services/automation/workflows.py) as HTTP errors."""
+    try:
+        yield
+    except WorkflowError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from e
 
 
 @controller(router)
@@ -112,33 +102,24 @@ class AutomationsController(BaseUserController):
         with AI off, so the builder just won't offer AI actions there.
         """
         _require_admin(self.user, self.group_id)
-        from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
-        from marvin.services.ai.operations import list_operations
         from marvin.services.automation.actions import available_kinds
+        from marvin.services.automation.authoring import automation_operations
         from marvin.services.automation.matcher import _OPS
-        from marvin.services.automation.runner import AUTOMATION_SOURCE
         from marvin.services.events.event_catalog import offered_emittable, trigger_groups
 
         groups = trigger_groups()  # the catalog's triggerable events, under the builder's headings
 
         # AI operations are available only when AI is enabled AND the automation source isn't disabled.
-        settings = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-        ai_on = bool(settings and getattr(settings, "enabled", False))
-        policy = settings.invocation_sources if settings else None
-        source_ok = not (isinstance(policy, dict) and policy.get(AUTOMATION_SOURCE, True) is False)
-        operations = []
-        if ai_on and source_ok:
-            operations = [
-                AutomationActionOption(
-                    op=op.slug,
-                    name=op.name,
-                    description=op.description,
-                    entity_types=op.entity_types,
-                    writes_back=bool(getattr(op, "writeback", None)),
-                )
-                for op in list_operations()
-                if AUTOMATION_SOURCE in op.invocation_sources
-            ]
+        operations = [
+            AutomationActionOption(
+                op=op.slug,
+                name=op.name,
+                description=op.description,
+                entity_types=op.entity_types,
+                writes_back=bool(getattr(op, "writeback", None)),
+            )
+            for op in automation_operations(self.session, self.group_id) or []
+        ]
 
         # The workspace's configured webhooks, offered to the `webhook` action.
         from marvin.db.models.groups.webhooks import GroupWebhooksModel
@@ -170,13 +151,13 @@ class AutomationsController(BaseUserController):
             .all()
         ]
 
-        from marvin.schemas.group.automation_definition import definition_json_schema
+        from marvin.schemas.group.automation_definition import TRIGGER_MODELS, definition_json_schema
         from marvin.services.automation.validation import condition_field_catalog
 
         condition_fields = {ttype: [AutomationConditionField(**f) for f in fields] for ttype, fields in condition_field_catalog().items()}
 
         return AutomationOptions(
-            trigger_types=["event", "manual", "schedule", "chained", "on_error", "incoming_webhook", "mcp"],
+            trigger_types=list(TRIGGER_MODELS),
             triggers=[name for names in groups.values() for name in names],
             trigger_groups=groups,
             emittable=offered_emittable(),
@@ -362,18 +343,8 @@ class AutomationsController(BaseUserController):
     @router.post("", response_model=AutomationRead, status_code=status.HTTP_201_CREATED, summary="Create Automation")
     def create_automation(self, data: AutomationCreate) -> AutomationRead:
         _require_admin(self.user, self.group_id)
-        slug = data.slug or _slugify(data.name)
-        if self.session.query(WorkspaceAutomationModel).filter_by(group_id=self.group_id, slug=slug).first():
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Automation slug '{slug}' already exists.")
-        _require_valid_definition(data.definition)
-
-        payload = data.model_dump()
-        payload["slug"] = slug
-        row = WorkspaceAutomationModel(session=self.session, group_id=self.group_id, created_by=self.user.id, **payload)
-        self.session.add(row)
-        self.session.commit()
-        self.session.refresh(row)
-        self._sync_schedule(row)
+        with _as_http():
+            row = create_workflow(self.session, self.group_id, self.user.id, data)
         return AutomationRead.model_validate(row)
 
     @router.get("/{automation_id}", response_model=AutomationRead, summary="Get Automation")
@@ -385,63 +356,12 @@ class AutomationsController(BaseUserController):
     def update_automation(self, automation_id: UUID4, data: AutomationUpdate) -> AutomationRead:
         _require_admin(self.user, self.group_id)
         row = _get_or_404(self.session, automation_id, self.group_id)
-        if data.definition is not None:
-            _require_valid_definition(data.definition)
-        for field, value in data.model_dump(exclude_unset=True).items():
-            setattr(row, field, value)
-        self.session.commit()
-        self.session.refresh(row)
-        self._sync_schedule(row)
+        with _as_http():
+            row = update_workflow(self.session, self.group_id, row, data)
         return AutomationRead.model_validate(row)
 
     @router.delete("/{automation_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete Automation")
     def delete_automation(self, automation_id: UUID4) -> None:
         _require_admin(self.user, self.group_id)
         row = _get_or_404(self.session, automation_id, self.group_id)
-        self._delete_schedule(row.id)
-        self.session.delete(row)
-        self.session.commit()
-
-    # ── Schedule-trigger backing task (trigger.type="schedule") ────────────
-    def _schedule_slug(self, automation_id) -> str:
-        return f"wf-{automation_id}"
-
-    def _find_schedule_task(self, automation_id):
-        from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
-
-        return self.session.query(ScheduledTaskModel).filter_by(group_id=self.group_id, slug=self._schedule_slug(automation_id)).first()
-
-    def _sync_schedule(self, automation) -> None:
-        """Keep the backing `run_automation` scheduled task in sync with the automation's trigger.
-
-        trigger.type="schedule" → upsert a task (`schedule_type`/`schedule_config` from the trigger,
-        e.g. interval_seconds); any other trigger type → remove the backing task if one exists.
-        """
-        trig = automation.trigger or {}
-        existing = self._find_schedule_task(automation.id)
-
-        if trig.get("type") != "schedule":
-            if existing:
-                self.session.delete(existing)
-                self.session.commit()
-            return
-
-        payload = {
-            "name": f"Workflow: {automation.name}",
-            "description": f"Runs the '{automation.name}' workflow on a schedule.",
-            "enabled": bool(automation.enabled),
-            "schedule_type": trig.get("schedule_type", "interval"),
-            "schedule_config": trig.get("schedule_config") or {},
-            "task_type": "run_automation",
-            "task_config": {"automation_id": str(automation.id)},
-        }
-        if existing:
-            self.repos.scheduled_tasks.update(existing.id, payload)
-        else:
-            self.repos.scheduled_tasks.create({**payload, "slug": self._schedule_slug(automation.id)})
-
-    def _delete_schedule(self, automation_id) -> None:
-        existing = self._find_schedule_task(automation_id)
-        if existing:
-            self.session.delete(existing)
-            self.session.commit()
+        delete_workflow(self.session, self.group_id, row)

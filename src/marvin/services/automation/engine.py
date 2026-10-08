@@ -133,6 +133,23 @@ def _site_context(session, group_id) -> dict:
     return {"url": site_base_url(session, group_id)}
 
 
+# What a template (`${…}`) can read in a run, by namespace — the workflow authoring guide lists these
+# (services/automation/authoring.py); test_workflow_authoring checks them against the contexts built here.
+TEMPLATE_NAMESPACES: dict[str, str] = {
+    "event": (
+        "the triggering event: event_type, entry_id, entity_type, entity_id, payload.<key> (an incoming webhook's body), "
+        "before / after / changed_fields (entry_updated), automation_slug (chained / on_error), webhook_slug, "
+        "user_id, plus the event's own fields (describe_event)"
+    ),
+    "entry": "the entry the run acts on (the trigger's, or each target match): id, entry_type, status, title, slug, summary, "
+    "data.<field>, metadata.<key>, image (featured image URL), url (its page on the site)",
+    "previous": "the previous step's output",
+    "steps": "steps.<id>.output.<key>: an earlier step's output, by its `id` (or its position, from 0)",
+    "site": "site.url: the workspace's Canonical URL",
+    "error": "on_failure steps only: error.message, error.code, error.step, error.kind, error.at",
+}
+
+
 def match_context(session, group_id, event_ctx: dict) -> dict:
     """The context an event's automations match and act on: the event, the entry it refers to, and the site."""
     context: dict = {

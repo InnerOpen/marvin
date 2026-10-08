@@ -168,3 +168,19 @@ def test_find_entries_returns_groups_and_metadata(db_session, shop):
     ctx = ToolContext(session=db_session, group_id=shop)
     out = json.loads(get_tool("find_entries").handler(ctx, {"entry_type": "work", "group_by": "status", "limit": 2}))
     assert out["groups"] == {"available": 5, "sold": 1} and out["count"] == 6 and out["returned"] == 2
+
+
+def test_spec_keys_are_exactly_what_the_query_reads():
+    """SPEC_KEYS (and SPEC_KEY_NOTES, what the workflow authoring guide shows for each) are what a match or a
+    drafted workflow's target is checked against, so they must name every key `build`/`run` read — and nothing
+    they don't."""
+    import inspect
+    import re
+
+    from marvin.services.entries import query
+
+    source = inspect.getsource(query.build) + inspect.getsource(query.run)
+    read = set(re.findall(r'spec\.get\("([a-z_]+)"', source))
+    read |= {f"{name}_{side}" for name in re.findall(r'\("([a-z]+)", Entries\.\w+_at\)', source) for side in ("after", "before")}
+    read |= set(re.findall(r'\("([a-z]+)", Entries\.(?:metadata|data)_json\)', source))
+    assert read == set(query.SPEC_KEYS) == set(query.SPEC_KEY_NOTES)

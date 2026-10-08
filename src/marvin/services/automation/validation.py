@@ -240,8 +240,27 @@ def _pretty(trigger_type: str) -> str:
 _WHERE_BY_HEAD = {"actions": "action", "on_failure": "on_failure", "conditions": "condition", "trigger": "trigger"}
 
 
-def _structural_issue(err: dict) -> dict:
-    """Map one Pydantic error to the {level, message, where, index?} issue shape used everywhere."""
+def issue_path(loc: tuple[Any, ...], data: Any) -> str:
+    """A Pydantic error location as the path an author reads — ``actions[0].op`` rather than
+    ``actions.0.entry.op``. A discriminated union puts the branch's tag (``entry``) or a union member's
+    type name (``list[Condition]``) in the location; those aren't keys of the definition, so a segment is
+    kept only while it walks the data — or when it is the last one (a missing required field)."""
+    parts: list[str] = []
+    cur = data
+    for i, seg in enumerate(loc):
+        if isinstance(seg, int) and isinstance(cur, list) and 0 <= seg < len(cur):
+            parts.append(f"[{seg}]")
+            cur = cur[seg]
+        elif isinstance(cur, dict) and seg in cur:
+            parts.append(f".{seg}" if parts else str(seg))
+            cur = cur[seg]
+        elif i == len(loc) - 1 and isinstance(seg, str) and seg.isidentifier() and seg[:1].islower():
+            parts.append(f".{seg}" if parts else seg)
+    return "".join(parts)
+
+
+def _structural_issue(err: dict, definition: Any = None) -> dict:
+    """Map one Pydantic error to the {level, message, where, index?, path} issue shape used everywhere."""
     loc: tuple[Any, ...] = err.get("loc", ()) or ()
     where = _WHERE_BY_HEAD.get(loc[0], "trigger") if loc else "trigger"
     index = loc[1] if len(loc) > 1 and isinstance(loc[1], int) else None
@@ -250,6 +269,7 @@ def _structural_issue(err: dict) -> dict:
     issue: dict[str, Any] = {"level": "error", "message": f"{path}: {msg}" if path else msg, "where": where}
     if index is not None:
         issue["index"] = index
+    issue["path"] = issue_path(loc, definition)
     return issue
 
 
@@ -264,4 +284,63 @@ def structural_issues(definition: dict | None) -> list[dict]:
         AutomationDefinition.model_validate(definition or {})
         return []
     except ValidationError as e:
-        return [_structural_issue(err) for err in e.errors()]
+        return [_structural_issue(err, definition) for err in e.errors() if not _other_branch(err.get("loc", ()), definition)]
+
+
+def _other_branch(loc: tuple[Any, ...], data: Any) -> bool:
+    """An error from the union member the value plainly isn't — `conditions` takes a list or a single
+    group, and a list's error under the single-group member (or the reverse) only adds noise."""
+    cur = data
+    for seg in loc:
+        if isinstance(seg, str) and not (isinstance(cur, dict) and seg in cur) and ("[" in seg or seg[:1].isupper()):
+            return seg.startswith("list[") != isinstance(cur, list)
+        if isinstance(cur, dict) and seg in cur:
+            cur = cur[seg]
+        elif isinstance(seg, int) and isinstance(cur, list) and 0 <= seg < len(cur):
+            cur = cur[seg]
+    return False
+
+
+def unknown_key_issues(definition: dict | None) -> list[dict]:
+    """Keys the definition model doesn't declare, as ERROR-level issues with their path.
+
+    The models allow extra keys (`extra="allow"`) so a forward-compatible definition still saves through
+    the API, and nothing reads them: a step written as ``{"type": "find_entries"}`` or a top-level
+    ``"steps"`` list is silently ignored. Hand-written JSON may want that leniency; an agent drafting a
+    workflow does not — an unknown key there is an invented shape — so the agent's draft path checks this
+    on top of :func:`structural_issues`. Read off the validated models (``model_extra``), so it follows
+    the models. Only for a structurally valid definition; call :func:`structural_issues` first."""
+    from pydantic import BaseModel, ValidationError
+
+    from marvin.schemas.group.automation_definition import AutomationDefinition
+
+    try:
+        model = AutomationDefinition.model_validate(definition or {})
+    except ValidationError:
+        return []
+
+    issues: list[dict] = []
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, list):
+            for i, item in enumerate(node):
+                walk(item, f"{path}[{i}]")
+            return
+        if not isinstance(node, BaseModel):
+            return
+        fields = {f.alias or name: name for name, f in type(node).model_fields.items()}  # key as written → attribute
+        for key in node.model_extra or {}:
+            head = (path or key).split("[")[0].split(".")[0]
+            issues.append(
+                {
+                    "level": "error",
+                    "message": f"“{key}” is not a field here, so it would be ignored. Fields: {', '.join(sorted(fields))}.",
+                    "where": _WHERE_BY_HEAD.get(head, "definition"),
+                    "path": f"{path}.{key}" if path else key,
+                }
+            )
+        for key, attr in fields.items():
+            walk(getattr(node, attr), f"{path}.{key}" if path else key)
+
+    walk(model, "")
+    return issues

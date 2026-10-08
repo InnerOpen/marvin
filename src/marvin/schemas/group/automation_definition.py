@@ -41,36 +41,51 @@ class _DefnBase(BaseModel):
 
 # ── Triggers (discriminated on `type`) ────────────────────────────────────────
 class EventTrigger(_DefnBase):
+    """Runs when a Marvin event fires: `event` is a triggerable event name. An entry event's entry is `entry.*`."""
+
     type: Literal["event"] = "event"
     event: str
 
 
 class ManualTrigger(_DefnBase):
+    """Runs only when someone presses Run (or the run_workflow tool or the API runs it)."""
+
     type: Literal["manual"]
 
 
 class ScheduleTrigger(_DefnBase):
+    """Runs on a schedule: `schedule_type` interval (`schedule_config.interval_seconds`), cron
+    (`cron_expression`, `timezone`) or once (`run_at`, ISO 8601)."""
+
     type: Literal["schedule"]
     schedule_type: str | None = None
     schedule_config: dict[str, Any] | None = None
 
 
 class ChainedTrigger(_DefnBase):
+    """Runs after another workflow ran: `automation` is its slug or id (omitted or "any": every workflow)."""
+
     type: Literal["chained"]
     automation: str | None = None  # target automation (slug/id); None/"any" = every automation
 
 
 class OnErrorTrigger(_DefnBase):
+    """Runs after another workflow failed: `automation` is its slug or id (omitted or "any": every workflow)."""
+
     type: Literal["on_error"]
     automation: str | None = None
 
 
 class IncomingWebhookTrigger(_DefnBase):
+    """Runs when an incoming webhook is called: `webhook` is its slug (omitted or "any": any). The body is `event.payload.*`."""
+
     type: Literal["incoming_webhook"]
     webhook: str | None = None  # target incoming-webhook slug; None/"any" = any webhook
 
 
 class McpTrigger(_DefnBase):
+    """Runs when an MCP host calls the workflow's own tool, `marvin_wf_<slug>`."""
+
     type: Literal["mcp"]
 
 
@@ -93,6 +108,8 @@ Trigger = Annotated[
 
 # ── Actions (discriminated on `kind`) — one model per registered executor ──────
 class OperationAction(_DefnBase):
+    """Runs an AI operation (`op`: its slug) on the entry; `write_back` saves the result onto it."""
+
     kind: Literal["operation"]
     op: str  # AI operation slug
     input: dict[str, Any] = Field(default_factory=dict)
@@ -104,6 +121,9 @@ class OperationAction(_DefnBase):
 
 
 class EntryAction(_DefnBase):
+    """Changes an entry without AI: a status op, collection membership, a metadata/data write or a review
+    request. `trash` / `restore` also take `entity_type` asset | resource."""
+
     kind: Literal["entry"]
     op: Literal[
         "publish",
@@ -131,6 +151,8 @@ class EntryAction(_DefnBase):
 
 
 class EmitEventAction(_DefnBase):
+    """Sends a Marvin event (`event`: an emittable event name) for other workflows and subscribers."""
+
     kind: Literal["emit_event"]
     event: str  # internal event name to re-emit
     entity_id: str | None = None
@@ -138,6 +160,8 @@ class EmitEventAction(_DefnBase):
 
 
 class HandlerAction(_DefnBase):
+    """Runs an allowlisted internal job (`task`), e.g. request_site_rebuild."""
+
     kind: Literal["handler"]
     task: str  # allowlisted scheduled-task handler
     config: dict[str, Any] = Field(default_factory=dict)
@@ -145,6 +169,8 @@ class HandlerAction(_DefnBase):
 
 
 class WebhookAction(_DefnBase):
+    """Calls one of the workspace's outgoing webhooks (`webhook_id`), or a raw `url`, with a JSON `body`."""
+
     kind: Literal["webhook"]
     webhook_id: str | None = None  # a configured workspace webhook…
     url: str | None = None  # …or (advanced) a raw url
@@ -156,6 +182,8 @@ class WebhookAction(_DefnBase):
 
 
 class IntegrationAction(_DefnBase):
+    """Runs a connected integration's action (`integration`: its slug, `action`: the action key) with `args`."""
+
     kind: Literal["integration"]
     integration: str  # the workspace integration's slug
     action: str  # the provider action key
@@ -180,6 +208,8 @@ Action = Annotated[
 
 # ── Conditions (recursive: a leaf {field, op, value} OR a group {all|any|not}) ─
 class Condition(_DefnBase):
+    """A leaf `{field, op, value}`, or a group `{all: [...]}` / `{any: [...]}` / `{not: {...}}`."""
+
     # Leaf:
     field: str | None = None
     op: str | None = None
@@ -192,6 +222,8 @@ class Condition(_DefnBase):
 
 # ── Target selector (the "FROM" clause) ───────────────────────────────────────
 class Target(_DefnBase):
+    """Run on a query of entries instead of the trigger's one entry: each match runs the steps as `entry`."""
+
     entity: str = "entry"
     query: dict[str, Any] = Field(default_factory=dict)
 
