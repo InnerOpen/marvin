@@ -40,10 +40,16 @@ try {
         aria-label="Back to the default tone" title="Back to the default tone">×</button>
     </div>
     <div id="marvin-log" class="marvin-log"></div>
+    <div id="marvin-attachments" class="marvin-attachments" hidden></div>
+    <p id="marvin-offline" class="marvin-offline" hidden>You're offline — your draft is kept for when you're back.</p>
     <form id="marvin-form" class="marvin-form">
-      <input id="marvin-input" class="marvin-input" type="text" autocomplete="off"
-        placeholder="Ask Marvin…  (try /help)" />
-      <button type="submit" class="marvin-send" aria-label="Send">➤</button>
+      <input id="marvin-file" type="file" multiple hidden />
+      <button id="marvin-attach" class="marvin-tool" type="button" aria-label="Attach files"
+        title="Attach files — or paste or drop them here" hidden>📎</button>
+      <textarea id="marvin-input" class="marvin-input" rows="1" autocomplete="off"
+        placeholder="Ask Marvin…  (try /help)"></textarea>
+      <button id="marvin-mic" class="marvin-tool" type="button" aria-label="Dictate" title="Dictate" hidden>🎙</button>
+      <button id="marvin-send" type="submit" class="marvin-send" aria-label="Send">➤</button>
     </form>
   </div>
 </div>
@@ -60,6 +66,11 @@ try {
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
   import { forgetConversation, loadPending, rememberThread, scoped, setStorageScope, threadFor } from '@/lib/marvin/pending';
   import { type BubbleSpot, clampSpot, DEFAULT_SPOT, parseSpot, spotFromRect } from '@/lib/marvin/position';
+  import { ATTACH_ACCEPT, ATTACHMENTS_KEY, attachmentIcon, forgetAttachments, loadAttachments, MAX_ATTACHMENTS, roomFor, saveAttachments, withAttachment, withoutAttachment } from '@/lib/marvin/attachments';
+  import { createDictation, speechRecognition } from '@/lib/marvin/dictation';
+  import { getContentAccess } from '@/lib/api/workspaces';
+  import { createSdkClient } from '@/lib/sdk';
+  import { assetName, assetSlug } from '@/lib/share';
 
   const root = document.getElementById('marvin-root');
   setStorageScope(root?.dataset.workspace);
@@ -84,9 +95,15 @@ try {
     const panel = document.getElementById('marvin-panel')!;
     const log = document.getElementById('marvin-log')!;
     const form = document.getElementById('marvin-form') as HTMLFormElement;
-    const input = document.getElementById('marvin-input') as HTMLInputElement;
+    const input = document.getElementById('marvin-input') as HTMLTextAreaElement;
     const sub = document.getElementById('marvin-sub')!;
     const clear = document.getElementById('marvin-clear')!;
+    const sendBtn = document.getElementById('marvin-send') as HTMLButtonElement;
+    const attachBtn = document.getElementById('marvin-attach') as HTMLButtonElement;
+    const micBtn = document.getElementById('marvin-mic') as HTMLButtonElement;
+    const fileInput = document.getElementById('marvin-file') as HTMLInputElement;
+    const chips = document.getElementById('marvin-attachments')!;
+    const offlineNote = document.getElementById('marvin-offline')!;
     let greeted = false;
     let busy = false;
     // Bumped by "Clear": a reply that resolves after it belongs to the conversation that was cleared.
@@ -274,6 +291,8 @@ try {
       // "Clear" must also drop the model's memory, not just the visible log: the next message opens
       // a new thread, and nothing waits on the old one any more.
       forgetConversation();
+      forgetAttachments(sessionStorage, ATTACH_KEY);
+      renderAttachments();
       finish('rest');
       try { sessionStorage.removeItem(MEM_KEY); } catch { /* ignore */ }
       log.innerHTML = '';
@@ -378,6 +397,7 @@ try {
         addMsg('marvin', esc(pick(voice.greetings)), false); // flavor line, not part of the saved transcript
       }
       cue('open');
+      void checkUploadAccess();
       // A restored conversation was appended while the panel was display:none, where scrolling is
       // a no-op — so land on the latest turn now that it has a height.
       log.scrollTop = log.scrollHeight;
@@ -484,6 +504,142 @@ try {
       form.requestSubmit();
     });
 
+    // ── The input: a textarea that grows with its text; Enter sends, Shift+Enter starts a new line ──
+    const INPUT_MAX_PX = 120;
+    function autosize() {
+      input.style.height = 'auto';
+      const borders = input.offsetHeight - input.clientHeight; // height is border-box; scrollHeight isn't
+      input.style.height = `${Math.min(input.scrollHeight + borders, INPUT_MAX_PX)}px`;
+    }
+    input.addEventListener('input', autosize);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+    });
+
+    // ── Attachments (@/lib/marvin/attachments): 📎, paste or drop files. Each is uploaded as an asset and rides
+    // every agent run of the conversation until removed or cleared. Uploading takes AUTHOR, so the controls
+    // appear once the caller's role is known to allow it (read when the panel first opens).
+    const ATTACH_KEY = scoped(ATTACHMENTS_KEY);
+    fileInput.accept = ATTACH_ACCEPT;
+    let canAttach = false;
+    let uploadAccessRead = false;
+    let uploading = 0;
+    const attached = () => loadAttachments(sessionStorage, ATTACH_KEY, getActiveAgent());
+
+    function renderAttachments() {
+      const list = attached();
+      const rows = list.map((a) =>
+        `<span class="mv-file" title="${esc(a.name)}">${attachmentIcon(a.mimeType)} <span class="mv-file-name">${esc(a.name)}</span>` +
+        `<button type="button" class="mv-file-x" data-remove="${esc(a.id)}" aria-label="Remove ${esc(a.name)}">×</button></span>`);
+      if (uploading) rows.push(`<span class="mv-file uploading">Uploading ${uploading === 1 ? 'a file' : `${uploading} files`}…</span>`);
+      chips.innerHTML = rows.join('');
+      chips.toggleAttribute('hidden', rows.length === 0);
+      attachBtn.disabled = !navigator.onLine || roomFor(list) - uploading <= 0;
+    }
+
+    async function checkUploadAccess() {
+      if (uploadAccessRead) return;
+      uploadAccessRead = true;
+      canAttach = (await getContentAccess()).canAuthor;
+      attachBtn.hidden = !canAttach;
+    }
+
+    async function attachFiles(files: File[]) {
+      if (!canAttach || !files.length) return;
+      if (!navigator.onLine) { addMsg('marvin', esc("You're offline — attach it when you're back."), false); return; }
+      const agent = getActiveAgent();
+      const room = roomFor(attached()) - uploading;
+      if (files.length > room) addMsg('marvin', esc(`${MAX_ATTACHMENTS} files at most per conversation — remove one to attach another.`), false);
+      const batch = files.slice(0, Math.max(0, room));
+      uploading += batch.length;
+      renderAttachments();
+      await Promise.all(batch.map(async (file) => {
+        try {
+          const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+          const asset: any = await createSdkClient().assets.upload(file, {
+            slug: `ask-${assetSlug(file.name, suffix)}`,
+            name: assetName(file.name),
+            metadata: { attachedVia: 'bubble' },
+          });
+          const item = { id: String(asset.id), name: file.name || asset.name, mimeType: asset.mimeType || file.type || '' };
+          saveAttachments(sessionStorage, ATTACH_KEY, agent, withAttachment(loadAttachments(sessionStorage, ATTACH_KEY, agent), item));
+        } catch (err: any) {
+          const denied = err?.statusCode === 403 || /\b403\b|forbidden|role or higher/i.test(String(err?.message));
+          addMsg('marvin', esc(denied ? "You can't upload files in this workspace — that takes the Author role or higher."
+            : `Couldn't attach ${file.name}: ${err?.message || 'the upload failed'}`), false);
+        } finally {
+          uploading -= 1;
+          renderAttachments();
+        }
+      }));
+    }
+
+    chips.addEventListener('click', (e) => {
+      const id = (e.target as HTMLElement).closest<HTMLElement>('[data-remove]')?.dataset.remove;
+      if (!id) return;
+      saveAttachments(sessionStorage, ATTACH_KEY, getActiveAgent(), withoutAttachment(attached(), id));
+      renderAttachments();
+    });
+    attachBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      void attachFiles([...(fileInput.files ?? [])]);
+      fileInput.value = '';
+    });
+    input.addEventListener('paste', (e) => {
+      const files = [...(e.clipboardData?.files ?? [])];
+      if (!canAttach || !files.length) return; // plain text pastes as usual
+      e.preventDefault();
+      void attachFiles(files);
+    });
+    const carriesFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+    panel.addEventListener('dragover', (e) => {
+      if (!canAttach || !carriesFiles(e)) return;
+      e.preventDefault();
+      panel.classList.add('dropping');
+    });
+    panel.addEventListener('dragleave', (e) => {
+      if (!panel.contains(e.relatedTarget as Node | null)) panel.classList.remove('dropping');
+    });
+    panel.addEventListener('drop', (e) => {
+      panel.classList.remove('dropping');
+      if (!canAttach || !carriesFiles(e)) return;
+      e.preventDefault();
+      void attachFiles([...(e.dataTransfer?.files ?? [])]);
+    });
+    renderAttachments();
+
+    // ── Dictation (@/lib/marvin/dictation): the browser's speech recognition types into the input and never
+    // sends on its own. No button where the browser has none (Firefox).
+    const Recognition = speechRecognition(window);
+    const dictation = Recognition ? createDictation(Recognition, {
+      lang: navigator.language,
+      read: () => input.value,
+      write: (text) => { input.value = text; autosize(); },
+      onState: (listening) => {
+        micBtn.textContent = listening ? '■' : '🎙';
+        micBtn.classList.toggle('listening', listening);
+        micBtn.title = listening ? 'Stop dictating' : 'Dictate';
+        micBtn.setAttribute('aria-label', micBtn.title);
+        if (!listening) input.focus();
+      },
+      onError: (message) => addMsg('marvin', esc(message), false),
+    }) : null;
+    micBtn.hidden = !dictation;
+    micBtn.addEventListener('click', () => dictation?.toggle());
+
+    // ── Offline: nothing can be sent (the agent runs on the server), but the draft and the chips stay ──
+    function renderOnline() {
+      const online = navigator.onLine;
+      offlineNote.toggleAttribute('hidden', online);
+      sendBtn.disabled = !online;
+      micBtn.disabled = !online; // Chrome's recognition is a network service too
+      if (!online) dictation?.stop();
+      renderAttachments();
+    }
+    window.addEventListener('online', renderOnline);
+    window.addEventListener('offline', renderOnline);
+    renderOnline();
+
     // ── Ask first: the inline approval card ──
     // A parked run's reply is a card (@/lib/approvals). Deciding re-renders its turn as decided, then
     // resumes the run from the bubble — the reply is the answer, or another card if it asks again.
@@ -568,11 +724,13 @@ try {
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const text = input.value.trim();
-      if (!text || busy) return;
-      addMsg('user', esc(text));
-      input.value = '';
-
+      if (!text || busy || !navigator.onLine) return;
+      dictation?.stop();
       const { cap, arg, help } = resolveCapability(text);
+      addMsg('user', esc(text) + (cap?.id === 'agent' ? newlyAttachedHtml() : ''));
+      input.value = '';
+      autosize();
+
       if (help) { addMsg('marvin', helpHtml()); return; }
       if (!cap) {
         addMsg('marvin', "I don't know that command. Try <code>/help</code> — not that it'll lift the mood.");
@@ -594,9 +752,19 @@ try {
         if (gen === generation) { commitReply(thinking, errorHtml(err)); finish('error'); }
       } finally {
         if (gen === generation) busy = false;
+        renderAttachments(); // after `/use`, the chips are the new agent's
         log.scrollTop = log.scrollHeight;
       }
     });
+
+    /** The user's turn names the files that ride a run for the first time; the chips show what is still attached. */
+    function newlyAttachedHtml(): string {
+      const list = attached();
+      const fresh = list.filter((a) => !a.sent);
+      if (!fresh.length) return '';
+      saveAttachments(sessionStorage, ATTACH_KEY, getActiveAgent(), list.map((a) => ({ ...a, sent: true })));
+      return `<div class="mv-attach">📎 ${fresh.map((a) => esc(a.name)).join(', ')}</div>`;
+    }
   }
 </script>
 
@@ -679,18 +847,50 @@ try {
 
   .marvin-log { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 
-  .marvin-form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid var(--line); background: var(--bg); }
+  .marvin-panel.dropping { outline: 2px dashed var(--accent); outline-offset: -6px; }
+
+  /* Attached files: chips above the input, built in JS (so :global inside). */
+  .marvin-attachments {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    padding: 8px 12px 0; border-top: 1px solid var(--line); background: var(--bg);
+  }
+  .marvin-attachments[hidden] { display: none; }
+  .marvin-attachments :global(.mv-file) {
+    display: inline-flex; align-items: center; gap: 4px; max-width: 100%;
+    font-size: 12px; padding: 2px 4px 2px 8px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--ink);
+  }
+  .marvin-attachments :global(.mv-file.uploading) { color: var(--muted); font-style: italic; padding-right: 8px; }
+  .marvin-attachments :global(.mv-file-name) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+  .marvin-attachments :global(.mv-file-x) {
+    background: none; border: none; cursor: pointer; font-size: 14px; line-height: 1; color: var(--muted); padding: 0 2px;
+  }
+  .marvin-attachments :global(.mv-file-x:hover) { color: var(--ink); }
+  .marvin-offline {
+    margin: 0; padding: 6px 14px; font-size: 11px; color: var(--muted);
+    border-top: 1px solid var(--line); background: var(--bg);
+  }
+
+  .marvin-form { display: flex; align-items: flex-end; gap: 6px; padding: 12px; border-top: 1px solid var(--line); background: var(--bg); }
+  .marvin-attachments:not([hidden]) + .marvin-offline[hidden] + .marvin-form { border-top: none; }
   .marvin-input {
-    flex: 1; padding: 9px 12px; font-size: 14px;
-    border: 1px solid var(--line); border-radius: 999px;
+    flex: 1; min-width: 0; padding: 9px 12px; font: inherit; font-size: 14px; line-height: 20px;
+    border: 1px solid var(--line); border-radius: 19px; resize: none; max-height: 120px; box-sizing: border-box;
     background: var(--panel); color: var(--ink);
   }
   .marvin-input:focus { border-color: var(--accent); outline: none; }
+  .marvin-tool {
+    width: 32px; height: 38px; flex: none; border: none; background: none; cursor: pointer;
+    font-size: 16px; line-height: 1; color: var(--muted); border-radius: 50%;
+  }
+  .marvin-tool:hover:not(:disabled) { color: var(--ink); background: var(--panel); }
+  .marvin-tool.listening { color: var(--color-error); }
   .marvin-send {
-    width: 38px; border: none; border-radius: 50%;
+    width: 38px; height: 38px; flex: none; border: none; border-radius: 50%;
     background: var(--accent); color: #fff; cursor: pointer; font-size: 14px;
   }
-  .marvin-send:hover { filter: brightness(1.05); }
+  .marvin-send:hover:not(:disabled) { filter: brightness(1.05); }
+  .marvin-tool:disabled, .marvin-send:disabled { opacity: 0.4; cursor: default; }
 
   /* Messages are built in JS, so their styles must be :global() to apply. */
   .marvin-log :global(.mv-msg) {
@@ -776,6 +976,7 @@ try {
   .marvin-log :global(.mv-approval-open) { font-size: 12px; color: var(--accent); text-decoration: none; }
   .marvin-log :global(.mv-approval.resolved) { opacity: 0.7; }
   .marvin-log :global(.mv-approval-done) { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .marvin-log :global(.mv-attach) { margin-top: 4px; font-size: 12px; opacity: 0.85; }
   .marvin-log :global(.mv-thinking) { color: var(--muted); font-style: italic; }
   .marvin-log :global(.mv-error) { color: var(--color-error); }
 </style>

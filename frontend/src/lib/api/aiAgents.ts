@@ -191,6 +191,8 @@ export interface ThreadMessage {
     abandoned?: boolean;
     expired?: boolean;
     no_longer_permitted?: boolean;
+    /** On a user turn: the files attached to the question (id, name, mimeType). */
+    attachments?: { id: string; name: string; mimeType: string }[];
   } | null;
   executionId?: string | null;
   createdAt?: string | null;
@@ -314,6 +316,8 @@ export function runAgent(
     register?: Register;
     entityType?: string;
     entityId?: string;
+    /** Asset ids of the files attached to the conversation (@/lib/marvin/attachments). */
+    attachments?: string[];
   } = {},
   authToken?: string,
 ): Promise<AgentRunResult> {
@@ -324,6 +328,7 @@ export function runAgent(
       source: "ask_page",
       ...(opts.register ? { register: opts.register } : {}),
       ...(opts.entityType && opts.entityId ? { entityType: opts.entityType, entityId: opts.entityId } : {}),
+      ...(opts.attachments?.length ? { attachments: opts.attachments } : {}),
       ...(opts.threadId ? { threadId: opts.threadId } : {}),
       ...(opts.clientRunId ? { clientRunId: opts.clientRunId } : {}),
       ...(opts.history?.length && !opts.threadId ? { history: opts.history } : {}),

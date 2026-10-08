@@ -23,11 +23,13 @@ export async function askWorkspace(question: string) {
 /**
  * Where a bubble agent run lives: its server thread (`threadId`, or NEW_THREAD to open one — the
  * server replays the thread as the agent's memory) and the run id the client minted to follow it
- * (see @/lib/marvin/pending).
+ * (see @/lib/marvin/pending), and the files attached to it.
  */
 export interface BubbleRunRef {
   threadId: string;
   clientRunId: string;
+  /** Asset ids of the files attached to the conversation (@/lib/marvin/attachments); omitted when none. */
+  attachments?: string[];
 }
 
 /**

@@ -24,6 +24,7 @@ import { askWorkspace, listAgents, runAgent, runAgentAs, sendChat } from "@/lib/
 import { getTones } from "@/lib/api/aiTones";
 import { listAgentTools } from "@/lib/api/aiTools";
 import { type ApprovalCard, approvalCardHtml, type Decisions } from "@/lib/approvals";
+import { ATTACHMENTS_KEY, attachmentIds, loadAttachments } from "@/lib/marvin/attachments";
 import { getActiveContext } from "@/lib/marvin/context";
 import {
   askThreadHref,
@@ -211,7 +212,12 @@ async function runBubbleAgent(
   };
   savePending(run);
   const stopLearning = learnWhileInFlight(run, pendingDeps(run));
-  const ref = { threadId: run.threadId ?? NEW_THREAD, clientRunId: run.clientRunId };
+  const attachments = attachmentIds(loadAttachments(sessionStorage, scoped(ATTACHMENTS_KEY), slug));
+  const ref = {
+    threadId: run.threadId ?? NEW_THREAD,
+    clientRunId: run.clientRunId,
+    ...(attachments.length ? { attachments } : {}),
+  };
   let res: any;
   try {
     // Ground the run in whatever the current page declared (see @/lib/marvin/context), so

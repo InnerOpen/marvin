@@ -122,15 +122,12 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
 
       <!-- Composer -->
       <div class="composer">
-        <div id="attachment" class="attachment" hidden>
-          <span id="attachment-name"></span>
-          <button id="attachment-remove" class="link-btn" type="button" title="Remove attachment">×</button>
-        </div>
+        <div id="attachments" class="attachments" hidden></div>
         <textarea id="question" class="question-input" rows="3" placeholder="Ask a question, or give the agent a goal…"></textarea>
         <div class="composer-actions">
           <div class="composer-left">
-            <input id="file" type="file" hidden />
-            <button id="attach-btn" class="button secondary small" type="button" title="Attach a file (uploaded as an asset the agent can see)">📎 Attach</button>
+            <input id="file" type="file" multiple hidden />
+            <button id="attach-btn" class="button secondary small" type="button" title="Attach files (uploaded as assets the agent can open)">📎 Attach</button>
             <button id="mic-btn" class="button secondary small" type="button" title="Dictate (browser speech recognition)" hidden>🎙 Speak</button>
             <span id="status" class="status"></span>
           </div>
@@ -182,6 +179,19 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   import { renderMarkdown } from "@/lib/marvin/capabilities";
   import { MAIN_AGENT } from "@/lib/marvin/cast";
   import { createSdkClient } from "@/lib/sdk";
+  import { assetName, assetSlug } from "@/lib/share";
+  import {
+    ATTACH_ACCEPT,
+    type Attachment,
+    attachmentIcon,
+    attachmentIds,
+    MAX_ATTACHMENTS,
+    roomFor,
+    turnAttachments,
+    withAttachment,
+    withoutAttachment,
+  } from "@/lib/marvin/attachments";
+  import { createDictation, speechRecognition } from "@/lib/marvin/dictation";
 
   const root = document.querySelector<HTMLElement>(".chat");
   if (root) {
@@ -204,9 +214,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     const statusEl = $<HTMLElement>("status")!;
     const fileInput = $<HTMLInputElement>("file")!;
     const attachBtn = $<HTMLButtonElement>("attach-btn")!;
-    const attachmentEl = $<HTMLElement>("attachment")!;
-    const attachmentName = $<HTMLElement>("attachment-name")!;
-    const attachmentRemove = $<HTMLButtonElement>("attachment-remove")!;
+    const attachmentsEl = $<HTMLElement>("attachments")!;
     const micBtn = $<HTMLButtonElement>("mic-btn")!;
     const reindexBtn = $<HTMLButtonElement>("reindex-btn");
     const reindexStatus = $<HTMLElement>("reindex-status");
@@ -222,7 +230,8 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
     // The conversation lives server-side: `threadId` is the thread this transcript continues (null =
     // the next send opens a new one). Reloading the page loses the view, not the thread.
     let threadId: string | null = null;
-    let attachment: { id: string; name: string; shown?: boolean } | null = null;
+    // Files attached to this conversation (@/lib/marvin/attachments): sent with every run until removed.
+    let attachments: Attachment[] = [];
     const AGENT_KEY = "ask.agent";
     try {
       const saved = sessionStorage.getItem(AGENT_KEY);
@@ -400,7 +409,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       threadId = null;
       transcript.querySelectorAll(".turn").forEach((t) => t.remove());
       emptyNote.hidden = false;
-      clearAttachment();
+      clearAttachments();
       setStatus("");
       threadsPanel.querySelectorAll(".th-row.active").forEach((r) => r.classList.remove("active"));
     }
@@ -479,9 +488,14 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
         }
         threadId = null;
         transcript.querySelectorAll(".turn").forEach((el) => el.remove());
-        clearAttachment();
+        clearAttachments();
         for (const m of t.messages) {
-          if (m.role === "user") addTurn("user", esc(m.content));
+          if (m.role === "user") {
+            const files = turnAttachments(m.metaJson);
+            addTurn("user", esc(m.content) + attachedHtml(files));
+            // The conversation goes on with the files its last question carried.
+            attachments = files.map((f) => ({ ...f, sent: true }));
+          }
           else if (m.metaJson?.abandoned || m.metaJson?.expired || m.metaJson?.no_longer_permitted)
             // A paused run that was never decided: a short notice, not an answer.
             addTurn("assistant", esc(m.content)).classList.add("notice");
@@ -584,68 +598,88 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       if (!threadsPanel.hidden) void loadThreads();
     });
 
-    // ── Attachments: upload as an asset, then run with it as context ──
-    function clearAttachment() {
-      attachment = null;
-      attachmentEl.hidden = true;
+    // ── Attachments: each file is uploaded as an asset and sent with every run of the conversation ──
+    fileInput.accept = ATTACH_ACCEPT;
+    let uploading = 0;
+    function renderAttachments() {
+      const rows = attachments.map(
+        (a) =>
+          `<span class="attachment" title="${esc(a.name)}">${attachmentIcon(a.mimeType)} ${esc(a.name)}` +
+          `<button class="link-btn" type="button" data-remove="${esc(a.id)}" aria-label="Remove ${esc(a.name)}">×</button></span>`,
+      );
+      attachmentsEl.innerHTML = rows.join("");
+      attachmentsEl.hidden = rows.length === 0;
+      attachBtn.disabled = roomFor(attachments) - uploading <= 0;
+    }
+    function clearAttachments() {
+      attachments = [];
+      renderAttachments();
       fileInput.value = "";
     }
+    /** Names the files a turn carries for the first time (a thread's stored turns: the files it carried). */
+    function attachedHtml(files: Attachment[]): string {
+      return files.length ? `<div class="turn-attach">📎 ${files.map((f) => esc(f.name)).join(", ")}</div>` : "";
+    }
+    attachmentsEl.addEventListener("click", (e) => {
+      const id = (e.target as HTMLElement).closest<HTMLElement>("[data-remove]")?.dataset.remove;
+      if (!id) return;
+      attachments = withoutAttachment(attachments, id);
+      renderAttachments();
+    });
     attachBtn.addEventListener("click", () => fileInput.click());
-    attachmentRemove.addEventListener("click", clearAttachment);
     fileInput.addEventListener("change", async () => {
-      const file = fileInput.files?.[0];
-      if (!file) return;
-      setStatus(`Uploading ${file.name}…`);
-      attachBtn.disabled = true;
-      try {
-        const base = file.name.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "attachment";
-        const asset: any = await createSdkClient().assets.upload(file, { slug: `ask-${base}-${Date.now().toString(36)}`, name: file.name });
-        attachment = { id: String(asset.id), name: asset.name ?? file.name };
-        attachmentName.textContent = `Attached for this conversation: ${attachment.name}`;
-        attachmentEl.hidden = false;
-        setStatus("Attached — the agent will see this asset.", "success");
-      } catch (e) {
-        setStatus(`Couldn't upload: ${e instanceof Error ? e.message : e}`, "error");
-      } finally {
-        attachBtn.disabled = false;
-      }
+      const files = [...(fileInput.files ?? [])];
+      fileInput.value = "";
+      const room = roomFor(attachments) - uploading;
+      if (files.length > room) setStatus(`${MAX_ATTACHMENTS} files at most per conversation.`, "error");
+      const batch = files.slice(0, Math.max(0, room));
+      if (!batch.length) return;
+      uploading += batch.length;
+      renderAttachments();
+      setStatus(batch.length === 1 ? `Uploading ${batch[0].name}…` : `Uploading ${batch.length} files…`);
+      const failed: string[] = [];
+      await Promise.all(
+        batch.map(async (file) => {
+          try {
+            const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+            const asset: any = await createSdkClient().assets.upload(file, {
+              slug: `ask-${assetSlug(file.name, suffix)}`,
+              name: assetName(file.name),
+              metadata: { attachedVia: "ask_page" },
+            });
+            attachments = withAttachment(attachments, {
+              id: String(asset.id),
+              name: file.name || asset.name,
+              mimeType: asset.mimeType || file.type || "",
+            });
+          } catch (e) {
+            failed.push(`${file.name}: ${e instanceof Error ? e.message : e}`);
+          } finally {
+            uploading -= 1;
+            renderAttachments();
+          }
+        }),
+      );
+      if (failed.length) setStatus(`Couldn't upload ${failed.join("; ")}`, "error");
+      else setStatus("Attached — the agent can open these for the rest of the conversation.", "success");
     });
 
-    // ── Voice input (browser speech recognition; Chrome/Edge, partial Safari) ──
-    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (SR) {
+    // ── Voice input (@/lib/marvin/dictation; Chrome/Edge/Safari, none on Firefox) ──
+    const Recognition = speechRecognition(window);
+    if (Recognition) {
       micBtn.hidden = false;
-      let rec: any = null;
-      let listening = false;
-      micBtn.addEventListener("click", () => {
-        if (listening) {
-          rec?.stop();
-          return;
-        }
-        rec = new SR();
-        rec.lang = navigator.language || "en-US";
-        rec.interimResults = true;
-        rec.continuous = false;
-        const base = questionEl.value ? questionEl.value.replace(/\s*$/, " ") : "";
-        rec.onresult = (ev: any) => {
-          let text = "";
-          for (let i = 0; i < ev.results.length; i++) text += ev.results[i][0].transcript;
-          questionEl.value = base + text;
-        };
-        rec.onstart = () => {
-          listening = true;
-          micBtn.textContent = "■ Stop";
-          setStatus("Listening…");
-        };
-        rec.onend = () => {
-          listening = false;
-          micBtn.textContent = "🎙 Speak";
-          setStatus("");
-          questionEl.focus();
-        };
-        rec.onerror = (ev: any) => setStatus(`Speech: ${ev.error}`, "error");
-        rec.start();
+      const dictation = createDictation(Recognition, {
+        lang: navigator.language,
+        read: () => questionEl.value,
+        write: (text) => (questionEl.value = text),
+        onState: (listening) => {
+          micBtn.textContent = listening ? "■ Stop" : "🎙 Speak";
+          setStatus(listening ? "Listening…" : "");
+          if (!listening) questionEl.focus();
+        },
+        onError: (message) => setStatus(message, "error"),
       });
+      micBtn.addEventListener("click", () => dictation.toggle());
     }
 
     // ── Live steps: a placeholder bubble that fills in while the run is in flight ──
@@ -797,7 +831,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
         assistantMeta(res.sources, (res.steps ?? []).map((s) => s.tool), res.totalTokens, res.handoffs, res.referrals),
       );
       if (opts.refreshThreads && !threadsPanel.hidden) void loadThreads();
-      setStatus(attachment ? "Attachment stays with this conversation; remove it with ×." : "");
+      setStatus(attachments.length ? "Attachments stay with this conversation; remove one with ×." : "");
     }
     async function resumeRun(card: HTMLElement, decisions: Record<string, "approve" | "deny">) {
       const tid = card.dataset.threadId || threadId;
@@ -841,9 +875,8 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
       setStatus("Thinking…");
       // A new message on a parked thread denies its pending calls server-side; grey the card now.
       transcript.querySelectorAll<HTMLElement>(".turn.approval:not(.resolved)").forEach((card) => setCardResolved(card, true));
-      const firstUse = attachment && !attachment.shown;
-      if (attachment) attachment.shown = true;
-      addTurn("user", esc(message) + (firstUse ? `<div class="turn-attach">📎 ${esc(attachment.name)}</div>` : ""));
+      addTurn("user", esc(message) + attachedHtml(attachments.filter((a) => !a.sent)));
+      attachments = attachments.map((a) => ({ ...a, sent: true }));
       questionEl.value = "";
       const register = registerSel.value || undefined;
       const wasNew = !threadId;
@@ -855,7 +888,7 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
           threadId: threadId ?? NEW_THREAD,
           ...(runId ? { clientRunId: runId } : {}),
           register,
-          ...(attachment ? { entityType: "asset", entityId: attachment.id } : {}),
+          attachments: attachmentIds(attachments),
         });
         stopWatching();
         handleRunResult(res, placeholder, { refreshThreads: wasNew });
@@ -1047,10 +1080,11 @@ const askTones = pickerTones(tones.tones).concat(tones.tones.filter((t) => t.hid
   .transcript :global(.turn-body p:last-child) { margin-bottom: 0; }
 
   .composer { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
-  .attachment { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 4px 10px; border: 1px dashed var(--line); border-radius: 999px; margin-bottom: 8px; }
+  .attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .attachments :global(.attachment) { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); padding: 4px 10px; border: 1px dashed var(--line); border-radius: 999px; }
   /* A class that sets `display` beats the `hidden` attribute's UA style; without these the empty
-     attachment chip, the empty suggestions row and an unsupported mic button all show. */
-  .attachment[hidden], .suggestions[hidden], .button[hidden] { display: none; }
+     attachment row, the empty suggestions row and an unsupported mic button all show. */
+  .attachments[hidden], .suggestions[hidden], .button[hidden] { display: none; }
   .link-btn { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 16px; line-height: 1; padding: 0 2px; }
   .question-input { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); font-size: 15px; font-family: inherit; line-height: 1.5; resize: vertical; background: var(--bg); color: var(--ink); box-sizing: border-box; }
   .question-input:focus { border-color: var(--accent); outline: none; }

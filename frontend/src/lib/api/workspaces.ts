@@ -54,8 +54,11 @@ export interface ContentAccess {
 /** Everything allowed: what a page assumes when the role can't be read, leaving the API to decide. */
 export const FULL_CONTENT_ACCESS: ContentAccess = { canManage: true, canEdit: true, canAuthor: true, canEditEntry: () => true };
 
-/** The caller's content access in the active workspace; FULL_CONTENT_ACCESS if it can't be read. */
-export async function getContentAccess(authToken: string): Promise<ContentAccess> {
+/**
+ * The caller's content access in the active workspace; FULL_CONTENT_ACCESS if it can't be read.
+ * Without a token (in the browser) it reads with the session cookie.
+ */
+export async function getContentAccess(authToken?: string): Promise<ContentAccess> {
   try {
     const sdk = createSdkClient(authToken);
     const [memberships, user] = await Promise.all([sdk.workspaces.list(), sdk.user.getProfile()]);
