@@ -159,7 +159,7 @@ const sortedGroups = [...collectionGroups.values()].sort(
         </div>
       )}
 
-      {entries.length === 0 ? (
+      {entries.length === 0 && trashedEntries.length === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">📝</div>
           <h3>No entries yet</h3>
@@ -178,6 +178,13 @@ const sortedGroups = [...collectionGroups.values()].sort(
               Collections
             </button>
           </div>
+
+          {entries.length === 0 && trashCollection && (
+            <p class="all-trashed-note" id="all-trashed-note">
+              No entries outside the Trash. <a href={`/workspace/collections/${trashCollection.id}`}>Open the Trash</a> to restore
+              them, or pick “In the Trash” in Statuses.
+            </p>
+          )}
 
           {/* Flat grid view */}
           <section class="grid view-section" id="grid-view" aria-label="Entries">
@@ -399,6 +406,11 @@ const sortedGroups = [...collectionGroups.values()].sort(
   .error-banner p {
     margin: 0;
     color: var(--color-error);
+  }
+
+  .all-trashed-note {
+    margin: 0 0 1rem;
+    color: var(--muted);
   }
 
   .empty-state {
