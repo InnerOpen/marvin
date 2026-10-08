@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.210 (2026-10-08)
+
+### Features
+
+- **ai**: Production uses the marvin-ai-openai plugin for OpenAI and Azure
+  ([`175dbfb`](https://github.com/InnerOpen/marvin/commit/175dbfbbbf97adfbf9da8109fb707f912e37b3cc))
+
+
 ## v1.0.0-rc.209 (2026-10-08)
 
 ### Bug Fixes
