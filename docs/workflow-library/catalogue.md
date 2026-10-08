@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-104 recipes: **21** verified-current, **11** supported-after-configuration, **16** needs-adapter, **56** needs-engine-capability.
+107 recipes: **24** verified-current, **11** supported-after-configuration, **16** needs-adapter, **56** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -42,6 +42,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [summarise-and-feature-on-publish](../../src/marvin/services/automation/recipes/summarise-and-feature-on-publish.json) — Summarise a published entry and add it to a collection | verified-current | `entry_published` | AI enabled with the `automation` source allowed | content mutation, paid call ⚠ |
 | [hourly-site-rebuild](../../src/marvin/services/automation/recipes/hourly-site-rebuild.json) — Every hour, rebuild the site | verified-current | `schedule` | a deploy target (an event-driven outgoing webhook or integration subscription on webhook_triggered) for the rebuild to reach anything | external post ⚠ |
 | [archive-entry-from-webhook](../../src/marvin/services/automation/recipes/archive-entry-from-webhook.json) — A webhook call finds an entry by slug and archives it | verified-current | `incoming_webhook` | incoming webhook | content mutation |
+| [trash-unattached-images](../../src/marvin/services/automation/recipes/trash-unattached-images.json) — Trash every unattached image | verified-current | `manual` | — | content mutation |
+| [restore-trashed-resources](../../src/marvin/services/automation/recipes/restore-trashed-resources.json) — Restore all resources in the Trash | verified-current | `manual` | — | content mutation |
+| [asset-upload-announcement](../../src/marvin/services/automation/recipes/asset-upload-announcement.json) — Post new uploads to a chat channel | verified-current | `asset_uploaded` | outgoing webhook | external post |
 
 ## Waiting on a capability or an adapter
 
@@ -515,6 +518,16 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [archive-entry-from-webhook](../../src/marvin/services/automation/recipes/archive-entry-from-webhook.json) — **A webhook call finds an entry by slug and archives it** · verified-current · `incoming_webhook`  
   An external system POSTs `{"slug": …}` to an incoming webhook URL; the named entry is archived, or sent to review with the error when it can't be.
   - `webhook: any` matches every incoming webhook of the workspace; name one slug to scope it.
+- [trash-unattached-images](../../src/marvin/services/automation/recipes/trash-unattached-images.json) — **Trash every unattached image** · verified-current · `manual`  
+  A manual run moves every image that no entry uses into the Trash, where it can be restored until the Trash is emptied.
+  - A bare `trash` step acts on the current item: its entity_type follows the target.
+  - Dry-run it first: POST /api/automations/{id}/run?dry_run=true lists the assets it would touch.
+- [restore-trashed-resources](../../src/marvin/services/automation/recipes/restore-trashed-resources.json) — **Restore all resources in the Trash** · verified-current · `manual`  
+  A manual run takes every trashed resource back out of the Trash.
+  - `trashed: true` is the only way a target reaches the Trash; every other query leaves trashed rows out.
+- [asset-upload-announcement](../../src/marvin/services/automation/recipes/asset-upload-announcement.json) — **Post new uploads to a chat channel** · verified-current · `asset_uploaded`  
+  Every upload is announced in a chat channel with its type, name, MIME type and public URL.
+  - `${asset.url}` is the public URL when the storage provider serves one, otherwise empty.
 
 ## Capability gaps
 

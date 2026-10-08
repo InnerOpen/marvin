@@ -213,12 +213,14 @@ def webhook(db, gid, name, events, mode=WebhookMode.event_driven, enabled=True):
     )
 
 
-def workflow(db, gid, name, trigger=None, actions=(), enabled=True, source=None, on_failure=None):
+def workflow(db, gid, name, trigger=None, actions=(), enabled=True, source=None, on_failure=None, target=None):
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
 
     definition = {"actions": list(actions)}
     if trigger is not None:
         definition["trigger"] = trigger
+    if target is not None:
+        definition["target"] = target
     if on_failure is not None:
         definition["on_failure"] = on_failure
     return _add(
@@ -605,6 +607,20 @@ def test_entry_and_on_failure_steps_send_their_events(db_session, world):
     row = next(s for s in connections.senders(db_session, world.a, "entry_updated") if s.kind == "workflow")
     assert row.detail == "Entry step: publish; Entry step: request review"
     assert _names([s for s in connections.senders(db_session, world.a, "entry_added_to_collection") if s.kind == "workflow"]) == ["Publish it"]
+
+
+def test_a_bare_item_op_sends_the_event_of_its_subject(db_session, world):
+    """A `trash` step with no entity_type acts on the current item, so the hub follows the target or the trigger."""
+    trash = {"kind": "entry", "op": "trash"}
+    workflow(db_session, world.a, "Bin suppliers", {"type": "manual"}, actions=[trash], target={"entity": "resource", "query": {}})
+    workflow(db_session, world.a, "Bin uploads", {"type": "event", "event": "asset_uploaded"}, actions=[trash])
+
+    def senders(event_type):
+        return _names([s for s in connections.senders(db_session, world.a, event_type) if s.kind == "workflow"])
+
+    assert senders("resource_trashed") == ["Bin suppliers"]
+    assert senders("asset_trashed") == ["Bin uploads"]
+    assert senders("entry_trashed") == []
 
 
 def test_incoming_webhooks_that_start_a_sending_workflow_send_it(db_session, world):

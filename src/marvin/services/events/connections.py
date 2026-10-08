@@ -451,7 +451,7 @@ def _data_senders(session: Session, group_id) -> dict[str, list[EventSender]]:
         )
 
     for workflow in workflows:
-        sends = workflow_sends(workflow.body)
+        sends = workflow_sends(workflow.definition)  # the trigger too: an asset_*/resource_* event decides a bare item op
         if not sends:
             continue
         # The incoming webhooks that start it (one hop): its slug, or any of them when it names none.

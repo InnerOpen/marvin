@@ -53,7 +53,7 @@ Trashing or restoring an asset or resource that a site shows (attached to a publ
 
 ## How to use
 
-**Clear out a batch with a workflow.** Make a workflow with **Run on a query of entries** (for example entry type `signup`, status `inbox`) and one **Entry action** step with **Move to Trash** (`op: "trash"`). Run it, check the Trash, then **Empty trash**. Entries already in the Trash are left out of the query, so running it again does nothing to them.
+**Clear out a batch with a workflow.** Make a workflow with **Run on a query** of **Entries** (for example entry type `signup`, status `inbox`) and one **Entry action** step with **Move to Trash** (`op: "trash"`). Run it, check the Trash, then **Empty trash**. Entries already in the Trash are left out of the query, so running it again does nothing to them.
 
 **Restore with a workflow.** The **Restore** op on a trashed entry returns it to the status it had (a published one as a draft); target trashed entries with status **in the Trash** (`status: "trashed"`).
 

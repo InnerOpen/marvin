@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 21,
+    "verified-current": 24,
     "needs-engine-capability": 56,
     "needs-adapter": 16,
     "supported-after-configuration": 11
@@ -8287,6 +8287,216 @@
         "level": "fixture-executed",
         "mocked": [],
         "test": "tests/test_workflow_library.py::TestExecution::test_archive_entry_from_webhook"
+      },
+      "brief": null
+    },
+    {
+      "id": "trash-unattached-images",
+      "title": "Trash every unattached image",
+      "outcome": "A manual run moves every image that no entry uses into the Trash, where it can be restored until the Trash is emptied.",
+      "category": "Starter examples",
+      "category_slug": "examples",
+      "tags": [
+        "manual",
+        "target",
+        "asset",
+        "trash",
+        "example"
+      ],
+      "target_entity": "asset",
+      "trigger": {
+        "type": "manual",
+        "event": null,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "trash-unattached-images.json",
+      "vars": "trash-unattached-images.vars.json",
+      "setup_variables": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "entry"
+        ],
+        "entry_ops": [
+          "trash"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Trashes each matched asset (emits asset_trashed per row); the file stays in storage until the Trash is emptied."
+        }
+      ],
+      "cost_notes": "None (no AI).",
+      "failure_behaviour": "Capped at 250 assets per run (the preview shows the true count); assets already in the Trash are never selected, so a second run does nothing.",
+      "dependencies": [],
+      "notes": [
+        "A bare `trash` step acts on the current item: its entity_type follows the target.",
+        "Dry-run it first: POST /api/automations/{id}/run?dry_run=true lists the assets it would touch."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [],
+        "test": "tests/test_workflow_library.py::TestExecution::test_trash_unattached_images"
+      },
+      "brief": null
+    },
+    {
+      "id": "restore-trashed-resources",
+      "title": "Restore all resources in the Trash",
+      "outcome": "A manual run takes every trashed resource back out of the Trash.",
+      "category": "Starter examples",
+      "category_slug": "examples",
+      "tags": [
+        "manual",
+        "target",
+        "resource",
+        "restore",
+        "example"
+      ],
+      "target_entity": "resource",
+      "trigger": {
+        "type": "manual",
+        "event": null,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "restore-trashed-resources.json",
+      "vars": "restore-trashed-resources.vars.json",
+      "setup_variables": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "entry"
+        ],
+        "entry_ops": [
+          "restore"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Restores each trashed resource (emits resource_restored per row; a site rebuild is queued when a visible item comes back and a deploy target exists)."
+        }
+      ],
+      "cost_notes": "None (no AI).",
+      "failure_behaviour": "Capped at 250 resources per run; only rows still in the Trash are selected, so it is safe to run again.",
+      "dependencies": [],
+      "notes": [
+        "`trashed: true` is the only way a target reaches the Trash; every other query leaves trashed rows out."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [],
+        "test": "tests/test_workflow_library.py::TestExecution::test_restore_trashed_resources"
+      },
+      "brief": null
+    },
+    {
+      "id": "asset-upload-announcement",
+      "title": "Post new uploads to a chat channel",
+      "outcome": "Every upload is announced in a chat channel with its type, name, MIME type and public URL.",
+      "category": "Starter examples",
+      "category_slug": "examples",
+      "tags": [
+        "asset_uploaded",
+        "asset",
+        "webhook",
+        "chat",
+        "example"
+      ],
+      "target_entity": "asset",
+      "trigger": {
+        "type": "event",
+        "event": "asset_uploaded",
+        "custom_event": false,
+        "builtin_event": true
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "asset-upload-announcement.json",
+      "vars": "asset-upload-announcement.vars.json",
+      "setup_variables": [
+        {
+          "name": "upload_webhook_id",
+          "type": "webhook_id",
+          "description": "Id of the outgoing webhook (Settings → Webhooks, type `workflow`) whose URL is your chat channel's incoming webhook (Slack, Discord, Mattermost…). Its own `custom_payload`, when set, replaces the body above.",
+          "example": "<uuid of the outgoing webhook>"
+        }
+      ],
+      "requires": {
+        "trigger": "event",
+        "action_kinds": [
+          "webhook"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [
+        {
+          "kind": "outgoing_webhook",
+          "required": true,
+          "name": "Uploads channel",
+          "purpose": "The chat channel's incoming-webhook URL.",
+          "referenced_by": "actions[0].webhook_id",
+          "create": "POST /api/groups/webhooks",
+          "configuration": {
+            "enabled": true,
+            "name": "Uploads channel",
+            "url": "{{upload_channel_url}}",
+            "method": "POST",
+            "webhook_type": "workflow"
+          },
+          "notes": "The channel URL lives in the webhook row, not in the workflow: it works like a password. `webhook_type: workflow` means it fires only from a workflow step.",
+          "setup_variables": [
+            {
+              "name": "upload_channel_url",
+              "type": "url",
+              "description": "The chat channel's incoming-webhook URL."
+            }
+          ]
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "external_post",
+          "description": "POSTs `{\"text\": …}` to the configured outgoing webhook once per upload (one attempt, 15 s timeout, no retry)."
+        }
+      ],
+      "cost_notes": "None (no AI).",
+      "failure_behaviour": "A non-2xx answer fails the step and the run is recorded failed; the upload itself is unaffected.",
+      "dependencies": [],
+      "notes": [
+        "`${asset.url}` is the public URL when the storage provider serves one, otherwise empty."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "webhook:httpx"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_asset_upload_announcement"
       },
       "brief": null
     }

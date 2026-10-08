@@ -236,7 +236,7 @@ def _events(detail: bool) -> dict:
     }
 
 
-def _target() -> dict:
+def _target(detail: bool) -> dict:
     from marvin.schemas.platform.entries import ENTRY_STATUSES
     from marvin.services.entries.query import SPEC_KEY_NOTES
     from marvin.services.item_query import KEY_NOTES
@@ -248,8 +248,17 @@ def _target() -> dict:
         "query": SPEC_KEY_NOTES,
         "statuses": sorted(ENTRY_STATUSES),
         "example": {"entity": "entry", "query": {"entry_type": "recipe", "status": "published"}},
-        "asset": {"query": KEY_NOTES["asset"], "example": {"entity": "asset", "query": {"asset_type": "image", "unattached": True}}},
-        "resource": {"query": KEY_NOTES["resource"], "example": {"entity": "resource", "query": {"resource_type": "supplier", "tags": ["wool"]}}},
+        **(
+            {
+                "asset": {"query": KEY_NOTES["asset"], "example": {"entity": "asset", "query": {"asset_type": "image", "unattached": True}}},
+                "resource": {
+                    "query": KEY_NOTES["resource"],
+                    "example": {"entity": "resource", "query": {"resource_type": "supplier", "tags": ["wool"]}},
+                },
+            }
+            if detail  # the overview stays bounded; section="target" has every entity's keys
+            else {"items": "section=target lists the asset and resource query keys, with an example of each"}
+        ),
         "limit": f"at most {MAX_TARGET_ENTITIES} matches per run",
         "note": (
             "A query is a flat object of that entity's keys (`query` above is the entry's; no `where` operators on assets or resources, "
@@ -278,7 +287,7 @@ def _conditions(detail: bool) -> dict:
 def _actions(detail: bool) -> dict:
     from marvin.schemas.group.automation_definition import ACTION_MODELS
 
-    from .actions.entry import ENTRY_OPS, ITEM_OP_SENDS, OP_SENDS, REVIEW_STATUS
+    from .actions.entry import ENTRY_OPS, OP_SENDS, REVIEW_STATUS
     from .engine import MAX_ACTIONS
 
     kinds = {kind: {"description": _doc(model), **_fields(model, skip=("kind",))} for kind, model in ACTION_MODELS.items()}
@@ -292,25 +301,34 @@ def _actions(detail: bool) -> dict:
         "`unpublish` and `restore` set status draft (there is no op to set any other status); add/remove_from_collection "
         "need collection_slug; set_metadata needs `metadata`, set_data needs `data` (the type's fields); request_review takes `reason`."
     )
-    items = sorted({op for _kind, op in ITEM_OP_SENDS})
     return {
         "kinds": kinds,
         "entry_ops": entry_ops,
         "entry_ops_note": entry_ops_note,
-        "asset_resource_ops": {
-            "ops": items,
-            "acts_on": (
-                "the current item: each match of an asset/resource target, or the triggering asset/resource (asset_* / resource_* events) "
-                "— entity_type may then be left out; or one named by entity_slug / entity_id (with entity_type asset | resource)"
-            ),
-            "sends": {f"{kind} {op}": list(sends) for (kind, op), sends in ITEM_OP_SENDS.items()},
-            "note": (
-                "entity_query finds entries only. Every other entry op acts on entries; an operation step on an asset/resource "
-                "needs an AI operation that supports it."
-            ),
-        },
+        "asset_resource_ops": _item_ops(detail),
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}.",
+    }
+
+
+def _item_ops(detail: bool) -> dict | str:
+    """What entry steps can do to assets and resources: one line in the overview, the full rules in section="actions"."""
+    from .actions.entry import ITEM_OP_SENDS
+
+    items = sorted({op for _kind, op in ITEM_OP_SENDS})
+    if not detail:
+        return f"{' | '.join(items)} act on the current asset/resource; entity_query finds entries only. section=actions has the rules."
+    return {
+        "ops": items,
+        "acts_on": (
+            "the current item: each match of an asset/resource target, or the triggering asset/resource (asset_* / resource_* events) "
+            "— entity_type may then be left out; or one named by entity_slug / entity_id (with entity_type asset | resource)"
+        ),
+        "sends": {f"{kind} {op}": list(sends) for (kind, op), sends in ITEM_OP_SENDS.items()},
+        "note": (
+            "entity_query finds entries only. Every other entry op acts on entries; an operation step on an asset/resource "
+            "needs an AI operation that supports it."
+        ),
     }
 
 
@@ -375,47 +393,6 @@ def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
     first = recipes.example(offered[0]) if offered else None
     return {"note": _EXAMPLES_NOTE, "available": [r["id"] for r in offered], **({first["recipe"]: first} if first else {})}
 
-# Asset and resource examples, kept apart as {id, title, definition, vars} so they move into the Workflow Library's
-# recipe files (docs/workflow-library) in one step; `vars` names what a workspace would swap in.
-ITEM_EXAMPLES: list[dict] = [
-    {
-        "id": "trash-unattached-images",
-        "title": "Trash every unattached image",
-        "definition": {
-            "trigger": {"type": "manual"},
-            "target": {"entity": "asset", "query": {"asset_type": "image", "unattached": True}},
-            "actions": [{"kind": "entry", "op": "trash"}],
-        },
-        "vars": {},
-    },
-    {
-        "id": "restore-trashed-resources",
-        "title": "Restore all resources in the Trash",
-        "definition": {
-            "trigger": {"type": "manual"},
-            "target": {"entity": "resource", "query": {"trashed": True}},
-            "actions": [{"kind": "entry", "op": "restore"}],
-        },
-        "vars": {},
-    },
-    {
-        "id": "asset-uploaded-to-slack",
-        "title": "On asset_uploaded, post to Slack",
-        "definition": {
-            "trigger": {"type": "event", "event": "asset_uploaded"},
-            "actions": [
-                {
-                    "kind": "webhook",
-                    "url": "https://hooks.slack.com/services/T000/B000/XXXX",
-                    "body": {"text": "New ${asset.asset_type} uploaded: ${asset.name} (${asset.mime_type}) ${asset.url}"},
-                }
-            ],
-        },
-        "vars": {"url": "the Slack incoming webhook URL"},
-    },
-]
-EXAMPLES.update({e["title"]: e["definition"] for e in ITEM_EXAMPLES})
-
 
 _EXAMPLES_NOTE = (
     "Library recipes this workspace can run. `{{name}}` is a setup placeholder (its type and meaning in setup_variables): "
@@ -439,7 +416,7 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
     if "events" in want:
         out["events"] = _events(detail)
     if "target" in want:
-        out["target"] = _target()
+        out["target"] = _target(detail)
     if "conditions" in want:
         out["conditions"] = _conditions(detail)
     if "actions" in want:

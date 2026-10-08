@@ -1,0 +1,20 @@
+{
+  "name": "Restore all resources in the Trash",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "resource",
+      "query": {
+        "trashed": true
+      }
+    },
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "restore"
+      }
+    ]
+  }
+}

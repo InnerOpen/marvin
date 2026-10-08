@@ -34,6 +34,7 @@ from marvin.services.automation.context import event_context  # noqa: E402
 from marvin.services.automation.engine import run_automation_now, run_automations_for_event  # noqa: E402
 from marvin.services.automation.library import RecipeConfigError, configure, placeholders, unresolved  # noqa: E402
 from marvin.services.automation.recorder import ExecutionRecorder  # noqa: E402
+from tests.test_workflow_item_targets import _asset, _resource  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 LIBRARY = ROOT / "docs" / "workflow-library"
@@ -254,6 +255,7 @@ def ws(db_session, monkeypatch):
         ("search-index", "https://search.example/reindex"),
         ("handoff", "https://client.example/intake"),
         ("forum", "https://forum.example/posts.json"),
+        ("uploads", "https://chat.example/hooks/uploads"),
     ):
         row = GroupWebhooksModel(
             session=db_session, group_id=gid, name=name, url=url, method=Method.POST, enabled=True, webhook_type=WebhookMode.workflow
@@ -288,6 +290,7 @@ def ws(db_session, monkeypatch):
         "collection_slug": "featured",
         "interval_seconds": 3600,
         "incoming_webhook": "any",
+        "upload_webhook_id": webhooks["uploads"],
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -368,6 +371,15 @@ def _fire(ws, event_type: str, document: dict, *, entity=None, entity_type: str 
 
 def _entry_doc(entry, **extra) -> dict:
     return {"entry_id": str(entry.id), "entry_title": entry.title, "entry_type": None, "workspace_id": None, **extra}
+
+
+def _dispatched(monkeypatch):
+    """Record the events the engine's item ops send instead of putting them on the bus: [(event_type, entity_id)]."""
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+    seen: list[tuple[str, str]] = []
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: seen.append((kw["event_type"].name, str(kw["entity_id"]))))
+    return seen
 
 
 def _runs(ws, slug: str):
@@ -700,6 +712,67 @@ class TestExecution:
         (run,) = _runs(ws, "unpublish-entries-with-images")
         assert (run.targets_matched, run.targets_run, run.status) == (1, 1, "success")
         ws.session.query(EntryAssets).filter(EntryAssets.entry_id.in_([pictured.id, draft.id])).delete(synchronize_session=False)
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    def test_trash_unattached_images(self, ws, monkeypatch):
+        from marvin.db.models.platform import Assets, EntryAssets
+
+        sent = _dispatched(monkeypatch)
+        row = _install(ws, "trash-unattached-images")
+        loose = _asset(ws, "loose")
+        used = _asset(ws, "used")
+        svg = _asset(ws, "logo", asset_type="svg", mime="image/svg+xml")
+        binned = _asset(ws, "binned", trashed=True)
+        page = _entry(ws, "article", "Page", data={"body": "x"})
+        ws.session.add(EntryAssets(entry_id=page.id, asset_id=used.id, position=0))
+        ws.session.commit()
+
+        result = run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))
+
+        assert (result["ok"], result["ran"]) == (True, 1)
+        trashed = {a.name for a in ws.session.query(Assets).filter(Assets.group_id == ws.gid, Assets.trashed_at.isnot(None))}
+        assert trashed == {"loose", "binned"}  # the used image and the svg stay
+        assert ("asset_trashed", str(loose.id)) in sent and ("asset_trashed", str(binned.id)) not in sent
+        assert run_automation_now(ws.session, ws.gid, row)["ran"] == 0  # nothing unattached is left outside the Trash
+        del svg
+        ws.session.query(EntryAssets).filter(EntryAssets.entry_id == page.id).delete(synchronize_session=False)
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    def test_restore_trashed_resources(self, ws, monkeypatch):
+        from marvin.db.models.platform import Resources
+
+        sent = _dispatched(monkeypatch)
+        row = _install(ws, "restore-trashed-resources")
+        gone = _resource(ws, "gone", trashed=True)
+        kept = _resource(ws, "kept")
+        ws.session.commit()
+
+        result = run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))
+
+        assert (result["ok"], result["ran"]) == (True, 1)
+        ws.session.expire_all()
+        assert gone.trashed_at is None and kept.trashed_at is None
+        assert [e for e in sent if e[0].startswith("resource_")] == [("resource_restored", str(gone.id))]
+        ws.session.query(Resources).filter(Resources.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    def test_asset_upload_announcement(self, ws, monkeypatch):
+        from marvin.db.models.platform import Assets
+
+        calls = _http(monkeypatch)
+        _install(ws, "asset-upload-announcement")
+        photo = _asset(ws, "harbour", mime="image/jpeg")
+        ws.session.commit()
+        monkeypatch.setattr("marvin.services.storage.provider_factory.asset_public_url", lambda a: f"https://cdn.example/{a.slug}")
+
+        _fire(ws, "asset_uploaded", {"asset_id": str(photo.id)}, entity=photo.id, entity_type="asset")
+
+        [(method, url, body)] = calls
+        assert (method, url) == ("POST", "https://chat.example/hooks/uploads")
+        assert body == {"text": f"New image uploaded: harbour (image/jpeg) https://cdn.example/{photo.slug}"}
+        assert [r.status for r in _runs(ws, "asset-upload-announcement")] == ["success"]
         ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
         ws.session.commit()
 

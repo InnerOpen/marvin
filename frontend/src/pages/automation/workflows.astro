@@ -112,11 +112,18 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         </div>
 
         <div class="form-field target-block">
-          <label class="check"><input type="checkbox" id="wf-target-on" /> Run on a query of entries <span class="muted">(instead of the triggering entry) — runs the steps on each match</span></label>
+          <label class="check"><input type="checkbox" id="wf-target-on" /> Run on a query <span class="muted">(instead of the triggering item) — runs the steps on each match</span></label>
           <div id="wf-target-body" hidden>
             <div class="target-grid">
-              <label class="tf"><span>Entry type</span><input class="input" id="wf-t-type" placeholder="any — e.g. recipe" /></label>
-              <label class="tf"><span>Status</span>
+              <label class="tf"><span>Of</span>
+                <select class="input" id="wf-t-entity">
+                  <option value="entry">Entries</option>
+                  <option value="asset">Assets</option>
+                  <option value="resource">Resources</option>
+                </select>
+              </label>
+              <label class="tf" data-for="entry"><span>Entry type</span><input class="input" id="wf-t-type" placeholder="any — e.g. recipe" /></label>
+              <label class="tf" data-for="entry"><span>Status</span>
                 <select class="input" id="wf-t-status">
                   <option value="">any</option>
                   <option value="draft">draft</option>
@@ -126,19 +133,38 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
                   <option value="trashed">in the Trash</option>
                 </select>
               </label>
-              <label class="tf"><span>Title contains</span><input class="input" id="wf-t-text" placeholder="any" /></label>
+              <label class="tf" data-for="asset"><span>Asset type</span>
+                <select class="input" id="wf-t-asset-type">
+                  <option value="">any</option>
+                  {["image", "svg", "document", "video", "audio", "archive", "other"].map((type) => <option value={type}>{type}</option>)}
+                </select>
+              </label>
+              <label class="tf" data-for="asset"><span>MIME type</span><input class="input" id="wf-t-mime" placeholder="any — e.g. image/svg+xml" /></label>
+              <label class="tf" data-for="resource"><span>Resource type</span><input class="input" id="wf-t-resource-type" placeholder="any — e.g. supplier" /></label>
+              <label class="tf"><span id="wf-t-text-label">Title contains</span><input class="input" id="wf-t-text" placeholder="any" /></label>
               <label class="tf"><span>In collection</span><input class="input" id="wf-t-collection" placeholder="any — slug or name" /></label>
+              <label class="tf" data-for="asset resource"><span>Tagged</span><input class="input" id="wf-t-tags" placeholder="any — tags, comma-separated" /></label>
+              <label class="tf" data-for="asset resource"><span>Used by an entry</span>
+                <select class="input" id="wf-t-unattached">
+                  <option value="">either</option>
+                  <option value="true">no — unattached</option>
+                  <option value="false">yes — attached</option>
+                </select>
+              </label>
             </div>
-            <div class="target-checks">
+            <div class="target-checks" data-for="asset resource">
+              <label class="check small"><input type="checkbox" id="wf-t-trashed" /> in the Trash <span class="muted">(only Trash items — a Restore target)</span></label>
+            </div>
+            <div class="target-checks" data-for="entry">
               <label class="check small"><input type="checkbox" id="wf-t-images" /> has images</label>
               <label class="check small"><input type="checkbox" id="wf-t-assets" /> has assets</label>
               <label class="check small"><input type="checkbox" id="wf-t-resources" /> has resources</label>
             </div>
-            <div class="tf target-meta">
+            <div class="tf target-meta" data-for="entry">
               <span>Metadata equals <span class="muted">(key = value; values may be templates like <code>{"${event.payload.id}"}</code>)</span></span>
               <div id="wf-t-meta"></div>
             </div>
-            <div class="tf target-meta">
+            <div class="tf target-meta" data-for="entry">
               <span>Fields equal <span class="muted">(a field key of the entry type and the value it must equal — narrows the query before the 250-entry cap)</span></span>
               <div id="wf-t-data"></div>
             </div>
@@ -361,7 +387,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const DATA_OPS = new Set(["set_data"]);
   const REVIEW_OPS = new Set(["request_review"]);
   const TARGET_MODE_HINTS: Record<string, string> = {
-    default: "Acts on the triggering entry (or each entry a Run-on target matches).",
+    default: "Acts on the triggering item (or each item a Run-on target matches).",
     slug: "Point at one entry by slug — a literal or a template such as <code>$event.payload.entry_slug</code>.",
     query: "Find exactly one entry at run time. Same keys as Run-on: <code>entry_type</code>, <code>status</code>, <code>text</code>, <code>collection</code>, <code>metadata</code> — values may be <code>${event…}</code> / <code>${steps.&lt;id&gt;.output…}</code> templates.",
   };
@@ -594,9 +620,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       const modeOpt = (v: string, label: string) => `<option value="${v}" ${targetMode === v ? "selected" : ""}>${label}</option>`;
       wrap.innerHTML = `
         <select class="input a-op">${opList}</select>
-        <label class="a-entity-type-wrap tf" ${ITEM_OPS.has(a.op) ? "" : "hidden"}><span>Acts on <span class="muted">(an asset or resource: target it by slug, or the triggering one)</span></span>
+        <label class="a-entity-type-wrap tf" ${ITEM_OPS.has(a.op) ? "" : "hidden"}><span>Acts on <span class="muted">(name an entry, asset or resource by slug, or leave it to the current item)</span></span>
           <select class="input a-entity-type">
-            ${["entry", "asset", "resource"].map((t) => `<option value="${t}" ${(a.entity_type ?? "entry") === t ? "selected" : ""}>${t[0].toUpperCase()}${t.slice(1)}</option>`).join("")}
+            ${[["", "The current item (Run-on match or trigger)"], ["entry", "Entry"], ["asset", "Asset"], ["resource", "Resource"]]
+              .map(([v, label]) => `<option value="${v}" ${(a.entity_type ?? "") === v ? "selected" : ""}>${label}</option>`).join("")}
           </select></label>
         <div class="a-meta-wrap tf" ${METADATA_OPS.has(a.op) ? "" : "hidden"}><span>Metadata to set <span class="muted">(merged into the entry's metadata)</span></span></div>
         <div class="a-data-wrap tf" ${DATA_OPS.has(a.op) ? "" : "hidden"}><span>Fields to set <span class="muted">(field keys of the entry type and their new values — validated; checkbox and number values may be typed as text)</span></span></div>
@@ -711,8 +738,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         setOrDrop("entity_slug", mode === "slug" ? field(".a-entity-slug")?.value.trim() : null);
         setOrDrop("entity_query", mode === "query" ? parseJsonObject(field(".a-entity-query")?.value, `Step ${i + 1} target query`) : null);
         setOrDrop("if_none", mode === "query" && (field(".a-if-none-skip") as HTMLInputElement | null)?.checked ? "skip" : null);
-        const entityType = ITEM_OPS.has(op) ? field(".a-entity-type")?.value : "entry";
-        setOrDrop("entity_type", entityType && entityType !== "entry" ? entityType : null);
+        // Blank = the current item: the engine takes the kind from the Run-on target or the triggering event.
+        setOrDrop("entity_type", ITEM_OPS.has(op) ? field(".a-entity-type")?.value || null : null);
         setOrDrop("collection_slug", COLLECTION_OPS.has(op) ? field(".a-collection")?.value.trim() : null);
         setOrDrop("reason", REVIEW_OPS.has(op) ? field(".a-reason")?.value.trim() : null);
         const metadata = readKv(r.querySelector(".a-meta-wrap"));
@@ -778,15 +805,32 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   // The optional "Run on" selector (FROM clause). Returns {} or { target: {...} }.
   function readTarget() {
     if (!($("wf-target-on") as HTMLInputElement).checked) return {};
-    // Overlay onto the loaded query so keys this form doesn't know survive; `query` is the legacy
-    // alias for `text` and is folded into it.
-    const query: any = { ...(originalTarget?.query ?? {}) };
+    const entity = targetEntity();
+    // Overlay onto the loaded query (same entity only) so keys this form doesn't know survive; `query`
+    // is the legacy alias for `text` and is folded into it.
+    const query: any = { ...((originalTarget?.entity ?? "entry") === entity ? originalTarget?.query ?? {} : {}) };
     delete query.query;
-    const setOrDrop = (key: string, value: unknown) => { if (value) query[key] = value; else delete query[key]; };
-    setOrDrop("entry_type", ($("wf-t-type") as HTMLInputElement).value.trim());
-    setOrDrop("status", ($("wf-t-status") as HTMLSelectElement).value);
+    const setOrDrop = (key: string, value: unknown) => {
+      if (value || value === false) query[key] = value; else delete query[key];
+    };
     setOrDrop("text", ($("wf-t-text") as HTMLInputElement).value.trim());
     setOrDrop("collection", ($("wf-t-collection") as HTMLInputElement).value.trim());
+    if (entity !== "entry") {
+      const tags = ($("wf-t-tags") as HTMLInputElement).value.split(",").map((s) => s.trim()).filter(Boolean);
+      setOrDrop("tags", tags.length ? tags : null);
+      const unattached = ($("wf-t-unattached") as HTMLSelectElement).value;
+      setOrDrop("unattached", unattached ? unattached === "true" : null);
+      setOrDrop("trashed", ($("wf-t-trashed") as HTMLInputElement).checked);
+      if (entity === "asset") {
+        setOrDrop("asset_type", ($("wf-t-asset-type") as HTMLSelectElement).value);
+        setOrDrop("mime_type", ($("wf-t-mime") as HTMLInputElement).value.trim());
+      } else {
+        setOrDrop("resource_type", ($("wf-t-resource-type") as HTMLInputElement).value.trim());
+      }
+      return { target: { entity, query } };
+    }
+    setOrDrop("entry_type", ($("wf-t-type") as HTMLInputElement).value.trim());
+    setOrDrop("status", ($("wf-t-status") as HTMLSelectElement).value);
     setOrDrop("has_images", ($("wf-t-images") as HTMLInputElement).checked);
     setOrDrop("has_assets", ($("wf-t-assets") as HTMLInputElement).checked);
     setOrDrop("has_resources", ($("wf-t-resources") as HTMLInputElement).checked);
@@ -797,9 +841,19 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     return { target: { entity: "entry", query } };
   }
 
+  function targetEntity(): string {
+    return ($("wf-t-entity") as HTMLSelectElement).value || "entry";
+  }
+
   function syncTargetBody() {
     const on = ($("wf-target-on") as HTMLInputElement).checked;
     $("wf-target-body").toggleAttribute("hidden", !on);
+    // Show only the filters of the chosen entity (data-for lists the entities a filter applies to).
+    const entity = targetEntity();
+    $("wf-target-body").querySelectorAll<HTMLElement>("[data-for]").forEach((el) => {
+      el.toggleAttribute("hidden", !(el.dataset.for ?? "").split(" ").includes(entity));
+    });
+    $("wf-t-text-label").textContent = entity === "entry" ? "Title contains" : "Name contains";
   }
 
   // Dry-run the target selector: show which entries it would act on, without running anything.
@@ -813,11 +867,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       if (res.error) { status.textContent = `Query error: ${res.error}`; status.className = "hint error"; return; }
       const total = res.total ?? 0;
       const matches = res.matches ?? [];
-      const noun = (n: number) => `${n} ${n === 1 ? "entry" : "entries"}`;
+      const plural: Record<string, string> = { entry: "entries", asset: "assets", resource: "resources" };
+      const entity = targetEntity();
+      const noun = (n: number) => `${n} ${n === 1 ? entity : plural[entity] ?? `${entity}s`}`;
       status.textContent = "";
       const cappedNote = res.capped ? ` <span class="muted">(capped — only the first are shown/run)</span>` : "";
       const chips = matches.length
-        ? matches.map((m: any) => `<span class="chip">${esc(m.title || m.slug || m.id)}</span>`).join("")
+        ? matches.map((m: any) => `<span class="chip">${esc(m.title || m.name || m.slug || m.id)}</span>`).join("")
         : `<span class="muted">Nothing passes the conditions.</span>`;
       result.innerHTML =
         `<div class="preview-head">Query matches <strong>${noun(total)}</strong>${cappedNote}. `
@@ -871,6 +927,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const tq = tgt?.query ?? {};
     originalTarget = tgt ?? null;
     ($("wf-target-on") as HTMLInputElement).checked = !!tgt;
+    ($("wf-t-entity") as HTMLSelectElement).value = tgt?.entity ?? "entry";
+    ($("wf-t-asset-type") as HTMLSelectElement).value = typeof tq.asset_type === "string" ? tq.asset_type : "";
+    ($("wf-t-mime") as HTMLInputElement).value = tq.mime_type ?? "";
+    ($("wf-t-resource-type") as HTMLInputElement).value = tq.resource_type ?? "";
+    ($("wf-t-tags") as HTMLInputElement).value = Array.isArray(tq.tags) ? tq.tags.join(", ") : tq.tags ?? "";
+    ($("wf-t-unattached") as HTMLSelectElement).value = typeof tq.unattached === "boolean" ? String(tq.unattached) : "";
+    ($("wf-t-trashed") as HTMLInputElement).checked = !!tq.trashed;
     ($("wf-t-type") as HTMLInputElement).value = tq.entry_type ?? "";
     ($("wf-t-status") as HTMLSelectElement).value = tq.status ?? "";
     ($("wf-t-text") as HTMLInputElement).value = tq.text ?? tq.query ?? "";
@@ -1048,7 +1111,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const q = t?.query || {};
     const parts: string[] = [];
     if (q.entry_type) parts.push(q.entry_type);
+    if (q.asset_type) parts.push(String(q.asset_type));
+    if (q.mime_type) parts.push(q.mime_type);
+    if (q.resource_type) parts.push(q.resource_type);
     if (q.status) parts.push(q.status);
+    if (q.trashed) parts.push("in the Trash");
+    if (q.unattached === true) parts.push("unattached");
+    else if (q.unattached === false) parts.push("attached");
+    if (Array.isArray(q.tags) && q.tags.length) parts.push(`tagged ${q.tags.join(", ")}`);
     if (q.collection) parts.push(`in ${q.collection}`);
     if (q.text) parts.push(`titled “${q.text}”`);
     if (q.has_images) parts.push("with images");
@@ -1057,8 +1127,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     if (q.metadata && typeof q.metadata === "object") {
       parts.push(...Object.entries(q.metadata).map(([k, v]) => `${k} = ${typeof v === "string" ? v : JSON.stringify(v)}`));
     }
-    const noun = `${t?.entity || "entry"}${parts.length ? "" : " (all)"}`;
-    return `${noun}${parts.length ? " " + parts.join(", ") : "s"}`;
+    const plural: Record<string, string> = { entry: "entries", asset: "assets", resource: "resources" };
+    const entity = t?.entity || "entry";
+    return parts.length ? `${entity} ${parts.join(", ")}` : `${plural[entity] ?? `${entity}s`} (all)`;
   }
 
   // ── Run history ─────────────────────────────────────────────────────────────
@@ -1324,6 +1395,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   $("wf-add-condition").addEventListener("click", () => { $("wf-conditions").appendChild(conditionRow()); revalidate(); });
   $("wf-add-action").addEventListener("click", () => { $("wf-actions").appendChild(actionRow()); revalidate(); });
   $("wf-target-on").addEventListener("change", () => { syncTargetBody(); revalidate(); });
+  $("wf-t-entity").addEventListener("change", () => { syncTargetBody(); revalidate(); });
   $("wf-preview-btn").addEventListener("click", runPreview);
   // Any edit inside the builder re-runs the advisory coherence check (debounced).
   builder.addEventListener("input", revalidate);

@@ -119,7 +119,7 @@ def test_page_refs_accept_paths_urls_and_anchors():
 
 
 def test_search_bulk_update_finds_run_on_a_query_of_entries(manual):
-    assert _top(manual, "bulk update", 1) == [("whats-new/workflows.md", "Run on a query of entries")]
+    assert _top(manual, "bulk update", 1) == [("whats-new/workflows.md", "Run on a query")]
 
 
 def test_search_toast_finds_activity_toasts(manual):
@@ -134,7 +134,7 @@ def test_search_results_carry_snippet_anchor_and_published_url(manual):
     hit = manual.search("bulk update", 1, base_url=BASE)[0]
     assert hit["page"] == "whats-new/workflows.md" and hit["anchor"] == "run-on-a-query-of-entries"
     assert hit["url"] == BASE + "whats-new/workflows/#run-on-a-query-of-entries"
-    assert hit["headingPath"] == ["Workflows", "What it does", "Run on a query of entries"]
+    assert hit["headingPath"] == ["Workflows", "What it does", "Run on a query"]
     assert "bulk update" in hit["snippet"] and len(hit["snippet"].split()) <= docs_service.SNIPPET_WORDS + 2
 
 
@@ -154,13 +154,13 @@ def test_search_limit_is_clamped(manual):
 
 def test_read_page_returns_a_section_by_anchor_with_its_subsections(manual):
     got = manual.read_page("whats-new/workflows.md", "run-on-a-query-of-entries", base_url=BASE)
-    assert got["heading"] == "Run on a query of entries"
-    assert got["markdown"].startswith("### Run on a query of entries")
+    assert got["heading"] == "Run on a query"
+    assert got["markdown"].startswith("### Run on a query")
     assert "### Step kinds" not in got["markdown"]  # stops at the next sibling heading
     assert got["url"] == BASE + "whats-new/workflows/#run-on-a-query-of-entries"
 
     parent = manual.read_page("whats-new/workflows.md", "What it does", base_url=BASE)  # by heading text
-    assert "### Run on a query of entries" in parent["markdown"] and "## Where" not in parent["markdown"]
+    assert "### Run on a query" in parent["markdown"] and "## Where" not in parent["markdown"]
 
 
 def test_read_page_whole_page_and_unknown_section(manual):

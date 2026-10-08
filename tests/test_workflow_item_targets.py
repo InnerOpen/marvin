@@ -18,7 +18,8 @@ from marvin_integration_sdk.ai import ToolCall
 from marvin_integration_sdk.ai.fake import FakeAIProvider, ScriptedTransport
 
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
-from marvin.services.automation.authoring import EXAMPLES, ITEM_EXAMPLES, authoring_guide, draft_issues
+from marvin.services.automation import recipes
+from marvin.services.automation.authoring import authoring_guide, draft_issues
 from marvin.services.automation.engine import match_context, run_automation_now, run_automations_for_event
 from marvin.services.automation.selector import resolve_target_entities
 from tests import test_content_role_gates as gates
@@ -397,7 +398,7 @@ def test_guide_documents_all_three_target_entities_and_item_templates(ws):
     assert actions["ops"] == ["restore", "trash"] and "entity_query finds entries only" in actions["note"] and "current item" in actions["acts_on"]
     namespaces = authoring_guide(ws.session, ws.gid, section="templates")["templates"]["namespaces"]
     assert "mime_type" in namespaces["asset"] and "resource_type" in namespaces["resource"]
-    assert {e["title"] for e in ITEM_EXAMPLES} <= set(EXAMPLES) and all({"id", "title", "definition", "vars"} <= set(e) for e in ITEM_EXAMPLES)
+    assert {"asset", "resource"} <= {r["target_entity"] for r in recipes.entries() if r["status"] == "verified-current"}
 
 
 # ── End to end: the owner's ask, scripted ────────────────────────────────────

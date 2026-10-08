@@ -53,7 +53,7 @@ A write is never bound for a caller below EDITOR, whatever the matrix says, and 
 
 **Approval mode is a different thing.** The matrix decides what an agent may *do* (tag, attach, run a workflow). The workspace **Approval Mode** (see [Settings](#settings)) decides whether AI-*generated content* lands on a record without a person: it covers every AI write-back — an operation's write-back, revise, a workflow operation step with `write_back`, and the alt text compose writes onto assets. Held-back output waits as a suggestion to accept.
 
-**Finding entries.** `find_entries` uses the same entry query as a workflow's "Run on a query of entries", an entry step's `entity_query`, and the bulk `filter` of `attach_tag` / `detach_tag` (up to 1,000 targets), so a filter works the same everywhere. All keys are optional:
+**Finding entries.** `find_entries` uses the same entry query as a workflow's "Run on a query" of entries, an entry step's `entity_query`, and the bulk `filter` of `attach_tag` / `detach_tag` (up to 1,000 targets), so a filter works the same everywhere. All keys are optional:
 
 | Key | Meaning |
 |---|---|

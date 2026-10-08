@@ -1,0 +1,21 @@
+{
+  "name": "Trash every unattached image",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "asset",
+      "query": {
+        "asset_type": "image",
+        "unattached": true
+      }
+    },
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "trash"
+      }
+    ]
+  }
+}
