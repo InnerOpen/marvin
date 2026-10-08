@@ -650,6 +650,18 @@ def get_payload_example(event_type: str) -> dict:
             "days": 30,
             "trashCollectionId": "<collection-uuid>",
         },
+        "trash_emptied": {
+            "documentType": "generic",
+            "operation": "delete",
+            "workspaceId": "<workspace-uuid>",
+            "workspaceName": "My Workspace",
+            "how": "emptied",
+            "total": 14,
+            "entries": 9,
+            "assets": 4,
+            "resources": 1,
+            "trashCollectionId": "<collection-uuid>",
+        },
         # --- Entry type events ---
         "entry_type_created": {
             "documentType": "entry_type",

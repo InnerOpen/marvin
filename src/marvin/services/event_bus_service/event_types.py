@@ -333,6 +333,7 @@ class EventTypes(EventTypeBase):
     resource_restored = auto()
     """Event dispatched when a resource is restored from the Trash."""
     trash_auto_empty_soon = auto()
+    trash_emptied = auto()
     """Event dispatched once a day per workspace when the Trash's auto-empty will delete items forever within a day."""
 
     # ==========================================================================
@@ -1278,6 +1279,25 @@ class EventResourceData(EventDocumentDataBase):
     """The human-readable name of the workspace."""
     url: str | None = None
     """The external URL of the resource."""
+
+
+class EventTrashEmptiedData(EventDocumentDataBase):
+    """Data payload for `trash_emptied`: items deleted forever from a workspace's Trash in one go — someone's Empty
+    trash (``how: emptied``, the event's user is who) or the hourly auto-empty (``how: auto_empty``). Each item also
+    sends its own ``entry_deleted`` / ``asset_deleted`` / ``resource_deleted``."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    workspace_id: UUID4
+    workspace_name: str | None = None
+    how: str
+    """``emptied`` (Empty trash) or ``auto_empty`` (items past the workspace's auto-empty setting)."""
+    total: int
+    """Entries, assets and resources together."""
+    entries: int = 0
+    assets: int = 0
+    resources: int = 0
+    trash_collection_id: UUID4 | None = None
+    """The workspace's Trash (the system collection)."""
 
 
 class EventTrashAutoEmptyData(EventDocumentDataBase):

@@ -32,7 +32,7 @@ A scheduled task is a row with a schedule and a handler:
 | `media_enrich` | run the entry type's recipe media derivations on one entry | `entry_id` (required) |
 | `run_integration_action` | call one provider action on one integration | see below |
 | `prune_expired_invitations` | delete invitations older than N days | `age_days` (30) |
-| `remove_orphaned_assets` | report or delete assets linked to no entry | `age_days` (30), `auto_delete` (false) |
+| `remove_orphaned_assets` | report assets linked to no entry, or with `auto_delete` move them to the Trash (restorable; emptying it deletes their files — an unlinked asset may still be a site logo) | `age_days` (30), `auto_delete` (false) |
 | `prune_expired_sessions` | no-op (JWTs are stateless) | none |
 | `cleanup_temp_files` (admin) | delete old temporary uploads | `age_hours` (24), `dry_run` (false) |
 | `prune_event_logs` (admin) | delete audit events past retention | `retention_days` (`EVENT_LOG_RETENTION_DAYS`) |

@@ -228,14 +228,51 @@ def counts(session, group_id) -> dict:
 
 
 def empty_all(session, group_id, *, actor_id=None, event_bus=None) -> dict:
-    """Empty the workspace's Trash: every trashed entry, asset (file included) and resource, forever.
-    Returns ``{entries, assets, resources, total}`` deleted."""
+    """Empty the workspace's Trash: every trashed entry, asset (file included) and resource, forever, then one
+    ``trash_emptied`` saying how much went. Returns ``{entries, assets, resources, total}`` deleted."""
     n = {
         "entries": entry_trash.empty_trash(session, group_id, actor_id=actor_id, event_bus=event_bus),
         "assets": delete_forever(session, group_id, ASSET, trashed_ids(session, group_id, ASSET), actor_id=actor_id, event_bus=event_bus),
         "resources": delete_forever(session, group_id, RESOURCE, trashed_ids(session, group_id, RESOURCE), actor_id=actor_id, event_bus=event_bus),
     }
-    return {**n, "total": sum(n.values())}
+    counts = {**n, "total": sum(n.values())}
+    emit_emptied(session, group_id, counts, how="emptied", actor_id=actor_id, event_bus=event_bus)
+    return counts
+
+
+def emit_emptied(session, group_id, counts: dict, *, how: str, actor_id=None, event_bus=None) -> None:
+    """One ``trash_emptied`` for items deleted forever in one go (``how``: emptied | auto_empty), on top of each
+    item's own ``*_deleted``. Nothing deleted, nothing sent."""
+    if not counts.get("total"):
+        return
+    from marvin.db.models.platform.collections import Collections
+    from marvin.services.collections.system_collections import TRASH_COLLECTION_SLUG
+    from marvin.services.event_bus_service.event_types import EventTrashEmptiedData
+
+    workspace_name, _ = _names(session, group_id, None)
+    trash = session.query(Collections.id).filter(Collections.group_id == group_id, Collections.slug == TRASH_COLLECTION_SLUG).first()
+    total = counts["total"]
+    who = "Emptied the Trash" if how == "emptied" else "Trash auto-empty"
+    _bus(event_bus).dispatch(
+        integration_id="trash_auto_empty" if how == "auto_empty" else "trash_management",
+        group_id=group_id,
+        event_type=EventTypes.trash_emptied,
+        document_data=EventTrashEmptiedData(
+            operation=EventOperation.delete,
+            workspace_id=group_id,
+            workspace_name=workspace_name,
+            how=how,
+            total=total,
+            entries=counts.get("entries", 0),
+            assets=counts.get("assets", 0),
+            resources=counts.get("resources", 0),
+            trash_collection_id=trash[0] if trash else None,
+        ),
+        message=f"{who}: {total} item{'' if total == 1 else 's'} deleted forever",
+        user_id=actor_id,
+        entity_id=trash[0] if trash else None,
+        entity_type="collection" if trash else None,
+    )
 
 
 def expired_ids(session, group_id, kind: str, days: int, *, now: datetime | None = None) -> list:
@@ -249,8 +286,8 @@ def expired_ids(session, group_id, kind: str, days: int, *, now: datetime | None
 
 def purge_expired(session, *, event_bus=None, now: datetime | None = None) -> dict:
     """The auto-empty pass for assets and resources (entries: services/entries/trash.purge_expired): delete
-    those trashed longer ago than their workspace's effective setting. Returns ``{group_id: deleted}`` for
-    workspaces that lost any. Safe to run twice (see delete_forever); the scheduler runs it on the leader."""
+    those trashed longer ago than their workspace's effective setting. Returns ``{group_id: {assets, resources}}``
+    for workspaces that lost any. Safe to run twice (see delete_forever); the scheduler runs it (``auto_empty``)."""
     from sqlalchemy import distinct
 
     group_ids: set = set()
@@ -264,15 +301,31 @@ def purge_expired(session, *, event_bus=None, now: datetime | None = None) -> di
     for group_id in group_ids:
         override = entry_trash.workspace_auto_empty_override(session, group_id)
         days = platform if override is None else override
-        n = 0
+        n = {"assets": 0, "resources": 0}
         for kind in KINDS:
             ids = expired_ids(session, group_id, kind, days, now=now)
             if ids:
-                n += delete_forever(session, group_id, kind, ids, event_bus=event_bus, integration_id="trash_auto_empty")
-        if n:
+                n[f"{kind}s"] = delete_forever(session, group_id, kind, ids, event_bus=event_bus, integration_id="trash_auto_empty")
+        if any(n.values()):
             purged[group_id] = n
-            logger.info(f"Trash auto-empty: deleted {n} asset(s)/resource(s) older than {days} days in workspace {group_id}")
+            logger.info(
+                f"Trash auto-empty: deleted {n['assets']} asset(s), {n['resources']} resource(s) older than {days} days in workspace {group_id}"
+            )
     return purged
+
+
+def auto_empty(session, *, event_bus=None, now: datetime | None = None) -> dict:
+    """The hourly auto-empty, every workspace: entries, assets and resources trashed longer ago than its setting,
+    then one ``trash_emptied`` (how: auto_empty) per workspace that lost anything. Returns ``{group_id: counts}``."""
+    entries = entry_trash.purge_expired(session, event_bus=event_bus, now=now)
+    items = purge_expired(session, event_bus=event_bus, now=now)
+    emptied: dict = {}
+    for group_id in set(entries) | set(items):
+        counts = {"entries": entries.get(group_id, 0), "assets": 0, "resources": 0, **items.get(group_id, {})}
+        counts["total"] = counts["entries"] + counts["assets"] + counts["resources"]
+        emit_emptied(session, group_id, counts, how="auto_empty", event_bus=event_bus)
+        emptied[group_id] = counts
+    return emptied
 
 
 # ── The day before ────────────────────────────────────────────────────────────

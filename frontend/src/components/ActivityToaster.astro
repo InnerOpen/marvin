@@ -130,6 +130,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     site_deployment_started: { tone: "info", label: "Site deploy started" },
     site_deployment_completed: { tone: "ok", label: "Site deployed" },
     site_deployment_failed: { tone: "err", label: "Site deploy failed" },
+    trash_emptied: { tone: "info", label: "Trash emptied", href: subjectHref("/workspace/collections"), othersOnly: true },
     scheduled_task_failed: { tone: "err", label: "Scheduled task failed", href: subjectHref("/workspace/scheduled-tasks") },
     ai_operation_failed: { tone: "err", label: "AI operation failed" },
     ai_budget_threshold_reached: { tone: "warn", label: "AI budget", href: () => "/workspace/settings/ai-workflow#usage-section" },

@@ -159,7 +159,7 @@ def test_auto_empty_ages_items_by_trashed_at_with_the_entries_setting(ws):
     _get(ws, "asset", old).trashed_at = datetime.now(UTC) - timedelta(days=31)
     ws.session.flush()
     purged = T.purge_expired(ws.session)  # platform default: 30 days
-    assert purged.get(ws.gid) == 1 and _get(ws, "asset", old) is None
+    assert purged.get(ws.gid) == {"assets": 1, "resources": 0} and _get(ws, "asset", old) is None
     assert _get(ws, "resource", new) is not None and _get(ws, "resource", keep) is not None
 
     ws.session.query(GroupPreferencesModel).filter_by(group_id=ws.gid).update({"trash_auto_empty_days": 0})  # never
@@ -186,6 +186,56 @@ def test_the_hourly_task_empties_assets_and_resources_too(ws, monkeypatch):
     monkeypatch.setattr(task, "session_context", same_session)
     task.empty_expired_trash()
     assert _get(ws, "asset", aid) is None
+
+
+class _Capture:
+    """An event bus that keeps every dispatch's arguments, payload included."""
+
+    def __init__(self):
+        self.sent: list[dict] = []
+
+    def dispatch(self, **kw):
+        self.sent.append(kw)
+
+    def emptied(self) -> list[dict]:
+        return [kw for kw in self.sent if kw["event_type"].name == "trash_emptied"]
+
+
+def test_empty_trash_says_once_what_went_and_who_emptied_it(ws):
+    from marvin.services.entries import EntryService
+
+    eid, aid, rid = ws.entry("e"), ws.asset("a"), ws.resource("r")
+    EntryService(ws.session, ws.gid).trash(eid)
+    T.trash(ws.session, ws.gid, "asset", aid)
+    T.trash(ws.session, ws.gid, "resource", rid)
+    bus = _Capture()
+
+    T.empty_all(ws.session, ws.gid, actor_id=ws.users["editor"], event_bus=bus)
+
+    (event,) = bus.emptied()
+    data = event["document_data"]
+    assert (data.how, data.total, data.entries, data.assets, data.resources) == ("emptied", 3, 1, 1, 1)
+    assert event["user_id"] == ws.users["editor"] and data.workspace_id == ws.gid
+    assert {kw["event_type"].name for kw in bus.sent} >= {"entry_deleted", "asset_deleted", "resource_deleted"}  # still per item
+
+    T.empty_all(ws.session, ws.gid, event_bus=bus)  # an empty Trash: nothing to say
+    assert len(bus.emptied()) == 1
+
+
+def test_the_auto_empty_sends_one_trash_emptied_per_workspace_that_lost_something(ws):
+    aid, rid = ws.asset("old"), ws.resource("old")
+    for kind, i in (("asset", aid), ("resource", rid)):
+        T.trash(ws.session, ws.gid, kind, i)
+        _get(ws, kind, i).trashed_at = datetime.now(UTC) - timedelta(days=45)
+    ws.session.flush()
+    bus = _Capture()
+
+    emptied = T.auto_empty(ws.session, event_bus=bus)
+
+    assert emptied[ws.gid] == {"entries": 0, "assets": 1, "resources": 1, "total": 2}
+    (event,) = [kw for kw in bus.emptied() if kw["document_data"].workspace_id == ws.gid]
+    assert event["document_data"].how == "auto_empty" and event["document_data"].total == 2 and event.get("user_id") is None
+    assert ws.gid not in T.auto_empty(ws.session, event_bus=bus)  # nothing left past the limit
 
 
 # ── Out of sight while trashed ────────────────────────────────────────────────

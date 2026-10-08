@@ -757,6 +757,22 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("total", "How many items will be deleted forever", "14", type="count"),
         ],
     ),
+    CatalogEntry(
+        event_type="trash_emptied",
+        name="Trash Emptied",
+        description=(
+            "Items were deleted forever from the Trash in one go: someone's Empty trash (how: emptied) or the auto-empty "
+            "(how: auto_empty). Says how many entries, assets and resources went; each also sends its own *_deleted."
+        ),
+        category="Content",
+        triggerable=True,
+        sent_by=["Empty trash (Trash page, API)", "The hourly Trash auto-empty"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("total", "How many items were deleted forever", "14", type="count"),
+            EventVariable("how", "emptied (Empty trash) or auto_empty", "emptied"),
+        ],
+    ),
     # ── Assets ──────────────────────────────────────────────────────────────
     CatalogEntry(
         event_type="asset_uploaded",

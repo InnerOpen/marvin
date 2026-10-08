@@ -24,7 +24,7 @@ Deleting an entry, an asset or a resource now moves it to the **Trash**, where i
 - is out of the publishing API: an entry's `assets[]` / `resources[]` (and a list item's `assetSlugs` / `resourceSlugs` and `featuredAsset`), `GET …/assets`, `GET …/resources`, a read by slug (404), a resource's entries (404), and the site settings' `logo`, `favicon` and `seo.image` when they name it (they come back as `null`);
 - keeps its links to entries and collections, so a restore puts it back in place. Saving an entry keeps the links to its trashed attachments too, though the editor doesn't show them;
 - still opens by its id: the page says "This asset is in the Trash" (or resource) with **Restore** and **Delete forever**, and is read-only until restored. The API returns it with `trashedAt` and `trashedBy`;
-- **keeps its file in storage.** Sites load files straight from the bucket (for example `https://assets.iwobble.com/…`), so the file is only removed when the asset is deleted forever: by **Delete forever**, **Empty trash** or the auto-empty. That deletion takes the same path as before, so `asset_deleted` fires and the file, and any copy at an old key, goes from storage.
+- **keeps its file in storage.** Sites load files straight from the bucket (for example `https://assets.iwobble.com/…`), so the file is only removed when the asset is deleted forever: by **Delete forever**, **Empty trash** or the auto-empty. That deletion takes the same path as before, so `asset_deleted` fires and the file, and any copy at an old key, goes from storage. If storage can't delete the file at that moment (the provider is unreachable), the asset stays in the Trash and the next Empty trash or auto-empty tries again — a file is never left in storage without its asset.
 
 Trashing or restoring an asset or resource that a site shows (attached to a published entry, in a collection visible to sites, or named as the site logo or favicon) queues a site rebuild; one only a draft uses doesn't. When Marvin can't tell, it queues one.
 
@@ -43,6 +43,7 @@ Trashing or restoring an asset or resource that a site shows (attached to a publ
 | `asset_restored` / `resource_restored` | an asset or resource leaves the Trash |
 | `asset_deleted` / `resource_deleted` | an asset (its file too) or resource is deleted forever |
 | `trash_auto_empty_soon` | the auto-empty will delete entries, assets or resources forever within a day (once a day per workspace) |
+| `trash_emptied` | items were deleted forever in one go: **Empty trash** (`how: emptied`, the event's user is who) or the auto-empty (`how: auto_empty`, once per workspace per pass that deleted anything), with `total`, `entries`, `assets` and `resources`. Each item still sends its own `*_deleted`. Workflows can trigger on it; the bell shows one "Trash emptied" to everyone but whoever emptied it. |
 
 ## Where
 
