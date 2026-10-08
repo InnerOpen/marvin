@@ -142,7 +142,7 @@ plugins:
     - https://github.com/InnerOpen/marvin-integration-buttondown/archive/refs/heads/main.tar.gz
     - https://github.com/InnerOpen/marvin-integration-n8n/archive/refs/heads/main.tar.gz
     - https://github.com/InnerOpen/marvin-storage-s3/archive/refs/heads/main.tar.gz
-    # Dev only, until it's validated here: replaces the built-in openai and azure AI providers.
+    # Replaces the built-in openai and azure AI providers (same slugs, so saved provider settings carry over).
     - https://github.com/InnerOpen/marvin-ai-openai/archive/refs/heads/main.tar.gz
 
 extraEnv:
