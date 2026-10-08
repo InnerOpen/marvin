@@ -29,6 +29,12 @@ function fieldPath(loc: unknown): string {
   return loc.filter((part, i) => !(i === 0 && part === "body")).join(".");
 }
 
+function issueText(issue: unknown): string {
+  const message = (issue as { message?: unknown } | null)?.message;
+  if (typeof message === "string") return message;
+  return typeof issue === "string" ? issue : JSON.stringify(issue);
+}
+
 function fromDetail(detail: unknown): SaveError | null {
   if (typeof detail === "string" && detail.trim()) return { message: detail, issues: [] };
   if (Array.isArray(detail)) {
@@ -40,9 +46,10 @@ function fromDetail(detail: unknown): SaveError | null {
     return { message: "Some fields aren't valid.", issues };
   }
   if (detail && typeof detail === "object") {
-    // The publish gate: {message: "Cannot publish — 2 requirement(s) unmet.", issues: [...]}
+    // The publish gate: {message: "Cannot publish — 2 requirement(s) unmet.", issues: [...]}. Issues are
+    // strings, or {message, where, …} objects (a workflow definition's structural errors).
     const { message, issues } = detail as { message?: unknown; issues?: unknown };
-    const list = Array.isArray(issues) ? issues.map(String) : [];
+    const list = Array.isArray(issues) ? issues.map(issueText) : [];
     if (typeof message === "string" || list.length) {
       return { message: typeof message === "string" && message ? message : GENERIC, issues: list };
     }

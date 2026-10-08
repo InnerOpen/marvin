@@ -37,6 +37,23 @@ describe("describeSaveError", () => {
     });
   });
 
+  test("lists a workflow definition's structural issues by their message", () => {
+    const error = sdkError(422, {
+      detail: {
+        message: "The workflow definition is not well-formed.",
+        issues: [
+          { level: "error", message: "actions.0.entry.op: Field required", where: "action", index: 0 },
+          { level: "error", message: "trigger: Input tag 'evnt' found using 'type' does not match", where: "trigger" },
+        ],
+      },
+    });
+
+    assert.deepEqual(describeSaveError(error), {
+      message: "The workflow definition is not well-formed.",
+      issues: ["actions.0.entry.op: Field required", "trigger: Input tag 'evnt' found using 'type' does not match"],
+    });
+  });
+
   test("shows a plain string detail as the message", () => {
     const error = sdkError(409, { detail: "An entry with this slug already exists." });
 
