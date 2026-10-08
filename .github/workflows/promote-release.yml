@@ -1,0 +1,162 @@
+name: Promote release
+
+# One environment's half of the Promote workflow (promote.yml): helm-upgrade a Marvin release to a CI-built commit,
+# smoke-check it through its Routes, and roll back to the previous helm revision when either fails.
+#
+# Runs on the in-cluster runner set (the cluster API resolves only on the LAN) as the `deployer` ServiceAccount, with
+# the API's CA verified. RBAC and the one-time GitHub settings: .github/deploy/promote-rbac.yaml.
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment the deployment is recorded against
+        type: string
+        required: true
+      namespace:
+        type: string
+        required: true
+      values:
+        description: Values file in marvin-chart/
+        type: string
+        required: true
+      sha:
+        type: string
+        required: true
+      dry_run:
+        type: boolean
+        default: false
+      smoke_expect:
+        description: Commit the smoke check expects to be live, instead of sha (to exercise the rollback)
+        type: string
+        default: ""
+    # Secrets come from the caller (`secrets: inherit`), so environment-scoped ones resolve here:
+    # OPENSHIFT_SERVER, OPENSHIFT_TOKEN, OPENSHIFT_CA.
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash # -eo pipefail; the implicit default has no pipefail
+
+env:
+  HELM_VERSION: v3.19.0
+  KUBECTL_VERSION: v1.35.6
+  KUBECTL_SHA256: 5d11e2ba01ea68ffd053f56e27738e2b4330013ee67f7e46c6da6c585d3c9926
+
+jobs:
+  promote:
+    name: ${{ inputs.dry_run && 'Dry run' || 'Promote' }} ${{ inputs.namespace }}
+    runs-on: github-arc-runners
+    environment: ${{ inputs.environment }}
+    # Never interrupt a helm upgrade: a newer commit waits, and only the newest waiting one stays queued.
+    concurrency:
+      group: promote-${{ inputs.namespace }}
+      cancel-in-progress: false
+    timeout-minutes: 30
+    env:
+      NAMESPACE: ${{ inputs.namespace }}
+      SHA: ${{ inputs.sha }}
+    steps:
+      # The deploy scripts come from the workflow's own commit, the chart from the one being promoted (promote.sh
+      # archives it), so an older commit still deploys with current tooling.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch ${{ inputs.sha }}
+        run: git fetch --no-tags --depth=1 origin "$SHA"
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Install kubectl
+        run: |
+          curl -fsSLo "$RUNNER_TEMP/kubectl" "https://dl.k8s.io/release/$KUBECTL_VERSION/bin/linux/amd64/kubectl"
+          echo "$KUBECTL_SHA256  $RUNNER_TEMP/kubectl" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/kubectl"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+
+      - name: Write kubeconfig
+        env:
+          SERVER: ${{ secrets.OPENSHIFT_SERVER }}
+          TOKEN: ${{ secrets.OPENSHIFT_TOKEN }}
+          CA: ${{ secrets.OPENSHIFT_CA }}
+        run: |
+          umask 077
+          kubeconfig="$RUNNER_TEMP/kubeconfig"
+          cat > "$kubeconfig" <<EOF
+          apiVersion: v1
+          kind: Config
+          clusters:
+            - name: cluster
+              cluster:
+                server: $SERVER
+                certificate-authority-data: $(printf '%s\n' "$CA" | base64 -w0)
+          users:
+            - name: deployer
+              user:
+                token: $TOKEN
+          contexts:
+            - name: deployer
+              context: {cluster: cluster, user: deployer, namespace: $NAMESPACE}
+          current-context: deployer
+          EOF
+          echo "KUBECONFIG=$kubeconfig" >> "$GITHUB_ENV"
+          kubectl version | grep -i server
+
+      - name: Record the current revision
+        id: before
+        run: |
+          revision="$(helm history marvin -n "$NAMESPACE" --max 1 | awk 'NR == 2 {print $1}')"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "marvin in $NAMESPACE is at revision $revision"
+
+      - name: ${{ inputs.dry_run && 'Dry-run the upgrade' || 'Upgrade' }}
+        env:
+          VALUES: ${{ inputs.values }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [[ "$DRY_RUN" == true ]]; then
+            scripts/deploy/promote.sh "$SHA" "$NAMESPACE" "$VALUES" --dry-run
+          else
+            scripts/deploy/promote.sh "$SHA" "$NAMESPACE" "$VALUES"
+          fi
+
+      # A dry run changed nothing, so it only checks the release is reachable through its Routes.
+      - name: Smoke check
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          EXPECT: ${{ inputs.smoke_expect || inputs.sha }}
+        run: |
+          if [[ "$DRY_RUN" == true ]]; then
+            scripts/deploy/smoke.sh "$NAMESPACE"
+          else
+            scripts/deploy/smoke.sh "$NAMESPACE" "$EXPECT"
+          fi
+
+      - name: Roll back to revision ${{ steps.before.outputs.revision }}
+        if: failure() && !inputs.dry_run && steps.before.outputs.revision != ''
+        env:
+          REVISION: ${{ steps.before.outputs.revision }}
+        run: scripts/deploy/rollback.sh "$NAMESPACE" "$REVISION"
+
+      - name: Summary
+        if: always() && steps.before.outputs.revision != ''
+        env:
+          REVISION: ${{ steps.before.outputs.revision }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "### marvin in $NAMESPACE"
+            echo "- commit: \`${SHA:0:7}\`$([[ "$DRY_RUN" == true ]] && echo ' (dry run)')"
+            echo "- before: revision $REVISION"
+            echo "- now:"
+            echo '```'
+            helm history marvin -n "$NAMESPACE" --max 3
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

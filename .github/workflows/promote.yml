@@ -1,0 +1,112 @@
+name: Promote
+
+# develop → marvin-dev → marvin. Every push to develop waits for its CI (Docker Build, Test Suite, SDK Quality Gate),
+# deploys that commit to marvin-dev, smoke-checks it and rolls back if it fails; when dev passes, production gets the
+# same commit and the same checks, with no approval step. A newer push supersedes an older one still waiting for CI.
+# The prod job deploys through the `production` environment, which has no protection rules today; adding a required
+# reviewer there (Settings → Environments) puts an approval gate before production with no change here.
+#
+# The deploy jobs run on the in-cluster runner set and never for pull requests (this repository is public): the only
+# triggers are a push to develop and a manual run. Setup (RBAC, OPENSHIFT_CA):
+# .github/deploy/promote-rbac.yaml. Runbook: docs/manual/operations.md → Deploying.
+
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Commit on develop to promote (default develop's tip)
+        required: false
+      dry_run:
+        description: Dry run (chart, values and RBAC checked server-side; nothing changes)
+        type: boolean
+        default: false
+      smoke_expect:
+        description: Rollback drill, marvin-dev only - the smoke check expects this commit, so it fails and rolls back
+        required: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  gate:
+    name: Wait for CI
+    if: github.repository == 'InnerOpen/marvin'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: write # re-run a CI workflow GitHub cancelled for want of a runner
+      contents: read
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+      proceed: ${{ steps.ci.outputs.proceed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts/deploy
+          persist-credentials: false
+
+      - name: Resolve the commit
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.sha || github.sha }}
+        run: |
+          sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$REF" -q .sha)"
+          on_develop="$(gh api "repos/$GITHUB_REPOSITORY/compare/$sha...develop" -q .status)"
+          if [[ "$on_develop" != ahead && "$on_develop" != identical ]]; then
+            echo "$REF ($sha) is not on develop" >&2
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "promoting ${sha:0:7}"
+
+      - name: Wait for Docker Build, Test Suite and SDK Quality Gate
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.commit.outputs.sha }}
+          # A push gives way to a newer one; a manual run promotes the commit it was asked for.
+          LATEST_ONLY: ${{ github.event_name == 'push' && '--latest-only' || '' }}
+        run: |
+          status=0
+          scripts/deploy/wait-for-ci.sh "$SHA" ${LATEST_ONLY:+"$LATEST_ONLY"} || status=$?
+          case "$status" in
+            0) echo "proceed=true" >> "$GITHUB_OUTPUT" ;;
+            3) echo "proceed=false" >> "$GITHUB_OUTPUT" ;;
+            *) exit "$status" ;;
+          esac
+
+  dev:
+    name: marvin-dev
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true'
+    uses: ./.github/workflows/promote-release.yml
+    with:
+      environment: development
+      namespace: marvin-dev
+      values: values-dev.yaml
+      sha: ${{ needs.gate.outputs.sha }}
+      dry_run: ${{ inputs.dry_run == true }}
+      smoke_expect: ${{ inputs.smoke_expect }}
+    secrets: inherit
+
+  prod:
+    name: marvin
+    needs: [gate, dev]
+    if: needs.gate.outputs.proceed == 'true' && !inputs.smoke_expect
+    uses: ./.github/workflows/promote-release.yml
+    with:
+      environment: production
+      namespace: marvin
+      values: values-iwobble.yaml
+      sha: ${{ needs.gate.outputs.sha }}
+      dry_run: ${{ inputs.dry_run == true }}
+    secrets: inherit
