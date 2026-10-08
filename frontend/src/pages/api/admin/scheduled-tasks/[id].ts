@@ -49,9 +49,11 @@ export const DELETE: APIRoute = async ({ params, cookies }) => {
     headers: { Authorization: `Bearer ${authToken}` },
   });
 
+  // A delete answers 204 with no body, and a Response for a 204 can't have one (not even "") — passing
+  // the text through threw, so a delete that had worked came back as a 500.
   const text = await res.text();
-  return new Response(text, {
+  return new Response(text || null, {
     status: res.status,
-    headers: { "Content-Type": "application/json" },
+    headers: text ? { "Content-Type": "application/json" } : undefined,
   });
 };
