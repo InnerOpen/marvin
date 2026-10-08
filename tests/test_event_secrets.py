@@ -297,6 +297,17 @@ def test_a_viewer_reads_no_invitation_token_from_the_event_log(db_session, world
     assert not [line for line in world.logs.lines if token in line]
 
 
+def test_an_invitation_is_revoked_by_its_id_never_by_its_token(db_session, world):
+    """The token is the invite's secret; a path carrying it lands in request logs, so the API doesn't take it."""
+    admin = world.client("admin")
+    res = admin.post("/api/groups/invitations", json={"usesLeft": 1, "workspaceRole": "VIEWER"})
+    token, invitation_id = res.json()["token"], res.json()["id"]
+
+    assert admin.delete(f"/api/groups/invitations/{token}").status_code == 404
+    assert _event_rows(db_session, world.a, "invitation_revoked") == []
+    assert admin.delete(f"/api/groups/invitations/{invitation_id}").status_code == 204
+
+
 def test_a_workspace_invitation_template_still_replaces_marvins(db_session, world):
     """The invitation is the workspace's own (its admins mint the token), so its connected template still replaces
     Marvin's — sent to the invitee, whatever the connection's recipients say."""

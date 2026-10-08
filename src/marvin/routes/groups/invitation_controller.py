@@ -221,28 +221,26 @@ class GroupInvitationsController(BaseUserController):
         Deletes (revokes) an invitation token.
 
         This allows administrators to manually revoke invitation tokens before they
-        are exhausted or expire. The token_id can be either the UUID or the token string.
+        are exhausted or expire.
 
         Args:
-            token_id: The UUID or token string of the invitation to delete
+            token_id: The invitation's id (UUID), as the invitations list returns it
 
         Raises:
-            HTTPException (404 Not Found): If the token does not exist
+            HTTPException (404 Not Found): If no invitation has that id
             HTTPException (403 Forbidden): If the user lacks permission to delete tokens
         """
         self.checks.can_manage_members(self.group_id)
 
-        # Try to find the token by ID first (what the members page sends), then by token string. The repository's
-        # primary key is the token string, so the id lookup names its key.
+        # By id only. The token string is the invite's secret: as a path segment it would land in request logs, so
+        # it is never looked up here (and never echoed back). The repository's primary key is the token string, so
+        # the id lookup names its key.
         token = None
         with contextlib.suppress(ValueError):
             token = self.repos.group_invite_tokens.get_one(uuid.UUID(token_id), "id")
-        if not token:
-            # Try by token string
-            token = self.repos.group_invite_tokens.get_one(token_id, "token")
 
         if not token:
-            self.logger.warning(f"Attempt to delete non-existent token: {token_id}")
+            self.logger.warning("Attempt to delete an invitation that doesn't exist (by id)")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invitation token not found")
 
         # Emit event before deletion
