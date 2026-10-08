@@ -107,7 +107,7 @@ class StatsController(BaseUserController):
 
         return WorkspaceStats(
             entries=_count(session, Entries, workspace_id, Entries.status != "trashed"),  # the Trash is out of sight
-            assets=_count(session, Assets, workspace_id, Assets.trashed_at.is_(None)),
+            assets=_count(session, Assets, workspace_id, Assets.trashed_at.is_(None), Assets.scope == "library"),  # not Ask files
             collections=_count(session, Collections, workspace_id),
             webhooks=_count(session, GroupWebhooksModel, workspace_id),
             scheduled_tasks=_count(session, ScheduledTaskModel, workspace_id),

@@ -2,8 +2,11 @@
 Attachment tool: read the text of a document asset — read-only.
 
 The bubble and the Ask page let the user attach files to a question. Images the model looks at with
-`view_image`; this tool covers documents: plain text (txt, md, csv, json, …), PDF and Word (.docx). It
+`view_image`; `read_attachment` covers documents: plain text (txt, md, csv, json, …), PDF and Word (.docx). It
 returns the text, capped, and writes nothing.
+
+An attached file is an *Ask file* (services/assets/scope.py), not in the Assets library: `move_to_assets` files
+one there when the user wants to keep it.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ import io
 import json
 import uuid
 
-from marvin.services.ai.operations.base import ROLE_VIEWER
+from marvin.services.ai.operations.base import ROLE_EDITOR, ROLE_VIEWER
 
 from .base import ToolContext, register_tool
 
@@ -125,3 +128,61 @@ def read_attachment(ctx: ToolContext, args: dict) -> str:
     if len(text) > max_chars:
         return json.dumps({"asset": about, "text": text[:max_chars], "truncated": True, "note": f"cut at {max_chars} characters"})
     return json.dumps({"asset": about, "text": text, "truncated": False})
+
+
+MAX_MOVE = 10
+
+
+@register_tool(
+    name="move_to_assets",
+    description=(
+        "Move files the user attached to a chat question (Ask files) into the workspace's Assets library, so they "
+        "can be found, tagged, collected and used like any asset. Use when the user wants to keep an attached "
+        "file ('add it to the assets', 'save this image'). Attaching an Ask file to an entry with attach_asset "
+        "moves it too. Pass the asset ids from 'Files the user attached'; optionally a new display name for one file."
+    ),
+    input_schema={
+        "type": "object",
+        "properties": {
+            "assets": {"type": "array", "items": {"type": "string"}, "description": f"asset ids (at most {MAX_MOVE})"},
+            "name": {"type": "string", "description": "optional new display name (only with a single asset)"},
+        },
+        "required": ["assets"],
+    },
+    min_role=ROLE_EDITOR,
+    read_only=False,
+)
+def move_to_assets(ctx: ToolContext, args: dict) -> str:
+    from marvin.db.models.platform.assets import Assets
+    from marvin.services.assets.scope import ASK, move_to_library
+
+    refs = [str(a).strip() for a in (args.get("assets") or []) if str(a).strip()]
+    if not refs:
+        return json.dumps({"error": "assets is required (the ids of the attached files)"})
+    if len(refs) > MAX_MOVE:
+        return json.dumps({"error": f"at most {MAX_MOVE} files per call"})
+    name = str(args.get("name") or "").strip()
+    if name and len(refs) > 1:
+        return json.dumps({"error": "name renames one file: pass a single asset with it"})
+
+    found, missing, already = [], [], []
+    for ref in refs:
+        try:
+            row = ctx.session.get(Assets, uuid.UUID(ref))
+        except ValueError:
+            row = None
+        if row is None or str(row.group_id) != str(ctx.group_id) or row.trashed_at is not None:
+            missing.append(ref)
+        elif row.scope != ASK:
+            already.append({"id": str(row.id), "name": row.name})
+        else:
+            found.append(row)
+    if name and found:
+        found[0].name = name
+    moved = move_to_library(ctx.session, ctx.group_id, [r.id for r in found], actor_id=getattr(ctx.user, "id", None))
+    out: dict = {"moved": [{"id": str(r.id), "name": r.name} for r in moved]}
+    if already:
+        out["alreadyInLibrary"] = already
+    if missing:
+        out["notFound"] = missing
+    return json.dumps(out)

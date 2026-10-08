@@ -105,8 +105,9 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
       asset    → asset_types (asset_type), mime_types (mime_type, exact e.g. image/svg+xml)
       resource → resource_types (resource_type)
     ``tags`` and ``created_within_days`` are universal. An empty/None rule set — or one with no recognized dimension — matches nothing.
+    An Ask file (a chat attachment, services/assets/scope.py) is in no collection until it's moved to the library.
     """
-    if not rules:
+    if not rules or (target_type == "asset" and getattr(item, "scope", "library") != "library"):
         return False
 
     dimensions: list[bool] = []

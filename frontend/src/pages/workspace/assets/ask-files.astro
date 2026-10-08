@@ -1,0 +1,109 @@
+---
+// Ask files: files attached to chat questions in the bubble or on the Ask page. They live here, not in the Assets
+// library (backend services/assets/scope.py), until moved there — from this page, by the agent's move_to_assets,
+// or by attaching one to an entry. Deleting their conversation moves them to the Trash.
+import AppLayout from "@/layouts/AppLayout.astro";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+
+const authToken = getAuthToken(Astro.cookies);
+// Moving to the library is AUTHOR+ (like uploading there); the Trash is EDITOR+.
+const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+
+let files: any[] = [];
+let error: string | null = null;
+try {
+  files = await fetchApi<any[]>("/api/platform/assets?scope=ask", {}, authToken);
+} catch (e) {
+  error = e instanceof Error ? e.message : String(e);
+}
+
+const via: Record<string, string> = { bubble: "Bubble", ask_page: "Ask page" };
+const size = (bytes: number | null | undefined) =>
+  !bytes ? "—" : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+const when = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString() : "—");
+---
+
+<AppLayout title="Ask files">
+  <div class="toolbar">
+    <div>
+      <h2 style="margin:0;font-size:20px;">Ask files</h2>
+      <p style="margin:4px 0 0;color:var(--muted);">
+        Files attached to questions in the bubble or on the Ask page. They stay out of the
+        <a href="/workspace/assets">Assets library</a> until you move them there; deleting their conversation moves them to the Trash.
+      </p>
+    </div>
+  </div>
+
+  {error ? (
+    <div class="error-banner"><p><strong>Error loading Ask files:</strong> {error}</p></div>
+  ) : files.length === 0 ? (
+    <div class="empty-state">
+      <div class="empty-icon">📎</div>
+      <h3>No Ask files</h3>
+      <p>Attach a file in the bubble (📎, paste or drop) or on the Ask page and it shows up here.</p>
+    </div>
+  ) : (
+    <table class="table">
+      <thead>
+        <tr><th>Name</th><th>Type</th><th>Size</th><th>From</th><th>Attached</th><th></th></tr>
+      </thead>
+      <tbody>
+        {files.map((file) => (
+          <tr data-ask-file={file.id}>
+            <td><a href={`/workspace/assets/${file.id}/view`}>{file.name}</a></td>
+            <td>{file.mimeType}</td>
+            <td>{size(file.fileSize)}</td>
+            <td>{via[file.metadataJson?.attachedVia] ?? "Ask"}</td>
+            <td>{when(file.createdAt)}</td>
+            <td>
+              <div class="actions">
+                {access.canAuthor && (
+                  <button type="button" class="button small" data-move={file.id} title="File it in the Assets library">Move to Assets</button>
+                )}
+                {access.canEdit && (
+                  <button type="button" class="button secondary small" data-trash={file.id} title="Move to the Trash (restore it from there)">Move to Trash</button>
+                )}
+              </div>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )}
+  <p id="ask-files-status" class="status" aria-live="polite"></p>
+</AppLayout>
+
+<script>
+  import { fetchApi } from "@/lib/api/client";
+
+  const status = document.getElementById("ask-files-status")!;
+  document.addEventListener("click", async (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>("[data-move], [data-trash]");
+    if (!btn) return;
+    const id = btn.dataset.move ?? btn.dataset.trash!;
+    const moving = btn.hasAttribute("data-move");
+    btn.disabled = true;
+    try {
+      if (moving) await fetchApi(`/api/platform/assets/${id}/move-to-library`, { method: "POST" });
+      else await fetchApi(`/api/platform/assets/${id}`, { method: "DELETE" });
+      document.querySelector(`[data-ask-file="${CSS.escape(id)}"]`)?.remove();
+      status.textContent = moving ? "Moved to the Assets library." : "Moved to the Trash.";
+      status.className = "status success";
+    } catch (err) {
+      btn.disabled = false;
+      status.textContent = `Couldn't ${moving ? "move" : "trash"} it: ${err instanceof Error ? err.message : err}`;
+      status.className = "status error";
+    }
+  });
+</script>
+
+<style>
+  .toolbar { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; }
+  .actions { display: flex; gap: 6px; justify-content: flex-end; }
+  .status { margin-top: 12px; font-size: 13px; color: var(--muted); }
+  .status.success { color: var(--color-success, inherit); }
+  .status.error { color: var(--color-error); }
+  .empty-state { text-align: center; padding: 3rem 1rem; color: var(--muted); }
+  .empty-icon { font-size: 40px; }
+</style>

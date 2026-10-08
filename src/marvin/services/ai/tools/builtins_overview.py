@@ -89,7 +89,9 @@ def workspace_overview(ctx: ToolContext, _args: dict) -> str:
             .all()
         )
     ]
-    live_assets = s.query(Assets.asset_type, func.count(Assets.id)).filter(Assets.group_id == g, Assets.trashed_at.is_(None))  # not the Trash
+    live_assets = s.query(Assets.asset_type, func.count(Assets.id)).filter(
+        Assets.group_id == g, Assets.trashed_at.is_(None), Assets.scope == "library"
+    )  # not the Trash, not Ask files
     assets = dict(live_assets.group_by(Assets.asset_type).all())
     live_resources = s.query(Resources.resource_type, func.count(Resources.id)).filter(Resources.group_id == g, Resources.trashed_at.is_(None))
     resources = dict(live_resources.group_by(Resources.resource_type).all())

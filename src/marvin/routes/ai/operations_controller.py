@@ -1315,7 +1315,11 @@ class AIOperationsController(BaseUserController):
 
     @router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a thread")
     def delete_thread(self, thread_id: str) -> None:
+        """Delete a thread; the Ask files only it carried go to the Trash (restorable), library assets stay."""
+        from marvin.services.assets.scope import trash_thread_files
+
         thread = self._thread_or_404(thread_id)
+        trash_thread_files(self.session, self.group_id, thread, actor_id=self.user.id, event_bus=self.event_bus)
         self.session.delete(thread)
         self.session.commit()
 
@@ -2092,11 +2096,13 @@ class AIOperationsController(BaseUserController):
             )
         else:
             use = "Your tools can't open these files: if the question needs their contents, say so."
+        # An attached file is an Ask file (services/assets/scope.py): uploaded already, but not in the library.
+        keep = "Each is already uploaded as an Ask file — kept with this conversation, not in the Assets library — so there is nothing to import."
+        if "move_to_assets" in names:
+            keep += " To keep one in the library (the user says to save it, or add it to the assets), use move_to_assets"
+            keep += "; attach_asset puts one on an entry, which moves it too." if "attach_asset" in names else "."
         return (
-            "\n\n## Files the user attached to the question\n"
-            + "\n".join(lines)
-            + f"\n{use} Each was saved as an asset in this workspace's Assets library when it was attached, so "
-            "there is nothing to import or upload: to put one on an entry, attach that asset id. "
+            "\n\n## Files the user attached to the question\n" + "\n".join(lines) + f"\n{use} {keep} "
             'When the user says "this file" or "the attachment", they mean these.'
         )
 

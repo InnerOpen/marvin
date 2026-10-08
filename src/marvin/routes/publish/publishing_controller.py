@@ -963,7 +963,12 @@ async def list_published_assets(
     perms.require_permission(Permissions.READ_ASSETS, "assets")
 
     # Build query for assets with eager loading to prevent N+1 queries
-    query = session.query(Assets).filter(Assets.group_id == group.id, Assets.trashed_at.is_(None)).options(*_asset_eager_options())
+    # Ask files (chat attachments, services/assets/scope.py) are private to the workspace: never on the site API.
+    query = (
+        session.query(Assets)
+        .filter(Assets.group_id == group.id, Assets.trashed_at.is_(None), Assets.scope == "library")
+        .options(*_asset_eager_options())
+    )
 
     # Filter by MIME type prefix if specified
     if type:
@@ -1050,6 +1055,7 @@ async def get_published_asset(
             Assets.group_id == group.id,
             Assets.slug == asset_slug,
             Assets.trashed_at.is_(None),
+            Assets.scope == "library",  # never an Ask file
         )
         .options(*_asset_eager_options())
         .first()
@@ -1117,6 +1123,7 @@ async def serve_asset_file(
             Assets.group_id == group.id,
             Assets.slug == asset_slug,
             Assets.trashed_at.is_(None),
+            Assets.scope == "library",  # never an Ask file
         )
         .first()
     )

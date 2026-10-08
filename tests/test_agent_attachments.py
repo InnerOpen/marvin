@@ -151,7 +151,7 @@ def test_attached_files_are_listed_with_the_tools_that_open_them(ctl, ws):
     assert f'"spec.pdf" (application/pdf, 3.0 MB) — asset id {spec.id}' in system
     assert "view_image" in system and "read_attachment" in system
     assert "look at them before you answer" in system  # "like it?" is about the file
-    assert "nothing to import or upload" in system  # it's already in the Assets library
+    assert "nothing to import" in system and "not in the Assets library" in system  # an Ask file
     assert {"view_image", "read_attachment"} <= ctl.loop.tools[-1]
 
 

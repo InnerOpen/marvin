@@ -21,6 +21,8 @@ class AssetUploadRequest(_MarvinModel):
     """Optional description of the asset."""
     metadata_json: dict | None = Field(default=None, validation_alias=AliasChoices("metadata", "metadata_json"))
     """Optional asset metadata."""
+    scope: str = "library"
+    """'library', or 'ask' for a file attached to a chat question (services/assets/scope.py)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,6 +54,8 @@ class AssetCreateInternal(_MarvinModel):
     alt_text: str | None = None
     description: str | None = None
     metadata_json: dict | None = Field(default=None, validation_alias=AliasChoices("metadata", "metadata_json"))
+
+    scope: str = "library"
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -148,6 +152,8 @@ class AssetRead(AssetSummary):
     """When it was moved to the Trash; null when it is not in the Trash."""
     trashed_by: UUID4 | None = None
     """Who moved it to the Trash."""
+    scope: str = "library"
+    """'library' (the Assets library) or 'ask' (a file attached to a chat question; see the Ask files tab)."""
     suggestion_json: dict | None = Field(
         default=None,
         description="Pending AI-proposed changes staged for review (write-back)",

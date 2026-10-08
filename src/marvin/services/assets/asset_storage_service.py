@@ -151,6 +151,7 @@ class AssetStorageService(BaseService):
                     alt_text=upload_request.alt_text,
                     description=upload_request.description,
                     metadata_json=upload_request.metadata_json,
+                    scope=upload_request.scope,
                 )
 
                 # Create database record

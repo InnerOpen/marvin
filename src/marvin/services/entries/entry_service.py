@@ -579,6 +579,7 @@ class EntryService:
         import sqlalchemy as sa
 
         from marvin.db.models.platform.entry_assets import EntryAssets
+        from marvin.services.assets.scope import is_ask_file, move_to_library
 
         entry = self.repos.entries.get_one(entry_id)
         if not entry or entry.group_id != self.group_id:
@@ -586,6 +587,8 @@ class EntryService:
         asset = self._resolve_asset(asset_ref)
         if not asset or asset.trashed_at is not None:  # one in the Trash can't be attached
             return None
+        if is_ask_file(asset):  # an entry shows only library assets: attaching files a chat attachment there
+            move_to_library(self.session, self.group_id, [asset.id], actor_id=self.actor_id, event_bus=self.event_bus)
         existing = self.session.query(EntryAssets).filter(EntryAssets.entry_id == entry.id, EntryAssets.asset_id == asset.id).first()
         if existing:
             return "exists"

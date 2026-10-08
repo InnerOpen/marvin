@@ -200,8 +200,9 @@ class RemoveOrphanedAssetsHandler(ScheduledTaskHandler):
         cutoff = datetime.now(UTC) - timedelta(days=age_days)
 
         with session_context() as session:
-            # An asset in the Trash is the Trash's to delete (or restore), not an orphan.
-            asset_q = session.query(Assets).filter(Assets.created_at <= cutoff, Assets.trashed_at.is_(None))
+            # An asset in the Trash is the Trash's to delete (or restore), not an orphan; nor is an Ask file, which
+            # no entry uses by nature (it goes with its thread: services/assets/scope.py).
+            asset_q = session.query(Assets).filter(Assets.created_at <= cutoff, Assets.trashed_at.is_(None), Assets.scope == "library")
             if task.group_id:
                 asset_q = asset_q.filter(Assets.group_id == task.group_id)
 

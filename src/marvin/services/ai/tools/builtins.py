@@ -639,6 +639,8 @@ def list_tags(ctx: ToolContext, _args: dict) -> str:
             q = q.join(Entries, Entries.id == junction.entry_id).filter(not_trashed())
         if item is not None:  # nor does an asset or resource in the Trash
             q = q.join(item, item.id == getattr(junction, fk)).filter(item.trashed_at.is_(None))
+            if item is Assets:  # nor an Ask file (services/assets/scope.py)
+                q = q.filter(Assets.scope == "library")
         return dict(q.filter(Tags.group_id == ctx.group_id).group_by(junction.tag_id).all())
 
     rows = ctx.session.query(Tags).filter(Tags.group_id == ctx.group_id).all()

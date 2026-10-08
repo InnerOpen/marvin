@@ -62,6 +62,9 @@ class Assets(SqlAlchemyBase, BaseMixins):
     # entry's metadata_json.trash record).
     trashed_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True, index=True)
     trashed_by: Mapped[GUID | None] = mapped_column(GUID, nullable=True)
+    # 'library' (the Assets library) or 'ask' (a file attached to a chat question, kept out of the library until
+    # moved there): services/assets/scope.py.
+    scope: Mapped[str] = mapped_column(sa.String, nullable=False, default="library", server_default="library", index=True)
 
     # Relationships
     entries: Mapped[list["Entries"]] = orm.relationship(

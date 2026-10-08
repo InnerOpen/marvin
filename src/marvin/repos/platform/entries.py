@@ -430,7 +430,10 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
         self.session.flush()
 
     def _attach_assets(self, entry_id: UUID4, asset_ids: list[UUID4]) -> None:
-        """Attach assets to an entry."""
+        """Attach assets to an entry (an Ask file among them moves to the library first)."""
+        from marvin.services.assets.scope import move_to_library
+
+        move_to_library(self.session, self.group_id, asset_ids, commit=False)
         for position, asset_id in enumerate(asset_ids):
             junction = EntryAssets(entry_id=entry_id, asset_id=asset_id, position=position)
             self.session.add(junction)
@@ -502,7 +505,10 @@ class EntriesRepository(SuggestionWritebackMixin, GroupRepositoryGeneric[EntryRe
             self._attach_resources(entry_id, resource_ids)
 
     def _attach_asset_attachments(self, entry_id: UUID4, attachments: list) -> None:
-        """Attach assets with rich placement data."""
+        """Attach assets with rich placement data (an Ask file among them moves to the library first)."""
+        from marvin.services.assets.scope import move_to_library
+
+        move_to_library(self.session, self.group_id, [(a if isinstance(a, dict) else a.model_dump())["asset_id"] for a in attachments], commit=False)
         for idx, att in enumerate(attachments):
             att_dict = att if isinstance(att, dict) else att.model_dump()
             junction = EntryAssets(

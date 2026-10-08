@@ -86,7 +86,8 @@ def _not_trashed(item) -> bool:
 
 
 def _asset_indexable(asset) -> bool:
-    return _not_trashed(asset) and _asset_content_ok(asset)
+    """A live library asset with something to say; an Ask file (a chat attachment) stays out of the index."""
+    return _not_trashed(asset) and getattr(asset, "scope", "library") == "library" and _asset_content_ok(asset)
 
 
 def _entry_should_index(entry, event_type, has_index: bool) -> bool:

@@ -102,6 +102,8 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
     trashed = trashed or as_bool(str(spec.get("trashed"))) is True
     q = session.query(model).filter(model.group_id == group_id)
     q = q.filter(model.trashed_at.isnot(None) if trashed else model.trashed_at.is_(None))
+    if kind == ASSET:  # the library: Ask files (chat attachments, services/assets/scope.py) aren't in it
+        q = q.filter(Assets.scope == "library")
     nothing = q.filter(sa.false())
 
     if kind == ASSET:

@@ -154,7 +154,7 @@ class ContextBuilder:
             assets = [self._session.get(Assets, aid) for aid in asset_ids]
             assets = [a for a in assets if a and a.trashed_at is None]  # the Trash is out of sight
         else:
-            assets = self._session.query(Assets).filter_by(group_id=self._group_id, trashed_at=None).limit(10).all()
+            assets = self._session.query(Assets).filter_by(group_id=self._group_id, trashed_at=None, scope="library").limit(10).all()
 
         self._ctx.assets = [self._asset_dict(a) for a in assets]
         return self

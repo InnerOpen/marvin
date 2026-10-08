@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import UUID4
 
 from marvin.db.models.users.roles import WorkspaceRole
@@ -10,7 +10,9 @@ from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_editor, require_workspace_role
 from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
 from marvin.services import trash
+from marvin.services.assets import scope
 from marvin.services.assets.asset_storage_service import AssetRejected, AssetStorageService
+from marvin.services.assets.scope import ASK, LIBRARY, SCOPES, upload_scope
 from marvin.services.event_bus_service.event_types import EventAssetData, EventTypes
 from marvin.services.storage import StorageConfigError
 from marvin.services.storage.keys import content_disposition
@@ -29,9 +31,18 @@ class AssetsController(BaseUserController):
     and fetching it by id shows its `trashed_at`. Only a trashed asset can be deleted forever."""
 
     @router.get("", response_model=list[AssetRead], summary="List Assets")
-    def list_assets(self) -> list[AssetRead]:
-        """Every asset but those in the Trash."""
-        return [a for a in self.repos.assets.get_all(order_by="name") if a.trashed_at is None]
+    def list_assets(
+        self,
+        scope: str = Query(LIBRARY, description="'library' (the Assets library) or 'ask' (files attached to chat questions)"),
+    ) -> list[AssetRead]:
+        """The library's assets, by name; with `scope=ask`, the Ask files, newest first. Never those in the Trash."""
+        if scope not in SCOPES:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"scope must be one of: {', '.join(SCOPES)}")
+        if scope == ASK:
+            rows = self.repos.assets.get_all(order_by="created_at", order_descending=True)
+        else:
+            rows = self.repos.assets.get_all(order_by="name")
+        return [a for a in rows if a.trashed_at is None and a.scope == scope]
 
     @router.post("/upload", response_model=AssetRead, status_code=status.HTTP_201_CREATED, summary="Upload Asset")
     async def upload_asset(
@@ -77,6 +88,7 @@ class AssetsController(BaseUserController):
             alt_text=alt_text,
             description=description,
             metadata_json=metadata_dict,
+            scope=upload_scope(metadata_dict),
         )
 
         # Get storage provider and create service
@@ -94,6 +106,10 @@ class AssetsController(BaseUserController):
         except AssetRejected as e:
             raise HTTPException(status_code=e.status_code, detail=str(e)) from e
 
+        # An Ask file isn't a new library asset: workflows and webhooks on `asset_uploaded` hear of it when it's
+        # moved to the library (move_to_library), not while it is a chat attachment.
+        if asset.scope == ASK:
+            return asset
         # Emit event
         self.event_bus.dispatch(
             integration_id="asset_management",
@@ -197,6 +213,19 @@ class AssetsController(BaseUserController):
         if asset.trashed_at is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This asset is not in the Trash.")
         trash.restore(self.session, self.group_id, trash.ASSET, item_id, actor_id=self.user.id, event_bus=self.event_bus)
+        return self.repos.assets.get_one(item_id)
+
+    @router.post("/{item_id}/move-to-library", response_model=AssetRead, summary="Move an Ask File to the Assets Library")
+    def move_to_library(self, item_id: UUID4) -> AssetRead:
+        """File an Ask file (a chat attachment) in the Assets library. It then lists, counts and publishes like any
+        asset, and `asset_uploaded` fires for it. AUTHOR and above, like uploading straight to the library."""
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.AUTHOR)
+        asset = self.repos.assets.get_one(item_id)
+        if not asset or asset.trashed_at is not None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+        if asset.scope != ASK:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This asset is already in the library.")
+        scope.move_to_library(self.session, self.group_id, [item_id], actor_id=self.user.id, event_bus=self.event_bus)
         return self.repos.assets.get_one(item_id)
 
     @router.get("/{item_id}/file", summary="Serve Asset File")

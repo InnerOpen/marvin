@@ -2,7 +2,7 @@
 import FilterBar from "@/components/FilterBar.astro";
 import TagList from "@/components/TagList.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
-import { getAuthToken } from "@/lib/api/client";
+import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getAssets } from "@/lib/api/platform";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 
@@ -13,8 +13,15 @@ const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCE
 let assets = [];
 let error: string | null = null;
 
+// Ask files (chat attachments) live apart from the library: a link to them, with their count.
+let askFiles = 0;
 try {
-  assets = await getAssets(authToken);
+  const [library, asks] = await Promise.all([
+    getAssets(authToken),
+    fetchApi<unknown[]>("/api/platform/assets?scope=ask", {}, authToken).catch(() => []),
+  ]);
+  assets = library;
+  askFiles = asks.length;
 } catch (e) {
   error = e instanceof Error ? e.message : String(e);
   console.error("[Assets] Failed to load:", error);
@@ -81,6 +88,7 @@ const sortedCategoryGroups = categoryOrder
               }
             ]}
           />
+          <a class="button secondary" href="/workspace/assets/ask-files" title="Files attached to chat questions, kept out of the library">Ask files{askFiles ? ` (${askFiles})` : ""}</a>
           {access.canAuthor && <a class="button" href="/workspace/assets/new">Upload Asset</a>}
         </div>
       </div>
