@@ -170,8 +170,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <textarea class="input mono" id="wf-json" rows="16" spellcheck="false"></textarea>
           <span class="hint">
             The definition — <code>{`{"trigger": {…}, "conditions": […], "actions": […]}`}</code> — or a whole workflow:
-            <code>{`{"name": "Archive old drafts", "definition": {…}}`}</code>. A pasted <code>name</code> fills the
-            Name field; <code>enabled</code> is ignored, so a new workflow stays off until you tick Enabled.
+            <code>{`{"name": "Archive old drafts", "definition": {…}}`}</code> (what <strong>Copy JSON</strong> on a
+            workflow gives you). A pasted <code>name</code> fills the Name field; <code>enabled</code> is ignored, so a
+            new workflow stays off until you tick Enabled.
           </span>
           <span class="hint" id="wf-json-note" hidden></span>
         </div>
@@ -219,7 +220,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
   import { describeSaveError } from "@/lib/saveError";
-  import { definitionDifferences, parseWorkflowJson } from "@/lib/workflowJson";
+  import { definitionDifferences, parseWorkflowJson, workflowDocument } from "@/lib/workflowJson";
 
   const read = (id: string) => JSON.parse(document.getElementById(id)!.textContent || "null");
   const OPTIONS = read("wf-options-data") || { triggers: [], conditionOps: [], actionKinds: [], operations: [] };
@@ -1258,6 +1259,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <button class="wf-btn js-history">Runs</button>
           <button class="wf-btn js-toggle">${wf.enabled ? "Disable" : "Enable"}</button>
           <button class="wf-btn js-edit">Edit</button>
+          <button class="wf-btn js-copy" title="Copy the name and definition as JSON — paste it into New workflow → Edit as JSON, here or in another workspace">Copy JSON</button>
           <button class="wf-btn danger js-delete">Delete</button>
         </div>
       </div>`).join("");
@@ -1291,6 +1293,17 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       });
       card.querySelector(".js-history")!.addEventListener("click", () => toggleHistory(card, id));
       card.querySelector(".js-edit")!.addEventListener("click", () => openBuilder(wf));
+      card.querySelector(".js-copy")!.addEventListener("click", async (e) => {
+        const btn = e.currentTarget as HTMLButtonElement;
+        const text = JSON.stringify(workflowDocument(wf), null, 2);
+        try {
+          await navigator.clipboard.writeText(text);
+          btn.textContent = "Copied";
+          setTimeout(() => { btn.textContent = "Copy JSON"; }, 1500);
+        } catch {
+          prompt("Copy this workflow's JSON:", text);  // no clipboard access (e.g. plain http)
+        }
+      });
       card.querySelector(".js-toggle")!.addEventListener("click", async () => {
         try { await updateAutomation(id, { enabled: !wf.enabled }); location.reload(); }
         catch (e: any) { alert(e?.message || "Failed to toggle."); }

@@ -89,7 +89,7 @@ Only the first 10 steps run; the validator warns when there are more.
 
 ## Where
 
-**Workspace Settings → Automation → Workflows** (`/automation/workflows`). Each card offers **Run**, **Dry run**, **Runs** (the last 15 executions), **Edit** and **Delete**. Trigger labels in the builder: Event, Manual (Run button), Schedule, After another workflow, When a workflow fails, Incoming webhook (external POST), MCP tool (external hosts).
+**Workspace Settings → Automation → Workflows** (`/automation/workflows`). Each card offers **Run**, **Dry run**, **Runs** (the last 15 executions), **Enable**/**Disable**, **Edit**, **Copy JSON** and **Delete**. Trigger labels in the builder: Event, Manual (Run button), Schedule, After another workflow, When a workflow fails, Incoming webhook (external POST), MCP tool (external hosts).
 
 ## How to use
 
@@ -97,6 +97,8 @@ Only the first 10 steps run; the validator warns when there are more.
 2. Add steps under **Then do**. To read a step's output later, give the step an `id` in **Edit as JSON** (`$steps.subscribe.output.body.id`).
 3. **Save workflow**. Structural errors (unknown kind, missing field) block the save with `422`; advisory warnings (a condition that can never match) do not.
 4. **Dry run** to see the resolved plan without executing, then tick **Enabled** and **Run**.
+
+**Edit as JSON** takes the bare definition (`{"trigger": …, "conditions": […], "actions": […]}`) or a whole workflow, `{"name": "…", "slug": "…", "definition": {…}}`, which is what **Copy JSON** on a card copies (name and definition, no ids). Pasting a whole workflow fills **Name** (and, for a new workflow, the slug) and leaves the definition in the box. `enabled` in pasted JSON is ignored: a new workflow is saved disabled until you tick **Enabled**. Switching back to the guided builder carries the JSON over; if it doesn't parse, or holds something the builder can't show (a cron schedule, a non-text condition value, a condition group), the editor stays in JSON and lists the parts, or asks before dropping them. A refused save lists each invalid field (`actions.0.entry.op: Field required`).
 
 A dry run of an event-triggered workflow (Event, Incoming webhook, After another workflow, When a workflow fails) runs against a sample event, so `${entry.title}` and `$event.*` resolve as they would on a real run. **Testing with** picks the sample: recent events of the trigger's type from the event log, then (for entry lifecycle triggers) recent entries with no logged event, built into the event the entry would emit. The default is the newest event whose conditions pass, else the newest event (marked "conditions fail"), else the newest matching entry. The panel shows whether the trigger fires on that event, a ✓/✗ line per condition with the value it got, **Would fire** or **Would not fire**, and the resolved steps (a webhook step shows its URL, headers and body; `{{SLUG}}` references stay unresolved and a credential typed into a header shows as `••••••`). Steps are resolved even when a condition fails. The entry is read as it is now, not as it was when the event was logged. Manual and scheduled workflows dry-run as before.
 
