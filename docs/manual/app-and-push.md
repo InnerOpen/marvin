@@ -40,7 +40,7 @@ Push is off until the server has VAPID keys (see [Setting up push](#setting-up-p
 - **Send a test** sends one to each of your devices; the list then shows when each was last reached.
 - **Devices with notifications on** lists every browser and phone push is on for, with **Remove**.
 
-**Logging out turns notifications off on that device** — a shared or borrowed device stops getting your notifications as soon as you sign out. Turn them on again after signing back in.
+**Notifications stay on after you log out** — they belong to the device, so you keep getting them without staying signed in. On a shared or borrowed device, turn them off in **Profile** before you hand it back, or remove the device from Profile on any other device later. If someone else turns notifications on in that browser, the device moves to their account.
 
 A notification carries a title, one line and a link into the admin — never a submission's fields, an agent's tool arguments or anything secret. Clicking it focuses an open Marvin window (or opens one) on that page; links only ever lead into the admin itself.
 

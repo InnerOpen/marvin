@@ -2,7 +2,7 @@
  * The installable app in the browser: registers the service worker (production builds only — `astro dev`
  * has none), announces a waiting update to the update banner, remembers the install prompt for Profile, keeps
  * the browser chrome colour on the chosen theme, shows the inbox count on the app icon, and cleans up on
- * logout (this device's push subscription and the caches). Pure decisions live in lib/pwa.ts.
+ * logout (the caches and the icon badge). Pure decisions live in lib/pwa.ts.
  */
 import { removePushEndpoint, savePushSubscription } from "./api/push";
 import { urlBase64ToUint8Array } from "./pwa";
@@ -156,9 +156,9 @@ async function clearCaches(): Promise<void> {
 }
 
 /**
- * Logging out on a shared device leaves nothing behind: this browser stops getting the person's pushes and
- * the app's caches are emptied (they only ever hold static files, but a clean slate is the rule). Capped so
- * a slow network never holds up the logout.
+ * Logging out empties the app's caches (they only ever hold static files, but a clean slate is the rule) and
+ * clears the icon badge. Push stays on: it belongs to the device, and the person turns it off in Profile (or
+ * removes the device there from anywhere). Capped so a slow network never holds up the logout.
  */
 export function guardLogout(): void {
   document.addEventListener("submit", (event) => {
@@ -170,7 +170,7 @@ export function guardLogout(): void {
     )
       return;
     event.preventDefault();
-    const cleanup = Promise.allSettled([disablePush(), clearCaches(), Promise.resolve(setBadge(0))]);
+    const cleanup = Promise.allSettled([clearCaches(), Promise.resolve(setBadge(0))]);
     const timeout = new Promise((resolve) => setTimeout(resolve, LOGOUT_TIMEOUT_MS));
     Promise.race([cleanup, timeout]).finally(() => {
       form.dataset.pwaCleaned = "1";
