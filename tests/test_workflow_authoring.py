@@ -510,8 +510,10 @@ def test_a_persons_switched_off_workflow_is_never_revised_by_the_agent(ws):
     """Made in the editor, off, same name as the agent's next draft: the agent can't overwrite it, and isn't told to try."""
     rest = gates._sign_in(ws.workspace, AD).post("/api/automations", json={"name": "Hand made", "definition": GOOD, "enabled": False})
     assert rest.status_code == 201
-    out = _tool(ws, "draft_workflow", {"name": "Hand made", "definition": GOOD})
+    out = _tool(ws, "draft_workflow", {"name": "Hand made", "definition": {**GOOD, "actions": [{"kind": "entry", "op": "archive"}]}})
     assert "already exists" in out["error"] and "update_workflow_draft" not in out["error"]
+    # What it does now, to compare with the request — the user may have changed it under the same name.
+    assert "don't offer to" in out["error"] and "how it differs" in out["error"] and out["existing"]["definition"] == GOOD
     out = _tool(ws, "update_workflow_draft", {"workflow": "hand-made", "definition": {**GOOD, "actions": []}})
     assert "user's own work" in out["error"] and "editLink" in out
     assert _rows(ws)[0].definition == GOOD

@@ -261,10 +261,20 @@ def draft_workflow(ctx: ToolContext, args: dict) -> str:
         row = create_workflow(ctx.session, ctx.group_id, getattr(ctx.user, "id", None), data, agent_draft=True)
     except SlugConflict as e:
         taken = _find_workflow(ctx.session, ctx.group_id, e.slug)
-        revisable = taken is not None and not taken.enabled and taken.agent_draft
-        revise = ", or revise that one with update_workflow_draft (an agent's draft, still switched off)" if revisable else ""
-        error = f"A workflow with the slug '{e.slug}' already exists. Pick another name{revise}."
-        return _refused(error, existing=_workflow_ref(taken) if taken else None)
+        if taken is not None and not taken.enabled and taken.agent_draft:
+            error = (
+                f"A workflow with the slug '{e.slug}' already exists: an agent's draft, still switched off. Revise it with "
+                "update_workflow_draft (then say you changed the existing one), or pick another name."
+            )
+        else:
+            # The user's own (or live) workflow: the name says little — they may have changed what it does.
+            error = (
+                f"A workflow with the slug '{e.slug}' already exists and is the user's own: you can't change it, so don't "
+                "offer to. Compare its definition (in `existing`) with what they asked for and say plainly how it differs, "
+                "if it does — then offer a new draft under another name."
+            )
+        existing = {**_workflow_ref(taken), "definition": taken.definition} if taken else None
+        return _refused(error, existing=existing)
     except WorkflowError as e:  # the gate draft_issues already ran; kept so a refusal never surfaces as a crash
         return _refused(str(e), getattr(e, "issues", None))
     return _saved(ctx, row, parsed, created=True)
