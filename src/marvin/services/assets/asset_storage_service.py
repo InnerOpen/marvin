@@ -268,20 +268,21 @@ class AssetStorageService(BaseService):
             True if asset was deleted, False if not found
 
         Raises:
-            Exception: If deletion fails
+            Exception: If the file can't be deleted from storage — the row is kept then, so the file isn't
+            orphaned: an asset in the Trash stays there, and the next Empty trash or auto-empty tries again.
         """
         # Get asset from database
         asset = self.repos.assets.get_one(asset_id)
         if not asset:
             return False
 
-        # Delete from storage (the provider the row lives in)
+        # Delete from storage (the provider the row lives in). A file that is already gone is fine (the providers
+        # don't raise for a missing key); a failure is not — dropping the row then would leave the file orphaned.
         try:
             self.storage_for(asset).delete(asset.storage_key)
         except Exception as e:
-            # Log but don't fail if storage deletion fails
-            # The database record should still be removed
-            self.logger.warning(f"Failed to delete asset from storage: {e}")
+            self.logger.warning(f"Failed to delete asset {asset_id} from storage, kept it for a retry: {e}")
+            raise
         self._delete_old_copies(asset_id)
 
         # Delete database record

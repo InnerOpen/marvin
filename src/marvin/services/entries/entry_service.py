@@ -282,10 +282,10 @@ class EntryService:
         # Orphan cleanup: a suggested asset that no other entry links to is discarded outright.
         remaining = self.session.query(EntryAssets).filter(EntryAssets.asset_id == asset_id).count()
         if remaining == 0:
-            from marvin.services.assets.asset_storage_service import AssetStorageService
-            from marvin.services.storage.provider_factory import get_storage_provider
+            from marvin.services import trash
 
-            AssetStorageService(self.repos, get_storage_provider()).delete_asset(asset_id)
+            # The one asset delete: file, old-key copies, row, then asset_deleted.
+            trash.delete_asset(self.session, self.group_id, asset_id, actor_id=self.actor_id, event_bus=self.event_bus)
 
         entry = self.repos.entries.get_one(entry_id)
         self._emit(entry, EventTypes.entry_updated, EventOperation.update, f"Suggested asset rejected on '{entry.title}'", self._names(entry))

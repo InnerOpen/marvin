@@ -145,7 +145,8 @@ def test_reject_unlinks_and_deletes_orphan_asset(db_session, workspace):
     assert entry is not None
     assert db_session.query(EntryAssets).filter_by(entry_id=entry_id, asset_id=asset_id).count() == 0
     assert db_session.get(Assets, asset_id) is None, "orphaned asset must be deleted"
-    assert bus.events == ["entry_updated"]
+    # Through the one asset delete: its file goes from storage and asset_deleted says so.
+    assert bus.events == ["asset_deleted", "entry_updated"]
 
 
 def test_reject_keeps_asset_when_still_linked_elsewhere(db_session, workspace):

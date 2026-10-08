@@ -168,7 +168,8 @@ class RemoveOrphanedAssetsHandler(ScheduledTaskHandler):
 
     Configuration (task_config):
     - age_days: int (default: 30) - Only consider assets older than this
-    - auto_delete: bool (default: False) - If true, delete orphans; if false, just report
+    - auto_delete: bool (default: False) - If true, move orphans to the Trash (restorable; emptying it deletes
+      their files); if false, just report
     """
 
     name = "Remove Orphaned Assets"
@@ -184,7 +185,7 @@ class RemoveOrphanedAssetsHandler(ScheduledTaskHandler):
             "auto_delete": {
                 "type": "boolean",
                 "default": False,
-                "description": "If true, delete orphans; if false, just report",
+                "description": "If true, move orphans to the Trash (restorable until it is emptied); if false, just report",
             },
         },
     }
@@ -216,10 +217,13 @@ class RemoveOrphanedAssetsHandler(ScheduledTaskHandler):
             count = len(orphans)
 
             if auto_delete:
+                # To the Trash, not a bare row delete: that left every file orphaned in storage, and an asset no
+                # entry links to may still be in use (a site logo). The Trash's emptying deletes files properly.
+                from marvin.services import trash
+
                 for asset in orphans:
-                    session.delete(asset)
-                session.commit()
-                label = "deleted"
+                    trash.trash(session, asset.group_id, trash.ASSET, asset.id)
+                label = "moved to the Trash"
             else:
                 label = "found (auto_delete=false, not removed)"
 

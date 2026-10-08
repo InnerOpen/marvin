@@ -18,6 +18,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 from pytest import fixture
 
@@ -579,3 +580,56 @@ def test_restore_entries_takes_assets_and_resources_back_out(ws):
 def test_the_tools_need_something_named_and_cap_the_batch(ws):
     assert "name at least one" in _ai(ws, "trash_entries", {})["error"]
     assert "at most 50" in _ai(ws, "restore_entries", {"assets": [f"a{i}" for i in range(30)], "resources": [f"r{i}" for i in range(21)]})["error"]
+
+
+def test_a_file_that_wont_delete_keeps_its_asset_so_nothing_is_orphaned(ws, monkeypatch):
+    """Storage unreachable: the delete raises and the row stays (in the Trash, for the next empty to retry) — before,
+    the row went anyway and the file was left in storage with nothing pointing at it."""
+    aid = ws.asset("stuck")
+    key = _get(ws, "asset", aid).storage_key
+    T.trash(ws.session, ws.gid, "asset", aid)
+
+    real_delete, reachable = ws.store.delete, {"now": False}
+
+    def flaky(storage_key):
+        if not reachable["now"]:
+            raise OSError("storage is unreachable")
+        return real_delete(storage_key)
+
+    monkeypatch.setattr(ws.store, "delete", flaky)
+    with pytest.raises(OSError, match="unreachable"):
+        T.delete_asset(ws.session, ws.gid, aid)
+    assert T.is_trashed(_get(ws, "asset", aid)) and ws.store.exists(key)
+    assert "asset_deleted" not in _names(aid)
+
+    reachable["now"] = True  # reachable again: the next empty deletes file and row
+    assert T.delete_asset(ws.session, ws.gid, aid) and not ws.store.exists(key)
+
+
+def test_the_orphaned_assets_task_moves_orphans_to_the_trash_instead_of_dropping_rows(ws, monkeypatch):
+    """auto_delete used to delete the rows and leave every file in storage; an unlinked asset may still be in use (a
+    site logo), so it now goes to the Trash — restorable, and emptied with its file like any other."""
+    from contextlib import contextmanager
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+
+    from marvin.services.scheduled_tasks.handlers import maintenance
+    from marvin.services.scheduled_tasks.handlers.maintenance import RemoveOrphanedAssetsHandler
+
+    @contextmanager
+    def this_session():
+        yield ws.session
+
+    monkeypatch.setattr(maintenance, "session_context", this_session)
+
+    aid = ws.asset("unused")
+    _get(ws, "asset", aid).created_at = datetime.now(UTC) - timedelta(days=40)
+    ws.session.flush()
+    task = SimpleNamespace(group_id=ws.gid, task_config={"age_days": 30, "auto_delete": True})
+
+    summary = RemoveOrphanedAssetsHandler().execute(task, None)
+
+    assert "moved to the Trash" in summary
+    row = _get(ws, "asset", aid)
+    assert row is not None and T.is_trashed(row) and ws.store.exists(row.storage_key)
+    assert "asset_trashed" in _names(aid)
