@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.217 (2026-10-08)
+
+### Bug Fixes
+
+- **webhooks**: No Generate key for senders that issue their own, and replace an existing secret on
+  ask
+  ([`a3605ec`](https://github.com/InnerOpen/marvin/commit/a3605ecbf01c8fe41c730821956bf5aaf4e251d8))
+
+
 ## v1.0.0-rc.216 (2026-10-08)
 
 ### Features
