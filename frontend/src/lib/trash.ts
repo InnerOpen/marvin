@@ -18,8 +18,19 @@ export function autoEmptyNote(effectiveDays: number): string {
 }
 
 /** The Empty trash confirmation — everything in the Trash: entries, assets and resources. */
-export function emptyTrashPrompt(count: number): string {
-  return `Permanently delete ${count} ${count === 1 ? "item" : "items"}? Files are removed from storage. This can't be undone.`;
+export function emptyTrashPrompt(counts: { entries: number; assets: number; resources: number }): string {
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const parts = [
+    counts.entries ? plural(counts.entries, "entry", "entries") : "",
+    counts.assets ? plural(counts.assets, "asset", "assets") : "",
+    counts.resources ? plural(counts.resources, "resource", "resources") : "",
+  ].filter(Boolean);
+  const list = parts.length > 1 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts[0] ?? "nothing";
+  const files = counts.assets ? " The assets' files are removed from storage." : "";
+  return (
+    `Empty the Trash? This permanently deletes everything in it — on every tab, not just this one: ${list}.` +
+    `${files} This can't be undone.`
+  );
 }
 
 /** The kinds of thing the Trash holds, as its tabs name them. */

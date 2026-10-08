@@ -23,10 +23,19 @@ describe("auto-empty wording", () => {
   });
 
   test("the Empty trash confirmation counts everything that goes and says files go too", () => {
-    assert.equal(emptyTrashPrompt(1), "Permanently delete 1 item? Files are removed from storage. This can't be undone.");
     assert.equal(
-      emptyTrashPrompt(12),
-      "Permanently delete 12 items? Files are removed from storage. This can't be undone.",
+      emptyTrashPrompt({ entries: 25, assets: 3, resources: 1 }),
+      "Empty the Trash? This permanently deletes everything in it — on every tab, not just this one: 25 entries, 3 assets " +
+        "and 1 resource. The assets' files are removed from storage. This can't be undone.",
+    );
+    assert.equal(
+      emptyTrashPrompt({ entries: 1, assets: 0, resources: 0 }),
+      "Empty the Trash? This permanently deletes everything in it — on every tab, not just this one: 1 entry. This can't be undone.",
+    );
+    assert.equal(
+      emptyTrashPrompt({ entries: 2, assets: 0, resources: 4 }),
+      "Empty the Trash? This permanently deletes everything in it — on every tab, not just this one: 2 entries and 4 resources. " +
+        "This can't be undone.",
     );
   });
 
