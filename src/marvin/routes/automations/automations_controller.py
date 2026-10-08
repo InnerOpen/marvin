@@ -182,8 +182,22 @@ class AutomationsController(BaseUserController):
         from marvin.services.automation.validation import structural_issues, validate_definition
 
         # Errors first (most severe), then advisory warnings.
-        issues = structural_issues(data.definition) + validate_definition(data.definition)
+        structural = structural_issues(data.definition)
+        issues = structural + validate_definition(data.definition)
+        if not structural:
+            issues += self._missing_chain_warnings(data.definition)
         return AutomationValidateResult(issues=issues)
+
+    def _missing_chain_warnings(self, definition: dict) -> list[dict]:
+        """An "after workflow X" trigger naming a workflow this workspace doesn't have — a pasted copy whose other half
+        hasn't been copied yet. A warning: saving is fine, but it won't run until X exists here."""
+        from marvin.services.automation.authoring import reference_issues
+
+        return [
+            {**issue, "level": "warning", "message": f"{issue['message']} Copy that workflow into this workspace too, or pick another."}
+            for issue in reference_issues(self.session, self.group_id, definition)
+            if issue.get("path") == "trigger.automation"
+        ]
 
     @router.post("/preview", response_model=AutomationPreviewResult, summary="Dry-run a target selector")
     def preview(self, data: AutomationPreviewRequest) -> AutomationPreviewResult:

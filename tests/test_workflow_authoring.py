@@ -543,3 +543,18 @@ def test_a_cron_workflow_saves_with_a_due_backing_task_and_a_bad_one_is_a_422(ws
 
     out = _tool(ws, "draft_workflow", {"name": "Agent never", "definition": {**GOOD, "trigger": bad}})
     assert out.get("workflow") is None and any("numbers, not names" in i["message"] for i in out["issues"])
+
+
+def test_the_editor_warns_when_a_chained_trigger_names_a_workflow_that_isnt_here(ws):
+    """A pasted copy of the second half of a chain: saving is allowed, but the editor says the first half is missing."""
+    client = gates._sign_in(ws.workspace, AD)
+    assert client.post("/api/automations", json={"name": "First half", "definition": GOOD}).status_code == 201
+
+    def chain_warnings(ref):
+        definition = {**GOOD, "trigger": {"type": "chained", "automation": ref}}
+        issues = client.post("/api/automations/validate", json={"definition": definition}).json()["issues"]
+        return [i for i in issues if i.get("path") == "trigger.automation"]
+
+    (missing,) = chain_warnings("copied-from-elsewhere")
+    assert missing["level"] == "warning" and "Copy that workflow into this workspace too" in missing["message"]
+    assert chain_warnings("first-half") == [] and chain_warnings("any") == []

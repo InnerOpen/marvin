@@ -101,9 +101,26 @@ function definitionShapeError(def: Json): string | null {
   return null;
 }
 
-/** A workflow as portable JSON — name and definition, no ids or enabled state — to paste into another workspace. */
-export function workflowDocument(wf: { name: string; definition?: Json | null }): { name: string; definition: Json } {
-  return { name: wf.name, definition: wf.definition ?? {} };
+/**
+ * A workflow as portable JSON — name, slug and definition, no ids or enabled state — to paste into another workspace.
+ * The slug travels because it is the workflow's identity: "after workflow X" triggers name X by slug, and a renamed
+ * workflow keeps its old slug, so deriving one from the name on the other side could break the chain.
+ */
+export function workflowDocument(wf: { name: string; slug?: string | null; definition?: Json | null }): {
+  name: string;
+  slug?: string;
+  definition: Json;
+} {
+  return { name: wf.name, ...(wf.slug ? { slug: wf.slug } : {}), definition: wf.definition ?? {} };
+}
+
+/** The slug itself when this workspace doesn't use it, else the first free `<slug>-2`, `<slug>-3`, … */
+export function freeSlug(slug: string, taken: Iterable<string>): string {
+  const used = new Set(taken);
+  if (!used.has(slug)) return slug;
+  let n = 2;
+  while (used.has(`${slug}-${n}`)) n++;
+  return `${slug}-${n}`;
 }
 
 const isAbsent = (v: unknown) =>

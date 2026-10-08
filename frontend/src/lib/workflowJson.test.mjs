@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { definitionDifferences, parseWorkflowJson, workflowDocument } from "./workflowJson.ts";
+import { definitionDifferences, freeSlug, parseWorkflowJson, workflowDocument } from "./workflowJson.ts";
 
 const DEFINITION = {
   trigger: { type: "event", event: "entry_published" },
@@ -80,10 +80,19 @@ describe("parseWorkflowJson", () => {
     assert.equal(result.ok, true);
   });
 
-  test("what Copy JSON gives back pastes straight in", () => {
-    const doc = workflowDocument({ id: "1", name: "Archive posts", enabled: true, definition: DEFINITION });
-    assert.deepEqual(doc, { name: "Archive posts", definition: DEFINITION });
-    assert.deepEqual(parse(doc), { ok: true, definition: DEFINITION, name: "Archive posts", ignored: [] });
+  test("what Copy JSON gives back pastes straight in, slug included", () => {
+    const doc = workflowDocument({ id: "1", name: "Archive posts", slug: "archive-old", enabled: true, definition: DEFINITION });
+    assert.deepEqual(doc, { name: "Archive posts", slug: "archive-old", definition: DEFINITION });
+    const pasted = parse(doc);
+    assert.equal(pasted.ok, true);
+    assert.equal(pasted.slug, "archive-old"); // a renamed workflow keeps its slug, so chains to it survive the copy
+    assert.deepEqual(workflowDocument({ name: "No slug yet", definition: DEFINITION }), { name: "No slug yet", definition: DEFINITION });
+  });
+
+  test("a slug this workspace already uses gets the next free number", () => {
+    assert.equal(freeSlug("archive-old", ["other"]), "archive-old");
+    assert.equal(freeSlug("archive-old", ["archive-old"]), "archive-old-2");
+    assert.equal(freeSlug("archive-old", ["archive-old", "archive-old-2", "archive-old-3"]), "archive-old-4");
   });
 });
 
