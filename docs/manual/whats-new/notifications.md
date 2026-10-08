@@ -22,6 +22,8 @@ A scheduled task run with nothing to report is normally not logged; the first su
 
 **Integrations.** Any action on one of the workspace's connections that can carry a message can be a route: Slack's *Send message* (with its channel), Apprise's *Send notification*, or any other plugin's — found from the plugin's own declaration (an action with the `notify` capability, or any action of a `notify` plugin with a text input), never from a list of names. An action that takes more than the message asks for it; `{{SECRET}}` references to the workspace's secrets work there. One action can serve several routes (two channels). With nothing message-capable connected, the page says so and links to **Add a notification channel** (the Integrations page's Notify group).
 
+**Push**, when the server has Web Push set up: to the phones and browsers of the owners and admins who turned notifications on with *Workspace alerts* in their Profile. On by default, with its own kinds, last delivery and **Send test**; without VAPID keys there is no Push channel and nothing changes. See [The app and push notifications](../app-and-push.md).
+
 **Each channel takes every kind, or only some.** Email and each route default to every kind that is on; untick kinds on a channel to keep it to the rest (say, scheduled tasks to `#ops`, everything else by email). A kind switched off goes nowhere.
 
 **What a message says:** what failed and why (the workflow's or task's name and error, scrubbed of credentials), the scope *Workspace — <name>*, why it was sent, and a link to the page to look at (the workflow, the task, Alerts & health). Never an event's raw payload or a connection's credential.

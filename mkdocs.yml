@@ -67,6 +67,7 @@ nav:
       - Collections: whats-new/collections.md
       - Trash: whats-new/trash.md
   - Auth & tokens: auth-and-tokens.md
+  - The app & push: app-and-push.md
   - Operations: operations.md
   - Off-site backup: offsite-backup.md
   - Assets on R2: assets-on-r2.md
