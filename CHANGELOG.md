@@ -6,6 +6,25 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.216 (2026-10-08)
+
+### Features
+
+- **assets**: Ask files live apart from the Assets library
+  ([`53efc4b`](https://github.com/InnerOpen/marvin/commit/53efc4beeb812e825908caa2994dc7857b6e7880))
+
+- **pwa**: The app icon counts waiting approvals, and a notification opens in its workspace
+  ([`2128b1b`](https://github.com/InnerOpen/marvin/commit/2128b1b3c773b9de673a2e35823ad645046b3a59))
+
+- **pwa**: Uploads that fail offline wait and send when the connection is back
+  ([`8d0639d`](https://github.com/InnerOpen/marvin/commit/8d0639de2402cb31813b64dfed8c47e345ce7d86))
+
+### Refactoring
+
+- **ai**: OpenAI and Azure OpenAI come only from the marvin-ai-openai plugin
+  ([`d15c0d8`](https://github.com/InnerOpen/marvin/commit/d15c0d84f39be70aee54d4d12fff128ae311eb84))
+
+
 ## v1.0.0-rc.215 (2026-10-08)
 
 ### Bug Fixes
