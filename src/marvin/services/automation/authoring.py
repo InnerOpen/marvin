@@ -204,7 +204,7 @@ def _shape() -> dict:
             "Steps go in `actions`, run in order, each with a `kind`. To act on many entries, give a `target` query: the steps run once per match.",
             "`on_failure` steps run when a step fails, with `${error.*}`. `integration_errors`: policy (default) | fail.",
             "Use the trigger the user asked for; when they named none, `manual`. Never add a schedule or event they didn't ask "
-            "for — above all to a workflow that trashes, archives or unpublishes a target's matches. A recipe keeps its trigger.",
+            "for. A trash step over a target is always drafted `manual` (draft_workflow refuses anything else). A recipe keeps its trigger.",
         ],
     }
 
@@ -681,7 +681,29 @@ def draft_issues(session, group_id, definition: dict) -> list[dict]:
     (advisory on the REST path), then unknown keys and unknown references. Empty: draftable."""
     from .validation import item_target_issues, query_issues, structural_issues, unknown_key_issues
 
-    issues = structural_issues(definition) + query_issues(definition) + item_target_issues(definition)
+    issues = structural_issues(definition) + query_issues(definition) + item_target_issues(definition) + _trash_sweep_issues(definition)
     if issues:
         return issues
     return unknown_key_issues(definition) + reference_issues(session, group_id, definition)
+
+
+def _trash_sweep_issues(definition: dict) -> list[dict]:
+    """An agent never drafts a trash sweep that runs on its own (validation.unattended_trash_issues, a warning in the
+    editor): nobody would be asked before every match is trashed, while the agent's own trash tools always ask first.
+    It saves the sweep manual; making it scheduled or event-driven is the user's call, in the editor."""
+    from .validation import unattended_trash_issues
+
+    if not unattended_trash_issues(definition):
+        return []
+    return [
+        {
+            "level": "error",
+            "where": "trigger",
+            "path": "trigger.type",
+            "message": (
+                'A Move to Trash step over a target can\'t be drafted to run on its own: set the trigger to {"type": "manual"} '
+                "and call again — even when the user asked for a schedule or an event. Then tell them it is manual, and that "
+                "only they can switch the trigger in the workflow editor, after a dry run."
+            ),
+        }
+    ]

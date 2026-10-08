@@ -474,20 +474,39 @@ def test_no_sweep_warning_for_one_item_or_a_restore(definition):
     assert not [i for i in validate_definition(definition) if "to the Trash" in i["message"]]
 
 
-def test_the_agents_daily_sweep_is_saved_off_with_the_warning_for_the_user(ws):
-    """The draft Ask produced on 2026-10-08 for "trash every unattached image": it is saved (sometimes a schedule is the
-    point) but switched off, and the agent is handed the warning to pass on — and told to keep to the asked-for trigger."""
-    from tests.test_workflow_authoring import _tool
-
-    definition = {
+# The two drafts Ask produced on 2026-10-08 for "Create a workflow that will trash any unattached images".
+AGENT_SWEEPS = [
+    {
         "trigger": DAILY,
         "target": {**SWEEP, "query": {**SWEEP["query"], "trashed": False}},
         "conditions": [],
         "actions": [{"kind": "entry", "op": "trash"}],
-    }
+    },
+    {
+        "trigger": {"type": "event", "event": "asset_updated"},
+        "target": {**SWEEP, "query": {**SWEEP["query"], "trashed": False}},
+        "conditions": [],
+        "actions": [{"kind": "entry", "op": "trash", "entity_type": "asset"}],
+    },
+]
+
+
+@pytest.mark.parametrize("definition", AGENT_SWEEPS)
+def test_the_agent_cannot_draft_a_trash_sweep_that_runs_on_its_own(ws, definition):
+    """Nothing is saved; the agent is told to make it manual and leave any other trigger to the user, in the editor."""
+    from tests.test_workflow_authoring import _rows, _tool
+
     out = _tool(ws, "draft_workflow", {"name": "Trash unattached images", "definition": definition})
-    assert out["workflow"]["enabled"] is False
-    assert any("to the Trash every time the schedule trigger fires" in w for w in out["warnings"])
+    assert out.get("workflow") is None and [r for r in _rows(ws) if r.name == "Trash unattached images"] == []
+    (issue,) = out["issues"]
+    assert issue["path"] == "trigger.type" and '"manual"' in issue["message"] and "workflow editor" in issue["message"]
+
+
+def test_the_agents_sweep_drafted_manual_saves_off_without_a_warning(ws):
+    from tests.test_workflow_authoring import _tool
+
+    out = _tool(ws, "draft_workflow", {"name": "Trash unattached images", "definition": {**AGENT_SWEEPS[1], "trigger": MANUAL}})
+    assert out["workflow"]["enabled"] is False and "warnings" not in out
     assert "every warning" in out["next"]
     notes = authoring_guide(ws.session, ws.gid)["shape"]["notes"]
-    assert any("when they named none, `manual`" in n for n in notes)
+    assert any("always drafted `manual`" in n for n in notes)
