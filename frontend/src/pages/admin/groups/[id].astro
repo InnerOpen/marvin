@@ -106,11 +106,14 @@ const isPlatform = Boolean((group as (Workspace & { isPlatform?: boolean }) | nu
                       <td>{member.user?.email || '—'}</td>
                       <td><span class="role-badge">{member.workspaceRole}</span></td>
                       <td>
-                        <form method="POST" action={`/api/admin/groups/${id}/members/${member.userId}/delete`} style="display:inline;">
-                          <button type="submit" class="button secondary small danger" onclick="return confirm('Remove this user from the workspace?')">
-                            Remove
-                          </button>
-                        </form>
+                        <button
+                          type="button"
+                          class="button secondary small danger js-remove-member"
+                          data-workspace-id={id}
+                          data-user-id={member.userId}
+                        >
+                          Remove
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -155,7 +158,7 @@ const isPlatform = Boolean((group as (Workspace & { isPlatform?: boolean }) | nu
 </AdminLayout>
 
 <script>
-  import { adminErrorMessage, renameWorkspace } from "@/lib/api/admin/workspaces";
+  import { adminErrorMessage, removeWorkspaceMember, renameWorkspace } from "@/lib/api/admin/workspaces";
 
   const form = document.getElementById("workspace-rename-form") as HTMLFormElement | null;
   const status = document.getElementById("rename-status");
@@ -175,6 +178,22 @@ const isPlatform = Boolean((group as (Workspace & { isPlatform?: boolean }) | nu
       if (status) status.textContent = `Error: ${adminErrorMessage(err)}`;
       if (button) button.disabled = false;
     }
+  });
+
+  // Remove a member through the admin API. (A form here used to post to a route that never existed,
+  // so Remove opened a raw "Not Found" page and the member stayed.)
+  document.querySelectorAll<HTMLButtonElement>(".js-remove-member").forEach((button) => {
+    button.addEventListener("click", async () => {
+      if (!confirm("Remove this user from the workspace?")) return;
+      button.disabled = true;
+      try {
+        await removeWorkspaceMember(button.dataset.workspaceId!, button.dataset.userId!);
+        window.location.reload();
+      } catch (err) {
+        alert(`Couldn't remove them: ${adminErrorMessage(err)}`);
+        button.disabled = false;
+      }
+    });
   });
 </script>
 

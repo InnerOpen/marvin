@@ -1,7 +1,7 @@
 /**
- * Admin Workspaces API — renaming a workspace (name and slug), the platform (admin's) workspace included.
- * A changed slug keeps resolving to the workspace (Publishing API URLs, CLI arguments, backups), so
- * renaming doesn't break what already uses the old one.
+ * Admin Workspaces API — renaming a workspace (name and slug), the platform (admin's) workspace included,
+ * and removing a member from one. A changed slug keeps resolving to the workspace (Publishing API URLs,
+ * CLI arguments, backups), so renaming doesn't break what already uses the old one.
  */
 
 import { ApiRequestError, fetchApi } from "../client";
@@ -28,6 +28,15 @@ export async function renameWorkspace(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, name, slug: slug?.trim() || null }),
     },
+    authToken,
+  );
+}
+
+/** Remove a user from a workspace. 403 for yourself or the workspace's last OWNER, 404 if not a member. */
+export async function removeWorkspaceMember(workspaceId: string, userId: string, authToken?: string): Promise<void> {
+  await fetchApi(
+    `/api/admin/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
     authToken,
   );
 }
