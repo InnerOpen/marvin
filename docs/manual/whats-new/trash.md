@@ -60,6 +60,8 @@ Trashing or restoring an asset or resource that a site shows (attached to a publ
 
 **Ask an agent.** "Delete the test signups" makes an agent call `trash_entries`: the entries go to the Trash and the answer links to it. "Delete the old banner image" works the same way with the tool's `assets` list (and `resources` for resources); "bring it back" calls `restore_entries`.
 
+**Ask an agent to clear out a lot.** "Move all the assets to the Trash" or "delete every unattached image" makes an agent call `trash_entries` with `match` instead of names: one kind (`entries`, `assets` or `resources`) and either `all: true` or a `query` in the filters that kind's lists already take (`find_entries`' filters for entries; asset type, MIME type, name, tags, collection, `unattached` and created dates for assets and resources). Such a call always asks first: the approval card says how many will move, names a sample, and says they go to the Trash, where they can be restored. Nothing is deleted forever. One call moves at most 500; the answer says how many more match, and the agent calls again for the rest, which asks again. Where the run can't stop to ask, nothing moves and the agent is told how many match. `restore_entries` takes the same `match` for the Trash's side ("restore all the images"). A `*`, `all` or `everything` in a list of names is refused with a pointer to `match`, unless something really has that name.
+
 ## API
 
 | Method and path | What it does |
