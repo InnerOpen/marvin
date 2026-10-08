@@ -16,7 +16,7 @@ Deleting an entry, an asset or a resource now moves it to the **Trash**, where i
 
 **Delete forever** removes one trashed entry for good. **Empty trash** removes everything in the Trash — entries, assets and resources — after one confirmation. Both delete each entry the normal way, so `entry_deleted` fires per entry and its links to collections, tags, assets and resources go with it.
 
-**Auto-empty.** Entries, assets and resources that have been in the Trash longer than the workspace allows are deleted forever by an hourly job (on the scheduler leader only; running it twice deletes nothing twice). The limit is a platform default — **30 days** unless a super admin changes it — that a workspace can override with **Never**, 7, 30 or 90 days. **Never** keeps entries until someone empties the Trash. An entry with no recorded `trashed_at` (one trashed before the record existed, e.g. from a restored backup) is never auto-deleted; emptying the Trash removes it.
+**Auto-empty.** Entries, assets and resources that have been in the Trash longer than the workspace allows are deleted forever by an hourly job (on the scheduler leader only; running it twice deletes nothing twice). The limit is a platform default — **30 days** unless a super admin changes it — that a workspace can override with **Never**, 7, 30 or 90 days. **Never** keeps entries until someone empties the Trash. An entry with no recorded `trashed_at` (one trashed before the record existed, e.g. from a restored backup) is never auto-deleted; emptying the Trash removes it. The day before, owners and admins with push on get "*Workspace*: 14 items will be deleted forever tomorrow" (Profile → Notifications → **Trash reminders**, on by default), at most once a day per workspace; it opens the Trash. See [The app and push notifications](../app-and-push.md).
 
 **Assets and resources.** On an asset or resource page, and in the asset and resource lists, **Move to Trash** replaced **Delete** (no confirmation; restore it from the Trash). A trashed asset or resource:
 
@@ -42,6 +42,7 @@ Trashing or restoring an asset or resource that a site shows (attached to a publ
 | `asset_trashed` / `resource_trashed` | an asset or resource is moved to the Trash |
 | `asset_restored` / `resource_restored` | an asset or resource leaves the Trash |
 | `asset_deleted` / `resource_deleted` | an asset (its file too) or resource is deleted forever |
+| `trash_auto_empty_soon` | the auto-empty will delete entries, assets or resources forever within a day (once a day per workspace) |
 
 ## Where
 

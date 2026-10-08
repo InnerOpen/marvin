@@ -13,6 +13,7 @@
 | Integration needs attention | `integration_attention_needed` (and its reminders); "working again" on `integration_attention_resolved` | on |
 | AI operation failed | `ai_operation_failed` | off |
 | Webhook delivery failed | `webhook_delivery_failed` (after the delivery's retries) | off |
+| Trash emptying soon | `trash_auto_empty_soon`: the Trash's auto-empty deletes items forever within a day (at most one a day). Email and connections only — push for it is each owner's and admin's Profile choice (**Trash reminders**) | off |
 
 **Once per incident.** A workflow that keeps failing sends one alert, not one per run; when it next runs successfully, one "Workflow working again" note goes to the channels that got the alert (even one turned off since), with how many runs failed and since when. Each workflow, and each scheduled task, is its own incident. A failure an integration's [error policy](integrations.md#when-an-integration-fails) handled (sent to review, retry scheduled) doesn't alert: the integration's own *needs attention* alert says what a person must do. Integration alerts were already once per connection and error, with a reminder while they stay open (**Remind every N hours**, on this page; 0 never reminds; default 24); their "working again" notice goes back through the channels the alert went out through. AI operation and webhook delivery failures send one each.
 
