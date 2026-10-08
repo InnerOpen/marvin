@@ -16,8 +16,9 @@ check ``unknown_keys`` first):
 - ``unattached`` — true: attached to no entry; false: attached to at least one. A link to an entry in the
   Trash still counts as attached, so restoring that entry never finds its image gone.
 - ``created_after`` / ``created_before`` — ISO dates or datetimes (UTC).
+- ``trashed`` — true: only items in the Trash (the Trash's side, for a restore).
 
-Items in the Trash are left out; ``trashed=True`` selects only them (the Trash's side, for a restore). A
+Items in the Trash are left out unless ``trashed`` asks for them (the key, or the ``trashed=True`` argument). A
 filter naming a tag or collection that doesn't exist matches nothing and says so in the note — dropping it
 would widen the selection.
 """
@@ -28,10 +29,39 @@ from marvin.services.automation.matcher import as_bool
 from marvin.services.entries.query import _as_list, _when
 
 ASSET, RESOURCE = "asset", "resource"
-_COMMON = ("text", "query", "tags", "collection", "collections", "unattached", "created_after", "created_before")
+_COMMON = ("text", "query", "tags", "collection", "collections", "unattached", "created_after", "created_before", "trashed")
 KEYS = {
     ASSET: (*_COMMON, "asset_type", "asset_types", "mime_type", "mime_types"),
     RESOURCE: (*_COMMON, "resource_type", "resource_types"),
+}
+
+ASSET_TYPES = ("image", "svg", "document", "video", "audio", "archive", "other")
+
+# What each key means, in a line — the agent's workflow authoring guide lists these for an asset or resource
+# target's `query` (test_workflow_item_targets keeps them matching KEYS).
+KEY_NOTES: dict[str, dict[str, str]] = {
+    kind: {
+        "text": "name or slug contains (an asset also by filename; same as `query`)",
+        "query": "same as `text`",
+        "tags": "has any of these tags (slug or name)",
+        "collection": "in this collection (slug or name; `collections`: a list)",
+        "collections": "in any of these collections",
+        "unattached": "true: attached to no entry; false: attached to at least one",
+        "created_after": "ISO date/datetime (UTC); also created_before",
+        "created_before": "ISO date/datetime (UTC)",
+        "trashed": "true: only items in the Trash (left out otherwise) — a `restore` target",
+        **(
+            {
+                "asset_type": f"one of {', '.join(ASSET_TYPES)} (`asset_types`: a list)",
+                "asset_types": "asset types, any of",
+                "mime_type": "exact MIME type, e.g. image/svg+xml (`mime_types`: a list)",
+                "mime_types": "MIME types, any of",
+            }
+            if kind == ASSET
+            else {"resource_type": "the resource's type, e.g. supplier (`resource_types`: a list)", "resource_types": "resource types, any of"}
+        ),
+    }
+    for kind in (ASSET, RESOURCE)
 }
 
 
@@ -69,6 +99,7 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
         ASSET: (Assets, AssetTags, CollectionAssets, EntryAssets, "asset_id"),
         RESOURCE: (Resources, ResourceTags, CollectionResources, EntryResources, "resource_id"),
     }[kind]
+    trashed = trashed or as_bool(str(spec.get("trashed"))) is True
     q = session.query(model).filter(model.group_id == group_id)
     q = q.filter(model.trashed_at.isnot(None) if trashed else model.trashed_at.is_(None))
     nothing = q.filter(sa.false())

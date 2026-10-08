@@ -87,17 +87,24 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
 
     require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, operation.min_role, f"operation '{operation.slug}'")
 
-    # Resolve entity (slice: entries). entity_id may be a $event/$previous template. An action may
-    # instead target an entry by SLUG (`entity_slug`) — humans reference entries by slug, not UUID,
-    # so a webhook payload that carries `entry_slug` is far more usable than an opaque id.
-    entity_type = action.get("entity_type", "entry")
+    # Resolve entity. Without an entity_type the step acts on the run's subject — an asset/resource event's
+    # item or an asset/resource target's row, else an entry. entity_id may be a $event/$previous template and
+    # defaults to the current item of that kind. An action may instead target an entry by SLUG (`entity_slug`)
+    # — humans reference entries by slug, not UUID, so a webhook payload that carries `entry_slug` is far more
+    # usable than an opaque id.
+    from .actions.entry import subject_kind
+
+    entity_type = action.get("entity_type") or subject_kind(context) or "entry"
+    supported = getattr(operation, "entity_types", None) or ()  # empty: the op needs no entity (a workspace question)
+    if supported and entity_type not in supported:
+        raise AutomationActionError(f"operation '{slug}' does not run on an {entity_type} (it runs on: {', '.join(supported)})")
     op_input = interpolate(action.get("input", {}) or {}, context)
 
     entity_slug = interpolate(action.get("entity_slug"), context) if action.get("entity_slug") else None
     if entity_type == "entry" and entity_slug:
         entity_id = _resolve_entry_id_by_slug(session, group_id, str(entity_slug))
     else:
-        entity_id = interpolate(action.get("entity_id", "$event.entry_id"), context)
+        entity_id = interpolate(action.get("entity_id", f"$event.{entity_type}_id"), context)
 
     if dry_run:
         # Preview: the op is authorized and its inputs/target resolve — but don't call the provider,

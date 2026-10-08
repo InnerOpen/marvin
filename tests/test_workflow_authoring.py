@@ -174,14 +174,36 @@ def test_guide_tool_needs_admin_and_rejects_an_unknown_section(ws):
 
 
 def test_template_namespaces_are_what_a_run_can_read(ws):
-    from marvin.services.automation.engine import TEMPLATE_NAMESPACES, _entry_context, match_context
+    from marvin.db.models.platform import Assets, Resources
+    from marvin.services.automation.engine import TEMPLATE_NAMESPACES, _entry_context, _item_context, match_context
 
     entry = gates._sign_in(ws.workspace, AD).post(f"{P}/entries", json={"entry_type_id": ws.et["id"], "title": "Soup", "status": "draft"}).json()
-    context = match_context(ws.session, ws.gid, {"event_type": "entry_updated", "entry_id": entry["id"]})
+    photo = Assets(
+        session=ws.session, group_id=ws.gid, slug=f"ns-{ws.gid.hex[:6]}", name="P", original_filename="p.png", filename="p.png",
+        extension="png", file_size=1, mime_type="image/png", asset_type="image", checksum=uuid.uuid4().hex,
+        storage_provider="local", storage_key=f"ns-{ws.gid.hex[:6]}.png", uploaded_by=ws.uid,
+    )  # fmt: skip
+    tool = Resources(session=ws.session, group_id=ws.gid, slug=f"ns-r-{ws.gid.hex[:6]}", name="R", resource_type="tool", created_by=ws.uid)
+    ws.session.add_all([photo, tool])
+    ws.session.commit()
+    # One event per subject: an entry's binds `entry`, an asset's `asset`, a resource's `resource`.
+    seen: set[str] = set()
+    for event_ctx in (
+        {"event_type": "entry_updated", "entry_id": entry["id"]},
+        {"event_type": "asset_uploaded", "asset_id": str(photo.id)},
+        {"event_type": "resource_created", "resource_id": str(tool.id)},
+    ):
+        seen |= set(match_context(ws.session, ws.gid, event_ctx))
     # A run adds step outputs (`steps`) and, in on_failure steps, the failure (`error`); `depth` is plumbing.
-    assert set(context) - {"depth"} | {"steps", "error"} == set(TEMPLATE_NAMESPACES)
+    assert seen - {"depth"} | {"steps", "error"} == set(TEMPLATE_NAMESPACES)
     for key in _entry_context(ws.session, ws.gid, entry["id"]):
         assert key in TEMPLATE_NAMESPACES["entry"], key
+    for kind, row in (("asset", photo), ("resource", tool)):
+        for key in _item_context(ws.session, ws.gid, kind, row.id):
+            assert key in TEMPLATE_NAMESPACES[kind], (kind, key)
+    ws.session.delete(photo)
+    ws.session.delete(tool)
+    ws.session.commit()
 
 
 # Every worked example is a Library recipe now; tests/test_workflow_library.py drafts each one.

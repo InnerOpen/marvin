@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 
 class _DefnBase(BaseModel):
@@ -108,13 +108,14 @@ Trigger = Annotated[
 
 # ── Actions (discriminated on `kind`) — one model per registered executor ──────
 class OperationAction(_DefnBase):
-    """Runs an AI operation (`op`: its slug) on the entry; `write_back` saves the result onto it."""
+    """Runs an AI operation (`op`: its slug) on the entry — or, with `entity_type` asset | resource, on that item (the
+    operation must support it); `write_back` saves the result onto it."""
 
     kind: Literal["operation"]
     op: str  # AI operation slug
     input: dict[str, Any] = Field(default_factory=dict)
-    entity_type: str = "entry"
-    entity_id: str | None = None  # defaults to $event.entry_id at run time
+    entity_type: str = "entry"  # unset: the target's or the triggering item's kind, else entry
+    entity_id: str | None = None  # defaults to the run's $event.<entity_type>_id
     entity_slug: str | None = None  # preferred for webhook payloads; resolved at run time
     write_back: bool = False
     id: str | None = None  # addressable as $steps.<id>.output.*
@@ -122,7 +123,8 @@ class OperationAction(_DefnBase):
 
 class EntryAction(_DefnBase):
     """Changes an entry without AI: a status op, collection membership, a metadata/data write or a review
-    request. `trash` / `restore` also take `entity_type` asset | resource."""
+    request. `trash` / `restore` also act on an asset or a resource (`entity_type`; unset, the kind of the
+    target's or the triggering item): `entity_slug` / `entity_id`, else the current one — never `entity_query`."""
 
     kind: Literal["entry"]
     op: Literal[
@@ -148,6 +150,27 @@ class EntryAction(_DefnBase):
     data: dict[str, Any] | None = None  # for set_data: schema fields merged into data_json (validated; values may be templates)
     reason: str | None = None  # for request_review: why it needs review, added to metadata_json.review_reasons (may be a template)
     id: str | None = None
+
+    # Shapes that can only fail at run time are refused here, so the REST write gate (422) and an agent's draft
+    # name them with their path (actions[0].entity_type) — see services/automation/actions/entry.py.
+    @field_validator("entity_type")
+    @classmethod
+    def _item_ops_only(cls, value: str, info: ValidationInfo) -> str:
+        op = info.data.get("op")  # absent when `op` itself failed — that error stands alone
+        if op is not None and value != "entry" and op not in ("trash", "restore"):
+            raise ValueError(f"only trash and restore act on an {value}; “{op}” acts on entries (drop entity_type)")
+        return value
+
+    @field_validator("entity_query")
+    @classmethod
+    def _entity_query_finds_entries(cls, value: dict[str, Any] | None, info: ValidationInfo) -> dict[str, Any] | None:
+        kind = info.data.get("entity_type", "entry")
+        if value is not None and kind != "entry":
+            raise ValueError(
+                f"entity_query finds entries only — a {kind} step acts on the current {kind} (an asset/resource target's "
+                f"row, or the triggering one), or one named by entity_slug / entity_id"
+            )
+        return value
 
 
 class EmitEventAction(_DefnBase):
@@ -222,9 +245,10 @@ class Condition(_DefnBase):
 
 # ── Target selector (the "FROM" clause) ───────────────────────────────────────
 class Target(_DefnBase):
-    """Run on a query of entries instead of the trigger's one entry: each match runs the steps as `entry`."""
+    """Run on a query of entries, assets or resources instead of the trigger's one item: each match runs the steps
+    as `entry`, `asset` or `resource` (`query`: that entity's keys, see the authoring guide's target section)."""
 
-    entity: str = "entry"
+    entity: Literal["entry", "asset", "resource"] = "entry"
     query: dict[str, Any] = Field(default_factory=dict)
 
 

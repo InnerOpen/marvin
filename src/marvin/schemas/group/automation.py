@@ -130,6 +130,7 @@ class AutomationValidationIssue(_MarvinModel):
     message: str
     where: str  # "trigger" | "condition" | "action"
     index: int | None = None  # position within conditions/actions, when applicable
+    path: str | None = None  # the key the issue is about, as an author reads it (actions[0].op), when known
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -147,13 +148,19 @@ class AutomationValidateResult(_MarvinModel):
 
 
 class AutomationPreviewMatch(_MarvinModel):
-    """One entity a `target` selector resolved to (dry-run preview)."""
+    """One entity a `target` selector resolved to (dry-run preview): an entry (entry_type, status, title) or an
+    asset / resource (name, asset_type / resource_type, trashed)."""
 
     id: str
+    entity: str = "entry"
     entry_type: str | None = None
     status: str | None = None
     title: str | None = None
     slug: str | None = None
+    name: str | None = None
+    asset_type: str | None = None
+    resource_type: str | None = None
+    trashed: bool | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

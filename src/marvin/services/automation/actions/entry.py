@@ -23,8 +23,10 @@ entries already in the Trash are skipped (a no-op, nothing emitted).
 
 `trash` and `restore` also act on an asset or a resource, with `entity_type: asset | resource` (services/trash.py:
 `asset_trashed` / `asset_restored`, `resource_trashed` / `resource_restored`). The target is `entity_slug` or
-`entity_id` (default: the triggering `$event.asset_id` / `$event.resource_id`); an asset or resource already
-where the op would put it is skipped. No other op takes an entity_type.
+`entity_id` (default: the current item, `$event.asset_id` / `$event.resource_id` — the triggering one, or each
+row of an asset/resource target). Left unset, `entity_type` follows the run's subject (`$event.entity_type`): on an
+asset target or an asset event a bare `trash` trashes the asset. An asset or resource already where the op would
+put it is skipped. No other op takes an entity_type.
 """
 
 import uuid
@@ -85,9 +87,17 @@ OP_SENDS: dict[str, tuple[str, ...]] = {
 # Ops that also act on an asset or a resource (`entity_type`), and what each sends there — one event, no
 # entry_updated. Checked the same way as OP_SENDS (test_event_connections).
 ITEM_TYPES = ("asset", "resource")
+ITEM_OPS = ("trash", "restore")
 ITEM_OP_SENDS: dict[tuple[str, str], tuple[str, ...]] = {
-    (kind, op): (f"{kind}_{'trashed' if op == 'trash' else 'restored'}",) for kind in ITEM_TYPES for op in ("trash", "restore")
+    (kind, op): (f"{kind}_{'trashed' if op == 'trash' else 'restored'}",) for kind in ITEM_TYPES for op in ITEM_OPS
 }
+
+
+def subject_kind(context: dict) -> str | None:
+    """The asset or resource a run is about (`$event.entity_type`: an asset/resource event's, or the current row of an
+    asset/resource target) — what a step without an entity_type acts on. None when the subject is an entry or nothing."""
+    kind = (context.get("event") or {}).get("entity_type")
+    return kind if kind in ITEM_TYPES else None
 
 
 def _typed_like_schema(patch: dict, entry_type) -> dict:
@@ -190,7 +200,7 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
 
     require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, ENTRY_ACTION_MIN_ROLE, f"entry action '{op}'")
 
-    entity_type = action.get("entity_type") or "entry"
+    entity_type = action.get("entity_type") or (subject_kind(context) if op in ITEM_OPS else None) or "entry"
     if entity_type != "entry":
         return _run_item_op(session, group_id, entity_type, op, action, context, user_id=user_id, dry_run=dry_run)
 

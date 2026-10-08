@@ -80,6 +80,20 @@ _TRIGGER_CONTEXT: dict[str, dict] = {
 # Triggers whose context includes a specific entry (so entry.* resolves + entry-shaped actions work).
 _ENTRY_TRIGGERS = {"event"}
 
+ITEM_KINDS = ("asset", "resource")
+
+
+def subject_of(definition: dict | None) -> str:
+    """What a run's steps act on by default: an asset/resource target's rows, an asset/resource event's item
+    (its name says which; the engine binds `$event.asset_id` / `$event.resource_id`), else an entry."""
+    definition = definition or {}
+    target = definition.get("target") or {}
+    if isinstance(target, dict) and target.get("entity") in ITEM_KINDS:
+        return target["entity"]
+    trig = definition.get("trigger") or {}
+    event = str(trig.get("event") or "") if trig.get("type", "event") == "event" else ""
+    return next((kind for kind in ITEM_KINDS if kind in event), "entry")
+
 
 def condition_field_catalog() -> dict[str, list[dict]]:
     """Suggested condition fields per trigger type — advertised by /api/automations/options."""
@@ -115,6 +129,10 @@ def validate_definition(definition: dict | None) -> list[dict]:
     has_entry = (ttype in _ENTRY_TRIGGERS) or has_target_entry
     if has_target_entry:
         namespaces = namespaces | {"entry"}
+    # An asset/resource target (or event) hydrates `asset.*` / `resource.*` the same way.
+    subject = subject_of(definition)
+    if subject in ITEM_KINDS:
+        namespaces = namespaces | {subject}
 
     # ── Conditions ────────────────────────────────────────────────────────────
     for i, cond in enumerate(definition.get("conditions") or []):
@@ -145,7 +163,7 @@ def validate_definition(definition: dict | None) -> list[dict]:
                     i,
                 )
             )
-        elif seg and seg not in namespaces and seg not in ("event", "entry", "site"):
+        elif seg and seg not in namespaces and seg not in ("event", "entry", "site", *ITEM_KINDS):
             issues.append(
                 _issue(
                     "warning",
@@ -175,29 +193,33 @@ def validate_definition(definition: dict | None) -> list[dict]:
         )
 
     for i, act in enumerate(actions):
-        issues.extend(_step_issues(act, i, "action", ttype, has_entry))
+        issues.extend(_step_issues(act, i, "action", ttype, has_entry, subject))
     # Steps that run when one above fails — same entry, same checks.
     on_failure = definition.get("on_failure") or []
     if len(on_failure) > MAX_ACTIONS:
         issues.append(_issue("warning", f"On failure has {len(on_failure)} steps, but only the first {MAX_ACTIONS} will run.", "on_failure"))
     for i, act in enumerate(on_failure):
-        issues.extend(_step_issues(act, i, "on_failure", ttype, has_entry))
+        issues.extend(_step_issues(act, i, "on_failure", ttype, has_entry, subject))
 
+    # What would certainly go wrong at run time (a query shape nothing reads, an entry op on an asset target) —
+    # advisory here, where hand-written JSON is kept lenient; an agent's draft gets the same as errors.
+    issues.extend({**issue, "level": "warning"} for issue in query_issues(definition) + item_target_issues(definition))
     return issues
 
 
-def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool) -> list[dict]:
+def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool, subject: str = "entry") -> list[dict]:
     """Advisory issues for one step (of `actions` or `on_failure`)."""
     issues: list[dict] = []
     if not isinstance(act, dict):
         return issues
     kind = act.get("kind")
-    # An AI `operation` or an `entry` action operates on an entity — both default to
-    # $event.entry_id. Under a trigger with no entry (and no target selector), that resolves to
-    # nothing unless the author targets one from the payload, by slug (entity_slug — preferred,
-    # human-readable), by id (entity_id), or by a run-time lookup (entity_query, entry actions).
+    # An AI `operation` or an `entry` action operates on an entity — both default to the run's subject
+    # ($event.entry_id, or an asset/resource target's or event's item). Under a trigger with no entry (and
+    # no target selector), that resolves to nothing unless the author targets one from the payload, by slug
+    # (entity_slug — preferred, human-readable), by id (entity_id), or by a run-time lookup (entity_query,
+    # entry actions).
     targets_own_entry = any(act.get(k) for k in ("entity_slug", "entity_id", "entity_query"))
-    if kind in ("operation", "entry") and not has_entry and not targets_own_entry:
+    if kind in ("operation", "entry") and not has_entry and subject == "entry" and not targets_own_entry:
         what = act.get("op", kind)
         issues.append(
             _issue(
@@ -225,6 +247,148 @@ def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool) -> list[d
             )
         )
     return issues
+
+
+# ── Queries and item targets ─────────────────────────────────────────────────
+# A target's query (and an entry step's entity_query) is a flat object of that entity's keys — the shared
+# entry query (services/entries/query.py) or the asset/resource query (services/item_query.py). Both ignore
+# a key they don't know, so a wrong key or a shape nothing reads (`where` on a resource, `{"status": {"op": …}}`)
+# silently widens or empties the selection; these name it instead. ERROR-level issues with their path.
+
+# Example queries the messages show, so a wrong shape is answered with the right one.
+QUERY_EXAMPLES: dict[str, str] = {
+    "entry": '{"entry_type": "recipe", "status": "published"}',
+    "asset": '{"asset_type": "image", "unattached": true}',
+    "resource": '{"resource_type": "supplier", "tags": ["wool"]}',
+}
+
+
+def query_keys(entity: str) -> tuple[str, ...]:
+    """Every key a query of `entity` understands."""
+    if entity == "entry":
+        from marvin.services.entries.query import SPEC_KEYS
+
+        return SPEC_KEYS
+    from marvin.services.item_query import KEYS
+
+    return KEYS[entity]
+
+
+def close_options(value: str, options: list[str] | tuple[str, ...], limit: int = 12) -> str:
+    """The valid options, the ones sharing a word with `value` first, capped."""
+    words = set(str(value).replace("-", "_").split("_"))
+    ranked = sorted(options, key=lambda o: (not words & set(o.replace("-", "_").split("_")), o))
+    shown = ranked[:limit]
+    more = f" (+{len(options) - limit} more)" if len(options) > limit else ""
+    return ", ".join(shown) + more if shown else "(none in this workspace)"
+
+
+def query_issues(definition: dict | None) -> list[dict]:
+    """Keys and shapes a target's query or an entry step's entity_query would not read, per entity."""
+    definition = definition or {}
+    issues: list[dict] = []
+    target = definition.get("target")
+    if isinstance(target, dict) and isinstance(target.get("query"), dict) and target.get("entity", "entry") in ("entry", *ITEM_KINDS):
+        issues += _one_query_issues(target["query"], target.get("entity") or "entry", "target.query", "target")
+    for list_key, where in (("actions", "action"), ("on_failure", "on_failure")):
+        for i, step in enumerate(definition.get(list_key) or []):
+            if isinstance(step, dict) and step.get("kind") == "entry" and isinstance(step.get("entity_query"), dict):
+                # An entity_query on an asset/resource step is refused by the definition model; its keys are still
+                # read against that kind here, so a query written for a resource is answered in resource terms.
+                kind = step.get("entity_type") if step.get("entity_type") in ITEM_KINDS else "entry"
+                issues += _one_query_issues(step["entity_query"], kind, f"{list_key}[{i}].entity_query", where)
+    return issues
+
+
+def _one_query_issues(query: dict, entity: str, path: str, where: str) -> list[dict]:
+    from marvin.services.entries.query import WHERE_OPS
+
+    keys = query_keys(entity)
+    flat = f"A query is a flat object of keys, e.g. {QUERY_EXAMPLES[entity]}."
+    issues: list[dict] = []
+
+    def bad(key: str, message: str) -> None:
+        issues.append({"level": "error", "message": message, "where": where, "path": f"{path}.{key}"})
+
+    for key, value in query.items():
+        if key not in keys:
+            hint = ""
+            if entity != "entry" and key in ("where", "status", "statuses", "publish_status"):
+                article = "An" if entity == "asset" else "A"
+                hint = f" {article} {entity} has no publish status and no `where`: it is in the Trash (`trashed: true`) or it is not."
+            bad(key, f"“{key}” is not an {entity} query key.{hint} {flat} Keys: {close_options(key, keys)}.")
+        elif key == "where":
+            for row in value if isinstance(value, list) else [None]:
+                if not isinstance(row, dict) or not row.get("field"):
+                    shape = '[{"field": "<field key>", "op": "eq", "value": …}]'
+                    bad(key, f"`where` is a list of comparisons: {shape}; ops: {', '.join(WHERE_OPS)}.")
+                    break
+                if row.get("op", "eq") not in WHERE_OPS:
+                    bad(key, f"“{row.get('op')}” is not a `where` op. Ops: {', '.join(WHERE_OPS)}.")
+                    break
+        elif isinstance(value, dict) and key not in ("fields", "data", "metadata", "sort"):
+            comparisons = " Comparisons go in `where` (entries only)." if entity == "entry" else ""
+            bad(key, f'“{key}” takes a value (or a list of values), not an object: {{"{key}": "…"}}. A query has no operators.{comparisons}')
+    return issues
+
+
+def item_target_issues(definition: dict | None) -> list[dict]:
+    """Steps that cannot act on an asset/resource target's rows: an entry-only op without an entry of its own
+    (named by entity_slug / entity_id / entity_query), an entry event emitted with no entry in context, or an
+    entity_type naming the other kind of item with nothing to find it by."""
+    definition = definition or {}
+    kind = subject_of(definition)
+    target = definition.get("target")
+    if kind not in ITEM_KINDS or not isinstance(target, dict) or target.get("entity") != kind:
+        return []
+    from .actions.entry import ITEM_OPS
+
+    ttype = (definition.get("trigger") or {}).get("type", "event")
+    has_entry = ttype in _ENTRY_TRIGGERS
+    issues: list[dict] = []
+    for list_key, where in (("actions", "action"), ("on_failure", "on_failure")):
+        for i, step in enumerate(definition.get(list_key) or []):
+            if not isinstance(step, dict):
+                continue
+            path = f"{list_key}[{i}]"
+            names_one = any(step.get(k) for k in ("entity_slug", "entity_id", "entity_query"))
+            if step.get("kind") == "entry":
+                op, etype = step.get("op"), step.get("entity_type")
+                if op not in ITEM_OPS and not names_one:
+                    issues.append(
+                        {
+                            "level": "error",
+                            "where": where,
+                            "path": f"{path}.op",
+                            "message": f"“{op}” acts on entries, but this workflow runs on {kind}s: only {' and '.join(ITEM_OPS)} act on each "
+                            f"{kind}. Point an entry op at an entry with entity_slug or entity_query, or target entries instead.",
+                        }
+                    )
+                elif etype and etype != kind and not names_one:
+                    issues.append(
+                        {
+                            "level": "error",
+                            "where": where,
+                            "path": f"{path}.entity_type",
+                            "message": f"This workflow runs on {kind}s, so the step acts on each {kind} — drop entity_type, or name the "
+                            f"{etype} with entity_slug or entity_id.",
+                        }
+                    )
+            elif step.get("kind") == "emit_event" and not has_entry and not step.get("entity_id") and _entry_event(step.get("event")):
+                issues.append(
+                    {
+                        "level": "error",
+                        "where": where,
+                        "path": f"{path}.event",
+                        "message": f"“{step.get('event')}” is about an entry, but this workflow runs on {kind}s with no entry in context — "
+                        "set entity_id, or emit a site event.",
+                    }
+                )
+    return issues
+
+
+def _entry_event(name) -> bool:
+    return str(name or "").startswith("entry_")
 
 
 def _pretty(trigger_type: str) -> str:

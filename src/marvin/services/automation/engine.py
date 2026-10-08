@@ -100,6 +100,56 @@ def target_entry_context(session, group_id, entity) -> dict:
     return _entry_context(session, group_id, entity.id) or entity_ref(entity)
 
 
+def target_row_context(session, group_id, kind: str, row) -> dict:
+    """What a target row is matched and acted on as: an entry's full facts, or an asset's / resource's."""
+    if kind == "entry":
+        return target_entry_context(session, group_id, row)
+    from .selector import item_ref
+
+    return _item_context(session, group_id, kind, row.id) or item_ref(kind, row)
+
+
+def _item_context(session, group_id, kind: str, item_id) -> dict | None:
+    """The asset or resource facts conditions and actions reference (`asset.*` / `resource.*`): name, slug,
+    its type, `tags`, `metadata`, `url` (an asset's public URL, a resource's link) and whether it is in the
+    Trash — plus an asset's file facts (filename, mime_type, file_size, width, height, alt_text)."""
+    from marvin.services import trash
+
+    row = session.get(trash.model(kind), item_id)
+    if not row or row.group_id != group_id:
+        return None
+    ctx = {
+        "id": str(row.id),
+        "name": row.name,
+        "slug": row.slug,
+        f"{kind}_type": getattr(row, f"{kind}_type", None),
+        "description": row.description,
+        "tags": [t.slug for t in (getattr(row, "tags", None) or [])],
+        "metadata": meta if isinstance(meta := row.metadata_json, dict) else {},
+        "trashed": trash.is_trashed(row),
+    }
+    if kind == "asset":
+        from marvin.services.storage.provider_factory import asset_public_url
+
+        try:
+            url = asset_public_url(row)
+        except Exception:  # noqa: BLE001 — a missing file must never break the workflow context
+            url = None
+        file = {k: getattr(row, k, None) for k in ("mime_type", "file_size", "width", "height", "alt_text")}
+        return {**ctx, "filename": row.original_filename, **file, "url": url}
+    return {**ctx, "url": row.url, "external_id": row.external_id}
+
+
+def _item_contexts(session, group_id, event_ctx: dict) -> dict:
+    """`asset` / `resource` for the item an event is about (its payload's `asset_id` / `resource_id`) — the
+    way `entry_id` binds `entry`, so an asset_uploaded or resource_created trigger reads `${asset.*}`."""
+    out = {}
+    for kind in ("asset", "resource"):
+        if event_ctx.get(f"{kind}_id") and (ctx := _item_context(session, group_id, kind, event_ctx[f"{kind}_id"])):
+            out[kind] = ctx
+    return out
+
+
 def _featured_image_url(entry) -> str | None:
     """Same pick as the publishing API's featured asset — a hero/featured image first, else the first
     image by position — skipping pending AI suggestions, which never reach published output."""
@@ -143,6 +193,10 @@ TEMPLATE_NAMESPACES: dict[str, str] = {
     ),
     "entry": "the entry the run acts on (the trigger's, or each target match): id, entry_type, status, title, slug, summary, "
     "data.<field>, metadata.<key>, image (featured image URL), url (its page on the site)",
+    "asset": "the asset the run acts on (an asset event's, or each asset-target match): id, name, slug, asset_type, mime_type, "
+    "filename, file_size, width, height, alt_text, description, tags, metadata.<key>, url (its public URL), trashed",
+    "resource": "the resource the run acts on (a resource event's, or each resource-target match): id, name, slug, resource_type, "
+    "description, url, external_id, tags, metadata.<key>, trashed",
     "previous": "the previous step's output",
     "steps": "steps.<id>.output.<key>: an earlier step's output, by its `id` (or its position, from 0)",
     "site": "site.url: the workspace's Canonical URL",
@@ -162,6 +216,7 @@ def match_context(session, group_id, event_ctx: dict) -> dict:
         entry_ctx = _entry_context(session, group_id, event_ctx["entry_id"])
         if entry_ctx:
             context["entry"] = entry_ctx
+    context.update(_item_contexts(session, group_id, event_ctx))
     return context
 
 
@@ -245,11 +300,13 @@ def run_automations_for_event(
     return ran
 
 
-def _target_context(base_context: dict, entity_ref: dict) -> dict:
-    """A per-target match context: bind the resolved entity as `entry` and as `$event.entry_id`
-    (so entry-defaulting actions target it) while carrying the rest of the base context."""
+def _target_context(base_context: dict, kind: str, row_ctx: dict) -> dict:
+    """A per-target match context: bind the resolved row as `entry` / `asset` / `resource` and as the event's
+    subject (`$event.entity_type` + `$event.<kind>_id`, so steps that default to the current item target it)
+    while carrying the rest of the base context."""
     base_event = base_context.get("event", {})
-    return {**base_context, "event": {**base_event, "entry_id": entity_ref["id"]}, "entry": entity_ref}
+    event = {**base_event, "entity_type": kind, "entity_id": row_ctx["id"], f"{kind}_id": row_ctx["id"]}
+    return {**base_context, "event": event, kind: row_ctx}
 
 
 def _run_targets(
@@ -282,8 +339,9 @@ def _run_targets(
     trigger_type = automation.trigger_type or "event"
 
     if target:
-        from .selector import entity_ref, resolve_target_entities
+        from .selector import entity_ref, resolve_target_entities, target_entity
 
+        kind = target_entity(target)
         try:
             entities, total = resolve_target_entities(session, group_id, target, base_context)
         except Exception as e:
@@ -299,7 +357,7 @@ def _run_targets(
                 len(entities),
             )
         pairs: list[tuple[dict, Any]] = [
-            (_target_context(base_context, target_entry_context(session, group_id, ent)), entity_ref(ent)) for ent in entities
+            (_target_context(base_context, kind, target_row_context(session, group_id, kind, ent)), entity_ref(ent, kind)) for ent in entities
         ]
         gate = True  # a target's conditions are its WHERE clause — always applied
     else:
@@ -857,6 +915,7 @@ def run_retry(
     if entry_ctx:
         context["entry"] = entry_ctx
         event["entry_id"] = entry_ctx.get("id") or event.get("entry_id")
+    context.update(_item_contexts(session, group_id, event))
     # Retrying only makes sense while the entry still matches (an unpublished listing must not be
     # re-created). A manual run that skipped conditions skips them here too, and an entry that is gone
     # can't have changed — the conditions held when the run started.

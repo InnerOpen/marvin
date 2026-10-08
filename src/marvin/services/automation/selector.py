@@ -2,16 +2,15 @@
 
 Normally an automation operates on the single entity its trigger handed it. A ``target`` turns that
 around: it runs a *query* to select the entities to operate on, so the automation becomes set-based
-(``FROM query WHERE conditions DO actions-per-row``). The query reuses the same fields as the
-``find_entries`` agent tool, and its values may be ``$event.*`` templates so a webhook can carry the
-query in its payload.
+(``FROM query WHERE conditions DO actions-per-row``). An ``entry`` target reuses the same query as the
+``find_entries`` agent tool (services/entries/query.py); an ``asset`` or ``resource`` target the query
+``list_assets`` / ``list_resources`` use (services/item_query.py). Query values may be ``$event.*``
+templates so a webhook can carry the query in its payload.
 
 Deliberately **capped** (``MAX_TARGET_ENTITIES``): fanning an action — especially an AI op — over an
 unbounded result set is a cost/observability hazard, and there's no per-row execution history yet.
 The dry-run preview (see the controller) resolves the same set *without* executing, so an author sees
 the count before committing. Unbounded fan-out waits for execution history.
-
-MVP: entity == "entry". Collections/assets can plug in here with their own query builders later.
 """
 
 from .matcher import interpolate
@@ -22,27 +21,43 @@ from .matcher import interpolate
 # cost/rate hazard, and the preview shows the true count so an author sees when it's clipped.
 MAX_TARGET_ENTITIES = 250
 
+ENTITIES = ("entry", "asset", "resource")
+ITEM_ENTITIES = ("asset", "resource")
+
+
+def target_entity(target: dict | None) -> str:
+    return (target or {}).get("entity") or "entry"
+
 
 def resolve_target_entities(session, group_id, target: dict, context: dict, *, cap: int = MAX_TARGET_ENTITIES):
     """Resolve a ``target`` to a list of entities (capped) + the true match count.
 
     Returns ``(entities, total)`` where ``total`` is the full count before the cap, so callers can
     tell the user "matched 240, acting on the first 25". Raises nothing for an empty match — an empty
-    list is a valid (no-op) result. Unknown entity kinds return ``([], 0)``.
+    list is a valid (no-op) result. Unknown entity kinds return ``([], 0)``. Items in the Trash are
+    left out unless the query asks for them (an entry's ``status: trashed``, an item's ``trashed: true``).
     """
-    entity = (target or {}).get("entity", "entry")
-    if entity != "entry":
-        return [], 0
-
-    from marvin.services.entries.query import run as run_entry_query
-
+    entity = target_entity(target)
     query = interpolate((target or {}).get("query", {}) or {}, context)
-    result = run_entry_query(session, group_id, query, limit=max(1, min(cap, MAX_TARGET_ENTITIES)))
-    return result.rows, result.total
+    limit = max(1, min(cap, MAX_TARGET_ENTITIES))
+    if entity == "entry":
+        from marvin.services.entries.query import run as run_entry_query
+
+        result = run_entry_query(session, group_id, query, limit=limit)
+        return result.rows, result.total
+    if entity in ITEM_ENTITIES:
+        from marvin.services import item_query
+
+        result = item_query.run(session, group_id, entity, query if isinstance(query, dict) else {}, limit=limit)
+        return result.rows, result.total
+    return [], 0
 
 
-def entity_ref(entity) -> dict:
-    """The lean context/preview shape for a resolved entry (matches the engine's entry context)."""
+def entity_ref(entity, kind: str = "entry") -> dict:
+    """The lean context/preview shape for a resolved row — an entry (matches the engine's entry context) or,
+    for an asset/resource target, the item (``entity`` names its kind)."""
+    if kind != "entry":
+        return item_ref(kind, entity)
     etype = entity.entry_type.slug if getattr(entity, "entry_type", None) else None
     return {
         "id": str(entity.id),
@@ -51,6 +66,12 @@ def entity_ref(entity) -> dict:
         "title": entity.title,
         "slug": entity.slug,
     }
+
+
+def item_ref(kind: str, row) -> dict:
+    ref = {"id": str(row.id), "entity": kind, "name": row.name, "slug": row.slug, "trashed": getattr(row, "trashed_at", None) is not None}
+    ref[f"{kind}_type"] = getattr(row, f"{kind}_type", None)
+    return ref
 
 
 def json_field_equals(column, key: str, value, dialect: str = "sqlite"):

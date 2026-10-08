@@ -239,15 +239,23 @@ def _events(detail: bool) -> dict:
 def _target() -> dict:
     from marvin.schemas.platform.entries import ENTRY_STATUSES
     from marvin.services.entries.query import SPEC_KEY_NOTES
+    from marvin.services.item_query import KEY_NOTES
 
     from .selector import MAX_TARGET_ENTITIES
 
     return {
-        "entity": "entry (the only kind a target selects)",
+        "entity": "entry (default) | asset | resource — each match runs the steps as that entity (`${entry.*}`, `${asset.*}`, `${resource.*}`)",
         "query": SPEC_KEY_NOTES,
         "statuses": sorted(ENTRY_STATUSES),
-        "limit": f"at most {MAX_TARGET_ENTITIES} entries per run",
-        "note": "Query values may be templates. Each match runs the steps as `entry` (and `event.entry_id`).",
+        "example": {"entity": "entry", "query": {"entry_type": "recipe", "status": "published"}},
+        "asset": {"query": KEY_NOTES["asset"], "example": {"entity": "asset", "query": {"asset_type": "image", "unattached": True}}},
+        "resource": {"query": KEY_NOTES["resource"], "example": {"entity": "resource", "query": {"resource_type": "supplier", "tags": ["wool"]}}},
+        "limit": f"at most {MAX_TARGET_ENTITIES} matches per run",
+        "note": (
+            "A query is a flat object of that entity's keys (`query` above is the entry's; no `where` operators on assets or resources, "
+            "and no publish status: an asset or resource is in the Trash — `trashed: true` — or it is not). Values may be templates. "
+            "Items in the Trash match only a query that asks for them."
+        ),
     }
 
 
@@ -289,7 +297,18 @@ def _actions(detail: bool) -> dict:
         "kinds": kinds,
         "entry_ops": entry_ops,
         "entry_ops_note": entry_ops_note,
-        "asset_resource_ops": f"{', '.join(items)} with entity_type asset | resource",
+        "asset_resource_ops": {
+            "ops": items,
+            "acts_on": (
+                "the current item: each match of an asset/resource target, or the triggering asset/resource (asset_* / resource_* events) "
+                "— entity_type may then be left out; or one named by entity_slug / entity_id (with entity_type asset | resource)"
+            ),
+            "sends": {f"{kind} {op}": list(sends) for (kind, op), sends in ITEM_OP_SENDS.items()},
+            "note": (
+                "entity_query finds entries only. Every other entry op acts on entries; an operation step on an asset/resource "
+                "needs an AI operation that supports it."
+            ),
+        },
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}.",
     }
@@ -355,6 +374,47 @@ def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
         }
     first = recipes.example(offered[0]) if offered else None
     return {"note": _EXAMPLES_NOTE, "available": [r["id"] for r in offered], **({first["recipe"]: first} if first else {})}
+
+# Asset and resource examples, kept apart as {id, title, definition, vars} so they move into the Workflow Library's
+# recipe files (docs/workflow-library) in one step; `vars` names what a workspace would swap in.
+ITEM_EXAMPLES: list[dict] = [
+    {
+        "id": "trash-unattached-images",
+        "title": "Trash every unattached image",
+        "definition": {
+            "trigger": {"type": "manual"},
+            "target": {"entity": "asset", "query": {"asset_type": "image", "unattached": True}},
+            "actions": [{"kind": "entry", "op": "trash"}],
+        },
+        "vars": {},
+    },
+    {
+        "id": "restore-trashed-resources",
+        "title": "Restore all resources in the Trash",
+        "definition": {
+            "trigger": {"type": "manual"},
+            "target": {"entity": "resource", "query": {"trashed": True}},
+            "actions": [{"kind": "entry", "op": "restore"}],
+        },
+        "vars": {},
+    },
+    {
+        "id": "asset-uploaded-to-slack",
+        "title": "On asset_uploaded, post to Slack",
+        "definition": {
+            "trigger": {"type": "event", "event": "asset_uploaded"},
+            "actions": [
+                {
+                    "kind": "webhook",
+                    "url": "https://hooks.slack.com/services/T000/B000/XXXX",
+                    "body": {"text": "New ${asset.asset_type} uploaded: ${asset.name} (${asset.mime_type}) ${asset.url}"},
+                }
+            ],
+        },
+        "vars": {"url": "the Slack incoming webhook URL"},
+    },
+]
+EXAMPLES.update({e["title"]: e["definition"] for e in ITEM_EXAMPLES})
 
 
 _EXAMPLES_NOTE = (
@@ -462,12 +522,9 @@ def _templated(value: Any) -> bool:
 
 
 def _close(value: str, options: list[str], limit: int = 12) -> str:
-    """The valid options, the ones sharing a word with `value` first, capped."""
-    words = set(str(value).replace("-", "_").split("_"))
-    ranked = sorted(options, key=lambda o: (not words & set(o.replace("-", "_").split("_")), o))
-    shown = ranked[:limit]
-    more = f" (+{len(options) - limit} more)" if len(options) > limit else ""
-    return ", ".join(shown) + more if shown else "(none in this workspace)"
+    from .validation import close_options
+
+    return close_options(value, options, limit)
 
 
 class _Issues(list):
@@ -487,16 +544,19 @@ def reference_issues(session, group_id, definition: dict, refs: WorkspaceRefs | 
     listen to, an operation, job, integration, webhook, collection or entry type that isn't there. Each
     is an ERROR issue ({level, message, where, path}); a template value (`$…`) is left to run time.
     Run on a structurally valid definition."""
+    from .validation import subject_of
+
     refs = refs or workspace_refs(session, group_id)
     issues = _Issues()
     _trigger_issues(definition.get("trigger") or {}, refs, issues)
     if isinstance(definition.get("target"), dict):
         _target_issues(definition["target"], refs, issues)
     _condition_issues(definition.get("conditions"), "conditions", issues)
+    subject = subject_of(definition)
     for list_key, where in (("actions", "action"), ("on_failure", "on_failure")):
         for i, step in enumerate(definition.get(list_key) or []):
             if isinstance(step, dict):
-                _step_issues(step, f"{list_key}[{i}]", where, refs, issues)
+                _step_issues(step, f"{list_key}[{i}]", where, refs, issues, subject)
     return issues
 
 
@@ -527,18 +587,25 @@ def _trigger_issues(trig: dict, refs: WorkspaceRefs, issues: _Issues) -> None:
 
 
 def _target_issues(target: dict, refs: WorkspaceRefs, issues: _Issues) -> None:
+    """Names a target's query uses that this workspace doesn't have (its keys are checked by validation.query_issues)."""
     from marvin.schemas.platform.entries import ENTRY_STATUSES
-    from marvin.services.entries.query import SPEC_KEYS
+    from marvin.services.item_query import ASSET_TYPES
 
-    if target.get("entity", "entry") != "entry":
-        issues.add("target.entity", "target", "A target selects entries only (entity: entry).")
+    entity = target.get("entity") or "entry"
     type_slugs = [t["slug"] for t in refs.entry_types]
     spellings = {s.replace("-", "_") for s in type_slugs}
     collections = {c["slug"] for c in refs.collections} | {c["name"] for c in refs.collections}
     for key, value in (target.get("query") or {}).items():
         path = f"target.query.{key}"
-        if key not in SPEC_KEYS:
-            issues.add(path, "target", f"“{key}” is not an entry query key. Keys: {_close(key, list(SPEC_KEYS))}.")
+        if key in ("asset_type", "asset_types") and entity == "asset":
+            for v in _values(value):
+                if v not in ASSET_TYPES:
+                    issues.add(path, "target", f"“{v}” is not an asset type ({', '.join(ASSET_TYPES)}).")
+        elif entity != "entry":
+            if key in ("collection", "collections"):
+                for v in _values(value):
+                    if v not in collections:
+                        issues.add(path, "target", f"No collection “{v}” here. Collections: {_close(v, [c['slug'] for c in refs.collections])}.")
         elif key in ("entry_type", "entry_types"):
             for v in _values(value):
                 if v.replace("-", "_") not in spellings:
@@ -567,16 +634,25 @@ def _condition_issues(node: Any, path: str, issues: _Issues) -> None:
             issues.add(f"{path}.op", "condition", f"Unknown condition operator “{node.get('op')}”. Operators: {', '.join(_OPS)}.")
 
 
-def _step_issues(step: dict, path: str, where: str, refs: WorkspaceRefs, issues: _Issues) -> None:
+def _step_issues(step: dict, path: str, where: str, refs: WorkspaceRefs, issues: _Issues, subject: str = "entry") -> None:
     def bad(key: str, message: str) -> None:
         issues.add(f"{path}.{key}" if key else path, where, message)
 
     kind = step.get("kind")
     if kind == "operation":
+        ops = {o["op"]: o for o in refs.operations or []}
         if refs.operations is None:
             bad("", "AI operations can't run from workflows in this workspace (AI is off, or its automation source is disabled).")
-        elif step.get("op") not in {o["op"] for o in refs.operations}:
-            bad("op", f"No AI operation “{step.get('op')}”. Operations: {_close(str(step.get('op')), [o['op'] for o in refs.operations])}.")
+        elif step.get("op") not in ops:
+            bad("op", f"No AI operation “{step.get('op')}”. Operations: {_close(str(step.get('op')), list(ops))}.")
+        else:
+            # The step runs on its entity_type, else on what the run acts on (an asset/resource target's rows or
+            # event's item, else an entry) — the operation has to support that kind.
+            etype = step.get("entity_type") or subject
+            supported = ops[step["op"]]["entity_types"]
+            if supported and etype not in supported:
+                runs_on = f"this workflow runs on {etype}s" if not step.get("entity_type") else f"entity_type is {etype}"
+                bad("op" if not step.get("entity_type") else "entity_type", f"“{step['op']}” runs on {' / '.join(supported)}, but {runs_on}.")
     elif kind == "entry":
         _entry_step_issues(step, refs, bad)
     elif kind == "emit_event":
@@ -606,12 +682,7 @@ def _step_issues(step: dict, path: str, where: str, refs: WorkspaceRefs, issues:
 
 
 def _entry_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
-    from .actions.entry import ITEM_OP_SENDS
-
     op = step.get("op")
-    etype = step.get("entity_type", "entry")
-    if etype != "entry" and (etype, op) not in ITEM_OP_SENDS:
-        bad("entity_type", f"Only trash and restore act on an {etype}; “{op}” acts on entries (drop entity_type).")
     if op in ("add_to_collection", "remove_from_collection"):
         ref = step.get("collection_slug")
         known = {c["slug"] for c in refs.collections} | {c["name"] for c in refs.collections}
@@ -627,10 +698,11 @@ def _entry_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
 
 def draft_issues(session, group_id, definition: dict) -> list[dict]:
     """Everything that stops an agent's draft: the REST write path's structural gate first (exactly the
-    function `POST /api/automations` calls), then unknown keys and unknown references. Empty: draftable."""
-    from .validation import structural_issues, unknown_key_issues
+    function `POST /api/automations` calls) with the query shapes and item-target steps a run can't read
+    (advisory on the REST path), then unknown keys and unknown references. Empty: draftable."""
+    from .validation import item_target_issues, query_issues, structural_issues, unknown_key_issues
 
-    issues = structural_issues(definition)
+    issues = structural_issues(definition) + query_issues(definition) + item_target_issues(definition)
     if issues:
         return issues
     return unknown_key_issues(definition) + reference_issues(session, group_id, definition)

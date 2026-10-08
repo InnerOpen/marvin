@@ -191,9 +191,9 @@ class AutomationsController(BaseUserController):
         entities it would act on — WITHOUT running any action. `matches` is the capped set that also
         passes the conditions; `total` is the full query count so the caller sees when it's capped."""
         _require_admin(self.user, self.group_id)
-        from marvin.services.automation.engine import target_entry_context
+        from marvin.services.automation.engine import _target_context, target_row_context
         from marvin.services.automation.matcher import matches as _conds_match
-        from marvin.services.automation.selector import entity_ref, resolve_target_entities
+        from marvin.services.automation.selector import entity_ref, resolve_target_entities, target_entity
 
         defn = data.definition or {}
         target = defn.get("target")
@@ -207,16 +207,16 @@ class AutomationsController(BaseUserController):
             return AutomationPreviewResult(has_target=True, entity=target.get("entity", "entry"), error=str(e))
 
         conditions = defn.get("conditions")
+        kind = target_entity(target)
         matched: list[AutomationPreviewMatch] = []
         for ent in entities:
-            ref = entity_ref(ent)
-            ctx = {**context, "entry": target_entry_context(self.session, self.group_id, ent), "event": {**context["event"], "entry_id": ref["id"]}}
+            ctx = _target_context(context, kind, target_row_context(self.session, self.group_id, kind, ent))
             if _conds_match(conditions, ctx):
-                matched.append(AutomationPreviewMatch(**ref))
+                matched.append(AutomationPreviewMatch(**entity_ref(ent, kind)))
 
         return AutomationPreviewResult(
             has_target=True,
-            entity=target.get("entity", "entry"),
+            entity=kind,
             total=total,
             capped=total > len(entities),
             matches=matched,

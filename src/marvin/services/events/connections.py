@@ -376,9 +376,11 @@ def reactions(session: Session, group_id, event_type: str) -> list[EventReaction
 # ── senders ──────────────────────────────────────────────────────────────────
 
 
-def _step_sends(step) -> list[tuple[str, str]]:
-    """(event type, what sends it) for one workflow step, when the step's kind and settings decide it."""
-    from marvin.services.automation.actions.entry import ITEM_OP_SENDS, OP_SENDS
+def _step_sends(step, subject: str = "entry") -> list[tuple[str, str]]:
+    """(event type, what sends it) for one workflow step, when the step's kind and settings decide it. `subject`:
+    what the workflow's steps act on without an entity_type (validation.subject_of) — an asset/resource target's
+    rows or event's item, else an entry."""
+    from marvin.services.automation.actions.entry import ITEM_OP_SENDS, ITEM_OPS, OP_SENDS
     from marvin.services.automation.actions.handler import AUTOMATION_ALLOWED_HANDLERS
     from marvin.services.events.event_catalog import EMITTABLE_EVENT_TYPES, canonical_event_type
     from marvin.services.scheduled_tasks.handlers import TaskHandlerRegistry
@@ -392,9 +394,9 @@ def _step_sends(step) -> list[tuple[str, str]]:
     if kind == "handler" and step.get("task") in AUTOMATION_ALLOWED_HANDLERS and TaskHandlerRegistry.is_registered(step["task"]):
         handler = TaskHandlerRegistry.get_handler(step["task"])
         return [(e, f"{handler.name} step") for e in handler.sends]
-    item_op = (step.get("entity_type"), step.get("op"))
+    item_op = (step.get("entity_type") or (subject if step.get("op") in ITEM_OPS else "entry"), step.get("op"))
     if kind == "entry" and item_op in ITEM_OP_SENDS:
-        return [(e, f"Entry step: {step['op']} ({step['entity_type']})") for e in ITEM_OP_SENDS[item_op]]
+        return [(e, f"Entry step: {step['op']} ({item_op[0]})") for e in ITEM_OP_SENDS[item_op]]
     if kind == "entry" and step.get("entity_type") in (None, "entry") and step.get("op") in OP_SENDS:
         return [(e, f"Entry step: {step['op'].replace('_', ' ')}") for e in OP_SENDS[step["op"]]]
     return []
@@ -403,11 +405,13 @@ def _step_sends(step) -> list[tuple[str, str]]:
 def workflow_sends(definition: dict | None) -> dict[str, list[str]]:
     """{event type: [what sends it]} for a workflow's steps (and on-failure steps), as many as the engine runs."""
     from marvin.services.automation.engine import MAX_ACTIONS
+    from marvin.services.automation.validation import subject_of
 
     body = definition or {}
+    subject = subject_of(body)
     out: dict[str, list[str]] = defaultdict(list)
     for step in [*(body.get("actions") or [])[:MAX_ACTIONS], *(body.get("on_failure") or [])[:MAX_ACTIONS]]:
-        for event_type, what in _step_sends(step):
+        for event_type, what in _step_sends(step, subject):
             if what not in out[event_type]:
                 out[event_type].append(what)
     return dict(out)
