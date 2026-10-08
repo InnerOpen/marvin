@@ -40,3 +40,10 @@
 .alert-settings .takes label { display: inline-flex; gap: 5px; align-items: center; }
 .alert-settings .reminder { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; margin: 4px 0 0 26px; }
 .alert-settings .reminder input { width: 72px; font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); color: var(--ink); }
+/* Phones: a 16px inset in the cards and finger-sized rows for the checkboxes, radios and small buttons. */
+@media (max-width: 640px) {
+  .alert-settings .card { padding: 16px; }
+  .alert-settings .recipients label, .alert-settings .takes label, .alert-settings .switch { min-height: 32px; }
+  .alert-settings .small-btn { min-height: 36px; }
+  .alert-settings .reminder input { min-height: 36px; }
+}

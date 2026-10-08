@@ -667,12 +667,32 @@ code {
     flex: 1 1 100%;
   }
 
+  /* Pages' own title rows (.page-header: heading + links/actions) wrap the same way. */
+  .page-header {
+    flex-wrap: wrap;
+  }
+
   .form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .span-2 {
     grid-column: auto;
+  }
+
+  /* Page modals (.modal > .modal-overlay + .modal-content, opened with .show): keep the 16px gutter
+     around the dialog box; .modal-content centres itself inside it with margin: auto. */
+  .modal.show {
+    padding: 0 16px;
+  }
+}
+
+/* Touch screens: iOS zooms the page into any focused field whose text is under 16px and leaves it
+   zoomed after the keyboard closes. Pages size their fields in scoped styles (14px, 13px), which
+   outrank anything here, hence !important. Desktop pointers keep the compact sizes. */
+@media (hover: none) and (pointer: coarse) {
+  :is(input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"]), select, textarea) {
+    font-size: 16px !important;
   }
 }
 
