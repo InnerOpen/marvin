@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.215 (2026-10-08)
+
+### Bug Fixes
+
+- **bubble**: Sending while listening clears the input for good
+  ([`bb28b64`](https://github.com/InnerOpen/marvin/commit/bb28b642155f9cde69e7cfbea8f931fdb271f589))
+
+
 ## v1.0.0-rc.214 (2026-10-08)
 
 ### Bug Fixes
