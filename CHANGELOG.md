@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.229 (2026-10-09)
+
+### Features
+
+- **dev**: Character kit — a bubble character's whole pack from one pose sheet
+  ([`40cb860`](https://github.com/InnerOpen/marvin/commit/40cb8608bd5fc240fc30c1121b13d7ea642aa456))
+
+
 ## v1.0.0-rc.228 (2026-10-09)
 
 ### Bug Fixes
