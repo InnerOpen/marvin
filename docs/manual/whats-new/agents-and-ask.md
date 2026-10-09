@@ -93,6 +93,7 @@ Two read-only tools support this: `workspace_overview` (entries by type and stat
 |---|---|---|---|
 | `idle` | Idle | `idle` | nothing else is happening; required |
 | `idle_variant` | Idle fidget | `look-loop`, `look`, `look-around` | once now and then while idle, 20–40 seconds apart |
+| `peek` | Peeking (tucked in an edge) | `peek`, `peeking`, `peek-a-boo` | the bubble is tucked into a screen edge and looks out, about once a minute; without it the pack waves (`greeting`), else fidgets |
 | `greeting` | Greeting | `waving`, `wave`, `greeting` | the panel opens |
 | `thinking` | Thinking | `review`, `thinking`, `think` | a message is sent, before the agent's first step |
 | `working` | Working | `running`, `working`, `run` | the agent's steps are running |

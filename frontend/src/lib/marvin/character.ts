@@ -14,6 +14,7 @@
 export const CHARACTER_STATES = [
   "idle",
   "idle_variant",
+  "peek",
   "greeting",
   "thinking",
   "working",
@@ -30,6 +31,8 @@ export type CharacterStates = Partial<Record<CharacterState, string>>;
 const FALLBACKS: Record<CharacterState, CharacterState[]> = {
   idle: [],
   idle_variant: ["idle"],
+  // Peeking out of a screen edge is a hello: a pack without its own peek waves, else fidgets.
+  peek: ["greeting", "idle_variant", "idle"],
   greeting: ["idle"],
   thinking: ["idle"],
   working: ["idle"],
@@ -44,6 +47,7 @@ const FALLBACKS: Record<CharacterState, CharacterState[]> = {
 /** What happened, as the bubble reports it. */
 export type CharacterEvent =
   | "open" // the panel opened
+  | "peek" // tucked into an edge, it looks out for a moment
   | "send" // a message went out
   | "progress" // the agent took a step
   | "parked" // the run waits on the user's approval
@@ -56,6 +60,7 @@ export type CharacterEvent =
 
 const EVENT_STATE: Record<CharacterEvent, CharacterState> = {
   open: "greeting",
+  peek: "peek",
   send: "thinking",
   progress: "working",
   parked: "waiting",
@@ -72,6 +77,7 @@ const EVENT_STATE: Record<CharacterEvent, CharacterState> = {
 export const GREETING_MS = 2_000;
 export const SUCCESS_MS = 2_000;
 export const IDLE_VARIANT_MS = 2_600;
+export const PEEK_MS = 2_000;
 /** An error stays up a little longer: it's news the user should catch. */
 export const ERROR_HOLD_MS = 4_000;
 
@@ -80,6 +86,7 @@ const ONE_SHOT_MS: Partial<Record<CharacterState, number>> = {
   greeting: GREETING_MS,
   success: SUCCESS_MS,
   idle_variant: IDLE_VARIANT_MS,
+  peek: PEEK_MS,
   error: ERROR_HOLD_MS,
 };
 

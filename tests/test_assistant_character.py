@@ -67,6 +67,7 @@ def _zip(entries: dict[str, bytes]) -> bytes:
         ("walk-right.png", "move_right"),
         ("idle-jump-idle.gif", "success"),
         ("all-states.gif", None),
+        ("peek-a-boo.gif", "peek"),
     ],
 )
 def test_state_for_maps_aliases_to_canonical_states(filename, state):
@@ -86,7 +87,8 @@ def test_a_sample_like_zip_fills_every_state_and_keeps_the_rest():
     entries = {f"marvin-gifs/{n}.gif": _gif() for n in SAMPLE_NAMES}
     entries |= {"marvin-gifs/": b"", "README.txt": b"hi", "__MACOSX/marvin-gifs/._idle.gif": b"junk", ".DS_Store": b"junk"}
     plan = plan_character([("marvin-gifs.zip", _zip(entries))])
-    assert set(plan.states) == set(ch.CHARACTER_STATES)
+    # The sample pack predates `peek`, which falls back to the wave in the browser (lib/marvin/character.ts).
+    assert set(plan.states) == set(ch.CHARACTER_STATES) - {"peek"}
     assert plan.states["greeting"].name == "waving.gif" and plan.states["success"].name == "jumping.gif"
     assert {i.name for i in plan.images} == {f"{n}.gif" for n in SAMPLE_NAMES}
     assert plan.ignored == ["README.txt"]  # junk entries are skipped silently, not reported

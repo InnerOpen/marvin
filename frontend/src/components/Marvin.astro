@@ -65,7 +65,7 @@ try {
   import { askPageAllowed, bubbleAllowed } from '@/lib/marvin/gate';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
   import { forgetConversation, loadPending, rememberThread, scoped, setStorageScope, threadFor } from '@/lib/marvin/pending';
-  import { type BubbleSpot, clampSpot, DEFAULT_SPOT, hiddenAfterScroll, parseSpot, parseTuck, SCROLL_IDLE_MS, spotFromRect, type Tuck, tuckAt, tuckedPosition, tuckEdge } from '@/lib/marvin/position';
+  import { type BubbleSpot, clampSpot, DEFAULT_SPOT, hiddenAfterScroll, parseSpot, parseTuck, PEEK_EVERY_MAX_MS, PEEK_EVERY_MIN_MS, PEEK_OUT_MS, SCROLL_IDLE_MS, spotFromRect, type Tuck, tuckAt, tuckedPosition, tuckEdge } from '@/lib/marvin/position';
   import { ATTACH_ACCEPT, ATTACHMENTS_KEY, attachmentIcon, forgetAttachments, loadAttachments, MAX_ATTACHMENTS, roomFor, saveAttachments, withAttachment, withoutAttachment } from '@/lib/marvin/attachments';
   import { createDictation, speechRecognition } from '@/lib/marvin/dictation';
   import { getContentAccess } from '@/lib/api/workspaces';
@@ -445,8 +445,9 @@ try {
     function readTuck(): Tuck | null {
       try { return parseTuck(JSON.parse(localStorage.getItem(TUCK_KEY) || 'null'), bubbleBox(), viewport()); } catch { return null; }
     }
-    function applyTuck(t: Tuck) {
-      const { left, top } = tuckedPosition(t, bubbleBox(), viewport());
+    function applyTuck(t: Tuck, peeking = false) {
+      const { left, top } = tuckedPosition(t, bubbleBox(), viewport(), peeking);
+      root.classList.toggle('peeking', peeking);
       Object.assign(root.style, { left: `${left}px`, top: `${top}px`, right: 'auto', bottom: 'auto' });
       root.classList.add('tucked');
       root.dataset.edge = t.edge;
@@ -456,13 +457,36 @@ try {
       tuck = t;
       applyTuck(t);
       try { localStorage.setItem(TUCK_KEY, JSON.stringify(t)); } catch { /* lasts this page */ }
+      schedulePeek();
+    }
+
+    // Now and then the tucked bubble looks out (half of it, for a couple of seconds, playing the character's peek) and
+    // slides back. Not while the page scrolls or is in the background, never with reduced motion.
+    let peekTimer: number | undefined;
+    let lastScrollAt = 0;
+    document.addEventListener('scroll', () => { lastScrollAt = Date.now(); }, { capture: true, passive: true });
+    function schedulePeek() {
+      window.clearTimeout(peekTimer);
+      if (!tuck || reducedMotion) return;
+      peekTimer = window.setTimeout(peek, PEEK_EVERY_MIN_MS + Math.random() * (PEEK_EVERY_MAX_MS - PEEK_EVERY_MIN_MS));
+    }
+    function peek() {
+      if (!tuck) return;
+      if (document.hidden || dragging || Date.now() - lastScrollAt < PEEK_OUT_MS) { schedulePeek(); return; }
+      applyTuck(tuck, true);
+      cue('peek');
+      peekTimer = window.setTimeout(() => {
+        if (tuck) applyTuck(tuck);
+        schedulePeek();
+      }, PEEK_OUT_MS);
     }
     /** Back out to where it last rested. */
     function untuck() {
       if (!tuck) return;
+      window.clearTimeout(peekTimer);
       spot = clampSpot(tuck.restore, bubbleBox(), viewport());
       tuck = null;
-      root.classList.remove('tucked', 'tuck-pulse');
+      root.classList.remove('tucked', 'tuck-pulse', 'peeking');
       delete root.dataset.edge;
       applySpot(spot);
       try { localStorage.removeItem(TUCK_KEY); } catch { /* nothing stored */ }
@@ -471,7 +495,7 @@ try {
     let spot = readSpot();
     applySpot(spot);
     tuck = readTuck();
-    if (tuck) applyTuck(tuck);
+    if (tuck) { applyTuck(tuck); schedulePeek(); }
     // The character swaps in after load and the window can change size or rotate: re-clamp the
     // remembered spot to what fits now (without overwriting it, so it springs back on a bigger screen).
     function reclamp() {
@@ -496,7 +520,8 @@ try {
       if (!moved) return;
       if (tuck) { // pulled out of its edge: it comes back under the finger
         tuck = null;
-        root.classList.remove('tucked', 'tuck-pulse');
+        window.clearTimeout(peekTimer);
+        root.classList.remove('tucked', 'tuck-pulse', 'peeking');
         try { localStorage.removeItem(TUCK_KEY); } catch { /* nothing stored */ }
       }
       applySpot(spotFromRect(ox + dx, oy + dy, bubbleBox(), viewport()));
@@ -850,13 +875,16 @@ try {
   /* Tucked into an edge: a sliver shows; dragging past an edge shows it will tuck; a pulse says a reply waits. */
   .marvin.will-tuck .marvin-toggle { opacity: 0.55; }
   .marvin.tucked .marvin-toggle { opacity: 0.85; box-shadow: 0 2px 8px rgb(0 0 0 / 0.25); }
+  /* Sliding out to peek and back in. */
+  .marvin.tucked { transition: opacity 0.2s, transform 0.2s, left 0.35s ease, top 0.35s ease; }
+  .marvin.peeking .marvin-toggle { opacity: 1; }
   .marvin.tuck-pulse .marvin-toggle { animation: marvin-tuck-pulse 1.6s ease-in-out infinite; }
   @keyframes marvin-tuck-pulse { 50% { opacity: 1; filter: brightness(1.25); } }
   /* Stepped aside while the page scrolls (touch screens). */
   .marvin { transition: opacity 0.2s, transform 0.2s; }
   .marvin.scroll-away { opacity: 0; transform: translateY(24px) scale(0.9); pointer-events: none; }
   @media (prefers-reduced-motion: reduce) {
-    .marvin { transition: none; }
+    .marvin, .marvin.tucked { transition: none; }
     .marvin.tuck-pulse .marvin-toggle { animation: none; opacity: 1; }
   }
 

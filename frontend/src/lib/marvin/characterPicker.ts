@@ -17,6 +17,7 @@ import { CHARACTER_STATES, type CharacterState, fallbacksOf, imageFor } from "@/
 const STATE_LABELS: Record<CharacterState, string> = {
   idle: "Idle",
   idle_variant: "Idle fidget",
+  peek: "Peeking (tucked in an edge)",
   greeting: "Greeting",
   thinking: "Thinking",
   working: "Working",

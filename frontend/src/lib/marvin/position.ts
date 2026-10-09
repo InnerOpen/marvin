@@ -104,19 +104,28 @@ export function tuckAt(edge: Edge, left: number, top: number, box: Size, viewpor
   return { edge, along: clamp(length ? centre / length : 0.5, 0, 1), restore };
 }
 
-/** Top-left of a tucked bubble: TUCK_PEEK on screen, kept within the edge's length. */
-export function tuckedPosition(tuck: Tuck, box: Size, viewport: Size): { left: number; top: number } {
+/** How much of a tucked bubble shows while it peeks out (about once a minute). */
+export const PEEK_SHARE = 0.5;
+export const PEEK_EVERY_MIN_MS = 45_000;
+export const PEEK_EVERY_MAX_MS = 75_000;
+/** How long a peek lasts (the character's peek plays meanwhile). */
+export const PEEK_OUT_MS = 2_200;
+
+/** Top-left of a tucked bubble: TUCK_PEEK on screen (`peeking`: PEEK_SHARE of it), kept within the edge's length. */
+export function tuckedPosition(tuck: Tuck, box: Size, viewport: Size, peeking = false): { left: number; top: number } {
+  const across = tuck.edge === "left" || tuck.edge === "right" ? box.width : box.height;
+  const shown = peeking ? Math.round(across * PEEK_SHARE) : TUCK_PEEK;
   const alongEdge = (length: number, size: number) =>
     Math.round(clamp(tuck.along * length - size / 2, 0, length - size));
   switch (tuck.edge) {
     case "left":
-      return { left: TUCK_PEEK - box.width, top: alongEdge(viewport.height, box.height) };
+      return { left: shown - box.width, top: alongEdge(viewport.height, box.height) };
     case "right":
-      return { left: viewport.width - TUCK_PEEK, top: alongEdge(viewport.height, box.height) };
+      return { left: viewport.width - shown, top: alongEdge(viewport.height, box.height) };
     case "top":
-      return { left: alongEdge(viewport.width, box.width), top: TUCK_PEEK - box.height };
+      return { left: alongEdge(viewport.width, box.width), top: shown - box.height };
     default:
-      return { left: alongEdge(viewport.width, box.width), top: viewport.height - TUCK_PEEK };
+      return { left: alongEdge(viewport.width, box.width), top: viewport.height - shown };
   }
 }
 

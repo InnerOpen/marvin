@@ -60,6 +60,7 @@ IDLE_STATE = "idle"
 CHARACTER_STATES = (
     IDLE_STATE,
     "idle_variant",  # played now and then while idle
+    "peek",  # tucked into a screen edge, it looks out now and then
     "greeting",  # the panel opens
     "thinking",  # a message was sent; no agent step yet
     "working",  # agent steps are running
@@ -75,6 +76,7 @@ CHARACTER_STATES = (
 STATE_ALIASES: dict[str, tuple[str, ...]] = {
     IDLE_STATE: ("idle",),
     "idle_variant": ("look-loop", "look", "look-around"),
+    "peek": ("peek", "peeking", "peek-a-boo"),
     "greeting": ("waving", "wave", "greeting"),
     "thinking": ("review", "thinking", "think"),
     "working": ("running", "working", "run"),

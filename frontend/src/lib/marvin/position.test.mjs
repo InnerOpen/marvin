@@ -103,6 +103,12 @@ describe("tucking into an edge", () => {
     });
   });
 
+  test("peeking shows half of it from the same edge", () => {
+    const tuck = tuckAt("right", 390, 374, box, view, home);
+    assert.deepEqual(tuckedPosition(tuck, box, view, true), { left: 400 - 26, top: 374 });
+    assert.deepEqual(tuckedPosition({ ...tuck, edge: "top" }, box, view, true).top, 26 - 52);
+  });
+
   test("a stored tuck survives a reload and nonsense is ignored", () => {
     const stored = JSON.parse(JSON.stringify(tuckAt("left", -40, 100, box, view, home)));
     assert.equal(parseTuck(stored, box, view).edge, "left");
