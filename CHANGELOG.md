@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.218 (2026-10-09)
+
+### Bug Fixes
+
+- **publish**: An entry's assets and resources come in placement order
+  ([`0e97378`](https://github.com/InnerOpen/marvin/commit/0e97378465199e6d69373085746846bd54c3f14b))
+
+
 ## v1.0.0-rc.217 (2026-10-08)
 
 ### Bug Fixes
