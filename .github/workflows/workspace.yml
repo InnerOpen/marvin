@@ -25,6 +25,9 @@ jobs:
     services:
       postgres:
         image: postgres:15-alpine
+        credentials:  # logged in: Docker Hub's anonymous pull limit is shared by every job on the runner
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_USER: marvin
           POSTGRES_PASSWORD: marvin
@@ -39,6 +42,9 @@ jobs:
 
       redis:
         image: redis:7-alpine
+        credentials:  # logged in: Docker Hub's anonymous pull limit is shared by every job on the runner
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s

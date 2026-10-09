@@ -77,6 +77,9 @@ jobs:
         # The major the CloudNativePG clusters run (marvin-chart postgres.cluster.imageName) and the
         # backend image's pg_dump matches. Move all three together.
         image: postgres:17-alpine
+        credentials:  # logged in: Docker Hub's anonymous pull limit is shared by every job on the runner
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_USER: marvin
           POSTGRES_PASSWORD: marvin
@@ -141,6 +144,9 @@ jobs:
     services:
       vault:
         image: hashicorp/vault:latest
+        credentials:  # logged in: Docker Hub's anonymous pull limit is shared by every job on the runner
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         ports:
           - 8200:8200
         env:

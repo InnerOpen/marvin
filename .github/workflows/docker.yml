@@ -56,6 +56,13 @@ jobs:
         # The image's CHANGELOG.md predates this commit's own release; list the gap for "What's new".
         run: docker/write-unreleased.sh UNRELEASED.txt
 
+      - name: Log in to Docker Hub
+        # buildkit and the base images come from Docker Hub, whose anonymous pull limit shared runners use up.
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
