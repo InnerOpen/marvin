@@ -909,16 +909,17 @@ try {
   /* A character has no circle to shadow: on its image's rectangle the shadow drew a box around it. */
   .marvin.tucked .marvin-toggle.has-character { box-shadow: none; }
   /* Sliding out to peek and back in. */
-  .marvin.tucked { transition: opacity 0.2s, transform 0.2s, left 0.35s ease, top 0.35s ease; }
+  .marvin.tucked { --marvin-slide: 0.35s; transition: opacity 0.2s, transform 0.2s, left var(--marvin-slide) ease, top var(--marvin-slide) ease; }
   .marvin.no-slide { transition: none; }
   /* The sliver is a solid tab on the visible edge: a character's GIF is mostly transparent there, so its own
      sliver could be invisible (and nothing to aim a thumb at). Hidden while it peeks out. */
   .marvin.tucked .marvin-toggle { position: relative; overflow: visible; }
   .marvin.tucked .marvin-toggle::before {
     content: ""; position: absolute; z-index: 1; background: var(--accent);
-    box-shadow: 0 1px 6px rgb(0 0 0 / 0.3); transition: opacity 0.2s;
+    /* Back only once the character has slid all the way in (a tab on a half-out character looks stuck on). */
+    box-shadow: 0 1px 6px rgb(0 0 0 / 0.3); transition: opacity 0.2s var(--marvin-slide);
   }
-  .marvin.peeking .marvin-toggle::before { opacity: 0; }
+  .marvin.peeking .marvin-toggle::before { opacity: 0; transition: opacity 0.1s; }
   .marvin.tucked[data-edge="right"] .marvin-toggle::before { left: 0; top: 50%; width: 14px; height: 44px; transform: translateY(-50%); border-radius: 8px 0 0 8px; }
   .marvin.tucked[data-edge="left"] .marvin-toggle::before { right: 0; top: 50%; width: 14px; height: 44px; transform: translateY(-50%); border-radius: 0 8px 8px 0; }
   .marvin.tucked[data-edge="bottom"] .marvin-toggle::before { top: 0; left: 50%; width: 44px; height: 14px; transform: translateX(-50%); border-radius: 8px 8px 0 0; }
