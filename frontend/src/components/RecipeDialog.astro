@@ -1,0 +1,272 @@
+---
+/**
+ * "Start from a recipe" — the workflow editor's way into the Workflow Library. A searchable list of the workflow
+ * recipes (ready ones first, the rest greyed with what they need), and for the one chosen: what it does, when it
+ * runs, what it changes, and its setup form. "Use recipe" fills it in (POST …/library/{id}/configure — nothing is
+ * saved) and hands `{recipe, name, definition, issues}` to the page as a `recipe:use` event; the page loads it into
+ * the builder, where Save creates it switched off.
+ *
+ * Opened by a `recipe:open` event (`detail.id` picks a recipe), which the page sends for its button and for
+ * `?recipe=<id>`.
+ */
+---
+
+<dialog id="recipe-dialog" class="recipe-dialog" aria-labelledby="rd-title">
+  <div class="rd-head">
+    <h3 id="rd-title">Start from a recipe</h3>
+    <a href="/automation/library" class="rd-browse">Browse the whole Library</a>
+    <button type="button" class="rd-close" data-rd-close aria-label="Close">×</button>
+  </div>
+  <div class="rd-body">
+    <div class="rd-list-pane">
+      <input type="search" id="rd-search" class="rd-search" placeholder="Search recipes…" aria-label="Search recipes" />
+      <div id="rd-list" class="rd-list" role="list"><p class="rd-muted">Loading recipes…</p></div>
+    </div>
+    <div id="rd-detail" class="rd-detail">
+      <p class="rd-muted">Choose a recipe to see what it does and set it up for this workspace.</p>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  import { configureRecipe, getWorkflowLibrary } from "@/lib/api/workflowLibrary";
+  import {
+    choicesFor,
+    groupRecipes,
+    initialValues,
+    matches,
+    type Recipe,
+    readiness,
+    recipeVars,
+    SIDE_EFFECT_LABEL,
+    triggerText,
+    type Values,
+    type WorkflowLibrary,
+  } from "@/lib/workflowLibrary";
+
+  const dialog = document.getElementById("recipe-dialog") as HTMLDialogElement;
+  const list = document.getElementById("rd-list")!;
+  const detail = document.getElementById("rd-detail")!;
+  const search = document.getElementById("rd-search") as HTMLInputElement;
+
+  let library: WorkflowLibrary | null = null;
+  let picked: Recipe | null = null;
+  let values: Values = {};
+
+  // A small element builder: text is always set as text, never parsed as HTML.
+  function h(tag: string, attrs: Record<string, string> = {}, ...children: (Node | string | null | false)[]): HTMLElement {
+    const el = document.createElement(tag);
+    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+    for (const child of children) if (child) el.append(child);
+    return el;
+  }
+
+  const workflowRecipes = () => (library?.recipes ?? []).filter((r) => r.shape === "workflow");
+
+  function renderList() {
+    const shown = workflowRecipes().filter((r) => matches(r, search.value));
+    list.replaceChildren();
+    if (!shown.length) {
+      list.append(h("p", { class: "rd-muted" }, "No recipe matches."));
+      return;
+    }
+    for (const group of groupRecipes(shown)) {
+      list.append(h("h4", { class: "rd-group" }, group.category));
+      for (const recipe of group.recipes) {
+        const ready = readiness(recipe) === "ready";
+        const item = h(
+          "button",
+          { type: "button", class: `rd-item${ready ? "" : " rd-unready"}${picked?.id === recipe.id ? " rd-picked" : ""}`, role: "listitem" },
+          h("strong", {}, recipe.title),
+          h("span", {}, ready ? recipe.outcome : recipe.missing.join("; ")),
+        );
+        item.addEventListener("click", () => pick(recipe));
+        list.append(item);
+      }
+    }
+  }
+
+  function pick(recipe: Recipe) {
+    picked = recipe;
+    values = initialValues(recipe, library!.refs);
+    dialog.classList.add("rd-has-pick");
+    renderList();
+    renderDetail();
+  }
+
+  function renderDetail() {
+    const recipe = picked!;
+    const ready = readiness(recipe) === "ready";
+    const back = h("button", { type: "button", class: "linkish rd-back" }, "← All recipes");
+    back.addEventListener("click", () => dialog.classList.remove("rd-has-pick"));
+    const effects = recipe.sideEffects.length
+      ? h("ul", { class: "rd-effects" }, ...recipe.sideEffects.map((e) => h("li", {}, h("strong", {}, `${SIDE_EFFECT_LABEL[e.kind] ?? e.kind}: `), e.description)))
+      : h("p", { class: "rd-muted" }, "Changes nothing outside the workflow's own steps.");
+    detail.replaceChildren(
+      back,
+      h("h4", {}, recipe.title),
+      h("p", {}, recipe.outcome),
+      h("p", { class: "rd-when" }, h("strong", {}, "Runs: "), triggerText(recipe.trigger)),
+      h("h5", {}, "What it does"),
+      effects,
+      ready ? setupForm(recipe) : h("div", { class: "rd-missing" }, h("strong", {}, "Not ready here: "), `${recipe.missing.join("; ")}.`),
+    );
+  }
+
+  function setupForm(recipe: Recipe): HTMLElement {
+    const form = h("form", { class: "rd-form" }) as HTMLFormElement;
+    form.append(h("h5", {}, recipe.setupVariables.length ? "Set it up for this workspace" : "Nothing to set up"));
+    for (const variable of recipe.setupVariables) form.append(variableField(recipe, variable));
+    const error = h("div", { class: "rd-error", hidden: "" });
+    const use = h("button", { type: "submit", class: "button" }, "Use recipe");
+    form.append(
+      h("p", { class: "rd-muted" }, "This fills in the workflow editor. Nothing is saved until you press Save there — and it saves switched off."),
+      error,
+      use,
+    );
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const { vars, blank } = recipeVars(recipe, values);
+      if (blank.length) {
+        error.textContent = `Fill in: ${blank.join(", ")}.`;
+        error.removeAttribute("hidden");
+        return;
+      }
+      use.setAttribute("disabled", "");
+      error.setAttribute("hidden", "");
+      try {
+        const result = await configureRecipe(recipe.id, vars);
+        dialog.close();
+        document.dispatchEvent(new CustomEvent("recipe:use", { detail: { recipe, ...result } }));
+      } catch (e: any) {
+        error.textContent = e?.message ?? String(e);
+        error.removeAttribute("hidden");
+      } finally {
+        use.removeAttribute("disabled");
+      }
+    });
+    return form;
+  }
+
+  function variableField(recipe: Recipe, variable: Recipe["setupVariables"][number]): HTMLElement {
+    const id = `rd-var-${variable.name}`;
+    const picker = choicesFor(variable, recipe, library!.refs, values);
+    const label = h("label", { for: id }, variable.name.replace(/_/g, " "));
+    const help = h("small", {}, variable.description);
+    let control: HTMLElement;
+    if (picker.input === "select") {
+      control = h(
+        "select",
+        { id },
+        h("option", { value: "" }, picker.choices.length ? "Choose…" : "Nothing to choose"),
+        ...picker.choices.map((c) => h("option", { value: c.value }, c.label)),
+      );
+      (control as HTMLSelectElement).value = values[variable.name] ?? "";
+    } else {
+      control = h("input", { id, type: picker.input === "integer" ? "number" : "text" });
+      (control as HTMLInputElement).value = values[variable.name] ?? "";
+      if (variable.example != null) control.setAttribute("placeholder", `e.g. ${variable.example}`);
+    }
+    control.addEventListener("change", () => {
+      values[variable.name] = (control as HTMLInputElement | HTMLSelectElement).value;
+      // An entry type decides which fields the field pickers offer: settle them and redraw.
+      if (variable.type === "entry_type_slug") {
+        values = initialValues(recipe, library!.refs, values);
+        renderDetail();
+      }
+    });
+    const empty = picker.input === "select" && picker.empty?.text ? picker.empty : null;
+    return h(
+      "div",
+      { class: "rd-field" },
+      label,
+      control,
+      help,
+      empty && h("small", { class: "rd-empty" }, `${empty.text} `, empty.href ? h("a", { href: empty.href }, "Set one up →") : null),
+    );
+  }
+
+  async function open(id?: string | null) {
+    if (!dialog.open) dialog.showModal();
+    if (!library) {
+      try {
+        library = await getWorkflowLibrary();
+      } catch (e: any) {
+        list.replaceChildren(h("p", { class: "rd-error" }, `The Library couldn't load: ${e?.message ?? e}`));
+        return;
+      }
+    }
+    renderList();
+    const wanted = id ? workflowRecipes().find((r) => r.id === id) : null;
+    if (wanted) pick(wanted);
+    else if (id) detail.replaceChildren(h("p", { class: "rd-error" }, `No workflow recipe “${id}” — it may be set up on another page. See the Library.`));
+    else search.focus();
+  }
+
+  search.addEventListener("input", renderList);
+  dialog.querySelector("[data-rd-close]")!.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close(); // a click on the backdrop
+  });
+  document.addEventListener("recipe:open", (event) => open((event as CustomEvent).detail?.id));
+</script>
+
+<style>
+  .recipe-dialog {
+    width: min(960px, calc(100vw - 32px));
+    max-height: calc(100vh - 48px);
+    border: 1px solid var(--line);
+    border-radius: var(--radius, 12px);
+    padding: 0;
+    background: var(--panel);
+    color: var(--ink);
+    box-shadow: 0 8px 32px rgb(0 0 0 / 0.18);
+  }
+  .recipe-dialog[open] { display: flex; flex-direction: column; }
+  .recipe-dialog::backdrop { background: rgb(0 0 0 / 0.5); }
+  .rd-head { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+  .rd-head h3 { margin: 0; font-size: 18px; flex: 1; }
+  .rd-browse { font-size: 13px; color: var(--accent); }
+  .rd-close { background: none; border: 0; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; padding: 2px 6px; }
+  .rd-body { display: grid; grid-template-columns: minmax(240px, 2fr) 3fr; min-height: 0; flex: 1; }
+  .rd-list-pane { display: flex; flex-direction: column; border-right: 1px solid var(--line); min-height: 0; }
+  .rd-search { margin: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 14px; }
+  .rd-list { overflow-y: auto; padding: 0 8px 12px; max-height: calc(100vh - 190px); }
+  .rd-detail { overflow-y: auto; padding: 16px 20px; max-height: calc(100vh - 130px); }
+  .recipe-dialog :global(.rd-group) { margin: 14px 6px 4px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .recipe-dialog :global(.rd-item) {
+    display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid transparent;
+    border-radius: 8px; background: none; color: var(--ink); cursor: pointer; font: inherit;
+  }
+  .recipe-dialog :global(.rd-item:hover) { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+  .recipe-dialog :global(.rd-item.rd-picked) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .recipe-dialog :global(.rd-item strong) { font-size: 14px; }
+  .recipe-dialog :global(.rd-item span) { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+  .recipe-dialog :global(.rd-item.rd-unready) { opacity: 0.6; }
+  .recipe-dialog :global(.rd-muted) { color: var(--muted); font-size: 13px; }
+  .recipe-dialog :global(.rd-detail h4) { margin: 0 0 6px; font-size: 18px; }
+  .recipe-dialog :global(.rd-detail h5) { margin: 16px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .recipe-dialog :global(.rd-when) { margin: 6px 0; font-size: 14px; }
+  .recipe-dialog :global(.rd-effects) { margin: 0; padding-left: 18px; font-size: 13.5px; line-height: 1.5; }
+  .recipe-dialog :global(.rd-missing) { margin-top: 16px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, #d9a441 13%, transparent); font-size: 13.5px; }
+  .recipe-dialog :global(.rd-field) { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+  .recipe-dialog :global(.rd-field label) { font-weight: 600; font-size: 13.5px; text-transform: capitalize; }
+  .recipe-dialog :global(.rd-field select), .recipe-dialog :global(.rd-field input) {
+    padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font: inherit; max-width: 100%;
+  }
+  .recipe-dialog :global(.rd-field small) { color: var(--muted); font-size: 12.5px; line-height: 1.4; }
+  .recipe-dialog :global(.rd-field .rd-empty) { color: var(--warn, #a9632f); }
+  .recipe-dialog :global(.rd-field a) { color: var(--accent); }
+  .recipe-dialog :global(.rd-error) { margin: 10px 0; padding: 9px 12px; border-radius: 8px; color: var(--color-error); background: color-mix(in srgb, var(--color-error) 12%, transparent); font-size: 13.5px; }
+  .recipe-dialog :global(.rd-error[hidden]) { display: none; }
+  .recipe-dialog :global(.rd-back) { display: none; }
+
+  @media (max-width: 720px) {
+    .rd-body { grid-template-columns: 1fr; }
+    .rd-list-pane { border-right: 0; }
+    .rd-browse { display: none; }
+    .recipe-dialog:not(.rd-has-pick) .rd-detail { display: none; }
+    .recipe-dialog.rd-has-pick .rd-list-pane { display: none; }
+    .recipe-dialog :global(.rd-back) { display: inline-block; margin-bottom: 8px; }
+  }
+</style>

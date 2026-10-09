@@ -1,4 +1,5 @@
 ---
+import RecipeDialog from "@/components/RecipeDialog.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listIntegrations } from "@/lib/api/integrations";
@@ -46,6 +47,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <p>When something happens, run steps automatically — no code. AI steps are optional.</p>
     </div>
     <div class="toolbar-actions">
+      <button id="wf-from-recipe" class="button secondary">Start from a recipe…</button>
       <button id="wf-new" class="button">New workflow</button>
     </div>
   </div>
@@ -66,6 +68,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <h3 id="wf-builder-title">New workflow</h3>
         <button id="wf-json-toggle" type="button" class="linkish">Edit as JSON</button>
       </div>
+      <div id="wf-recipe-note" class="banner info" hidden></div>
 
       <div class="form-field">
         <label class="label" for="wf-name">Name</label>
@@ -224,6 +227,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   <script type="application/json" id="wf-options-data" is:inline set:html={optionsJson}></script>
   <script type="application/json" id="wf-list-data" is:inline set:html={listJson}></script>
   <script type="application/json" id="wf-integration-names" is:inline set:html={integrationNamesJson}></script>
+  <RecipeDialog />
  </div>
 </AppLayout>
 
@@ -889,6 +893,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   function openBuilder(wf: any = null) {
     editingId = wf?.id ?? null;
     pastedSlug = null;
+    $("wf-recipe-note").setAttribute("hidden", "");
     $("wf-builder-title").textContent = wf ? `Edit: ${wf.name}` : "New workflow";
     ($("wf-name") as HTMLInputElement).value = wf?.name ?? "";
     ($("wf-enabled") as HTMLInputElement).checked = wf?.enabled ?? false;
@@ -1440,6 +1445,43 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   document.body.appendChild(di);
 
   renderList();
+
+  // ── Start from a recipe (components/RecipeDialog.astro) ───────────────────
+  // The dialog fills a Library recipe in for this workspace and hands it over as a new, unsaved workflow. A recipe
+  // the guided builder can't show in full opens as JSON, so nothing in it is dropped on Save.
+  document.addEventListener("recipe:use", (event) => {
+    const { recipe, name, definition, issues } = (event as CustomEvent).detail;
+    openBuilder();
+    ($("wf-name") as HTMLInputElement).value = name;
+    loadDefinition(definition);
+    ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(definition, null, 2);
+    let rebuilt: any = null;
+    try { rebuilt = readDefinition(); } catch { /* opens as JSON below */ }
+    if (!rebuilt || definitionDifferences(definition, rebuilt).length) showMode(true);
+    showRecipeNote(recipe, issues ?? []);
+    revalidate();
+  });
+  function showRecipeNote(recipe: { title: string }, issues: { message: string }[]) {
+    const note = $("wf-recipe-note");
+    note.className = `banner ${issues.length ? "warn" : "info"}`;
+    note.innerHTML = `From the recipe <strong>${esc(recipe.title)}</strong>. Read the trigger and each step, change what you like,
+      then Save — it saves switched off, and a dry run shows what it would act on before you enable it.${
+        issues.length ? `<ul>${issues.map((i) => `<li>${esc(i.message)}</li>`).join("")}</ul>` : ""
+      }`;
+    note.removeAttribute("hidden");
+  }
+  const openRecipes = (id?: string | null) => document.dispatchEvent(new CustomEvent("recipe:open", { detail: { id } }));
+  $("wf-from-recipe").addEventListener("click", () => openRecipes());
+  // ?recipe=<id> (the Library's "Use in editor", an event or integration page): open the dialog on that recipe —
+  // once every module script has run, so the dialog is listening.
+  const linkedRecipe = new URLSearchParams(location.search).get("recipe");
+  if (linkedRecipe) {
+    const url = new URL(location.href);
+    url.searchParams.delete("recipe");
+    history.replaceState(history.state, "", url);
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", () => openRecipes(linkedRecipe), { once: true });
+    else setTimeout(() => openRecipes(linkedRecipe));
+  }
 
   // ?trigger=<event type> (an event page's "+ New workflow on this event"): a new workflow on that event —
   // only for an event the builder can trigger on.
