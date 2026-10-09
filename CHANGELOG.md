@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.228 (2026-10-09)
+
+### Bug Fixes
+
+- **bubble**: The tab comes back only once a peek has slid all the way in
+  ([`d1fcbf4`](https://github.com/InnerOpen/marvin/commit/d1fcbf421edd8863b70fcc4e4b8ea8897a621b55))
+
+
 ## v1.0.0-rc.227 (2026-10-09)
 
 ### Bug Fixes
