@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.232 (2026-10-09)
+
+### Features
+
+- **dev**: Character kit designs a new character from its description
+  ([`f41949c`](https://github.com/InnerOpen/marvin/commit/f41949c56fe334e864310cbaa55396a3ce7a997d))
+
+
 ## v1.0.0-rc.231 (2026-10-09)
 
 ### Features
