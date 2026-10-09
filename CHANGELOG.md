@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.234 (2026-10-09)
+
+### Bug Fixes
+
+- **dev**: Character kit keys the background by its real colour, keeping reds and purples
+  ([`19f8059`](https://github.com/InnerOpen/marvin/commit/19f805999a83681a0bcc56fe32d014ba1558ea1a))
+
+
 ## v1.0.0-rc.233 (2026-10-09)
 
 ### Bug Fixes
