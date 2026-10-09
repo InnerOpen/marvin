@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.221 (2026-10-09)
+
+### Features
+
+- **bubble**: A tucked bubble peeks out now and then
+  ([`caccef7`](https://github.com/InnerOpen/marvin/commit/caccef7060122523ba94f7f9166bb720a9db26fe))
+
+
 ## v1.0.0-rc.220 (2026-10-09)
 
 ### Features
