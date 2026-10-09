@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.240 (2026-10-09)
+
+### Bug Fixes
+
+- **bubble**: A character sheet's shaded background is background too
+  ([`2ce91c4`](https://github.com/InnerOpen/marvin/commit/2ce91c4804ccd3139a28fc0ec5169df494623a46))
+
+
 ## v1.0.0-rc.239 (2026-10-09)
 
 ### Bug Fixes
