@@ -60,6 +60,12 @@ BACKGROUND_NEAR = 60  # this close to the sheet's background colour: background,
 BACKGROUND_EDGE = 150  # this close, and right beside background: the soft blend around an outline
 BACKGROUND_SATURATION = 150  # a background colour's channels span at least this: magenta, green, cyan — not white
 BACKGROUND_FLATNESS = 30  # the border's median distance from its colour: one flat colour, not a scene
+# A shade of the background colour — the same hue, darker or lighter — is background too: image models shade the
+# background around and between a character (a soft shadow, in the pockets under an arm) though the prompt says not
+# to, and a distance test keeps those dark-green or dark-magenta pockets. Same hue: within this angle of the
+# background's colour, as RGB vectors (a purple body is ~15° from magenta, a crimson cap ~33°).
+SHADE_ANGLE_COS = float(np.cos(np.radians(10)))
+SHADE_CHROMA = 30  # …and clearly coloured, so a near-black outline or dress pixel is never "a dark shade of green"
 
 
 def key_background(img: Image.Image) -> np.ndarray:
@@ -79,11 +85,18 @@ def key_background(img: Image.Image) -> np.ndarray:
     distance = np.sqrt(((rgb - colour) ** 2).sum(axis=2))
     near = distance < BACKGROUND_NEAR
     beside = np.array(Image.fromarray((near * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5))) > 0
-    background = near | (beside & (distance < BACKGROUND_EDGE))
+    background = near | (beside & (distance < BACKGROUND_EDGE)) | _shade_of(rgb, colour)
     if background.mean() < 0.2:
         raise SheetError("too little background — the sheet must be on one flat colour with space around every pose")
     alpha = Image.fromarray(np.where(background, 0, 255).astype(np.uint8)).filter(ImageFilter.MinFilter(3))
     return np.dstack([rgb.astype(np.uint8), np.array(alpha)])
+
+
+def _shade_of(rgb: np.ndarray, colour: np.ndarray) -> np.ndarray:
+    """Pixels that are the background colour in shadow or light: its hue at another brightness (SHADE_ANGLE_COS)."""
+    length = np.sqrt((rgb**2).sum(axis=2)) * float(np.sqrt((colour**2).sum()))
+    cos = np.divide((rgb * colour).sum(axis=2), length, out=np.zeros(rgb.shape[:2]), where=length > 0)
+    return (cos >= SHADE_ANGLE_COS) & (rgb.max(axis=2) - rgb.min(axis=2) >= SHADE_CHROMA)
 
 
 def sheet_rgba(img: Image.Image) -> np.ndarray:

@@ -138,6 +138,20 @@ def test_keying_keeps_reds_and_purples_and_clears_magenta_even_between_limbs():
     assert a[0, 0] == 0
 
 
+def test_the_background_in_shadow_is_background_too_but_dark_outlines_and_black_clothes_stay():
+    """Gemini shaded the green around Elvira (dark-green pockets under an arm), which a distance test kept."""
+    img = Image.new("RGB", (400, 400), (8, 248, 6))
+    d = ImageDraw.Draw(img)
+    d.rectangle([100, 100, 300, 300], fill=(10, 10, 12))  # a black dress…
+    d.rectangle([140, 140, 170, 260], fill=(16, 107, 14))  # …with a shadowed pocket of background under the arm
+    d.rectangle([200, 140, 230, 260], fill=(20, 40, 20))  # a near-black, faintly green fold: still the dress
+    d.rectangle([99, 99, 301, 99], fill=(30, 110, 25))  # the dark-green blend along the outline
+    a = sheets.key_background(img)[..., 3]
+    assert (a[145:255, 145:165] == 0).all()  # the shadowed pocket is background
+    assert (a[110:130, 110:290] == 255).all() and (a[145:255, 205:225] == 255).all()  # black stays black
+    assert (a[99, 120:280] == 0).all()
+
+
 def test_a_sheet_on_any_flat_background_is_cut():
     a = np.array(pose_sheet())
     a[(a == (255, 0, 255)).all(axis=2)] = (0, 255, 0)  # the same sheet, drawn on green
