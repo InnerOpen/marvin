@@ -14,7 +14,6 @@
 export const CHARACTER_STATES = [
   "idle",
   "idle_variant",
-  "peek",
   "peek_left",
   "peek_right",
   "peek_top",
@@ -35,13 +34,11 @@ export type CharacterStates = Partial<Record<CharacterState, string>>;
 const FALLBACKS: Record<CharacterState, CharacterState[]> = {
   idle: [],
   idle_variant: ["idle"],
-  // Peeking out of a screen edge is a hello: a pack without its own peek waves, else fidgets.
-  peek: ["greeting", "idle_variant", "idle"],
-  // Peeking out of one edge (tucked into the left edge…): a pack without that one uses its plain peek.
-  peek_left: ["peek", "greeting", "idle_variant", "idle"],
-  peek_right: ["peek", "greeting", "idle_variant", "idle"],
-  peek_top: ["peek", "greeting", "idle_variant", "idle"],
-  peek_bottom: ["peek", "greeting", "idle_variant", "idle"],
+  // Peeking out of the edge it's tucked into is a hello: a pack without that edge's peek waves, else fidgets.
+  peek_left: ["greeting", "idle_variant", "idle"],
+  peek_right: ["greeting", "idle_variant", "idle"],
+  peek_top: ["greeting", "idle_variant", "idle"],
+  peek_bottom: ["greeting", "idle_variant", "idle"],
   greeting: ["idle"],
   thinking: ["idle"],
   working: ["idle"],
@@ -56,8 +53,7 @@ const FALLBACKS: Record<CharacterState, CharacterState[]> = {
 /** What happened, as the bubble reports it. */
 export type CharacterEvent =
   | "open" // the panel opened
-  | "peek" // tucked into an edge, it looks out for a moment
-  | "peek_left" // …out of the left edge (and so on): the bubble sends the edge it is tucked into
+  | "peek_left" // tucked into the left edge (and so on), it looks out for a moment
   | "peek_right"
   | "peek_top"
   | "peek_bottom"
@@ -73,7 +69,6 @@ export type CharacterEvent =
 
 const EVENT_STATE: Record<CharacterEvent, CharacterState> = {
   open: "greeting",
-  peek: "peek",
   peek_left: "peek_left",
   peek_right: "peek_right",
   peek_top: "peek_top",
@@ -103,7 +98,6 @@ const ONE_SHOT_MS: Partial<Record<CharacterState, number>> = {
   greeting: GREETING_MS,
   success: SUCCESS_MS,
   idle_variant: IDLE_VARIANT_MS,
-  peek: PEEK_MS,
   peek_left: PEEK_MS,
   peek_right: PEEK_MS,
   peek_top: PEEK_MS,

@@ -60,8 +60,8 @@ IDLE_STATE = "idle"
 CHARACTER_STATES = (
     IDLE_STATE,
     "idle_variant",  # played now and then while idle
-    "peek",  # tucked into a screen edge, it looks out now and then
-    # The same from one edge (tucked into the left edge, looking out rightwards…); a pack without one peeks as above.
+    # Tucked into a screen edge, it peeks out now and then: one animation per edge (tucked into the left edge,
+    # peek_left). The single `peek` these replaced was retired (alembic b7d3e5f1a9c2).
     "peek_left",
     "peek_right",
     "peek_top",
@@ -81,7 +81,6 @@ CHARACTER_STATES = (
 STATE_ALIASES: dict[str, tuple[str, ...]] = {
     IDLE_STATE: ("idle",),
     "idle_variant": ("look-loop", "look", "look-around"),
-    "peek": ("peek", "peeking", "peek-a-boo"),
     # "peak-…" too: the spelling is easy to slip into when naming files.
     "peek_left": ("peek-left", "peeking-left", "peak-left"),
     "peek_right": ("peek-right", "peeking-right", "peak-right"),

@@ -93,8 +93,7 @@ Two read-only tools support this: `workspace_overview` (entries by type and stat
 |---|---|---|---|
 | `idle` | Idle | `idle` | nothing else is happening; required |
 | `idle_variant` | Idle fidget | `look-loop`, `look`, `look-around` | once now and then while idle, 20–40 seconds apart |
-| `peek` | Peeking (tucked in an edge) | `peek`, `peeking`, `peek-a-boo` | the bubble is tucked into a screen edge and looks out, every 5 seconds (`BUBBLE_PEEK_SECONDS` on the frontend sets the gap); without it the pack waves (`greeting`), else fidgets |
-| `peek_left` · `peek_right` · `peek_top` · `peek_bottom` | Peeking out of the left / right / top / bottom edge | `peek-left`, `peeking-left`, `peak-left` (and the same for `right`, `top`, `bottom`) | the bubble is tucked into that edge and comes out; without one the pack uses its `peek` |
+| `peek_left` · `peek_right` · `peek_top` · `peek_bottom` | Peek left / right / top / bottom | `peek-left`, `peeking-left`, `peak-left` (and the same for `right`, `top`, `bottom`) | the bubble is tucked into that edge (left: the left edge) and comes out until the drawing meets the edge; without one the pack waves (`greeting`), else fidgets. The single `peek` state these replaced is retired |
 | `greeting` | Greeting | `waving`, `wave`, `greeting` | the panel opens |
 | `thinking` | Thinking | `review`, `thinking`, `think` | a message is sent, before the agent's first step |
 | `working` | Working | `running`, `working`, `run` | the agent's steps are running |

@@ -77,11 +77,11 @@ describe("imageFor", () => {
 });
 
 describe("peeking out of an edge", () => {
-  test("uses the edge's own peek, then the plain peek, then the wave", () => {
-    const pack = { idle: "/i.gif", greeting: "/wave.gif", peek: "/peek.gif", peek_left: "/peek-left.gif" };
+  test("uses the edge's own peek, else the wave", () => {
+    const pack = { idle: "/i.gif", greeting: "/wave.gif", peek_left: "/peek-left.gif" };
     assert.equal(imageFor(pack, "peek_left"), "/peek-left.gif");
-    assert.equal(imageFor(pack, "peek_top"), "/peek.gif");
-    assert.equal(imageFor({ idle: "/i.gif", greeting: "/wave.gif" }, "peek_bottom"), "/wave.gif");
+    assert.equal(imageFor(pack, "peek_top"), "/wave.gif");
+    assert.equal(imageFor({ idle: "/i.gif" }, "peek_bottom"), "/i.gif");
   });
 });
 
