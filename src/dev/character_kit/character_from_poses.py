@@ -94,6 +94,32 @@ def place(canvas: Image.Image, im: Image.Image, x: int, y: int) -> None:
         canvas.alpha_composite(im.crop((x0, y0, x1, y1)), (x + x0, y + y0))
 
 
+def clipped_edges(frame: Image.Image, ledge: str | None = None, ledge_width: int = 0) -> list[str]:
+    """The frame edges the drawing touches — cut off there. A peek's own edge (and its ledge's strip along the others)
+    doesn't count: hiding behind it is the point."""
+    a = np.array(frame)[..., 3] > SOLID
+    n, w = a.shape[0], ledge_width
+    keep = np.ones(n, dtype=bool)  # positions along a border that aren't ledge
+    rows = {"top": a[0, :], "bottom": a[-1, :]}
+    cols = {"left": a[:, 0], "right": a[:, -1]}
+    touched = []
+    for name, line in {**rows, **cols}.items():
+        if name == ledge:
+            continue
+        mask = keep.copy()
+        if ledge == "left" and name in rows:
+            mask[:w] = False
+        elif ledge == "right" and name in rows:
+            mask[n - w :] = False
+        elif ledge == "top" and name in cols:
+            mask[:w] = False
+        elif ledge == "bottom" and name in cols:
+            mask[n - w :] = False
+        if (line & mask).any():
+            touched.append(name)
+    return touched
+
+
 class Builder:
     def __init__(self, sheet: Image.Image, recipe: dict):
         self.recipe = recipe
@@ -121,10 +147,24 @@ class Builder:
         if squash != 1.0:
             im = im.resize((round(im.width / squash**0.5), round(im.height * squash)), Image.NEAREST)
         canvas = Image.new("RGBA", (self.frame_size, self.frame_size), (0, 0, 0, 0))
-        place(canvas, im, round(self.frame_size / 2 - self.feet_x(im)) + dx, self.ground - im.height + dy)
+        # A lift (a jump) tops out where the frame does: higher would cut the head off, not jump higher.
+        top = max(self.ground - im.height + dy, min(1, self.ground - im.height))
+        place(canvas, im, round(self.frame_size / 2 - self.feet_x(im)) + dx, top)
         if angle:  # wobble about the feet
             canvas = canvas.rotate(angle, resample=Image.NEAREST, center=(self.frame_size / 2, self.ground))
+            canvas = self._on_ground(canvas)
         return canvas
+
+    def _on_ground(self, canvas: Image.Image) -> Image.Image:
+        """Lift a tilted drawing until its lowest point is back on the ground line: tilting about the feet's centre
+        swings the far corner below it — off the frame, for a wide character."""
+        rows = np.nonzero((np.array(canvas)[..., 3] > 0).any(axis=1))[0]
+        sink = int(rows.max()) - (self.ground - 1) if len(rows) else 0
+        if sink <= 0:
+            return canvas
+        lifted = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        place(lifted, canvas, 0, -sink)
+        return lifted
 
     def _ledge(self, a: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
         x0, y0, x1, y1 = box
@@ -159,6 +199,7 @@ class Builder:
         canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
         feet_at = feet_left if edge == "left" else size - feet_left
         place(canvas, big, round(feet_at - pivot[0]), round(self.ground - pivot[1]))
+        canvas = self._on_ground(canvas)
         a = np.array(canvas)
         if edge == "left":
             a[:, :w] = 0  # behind the screen edge
@@ -194,6 +235,23 @@ class Builder:
                 frames = [self.slide_peek(edge, p, s) for p, s in zip(spec["poses"], spec["share"], strict=True)]
             return frames, spec.get("timing", ms)
         raise SheetError(f"unknown animation spec: {spec}")
+
+    def clip_warnings(self, pack: dict) -> list[str]:
+        """Each animation whose drawing runs off the frame somewhere, and in which frames — cut off when it plays."""
+        warnings = []
+        for name, (frames, _) in pack.items():
+            spec = self.recipe["animations"][name]
+            ledge = spec.get("peek") if isinstance(spec, dict) else None
+            if isinstance(spec, dict) and "mirror" in spec:
+                source = self.recipe["animations"][spec["mirror"]]
+                ledge = {"left": "right", "right": "left"}.get(source.get("peek")) if isinstance(source, dict) else None
+            hits: dict[str, list[int]] = {}
+            for i, f in enumerate(frames):
+                for edge in clipped_edges(f, ledge, self.recipe["ledge"]["width"]):
+                    hits.setdefault(edge, []).append(i + 1)
+            for edge, at in hits.items():
+                warnings.append(f"{name}: cut off at the {edge} edge in frame{'s' if len(at) > 1 else ''} {', '.join(map(str, at))}")
+        return warnings
 
     def build(self) -> dict[str, tuple[list[Image.Image], list[int] | int]]:
         out = {}
@@ -234,9 +292,12 @@ def preview(pack: dict, path: Path, cell: int = 112) -> None:
     sheet.save(path)
 
 
-def write_pack(sheet_path: Path, out: Path, slug: str, recipe: dict | None = None) -> Path:
+def write_pack(sheet_path: Path, out: Path, slug: str, recipe: dict | None = None, warn=None) -> Path:
+    """Build and write the pack; `warn` gets each clipping warning (default: stderr)."""
     builder = Builder(Image.open(sheet_path), recipe or load_recipe())
     pack = builder.build()
+    for message in builder.clip_warnings(pack):
+        (warn or (lambda m: sys.stderr.write(f"warning: {slug}: {m}\n")))(message)
     gifs = out / "gifs"
     gifs.mkdir(parents=True, exist_ok=True)
     for name, (frames, timing) in pack.items():
@@ -254,6 +315,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("slug", nargs="?", help="a folder under characters/ holding poses.png")
     parser.add_argument("--sheet", type=Path, help="a pose sheet anywhere (instead of characters/<slug>/poses.png)")
     parser.add_argument("--out", type=Path, help="where to write (default characters/<slug>/out)")
+    parser.add_argument(
+        "--height", type=int, help="this character's standing height in px (recipe.json's for everyone); lower it if poses get cut off"
+    )
     args = parser.parse_args(argv)
     if not args.slug and not args.sheet:
         parser.error("give a character slug or --sheet")
@@ -263,7 +327,16 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"no pose sheet at {sheet} — generate one with make_prompt.py {slug}")
     out = args.out or KIT / "characters" / slug / "out"
     try:
-        zip_path = write_pack(sheet, out, slug)
+        recipe = load_recipe()
+        bible = KIT / "characters" / slug / "character.json"
+        own_height = json.loads(bible.read_text(encoding="utf-8")).get("height") if bible.exists() else None
+        recipe["height"] = args.height or own_height or recipe["height"]  # a wide character keeps its own, smaller
+        warnings: list[str] = []
+        zip_path = write_pack(sheet, out, slug, recipe, warn=warnings.append)
+        for message in warnings:
+            sys.stderr.write(f"warning: {slug}: {message}\n")
+        if warnings:
+            sys.stderr.write(f'  → check preview.png; to build {slug} smaller, add "height": {recipe["height"] - 10} to its character.json\n')
     except SheetError as e:
         sys.stderr.write(f"{sheet}: {e}\n")
         return 1

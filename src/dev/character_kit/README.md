@@ -17,11 +17,15 @@ Dev tooling: `src/dev` is not in the production image.
 If the sheet comes back wrong (text on it, a gradient background, poses touching), regenerate rather than patch: the
 builder says what it found (`found 14 drawings, the recipe has 16 poses …`).
 
+If the builder warns `… cut off at the left edge in frames 2, 4` — a wide character's arms running off the frame —
+give that character its own smaller size: `"height": 96` in its `character.json` (`--height` tries one out without
+editing). Tilts (the dizzy wobble, side peeks) stay on the ground line and jumps top out at the frame on their own.
+
 ## What's here
 
 | | |
 |---|---|
-| `characters/<slug>/character.json` | the character's bible: one-line description, style, rules that make it recognisable. Edit these — they go straight into the prompt. |
+| `characters/<slug>/character.json` | the character's bible: one-line description, style, rules that make it recognisable — edit these, they go straight into the prompt — and optionally `height` (px) for a character too wide for the shared size. |
 | `characters/<slug>/reference.png` | the picture attached to the prompt so the model redraws *this* character |
 | `characters/<slug>/poses.png` | the 16-pose sheet the model returned — the only AI output. **Not in git** (often over the 500 KB commit limit): keep your own copy, e.g. in Drive. Any path works with `--sheet`. |
 | `characters/<slug>/out/` | generated pack + preview (not committed) |
