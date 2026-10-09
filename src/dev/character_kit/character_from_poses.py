@@ -132,17 +132,32 @@ class Builder:
         a[y0:y1, x0:x1, 3] = 255
         return a
 
-    def lean_peek(self, edge: str, pose: str, angle: float) -> Image.Image:
-        """Sideways: the body stays behind the ledge and leans out from its feet, so only the head clears the edge."""
-        size, w = self.frame_size, self.recipe["ledge"]["width"]
+    def _leaned(self, pose: str, edge: str, angle: float) -> tuple[Image.Image, tuple[float, float]]:
+        """The pose tilted `angle` degrees away from `edge` about its feet, on a canvas with room for it, and the feet."""
         body = self.pose[pose] if edge == "left" else ImageOps.mirror(self.pose[pose])
         pad = body.height
         big = Image.new("RGBA", (body.width + 2 * pad, body.height + 2 * pad), (0, 0, 0, 0))
         place(big, body, pad, pad)
         pivot = (pad + self.feet_x(body), pad + body.height)
-        big = big.rotate(-angle if edge == "left" else angle, resample=Image.BICUBIC, center=pivot)
+        return big.rotate(-angle if edge == "left" else angle, resample=Image.BICUBIC, center=pivot), pivot
+
+    def side_feet(self, spec: dict) -> float:
+        """Where a side peek's feet stand (x, for the left edge): far enough behind the ledge that at the deepest lean
+        `reveal` of the body's AREA clears it — whatever the shape (a tall sprout, a wide rock). Area, not the farthest
+        pixel: a thin leaf or antenna sticking out mustn't push the face back behind the ledge."""
+        big, pivot = self._leaned(spec["poses"][0], "left", max(spec["lean"]))
+        mass = (np.array(big)[..., 3] > SOLID).sum(axis=0)  # opaque pixels per column
+        from_right = np.cumsum(mass[::-1])[::-1]  # opaque pixels at or right of each column
+        edge_col = int(np.argmax(from_right <= spec.get("reveal", 0.4) * mass.sum()))  # where the ledge must fall
+        return self.recipe["ledge"]["width"] - (edge_col - pivot[0])
+
+    def lean_peek(self, edge: str, pose: str, angle: float, feet_left: float) -> Image.Image:
+        """Sideways: the body stays behind the ledge and leans out from its feet, so only the head clears the edge.
+        `feet_left` is side_feet() — the same for every frame, so the feet never shift."""
+        size, w = self.frame_size, self.recipe["ledge"]["width"]
+        big, pivot = self._leaned(pose, edge, angle)
         canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-        feet_at = w - body.width // 2 - 2 if edge == "left" else size - w + body.width // 2 + 2
+        feet_at = feet_left if edge == "left" else size - feet_left
         place(canvas, big, round(feet_at - pivot[0]), round(self.ground - pivot[1]))
         a = np.array(canvas)
         if edge == "left":
@@ -173,7 +188,8 @@ class Builder:
         if "peek" in spec:
             edge = spec["peek"]
             if edge in ("left", "right"):
-                frames = [self.lean_peek(edge, p, a) for p, a in zip(spec["poses"], spec["lean"], strict=True)]
+                feet = self.side_feet(spec)
+                frames = [self.lean_peek(edge, p, a, feet) for p, a in zip(spec["poses"], spec["lean"], strict=True)]
             else:
                 frames = [self.slide_peek(edge, p, s) for p, s in zip(spec["poses"], spec["share"], strict=True)]
             return frames, spec.get("timing", ms)
