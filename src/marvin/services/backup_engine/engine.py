@@ -471,6 +471,10 @@ def backup_assets(source: AssetSources, target: BackupTarget, report: Report, dr
                 size = staged.stat().st_size
             report.assets_uploaded += 1
             report.assets_uploaded_bytes += size
+        except FileNotFoundError:
+            # Listed, then deleted before its turn (a run takes minutes; someone deleted an asset meanwhile).
+            # Nothing is lost — the asset is gone — so it isn't a failure; the target's copy is kept, as always.
+            log.info("asset %s: deleted since the listing, skipped", key)
         except Exception as exc:  # one unreadable file must not stop the rest of the mirror
             report.failures.append(f"asset {key}: {explain(exc).code or type(exc).__name__}")
             log.error("asset %s: %s", key, exc)

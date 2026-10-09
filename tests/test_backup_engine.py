@@ -277,6 +277,17 @@ def test_backup_never_deletes_target_assets(settings, target, source, data_dir):
     assert "assets/b.txt" in _keys(target)
 
 
+def test_an_asset_deleted_after_the_listing_is_skipped_not_a_failure(settings, target, source, data_dir, monkeypatch):
+    listed = list(source.iter_keys(""))
+    monkeypatch.setattr(source, "iter_keys", lambda prefix="": iter(listed))
+    (data_dir / "assets" / "b.txt").unlink()  # deleted mid-run, after the mirror listed it
+
+    report = eng.run_backup(settings, target, source, now=NOW)
+
+    assert report.failures == []
+    assert (report.assets_uploaded, report.assets_unchanged) == (1, 0)
+
+
 def test_dry_run_writes_and_deletes_nothing(settings, target, source):
     old = keys.db_key(NOW - timedelta(days=400))
     src = target.root.parent / "old"
