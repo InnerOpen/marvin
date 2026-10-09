@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.236 (2026-10-09)
+
+### Features
+
+- **dev**: Character kit picks each character's background and attaches a layout guide
+  ([`7523c6e`](https://github.com/InnerOpen/marvin/commit/7523c6e16a9c1596306c31df27991366bc21c222))
+
+
 ## v1.0.0-rc.235 (2026-10-09)
 
 ### Documentation
