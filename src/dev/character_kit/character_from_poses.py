@@ -66,20 +66,41 @@ def _runs(mask: np.ndarray, gap: int) -> list[list[int]]:
     return [m for m in merged if m[1] - m[0] > gap]
 
 
-def cut_poses(rgba: np.ndarray, count: int) -> list[np.ndarray]:
-    """The sheet's drawings, row by row, left to right, each cropped to itself."""
+def _split(occupied: np.ndarray, parts: int) -> list[tuple[int, int]] | None:
+    """`parts` spans of `occupied`, cut at its parts-1 WIDEST empty gaps — the gaps between poses. A pose's own gaps
+    (a raised arm, separate feet, a sparkle) are narrower, so they never split it. None: not enough gaps."""
+    on = np.nonzero(occupied)[0]
+    if not len(on):
+        return None
+    gaps = [(b - a - 1, a, b) for a, b in zip(on[:-1], on[1:], strict=True) if b - a > 1]  # (width, last on, next on)
+    if len(gaps) < parts - 1:
+        return None
+    cuts = sorted(gaps, reverse=True)[: parts - 1]
+    edges = sorted((a, b) for _, a, b in cuts)
+    starts = [int(on[0])] + [b for _, b in edges]
+    ends = [a for a, _ in edges] + [int(on[-1])]
+    return list(zip(starts, ends, strict=True))
+
+
+def cut_poses(rgba: np.ndarray, count: int, per_row: int = 4) -> list[np.ndarray]:
+    """The sheet's drawings, row by row, left to right, each cropped to itself. The sheet is a grid of `per_row`
+    columns, so it is split at its widest gaps rather than every gap: big poses close together stay apart, and a
+    pose's detached pieces stay with it."""
     alpha = rgba[..., 3] > 0
-    gap = max(8, rgba.shape[1] // 40)
     poses = []
-    for y0, y1 in _runs(alpha.sum(axis=1) > 2, gap):
-        for x0, x1 in _runs(alpha[y0 : y1 + 1].sum(axis=0) > 2, gap):
+    rows = _split(alpha.sum(axis=1) > 2, count // per_row)
+    for y0, y1 in rows or []:
+        band = alpha[y0 : y1 + 1]
+        for x0, x1 in _split(band.sum(axis=0) > 2, per_row) or []:
             tile = rgba[y0 : y1 + 1, x0 : x1 + 1]
             ys = np.nonzero(tile[..., 3].any(axis=1))[0]
             poses.append(tile[ys.min() : ys.max() + 1])
     if len(poses) != count:
+        gap = max(8, rgba.shape[1] // 100)
+        found = sum(len(_runs(alpha[y0 : y1 + 1].sum(axis=0) > 2, gap)) for y0, y1 in _runs(alpha.sum(axis=1) > 2, gap))
         raise SheetError(
-            f"found {len(poses)} drawings, the recipe has {count} poses — check the sheet is a clean grid with magenta "
-            "between every pose (no text, no touching poses)"
+            f"found {found} drawings, the recipe has {count} poses — check the sheet is a clean {per_row}-wide grid with "
+            "magenta between every pose (no text, no touching poses)"
         )
     return poses
 

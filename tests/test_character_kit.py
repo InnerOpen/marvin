@@ -252,3 +252,19 @@ def test_a_new_characters_first_sheet_becomes_its_reference(tmp_path, monkeypatc
     before = (folder / "reference.png").read_bytes()
     assert kit.main(["testy"]) == 0
     assert (folder / "reference.png").read_bytes() == before  # an existing reference is never replaced
+
+
+def test_big_poses_close_together_with_loose_pieces_still_cut_into_sixteen():
+    """Like Mossy: wide poses only a little apart, each with a detached piece (a stone foot) set off from its body."""
+    img = Image.new("RGB", (1024, 1024), (255, 0, 255))
+    d = ImageDraw.Draw(img)
+    for i in range(16):
+        x0, y0 = (i % 4) * 256 + 6, (i // 4) * 256 + 20
+        d.rectangle([x0, y0, x0 + 220, y0 + 180], fill=(150, 150, 140), outline=(40, 40, 40), width=3)  # 30 px apart
+        d.rectangle([x0 + 20, y0 + 196, x0 + 80, y0 + 226], fill=(120, 120, 110))  # a separate foot, 16 px below
+        d.rectangle([x0 + 6 + i * 8, y0 + 10, x0 + 14 + i * 8, y0 + 20], fill=(20, 120, 40))  # a mark of its order
+    poses = kit.cut_poses(kit.key_magenta(img), 16)
+    assert len(poses) == 16
+    assert all(p.shape[0] > 200 for p in poses)  # each kept its foot
+    marks = [int(np.nonzero(((p[..., 1] > 100) & (p[..., 0] < 60)).any(axis=0))[0].min()) for p in poses]
+    assert marks == sorted(marks)  # still in row-by-row order
