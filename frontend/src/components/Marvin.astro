@@ -495,7 +495,13 @@ try {
     let spot = readSpot();
     applySpot(spot);
     tuck = readTuck();
-    if (tuck) { applyTuck(tuck); schedulePeek(); }
+    if (tuck) {
+      // Straight into its edge on load: no slide from where it rested (it would flash across the screen).
+      root.classList.add('no-slide');
+      applyTuck(tuck);
+      schedulePeek();
+      requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('no-slide')));
+    }
     // The character swaps in after load and the window can change size or rotate: re-clamp the
     // remembered spot to what fits now (without overwriting it, so it springs back on a bigger screen).
     function reclamp() {
@@ -877,6 +883,19 @@ try {
   .marvin.tucked .marvin-toggle { opacity: 0.85; box-shadow: 0 2px 8px rgb(0 0 0 / 0.25); }
   /* Sliding out to peek and back in. */
   .marvin.tucked { transition: opacity 0.2s, transform 0.2s, left 0.35s ease, top 0.35s ease; }
+  .marvin.no-slide { transition: none; }
+  /* The sliver is a solid tab on the visible edge: a character's GIF is mostly transparent there, so its own
+     sliver could be invisible (and nothing to aim a thumb at). Hidden while it peeks out. */
+  .marvin.tucked .marvin-toggle { position: relative; overflow: visible; }
+  .marvin.tucked .marvin-toggle::before {
+    content: ""; position: absolute; z-index: 1; background: var(--accent);
+    box-shadow: 0 1px 6px rgb(0 0 0 / 0.3); transition: opacity 0.2s;
+  }
+  .marvin.peeking .marvin-toggle::before { opacity: 0; }
+  .marvin.tucked[data-edge="right"] .marvin-toggle::before { left: 0; top: 50%; width: 14px; height: 44px; transform: translateY(-50%); border-radius: 8px 0 0 8px; }
+  .marvin.tucked[data-edge="left"] .marvin-toggle::before { right: 0; top: 50%; width: 14px; height: 44px; transform: translateY(-50%); border-radius: 0 8px 8px 0; }
+  .marvin.tucked[data-edge="bottom"] .marvin-toggle::before { top: 0; left: 50%; width: 44px; height: 14px; transform: translateX(-50%); border-radius: 8px 8px 0 0; }
+  .marvin.tucked[data-edge="top"] .marvin-toggle::before { bottom: 0; left: 50%; width: 44px; height: 14px; transform: translateX(-50%); border-radius: 0 0 8px 8px; }
   .marvin.peeking .marvin-toggle { opacity: 1; }
   .marvin.tuck-pulse .marvin-toggle { animation: marvin-tuck-pulse 1.6s ease-in-out infinite; }
   @keyframes marvin-tuck-pulse { 50% { opacity: 1; filter: brightness(1.25); } }
