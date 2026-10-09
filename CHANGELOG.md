@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.233 (2026-10-09)
+
+### Bug Fixes
+
+- **dev**: Character kit cuts a sheet of big, close poses into all 16
+  ([`ad49c7b`](https://github.com/InnerOpen/marvin/commit/ad49c7be8cf5512415c8e4786b03868f72f1bc92))
+
+
 ## v1.0.0-rc.232 (2026-10-09)
 
 ### Features
