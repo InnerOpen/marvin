@@ -285,3 +285,59 @@ def test_keying_keeps_reds_and_purples_and_clears_magenta_even_between_limbs():
     assert (a[245:300, 185:215] == 0).all()  # the gap between the legs is background
     assert (a[99, 120:280] == 0).all()  # the blend beside the background goes too
     assert a[0, 0] == 0
+
+
+# --- ChatGPT pet sheets ----------------------------------------------------------------------------------------------
+
+pets = _load("pet_to_pack")
+
+
+def _pet_sheet(rows: int = 11, cell: tuple[int, int] = (96, 104), empty_after: dict | None = None) -> Image.Image:
+    """A ChatGPT-style pet sheet: 8 columns of 192×208-shaped cells, a transparent background, a figure per cell;
+    the jumping row (4) lifted off the ground, each row ending early where `empty_after` says."""
+    w, h = cell
+    img = Image.new("RGBA", (8 * w, rows * h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    empty_after = empty_after or {0: 7, 3: 4, 4: 5}
+    for r in range(rows):
+        for c in range(empty_after.get(r, 8)):
+            x0, y0 = c * w + w // 4, r * h + h // 4
+            lift = 10 + c * 2 if r == 4 else 0
+            d.rectangle([x0, y0 - lift, x0 + w // 2, y0 + h // 2 - lift], fill=(200, 120, 40, 255), outline=(40, 20, 10, 255), width=2)
+    return img
+
+
+def test_a_pet_sheet_keeps_every_row_as_drawn_with_one_placement(tmp_path):
+    path = tmp_path / "pet.png"
+    _pet_sheet().save(path)
+    pet = pets.PetPack(pets.read_sheet(path), kit.load_recipe())
+    pack = pet.build()
+    assert len(pack["idle"][0]) == 7 and len(pack["waving"][0]) == 4 and len(pack["jumping"][0]) == 5
+    bottom = lambda f: np.nonzero((_alpha(f) > 0).any(axis=1))[0].max()  # noqa: E731
+    idle_bottom = bottom(pack["idle"][0][0])
+    assert idle_bottom == kit.load_recipe()["ground"] - 1
+    assert all(bottom(f) < idle_bottom - 4 for f in pack["jumping"][0])  # the drawn jump still leaves the ground
+    assert {"look-loop", "peek-left", "peek-right", "peek-top", "peek-bottom"} <= set(pack)  # v2 + the kit's peeks
+
+
+def test_a_v1_pet_sheet_has_no_look_rows_and_a_wrong_sheet_is_refused(tmp_path):
+    v1 = tmp_path / "v1.png"
+    _pet_sheet(rows=9).save(v1)
+    pack = pets.PetPack(pets.read_sheet(v1), kit.load_recipe()).build()
+    assert "look-loop" not in pack and "idle" in pack
+    odd = tmp_path / "odd.png"
+    Image.new("RGBA", (800, 300), (0, 0, 0, 0)).save(odd)
+    with pytest.raises(pets.SheetError, match="isn't a ChatGPT pet sheet"):
+        pets.PetPack(pets.read_sheet(odd), kit.load_recipe())
+
+
+def test_a_pet_too_big_for_the_frame_is_built_smaller_until_nothing_is_cut_off(tmp_path):
+    path = tmp_path / "pet.png"
+    img = _pet_sheet()
+    d = ImageDraw.Draw(img)
+    d.rectangle([7 * 96 + 2, 4 * 104 + 2, 8 * 96 - 2, 4 * 104 + 30], fill=(200, 120, 40, 255))  # a wide prop in one frame
+    img.save(path)
+    zip_path, warnings, height = pets.write(path, tmp_path / "out", "testy")
+    assert warnings == [] and height < kit.load_recipe()["height"]
+    with zipfile.ZipFile(zip_path) as zf:
+        assert "running.gif" in zf.namelist() and "look-loop.gif" in zf.namelist()

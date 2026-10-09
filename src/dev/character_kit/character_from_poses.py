@@ -155,14 +155,16 @@ def clipped_edges(frame: Image.Image, ledge: str | None = None, ledge_width: int
 
 
 class Builder:
-    def __init__(self, sheet: Image.Image, recipe: dict):
+    def __init__(self, sheet: Image.Image | None, recipe: dict, tiles: dict[str, np.ndarray] | None = None):
+        """From a pose sheet, or from `tiles` already cut ({pose id: RGBA drawing}, the first one standing)."""
         self.recipe = recipe
         self.frame_size, self.ground = recipe["frame"], recipe["ground"]
-        ids = [p["id"] for p in recipe["poses"]]
-        tiles = cut_poses(key_magenta(sheet), len(ids))
-        self.drawn = dict(zip(ids, tiles, strict=True))  # as drawn, full size: what a reference shows
-        self.scale = recipe["height"] / tiles[0].shape[0]
-        self.pose = {pid: self._sized(t) for pid, t in zip(ids, tiles, strict=True)}
+        if tiles is None:
+            ids = [p["id"] for p in recipe["poses"]]
+            tiles = dict(zip(ids, cut_poses(key_magenta(sheet), len(ids)), strict=True))
+        self.drawn = tiles  # as drawn, full size: what a reference shows
+        self.scale = recipe["height"] / next(iter(tiles.values())).shape[0]
+        self.pose = {pid: self._sized(t) for pid, t in tiles.items()}
 
     def _sized(self, tile: np.ndarray) -> Image.Image:
         im = Image.fromarray(tile)

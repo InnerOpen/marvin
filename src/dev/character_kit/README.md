@@ -19,6 +19,11 @@ description, style, a few "always" rules), run `make_prompt.py <slug> --new` and
 model designs the character and draws all 16 poses in one image, so they match. The first build saves a
 `reference.png` from that sheet, and later redraws (without `--new`) keep that look.
 
+**A ChatGPT pet** — ChatGPT's built-in pets and the ones its Create Pet skill makes (`reference/chatgpt-create-pet-skill.md`)
+share one sprite-sheet layout, with hand-drawn animation for every state. `pet_to_pack.py <sheet.webp> <name>` keeps
+all of it (one scale and placement for the whole sheet, so jumps and gaits stay as drawn), adds look-loop from its
+look-direction rows and the kit's edge peeks, and picks the largest size at which nothing is cut off.
+
 If the sheet comes back wrong (text on it, a gradient background, poses touching), regenerate rather than patch: the
 builder says what it found (`found 14 drawings, the recipe has 16 poses …`).
 
@@ -38,6 +43,8 @@ editing). Tilts (the dizzy wobble, side peeks) stay on the ground line and jumps
 | `prompt.md`, `intro-reference.md`, `intro-new.md` | the prompt template `make_prompt.py` fills, and its two openings: redraw the attached character, or design a new one (`--new`) |
 | `make_prompt.py` | prints the filled prompt |
 | `character_from_poses.py` | sheet → pack |
+| `pet_to_pack.py` | a ChatGPT pet sprite sheet → a pack (its own animation kept, peeks added) |
+| `reference/chatgpt-create-pet-skill.md` | ChatGPT's own Create Pet skill, for comparison and ideas |
 | `export_references.py` | builds a `reference.png` (and a `character.json` stub) for every pack already in the library: `--api <url> --token <platform admin token>`, or `--json packs.json` |
 
 Tests: `tests/test_character_kit.py` (a synthetic sheet through the whole build).
