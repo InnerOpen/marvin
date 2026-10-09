@@ -6,6 +6,33 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.225 (2026-10-09)
+
+### Bug Fixes
+
+- **backup**: An asset deleted during a run is skipped, not a failure
+  ([`3adb093`](https://github.com/InnerOpen/marvin/commit/3adb093b9a47f31a3d78c555d61c48c3818513be))
+
+### Documentation
+
+- Workflow Library in the app (phase 2)
+  ([`2edc2f2`](https://github.com/InnerOpen/marvin/commit/2edc2f24235316cb61face03520e015211259362))
+
+### Features
+
+- **automation**: Library page
+  ([`9b2f685`](https://github.com/InnerOpen/marvin/commit/9b2f685e22a78134f30da3ba23ef63ebc90284d5))
+
+- **automations**: Workflow library endpoints
+  ([`5ea7b26`](https://github.com/InnerOpen/marvin/commit/5ea7b263601ec3b8a5510a29177c7e178e296f17))
+
+- **bubble**: BUBBLE_PEEK_SECONDS sets how often a tucked bubble peeks
+  ([`f62549d`](https://github.com/InnerOpen/marvin/commit/f62549d17fe60d105c1184829b313f14217055b6))
+
+- **workflows**: Start from a recipe
+  ([`aa79cda`](https://github.com/InnerOpen/marvin/commit/aa79cda78c6d2ee891d114d3a9cdd01d30979192))
+
+
 ## v1.0.0-rc.224 (2026-10-09)
 
 ### Bug Fixes
