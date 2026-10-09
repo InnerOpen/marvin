@@ -1,0 +1,240 @@
+---
+/**
+ * The Workflow Library: every recipe Marvin knows, explained — when it runs, what it changes, what this workspace still
+ * needs — and where to take it. A workflow recipe opens in the workflow editor ("Use in editor"), where it is read,
+ * changed and saved switched off; a configuration recipe lists the pages its parts are set up on; an idea names the
+ * capability it waits on. Nothing installs from here.
+ */
+import FilterBar from "@/components/FilterBar.astro";
+import AppLayout from "@/layouts/AppLayout.astro";
+import { getAuthToken } from "@/lib/api/client";
+import { getWorkflowLibrary } from "@/lib/api/workflowLibrary";
+import {
+  groupRecipes,
+  READINESS_FILTERS,
+  READINESS_LABEL,
+  type Readiness,
+  readiness,
+  recipeHref,
+  SIDE_EFFECT_LABEL,
+  setupPage,
+  triggerText,
+  type WorkflowLibrary,
+} from "@/lib/workflowLibrary";
+import { isForbidden } from "@/lib/workspaceRole";
+
+const authToken = getAuthToken(Astro.cookies);
+
+let library: WorkflowLibrary = { recipes: [], capabilities: {}, refs: { entryTypes: [], integrations: [], collections: [], outgoingWebhooks: [], incomingWebhooks: [], statuses: [] } };
+let error: string | null = null;
+let adminOnly = false;
+
+try {
+  library = await getWorkflowLibrary(authToken);
+} catch (e) {
+  if (isForbidden(e)) adminOnly = true;
+  else error = e instanceof Error ? e.message : String(e);
+}
+
+const groups = groupRecipes(library.recipes);
+const categories = groups.map((g) => ({ value: g.slug, label: g.category }));
+const counts = library.recipes.reduce<Record<Readiness, number>>(
+  (acc, r) => {
+    acc[readiness(r)] += 1;
+    return acc;
+  },
+  { ready: 0, setup: 0, elsewhere: 0, idea: 0 },
+);
+const BADGE: Record<Readiness, string> = { ready: "ok", setup: "warn", elsewhere: "", idea: "muted" };
+const libraryJson = JSON.stringify(library.recipes).replace(/</g, "\\u003c");
+---
+
+<AppLayout crumb="automation.library" adminOnly={adminOnly}>
+  <div class="library-page">
+    <div class="page-head">
+      <h2>Workflow Library</h2>
+      <p>
+        Recipes for things people automate with Marvin. Each says when it runs, what it changes and what this workspace
+        still needs. A workflow recipe opens in the workflow editor, filled in for you to read and change — it saves
+        switched off, so nothing runs until you enable it.
+      </p>
+      {!error && !adminOnly && (
+        <p class="counts">
+          {counts.ready} ready here · {counts.setup} need setup · {counts.elsewhere} set up on other pages · {counts.idea} not possible yet
+        </p>
+      )}
+    </div>
+
+    {error && <div class="banner error">{error}</div>}
+
+    {!error && !adminOnly && (
+      <>
+        <FilterBar
+          searchPlaceholder="Search recipes…"
+          searchId="lib-search"
+          filters={[
+            { id: "lib-category", label: "categories", options: categories },
+            { id: "lib-readiness", label: "recipes", options: READINESS_FILTERS, defaultValue: "usable" },
+          ]}
+        />
+
+        <div class="cat-groups">
+          {groups.map((group) => (
+            <section class="cat-group" data-category={group.slug}>
+              <h4 class="cat-title">{group.category}</h4>
+              <div class="catalog">
+                {group.recipes.map((recipe) => {
+                  const state = readiness(recipe);
+                  return (
+                    <article class:list={["cat-card", `is-${state}`]} data-id={recipe.id} id={`recipe-${recipe.id}`}>
+                      <div class="cat-head">
+                        <strong>{recipe.title}</strong>
+                        <span class={`badge ${BADGE[state]}`}>{READINESS_LABEL[state]}</span>
+                      </div>
+                      <p class="cat-desc">{recipe.outcome}</p>
+                      <p class="when"><strong>Runs:</strong> {triggerText(recipe.trigger)}</p>
+                      {recipe.sideEffects.length > 0 && (
+                        <ul class="effects">
+                          {[...new Set(recipe.sideEffects.map((e) => e.kind))].map((kind) => (
+                            <li title={recipe.sideEffects.filter((e) => e.kind === kind).map((e) => e.description).join(" ")}>
+                              {SIDE_EFFECT_LABEL[kind] ?? kind}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+
+                      {state === "setup" && <p class="needs">Needs: {recipe.missing.join("; ")}.</p>}
+
+                      {recipe.shape === "workflow" && (
+                        <a class="button small" href={recipeHref(recipe.id)}>
+                          {state === "ready" ? "Use in editor" : "Read in editor"}
+                        </a>
+                      )}
+
+                      {state === "elsewhere" && (
+                        <details class="steps">
+                          <summary>How to set it up</summary>
+                          <ol>
+                            {recipe.supportingObjects.map((part) => {
+                              const page = setupPage(part.kind, recipe);
+                              return (
+                                <li>
+                                  <strong>{part.name}</strong>
+                                  {!part.required && <span class="optional"> (optional)</span>} — {part.purpose}{" "}
+                                  {page && <a href={page.href}>Set up on {page.label} →</a>}
+                                </li>
+                              );
+                            })}
+                          </ol>
+                        </details>
+                      )}
+
+                      {state === "idea" && recipe.dependencies.length > 0 && (
+                        <p class="waits">
+                          Waits on:{" "}
+                          {recipe.dependencies.map((d, i) => (
+                            <>
+                              {i > 0 && ", "}
+                              <span title={library.capabilities[d.capability]?.acceptance ?? ""}>
+                                {library.capabilities[d.capability]?.name ?? d.capability}
+                              </span>
+                            </>
+                          ))}
+                          .
+                        </p>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
+        <div id="lib-empty" class="empty" hidden>No recipe matches. Try another search, or show all recipes.</div>
+      </>
+    )}
+  </div>
+  <script type="application/json" id="lib-recipes" is:inline set:html={libraryJson}></script>
+</AppLayout>
+
+<script>
+  import { matches, type Recipe } from "@/lib/workflowLibrary";
+
+  const data = document.getElementById("lib-recipes");
+  const recipes: Recipe[] = data ? JSON.parse(data.textContent || "[]") : [];
+  const search = document.getElementById("lib-search") as HTMLInputElement | null;
+  const category = document.getElementById("lib-category") as HTMLSelectElement | null;
+  const ready = document.getElementById("lib-readiness") as HTMLSelectElement | null;
+
+  function apply() {
+    const filters = { category: category?.value ?? "", readiness: ready?.value ?? "" };
+    const shown = new Set(recipes.filter((r) => matches(r, search?.value ?? "", filters)).map((r) => r.id));
+    document.querySelectorAll<HTMLElement>(".library-page .cat-card").forEach((card) => {
+      card.hidden = !shown.has(card.dataset.id ?? "");
+    });
+    document.querySelectorAll<HTMLElement>(".library-page .cat-group").forEach((group) => {
+      group.hidden = !group.querySelector(".cat-card:not([hidden])");
+    });
+    document.getElementById("lib-empty")?.toggleAttribute("hidden", shown.size > 0);
+  }
+
+  search?.addEventListener("input", apply);
+  category?.addEventListener("change", apply);
+  ready?.addEventListener("change", apply);
+  // #recipe-<id> (a link to one recipe): show it whatever the filters say, and bring it into view.
+  const linked = location.hash.startsWith("#recipe-") ? document.getElementById(location.hash.slice(1)) : null;
+  if (linked && ready) ready.value = "";
+  apply();
+  linked?.scrollIntoView({ block: "center" });
+</script>
+
+<style>
+  .library-page { max-width: 1100px; }
+  .page-head h2 { margin: 0; font-size: 22px; }
+  .page-head p { margin: 6px 0 0; color: var(--muted); font-size: 14px; max-width: 75ch; line-height: 1.5; }
+  .page-head .counts { font-size: 13px; }
+  .library-page :global(.filter-bar) { margin: 18px 0; }
+  .banner.error { padding: 11px 14px; border-radius: 10px; margin: 14px 0; color: var(--color-error); background: color-mix(in srgb, var(--color-error) 12%, transparent); }
+  .empty { padding: 24px; text-align: center; color: var(--muted); border: 1px dashed var(--line); border-radius: var(--radius); }
+  [hidden] { display: none !important; }
+
+  /* the catalog grid, as on Settings → Integrations */
+  .cat-groups { display: grid; gap: 22px; }
+  .cat-title { margin: 0 0 8px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+  .catalog { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+  .cat-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    scroll-margin-top: 80px;
+  }
+  .cat-card:target { outline: 2px solid var(--accent); }
+  .cat-card.is-idea { background: transparent; }
+  .cat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .cat-head strong { font-size: 15px; }
+  .cat-desc { margin: 0; font-size: 13px; color: var(--muted); flex: 1; line-height: 1.45; }
+  .when, .needs, .waits { margin: 0; font-size: 13px; line-height: 1.45; }
+  .needs { color: #9a7b00; }
+  .waits { color: var(--muted); }
+  .waits span { border-bottom: 1px dotted var(--muted); cursor: help; }
+  .effects { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+  .effects li { font-size: 11.5px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+  .steps summary { cursor: pointer; font-size: 13px; color: var(--accent); }
+  .steps ol { margin: 8px 0 0; padding-left: 18px; font-size: 13px; line-height: 1.5; }
+  .steps li { margin: 4px 0; }
+  .steps a { color: var(--accent); white-space: nowrap; }
+  .optional { color: var(--muted); }
+  .cat-card .button { align-self: flex-start; margin-top: 4px; }
+  .badge { flex-shrink: 0; font-size: 12px; font-weight: 500; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+  .badge.ok { color: var(--good); border-color: var(--good); background: rgb(53 122 85 / 0.08); }
+  .badge.warn { color: #9a7b00; border-color: #d9c07a; background: rgb(217 192 122 / 0.12); }
+  .badge.muted { color: var(--muted); }
+
+  @media (max-width: 640px) {
+    .catalog { grid-template-columns: 1fr; }
+  }
+</style>

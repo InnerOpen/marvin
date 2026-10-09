@@ -8,9 +8,13 @@ import { CATEGORY_LABEL, focusedCategory, groupByCategory } from "@/lib/integrat
 import { policyRows } from "@/lib/integrationPolicy";
 import type { Blueprint } from "@/lib/api/blueprints";
 import { listBlueprints } from "@/lib/api/blueprints";
+import { getWorkflowLibrary } from "@/lib/api/workflowLibrary";
+import { type Recipe, recipeHref } from "@/lib/workflowLibrary";
 import { isForbidden } from "@/lib/workspaceRole";
 
 const authToken = getAuthToken(Astro.cookies);
+// Library recipes that need a provider, listed on its card. Optional: started now, read below.
+const libraryRequest = getWorkflowLibrary(authToken).catch(() => null);
 
 let providers: ProviderInfo[] = [];
 let integrations: IntegrationWithHealth[] = [];
@@ -47,6 +51,12 @@ try {
   collectionOptions = unique(items(collections).filter((c: any) => !c.isSystem && !c.is_system)).sort((a, b) => a.name.localeCompare(b.name));
 } catch (e) {
   console.error("[integrations] could not load entry types / collections for parameter pickers:", e);
+}
+
+const recipesByProvider = new Map<string, Recipe[]>();
+for (const r of (await libraryRequest)?.recipes ?? []) {
+  if (r.shape !== "workflow") continue;
+  for (const provider of r.providers) recipesByProvider.set(provider, [...(recipesByProvider.get(provider) ?? []), r]);
 }
 
 const needsByProvider = new Map<string, Blueprint[]>();
@@ -287,6 +297,23 @@ function statusMeta(status: string): { text: string; cls: string } {
                       </details>
                     );
                   })()}
+
+                  {(recipesByProvider.get(it.provider) ?? []).length > 0 && (
+                    <details class="needs">
+                      <summary>
+                        Recipes <span class="badge">{recipesByProvider.get(it.provider)!.length}</span>
+                      </summary>
+                      <ul>
+                        {recipesByProvider.get(it.provider)!.map((r) => (
+                          <li class="recipe-row">
+                            <span class="needs-name"><a href={recipeHref(r.id)}>{r.title}</a></span>
+                            <span class="needs-desc">{r.outcome}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p class="needs-note">Each opens in the workflow editor, filled in for this workspace — it saves switched off.</p>
+                    </details>
+                  )}
 
                   {(() => {
                     const actions = prov?.actions ?? [];
@@ -1315,6 +1342,8 @@ function statusMeta(status: string): { text: string; cls: string } {
     gap: 0.45rem;
     align-items: baseline;
   }
+  .needs li.recipe-row { grid-template-columns: auto 1fr; }
+  .needs li.recipe-row a { color: var(--accent); }
   .needs li.is-missing .needs-name {
     font-weight: 600;
   }

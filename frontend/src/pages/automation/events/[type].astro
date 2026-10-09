@@ -7,6 +7,7 @@ import { getBrowserFetchBaseUrl } from "@/lib/api/config";
 import { listEmailTemplates } from "@/lib/api/emailTemplates";
 import { getEventConnections } from "@/lib/api/eventConnections";
 import { listIntegrations, listProviders } from "@/lib/api/integrations";
+import { getWorkflowLibrary } from "@/lib/api/workflowLibrary";
 import { canManageCurrentWorkspace, getCurrentWorkspace } from "@/lib/api/workspaces";
 import {
   type EventConnections,
@@ -22,6 +23,7 @@ import {
   triggerableEvents,
 } from "@/lib/eventConnections";
 import { createSdkClient } from "@/lib/sdk";
+import { type Recipe, recipeHref } from "@/lib/workflowLibrary";
 
 const authToken = getAuthToken(Astro.cookies);
 // Admin-only page (the API refuses members with a 403); if the role can't be read, let the API decide.
@@ -35,6 +37,8 @@ let emailSubscriptions: any[] = [];
 let webhooks: any[] = [];
 let integrations: any[] = [];
 let integrationProviders: any[] = [];
+// Library recipes on this event (a workflow trigger, or a subscription set up elsewhere) — ideas aren't offered.
+let eventRecipes: Recipe[] = [];
 let integrationsAvailable = true;
 let connections: EventConnections | null = null;
 let reactions: EventReaction[] = [];
@@ -62,7 +66,8 @@ try {
   let emailRes: any;
   let webhookRes: any;
   let emailSubsRes: any;
-  [connectionsResult, builderOptions, emailRes, webhookRes, emailSubsRes, integrations, integrationProviders] =
+  let library: Awaited<ReturnType<typeof getWorkflowLibrary>> | null;
+  [connectionsResult, builderOptions, emailRes, webhookRes, emailSubsRes, integrations, integrationProviders, library] =
     await Promise.all([
       getEventConnections(type!, authToken).catch((e) => {
         console.error("[events/type] Connections failed:", e);
@@ -74,8 +79,10 @@ try {
       fetchApi<any[]>("/api/groups/email-event-subscriptions", {}, authToken).catch(() => []),
       listIntegrations(authToken).catch(() => []),
       listProviders(authToken).catch(() => []),
+      getWorkflowLibrary(authToken).catch(() => null),
     ]);
   connections = connectionsResult;
+  eventRecipes = (library?.recipes ?? []).filter((r) => r.trigger.event === type && r.shape !== "idea");
   triggerable = triggerableEvents(builderOptions).includes(type!);
   emailTemplates = Array.isArray(emailRes) ? emailRes : (emailRes?.items ?? []);
   webhooks = Array.isArray(webhookRes) ? webhookRes : (webhookRes?.items ?? []);
@@ -232,6 +239,17 @@ const openTemplates = emailTemplates.filter((t: any) => {
               <div class="sm-group">
                 <h4>Workflow</h4>
                 <a href={newWorkflowHref(type!)} class="sm-create">+ New workflow on this event</a>
+              </div>
+            )}
+            {eventRecipes.length > 0 && (
+              <div class="sm-group">
+                <h4>From the Library</h4>
+                <p class="sm-hint">Ready-made recipes on this event — each opens filled in, for you to read before saving.</p>
+                {eventRecipes.map((r) => (
+                  <a href={r.shape === "workflow" ? recipeHref(r.id) : `/automation/library#recipe-${r.id}`} class="sm-create">
+                    {r.title}{r.missing.length > 0 && <span class="sm-hint"> — needs {r.missing.join("; ")}</span>}
+                  </a>
+                ))}
               </div>
             )}
             <div class="sm-group">

@@ -169,6 +169,7 @@ const NODES: NavNode[] = [
 
   // Automation and Publishing pages sit directly under Settings: the hub's tabs aren't pages, so they're not crumbs.
   { id: "automation.workflows", label: "Workflows", href: "/automation/workflows", parent: "settings" },
+  { id: "automation.library", label: "Workflow Library", href: "/automation/library", parent: "settings" },
   { id: "automation.events", label: "Events", href: "/automation/events", parent: "settings" },
   { id: "automation.events.type", label: "Event", href: "/automation/events/[type]", parent: "automation.events" },
   {
