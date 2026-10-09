@@ -4,7 +4,20 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { clampSpot, DEFAULT_SPOT, EDGE_GUTTER, parseSpot, spotFromRect } from "./position.ts";
+import {
+  clampSpot,
+  DEFAULT_SPOT,
+  EDGE_GUTTER,
+  hiddenAfterScroll,
+  parseSpot,
+  parseTuck,
+  SCROLL_HIDE_PX,
+  spotFromRect,
+  TUCK_PEEK,
+  tuckAt,
+  tuckedPosition,
+  tuckEdge,
+} from "./position.ts";
 
 const BOX = { width: 52, height: 52 };
 const PHONE = { width: 375, height: 812 };
@@ -58,5 +71,52 @@ describe("clampSpot", () => {
 
   test("test_clamp_spot_with_viewport_smaller_than_bubble_falls_back_to_the_gutter", () => {
     assert.deepEqual(clampSpot(DEFAULT_SPOT, BOX, { width: 60, height: 60 }), DEFAULT_SPOT);
+  });
+});
+
+describe("tucking into an edge", () => {
+  const box = { width: 52, height: 52 };
+  const view = { width: 400, height: 800 };
+  const home = { x: "left", dx: 16, y: "bottom", dy: 16 };
+
+  test("released mostly past a side, it tucks there; mostly on screen, it doesn't", () => {
+    assert.equal(tuckEdge(370, 300, box, view), null); // 22 of 52 px past: not enough
+    assert.equal(tuckEdge(380, 300, box, view), "right"); // 32 of 52 past
+    assert.equal(tuckEdge(-40, 300, box, view), "left");
+    assert.equal(tuckEdge(100, -30, box, view), "top");
+    assert.equal(tuckEdge(100, 790, box, view), "bottom");
+    assert.equal(tuckEdge(-40, 790, box, view), "bottom"); // a corner goes to whichever edge it's further past
+  });
+
+  test("a tucked bubble shows only a sliver, where it was dropped along the edge", () => {
+    const tuck = tuckAt("right", 390, 374, box, view, home);
+    assert.equal(tuck.along, 0.5);
+    assert.deepEqual(tuckedPosition(tuck, box, view), { left: 400 - TUCK_PEEK, top: 374 });
+    assert.deepEqual(tuckedPosition({ ...tuck, edge: "left" }, box, view), { left: TUCK_PEEK - 52, top: 374 });
+    assert.deepEqual(tuckedPosition({ edge: "top", along: 0, restore: home }, box, view), {
+      left: 0,
+      top: TUCK_PEEK - 52,
+    });
+    assert.deepEqual(tuckedPosition({ edge: "bottom", along: 1, restore: home }, box, view), {
+      left: 348,
+      top: 800 - TUCK_PEEK,
+    });
+  });
+
+  test("a stored tuck survives a reload and nonsense is ignored", () => {
+    const stored = JSON.parse(JSON.stringify(tuckAt("left", -40, 100, box, view, home)));
+    assert.equal(parseTuck(stored, box, view).edge, "left");
+    assert.deepEqual(parseTuck(stored, box, view).restore, home);
+    assert.equal(parseTuck({ edge: "middle", along: 0.5 }, box, view), null);
+    assert.equal(parseTuck(null, box, view), null);
+  });
+});
+
+describe("out of the way while scrolling", () => {
+  test("a real scroll down hides it, a scroll up brings it back, jitter changes nothing", () => {
+    assert.equal(hiddenAfterScroll(SCROLL_HIDE_PX, false), true);
+    assert.equal(hiddenAfterScroll(-SCROLL_HIDE_PX, true), false);
+    assert.equal(hiddenAfterScroll(3, false), false);
+    assert.equal(hiddenAfterScroll(-3, true), true);
   });
 });

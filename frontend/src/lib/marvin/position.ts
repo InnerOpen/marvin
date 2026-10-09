@@ -64,3 +64,80 @@ export function parseSpot(raw: unknown, box: Size, viewport: Size): BubbleSpot {
   }
   return clampSpot(DEFAULT_SPOT, box, viewport);
 }
+
+// ── Tucked into an edge ──────────────────────────────────────────────────────────────────────────
+// Dragged mostly off a side and let go, the bubble tucks into that edge: only a sliver (TUCK_PEEK) shows, at
+// the point along the edge where it was dropped. A tap (or a drag) brings it back to where it last rested.
+
+export type Edge = "left" | "right" | "top" | "bottom";
+
+export type Tuck = {
+  edge: Edge;
+  /** Where along the edge its centre sits, as a fraction of the edge's length (0 = top/left). */
+  along: number;
+  /** Where it comes back to. */
+  restore: BubbleSpot;
+};
+
+/** How much of a tucked bubble stays on screen. */
+export const TUCK_PEEK = 14;
+/** Share of the bubble that must be past an edge, on release, for it to tuck there. */
+export const TUCK_PAST = 0.5;
+
+/** The edge a bubble released with its top-left at (left, top) tucks into, or null to rest normally. */
+export function tuckEdge(left: number, top: number, box: Size, viewport: Size): Edge | null {
+  const past: [Edge, number][] = [
+    ["left", -left / box.width],
+    ["right", (left + box.width - viewport.width) / box.width],
+    ["top", -top / box.height],
+    ["bottom", (top + box.height - viewport.height) / box.height],
+  ];
+  const [edge, share] = past.reduce((a, b) => (b[1] > a[1] ? b : a));
+  return share >= TUCK_PAST ? edge : null;
+}
+
+/** The tuck for a bubble released at (left, top) past `edge`, coming back to `restore`. */
+export function tuckAt(edge: Edge, left: number, top: number, box: Size, viewport: Size, restore: BubbleSpot): Tuck {
+  const vertical = edge === "left" || edge === "right";
+  const centre = vertical ? top + box.height / 2 : left + box.width / 2;
+  const length = vertical ? viewport.height : viewport.width;
+  return { edge, along: clamp(length ? centre / length : 0.5, 0, 1), restore };
+}
+
+/** Top-left of a tucked bubble: TUCK_PEEK on screen, kept within the edge's length. */
+export function tuckedPosition(tuck: Tuck, box: Size, viewport: Size): { left: number; top: number } {
+  const alongEdge = (length: number, size: number) =>
+    Math.round(clamp(tuck.along * length - size / 2, 0, length - size));
+  switch (tuck.edge) {
+    case "left":
+      return { left: TUCK_PEEK - box.width, top: alongEdge(viewport.height, box.height) };
+    case "right":
+      return { left: viewport.width - TUCK_PEEK, top: alongEdge(viewport.height, box.height) };
+    case "top":
+      return { left: alongEdge(viewport.width, box.width), top: TUCK_PEEK - box.height };
+    default:
+      return { left: alongEdge(viewport.width, box.width), top: viewport.height - TUCK_PEEK };
+  }
+}
+
+/** Read a stored tuck; null for nothing stored or anything unreadable (the bubble then rests normally). */
+export function parseTuck(raw: unknown, box: Size, viewport: Size): Tuck | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  if (!["left", "right", "top", "bottom"].includes(r.edge as string) || !isNum(r.along)) return null;
+  return { edge: r.edge as Edge, along: clamp(r.along, 0, 1), restore: parseSpot(r.restore, box, viewport) };
+}
+
+// ── Out of the way while scrolling (phones) ─────────────────────────────────────────────────────
+
+/** Scrolled this far down in one go: the bubble steps aside. */
+export const SCROLL_HIDE_PX = 24;
+/** No scrolling for this long: it comes back. */
+export const SCROLL_IDLE_MS = 1800;
+
+/** After scrolling by `delta` px (positive = down), should the bubble be out of the way? `current` is whether it is. */
+export function hiddenAfterScroll(delta: number, current: boolean): boolean {
+  if (delta >= SCROLL_HIDE_PX) return true;
+  if (delta <= -SCROLL_HIDE_PX / 2) return false;
+  return current;
+}
