@@ -65,7 +65,7 @@ try {
   import { askPageAllowed, bubbleAllowed } from '@/lib/marvin/gate';
   import { getPageContext, contextLabel, setContextSuppressed } from '@/lib/marvin/context';
   import { forgetConversation, loadPending, rememberThread, scoped, setStorageScope, threadFor } from '@/lib/marvin/pending';
-  import { type BubbleSpot, clampSpot, DEFAULT_SPOT, hiddenAfterScroll, parseSpot, parseTuck, PEEK_EVERY_MAX_MS, PEEK_EVERY_MIN_MS, PEEK_OUT_MS, SCROLL_IDLE_MS, spotFromRect, type Tuck, tuckAt, tuckedPosition, tuckEdge } from '@/lib/marvin/position';
+  import { type BubbleSpot, clampSpot, DEFAULT_SPOT, hiddenAfterScroll, parseSpot, parseTuck, PEEK_OUT_MS, peekEveryMs, SCROLL_IDLE_MS, spotFromRect, type Tuck, tuckAt, tuckedPosition, tuckEdge } from '@/lib/marvin/position';
   import { ATTACH_ACCEPT, ATTACHMENTS_KEY, attachmentIcon, forgetAttachments, loadAttachments, MAX_ATTACHMENTS, roomFor, saveAttachments, withAttachment, withoutAttachment } from '@/lib/marvin/attachments';
   import { createDictation, speechRecognition } from '@/lib/marvin/dictation';
   import { getContentAccess } from '@/lib/api/workspaces';
@@ -468,7 +468,7 @@ try {
     function schedulePeek() {
       window.clearTimeout(peekTimer);
       if (!tuck || reducedMotion) return;
-      peekTimer = window.setTimeout(peek, PEEK_EVERY_MIN_MS + Math.random() * (PEEK_EVERY_MAX_MS - PEEK_EVERY_MIN_MS));
+      peekTimer = window.setTimeout(peek, peekEveryMs(window.__MARVIN_RUNTIME__?.bubblePeekSeconds));
     }
     function peek() {
       if (!tuck) return;

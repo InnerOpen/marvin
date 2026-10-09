@@ -104,10 +104,16 @@ export function tuckAt(edge: Edge, left: number, top: number, box: Size, viewpor
   return { edge, along: clamp(length ? centre / length : 0.5, 0, 1), restore };
 }
 
-/** How much of a tucked bubble shows while it peeks out (about once a minute). */
+/** How much of a tucked bubble shows while it peeks out. */
 export const PEEK_SHARE = 0.5;
-export const PEEK_EVERY_MIN_MS = 45_000;
-export const PEEK_EVERY_MAX_MS = 75_000;
+/** Seconds between peeks unless BUBBLE_PEEK_SECONDS says otherwise (it was a random 45–75 s until 2026-10-09). */
+export const PEEK_EVERY_DEFAULT_S = 5;
+
+/** The wait before the next peek, in ms: the configured seconds when positive, else the default. */
+export function peekEveryMs(configuredSeconds?: number | null): number {
+  const seconds = configuredSeconds != null && configuredSeconds > 0 ? configuredSeconds : PEEK_EVERY_DEFAULT_S;
+  return seconds * 1000;
+}
 /** How long a peek lasts (the character's peek plays meanwhile). */
 export const PEEK_OUT_MS = 2_200;
 

@@ -22,6 +22,8 @@ export interface MarvinRuntimeConfig {
   apiBaseUrl: string;
   /** When true, browser API calls go same-origin through the frontend proxy (see getApiBaseUrl). */
   browserApiProxy?: boolean;
+  /** Seconds between a tucked bubble's peeks (BUBBLE_PEEK_SECONDS); unset: lib/marvin/position.ts's default. */
+  bubblePeekSeconds?: number;
 }
 
 declare global {
@@ -122,6 +124,12 @@ export function getCookieName(): string {
  */
 export function getBrowserFetchBaseUrl(): string {
   return getBrowserApiProxyEnabled() ? "" : getBrowserApiBaseUrl();
+}
+
+/** BUBBLE_PEEK_SECONDS: a positive number of seconds, or undefined (unset or not a positive number). */
+export function getBubblePeekSeconds(): number | undefined {
+  const seconds = Number(serverEnv("BUBBLE_PEEK_SECONDS"));
+  return Number.isFinite(seconds) && seconds > 0 ? seconds : undefined;
 }
 
 export function getBrowserApiProxyEnabled(): boolean {

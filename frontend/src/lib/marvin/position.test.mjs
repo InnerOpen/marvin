@@ -17,6 +17,7 @@ import {
   tuckAt,
   tuckedPosition,
   tuckEdge,
+  peekEveryMs,
 } from "./position.ts";
 
 const BOX = { width: 52, height: 52 };
@@ -124,5 +125,14 @@ describe("out of the way while scrolling", () => {
     assert.equal(hiddenAfterScroll(-SCROLL_HIDE_PX, true), false);
     assert.equal(hiddenAfterScroll(3, false), false);
     assert.equal(hiddenAfterScroll(-3, true), true);
+  });
+});
+
+describe("peekEveryMs", () => {
+  test("uses BUBBLE_PEEK_SECONDS when it is positive, else the default", () => {
+    assert.equal(peekEveryMs(60), 60_000);
+    assert.equal(peekEveryMs(2.5), 2_500);
+    assert.equal(peekEveryMs(undefined), 5_000);
+    assert.equal(peekEveryMs(0), 5_000);
   });
 });
