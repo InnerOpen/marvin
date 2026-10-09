@@ -6,6 +6,7 @@ condition operators, action kinds) so the UI is backend-driven rather than hardc
 """
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import UUID4, ConfigDict
 
@@ -264,3 +265,117 @@ class AutomationExecutionDetail(AutomationExecutionRead):
     """The retry chains its failures started (what happens next, or how it ended)."""
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ── Workflow Library (services/automation/recipes) ─────────────────────────────
+class WorkflowRecipeVariable(_MarvinModel):
+    """A setup placeholder the person fills: its `type` says which picker (entry_type_slug, field_key, webhook_id…)."""
+
+    name: str
+    type: str
+    description: str = ""
+    example: Any = None
+
+
+class WorkflowRecipeTrigger(_MarvinModel):
+    type: str  # event | manual | schedule | subscription | incoming_webhook | on_error
+    event: str | None = None
+    note: str | None = None
+
+
+class WorkflowRecipeSideEffect(_MarvinModel):
+    kind: str  # content_mutation | external_post | paid_call | notification | email
+    description: str = ""
+
+
+class WorkflowRecipeSupportingObject(_MarvinModel):
+    """Something set up alongside the recipe — for a configuration recipe, the whole of it."""
+
+    kind: str  # email_event_subscription | notification_settings | outgoing_webhook | integration_connection | …
+    name: str = ""
+    purpose: str = ""
+    required: bool = False
+
+
+class WorkflowRecipeDependency(_MarvinModel):
+    """An idea's gap: the capability it waits on (a key of `WorkflowLibraryRead.capabilities`) and why."""
+
+    capability: str
+    why: str = ""
+
+
+class WorkflowRecipe(_MarvinModel):
+    """One catalogue entry, and whether this workspace can use it: `missing` empty → ready here."""
+
+    id: str
+    title: str
+    outcome: str
+    category: str
+    category_slug: str
+    tags: list[str] = []
+    trigger: WorkflowRecipeTrigger
+    status: str  # verified-current | supported-after-configuration | needs-engine-capability | needs-adapter
+    shape: str  # workflow | configuration | idea
+    providers: list[str] = []  # integration providers it needs connected
+    side_effects: list[WorkflowRecipeSideEffect] = []
+    setup_variables: list[WorkflowRecipeVariable] = []
+    supporting_objects: list[WorkflowRecipeSupportingObject] = []
+    dependencies: list[WorkflowRecipeDependency] = []
+    missing: list[str] = []
+
+
+class WorkflowCapability(_MarvinModel):
+    name: str
+    priority: str = ""
+    acceptance: str = ""
+
+
+class WorkflowLibraryEntryType(_MarvinModel):
+    slug: str
+    name: str
+    fields: list[str] = []
+
+
+class WorkflowLibraryIntegration(_MarvinModel):
+    slug: str
+    name: str
+    provider: str
+    enabled: bool = False
+
+
+class WorkflowLibraryRef(_MarvinModel):
+    """A collection, an outgoing webhook (`id`) or an incoming one (`slug`) — what a picker offers."""
+
+    id: str | None = None
+    slug: str | None = None
+    name: str
+    enabled: bool | None = None
+
+
+class WorkflowLibraryRefs(_MarvinModel):
+    """The workspace's names every setup picker draws from, in one fetch."""
+
+    entry_types: list[WorkflowLibraryEntryType] = []
+    integrations: list[WorkflowLibraryIntegration] = []
+    collections: list[WorkflowLibraryRef] = []
+    outgoing_webhooks: list[WorkflowLibraryRef] = []
+    incoming_webhooks: list[WorkflowLibraryRef] = []
+    statuses: list[str] = []
+
+
+class WorkflowLibraryRead(_MarvinModel):
+    recipes: list[WorkflowRecipe] = []
+    capabilities: dict[str, WorkflowCapability] = {}
+    refs: WorkflowLibraryRefs = WorkflowLibraryRefs()
+
+
+class RecipeConfigureRequest(_MarvinModel):
+    vars: dict[str, Any] = {}
+
+
+class RecipeConfigureResult(_MarvinModel):
+    """A recipe filled in for this workspace — not saved. `issues` are what the builder would flag (shown, not blocking)."""
+
+    name: str
+    definition: dict
+    issues: list[AutomationValidationIssue] = []

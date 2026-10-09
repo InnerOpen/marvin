@@ -34,6 +34,11 @@ from marvin.schemas.group.automation import (
     AutomationValidateResult,
     AutomationWebhookOption,
     IntegrationRetryRead,
+    RecipeConfigureRequest,
+    RecipeConfigureResult,
+    WorkflowLibraryRead,
+    WorkflowLibraryRefs,
+    WorkflowRecipe,
 )
 from marvin.services.automation.workflows import WorkflowError, create_workflow, delete_workflow, update_workflow
 
@@ -72,6 +77,21 @@ def _get_or_404(session, automation_id: UUID4, group_id: UUID4) -> WorkspaceAuto
     if not row or row.group_id != group_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Automation not found.")
     return row
+
+
+def _library_recipe(item: dict, refs) -> WorkflowRecipe:
+    """A catalogue entry as the Library and the editor's recipe picker show it, with what this workspace lacks."""
+    from marvin.services.automation import recipes
+
+    return WorkflowRecipe(
+        **{key: item[key] for key in ("id", "title", "outcome", "category", "category_slug", "tags", "trigger", "status", "shape")},
+        providers=[need["provider"] for need in (item.get("prerequisites") or {}).get("integrations") or []],
+        side_effects=item.get("side_effects") or [],
+        setup_variables=item.get("setup_variables") or [],
+        supporting_objects=item.get("supporting_objects") or [],
+        dependencies=item.get("dependencies") or [],
+        missing=recipes.missing_prerequisites(item, refs),
+    )
 
 
 @contextmanager
@@ -170,6 +190,56 @@ class AutomationsController(BaseUserController):
             incoming_webhooks=incoming_webhooks,
             # The definition's JSON Schema — the one structural declaration the builder + SDK mirror.
             definition_schema=definition_json_schema(),
+        )
+
+    # ── Workflow Library ───────────────────────────────────────────────────────
+    @router.get("/library", response_model=WorkflowLibraryRead, summary="Workflow Library")
+    def library(self) -> WorkflowLibraryRead:
+        """Every Library recipe, with what this workspace is missing to use it (`missing` empty → ready here), the
+        capabilities the ideas wait on, and the workspace's names the setup pickers offer."""
+        _require_admin(self.user, self.group_id)
+        from marvin.schemas.platform.entries import ENTRY_STATUSES, TRASHED
+        from marvin.services.automation import recipes
+        from marvin.services.automation.authoring import workspace_refs
+
+        refs = workspace_refs(self.session, self.group_id)
+        return WorkflowLibraryRead(
+            recipes=[_library_recipe(item, refs) for item in recipes.entries()],
+            capabilities=recipes.catalogue()["capabilities"],
+            refs=WorkflowLibraryRefs(
+                entry_types=refs.entry_types,
+                integrations=refs.integrations,
+                collections=refs.collections,
+                outgoing_webhooks=refs.outgoing_webhooks,
+                incoming_webhooks=refs.incoming_webhooks,
+                statuses=sorted(ENTRY_STATUSES - {TRASHED}),  # a workflow moves entries to the Trash with its own step
+            ),
+        )
+
+    @router.post("/library/{recipe_id}/configure", response_model=RecipeConfigureResult, summary="Fill in a Library recipe")
+    def configure_recipe(self, recipe_id: str, data: RecipeConfigureRequest) -> RecipeConfigureResult:
+        """The recipe filled in with `vars` for this workspace, for the workflow editor to load — nothing is saved (the
+        editor's Save creates it, switched off). 404 unknown recipe; 409 not usable here (`detail` says why); 422 a
+        setup value missing or of the wrong type."""
+        _require_admin(self.user, self.group_id)
+        from marvin.services.automation import recipes
+        from marvin.services.automation.authoring import draft_issues
+        from marvin.services.automation.library import RecipeConfigError
+
+        try:
+            document = recipes.configure_for(self.session, self.group_id, recipe_id, data.vars)
+        except recipes.UnknownRecipe as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No recipe “{recipe_id}”.") from e
+        except recipes.RecipeUnavailable as e:
+            detail = f"“{recipe_id}” can't be used in this workspace: {'; '.join(e.reasons)}."
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail) from e
+        except RecipeConfigError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+        definition = document["definition"]
+        return RecipeConfigureResult(
+            name=document["name"],
+            definition=definition,
+            issues=draft_issues(self.session, self.group_id, definition),
         )
 
     @router.post("/validate", response_model=AutomationValidateResult, summary="Validate an automation definition")

@@ -157,17 +157,15 @@ def _from_recipe(ctx: ToolContext, recipe_id: str, values) -> tuple[dict | None,
     from marvin.services.automation.library import RecipeConfigError
 
     refs = workspace_refs(ctx.session, ctx.group_id)
-    offered = {r["id"]: r for r in recipes.offered(refs)}
-    if recipe_id not in offered:
-        known = next((r for r in recipes.entries() if r["id"] == recipe_id), None)
-        if known is None:
-            return None, _refused(f"No recipe “{recipe_id}”.", available=sorted(offered))
-        why = "; ".join(recipes.missing_prerequisites(known, refs)) or f"its status is {known['status']} (not runnable)"
-        return None, _refused(f"Recipe “{recipe_id}” can't be drafted in this workspace: {why}.", available=sorted(offered))
     if values is not None and not isinstance(values, dict):
         return None, _refused("vars must be an object of setup variable values.")
     try:
-        return recipes.instantiate(recipe_id, dict(values or {})), None
+        return recipes.configure_for(ctx.session, ctx.group_id, recipe_id, values, refs), None
+    except recipes.UnknownRecipe:
+        return None, _refused(f"No recipe “{recipe_id}”.", available=sorted(r["id"] for r in recipes.offered(refs)))
+    except recipes.RecipeUnavailable as e:
+        offered = sorted(r["id"] for r in recipes.offered(refs))
+        return None, _refused(f"Recipe “{recipe_id}” can't be drafted in this workspace: {'; '.join(e.reasons)}.", available=offered)
     except RecipeConfigError as e:
         return None, _refused(
             f"Recipe “{recipe_id}”: {e}",

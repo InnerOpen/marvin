@@ -20,7 +20,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..library import configure
+from ..library import RecipeConfigError, configure
 
 if TYPE_CHECKING:
     from ..authoring import WorkspaceRefs
@@ -33,6 +33,16 @@ RUNNABLE_STATUSES = frozenset({"verified-current", "supported-after-configuratio
 
 class UnknownRecipe(KeyError):
     pass
+
+
+class RecipeUnavailable(Exception):
+    """The recipe exists but isn't offered in this workspace; `reasons` say why (a provider that isn't
+    connected, a status that doesn't run here)."""
+
+    def __init__(self, recipe_id: str, reasons: list[str]):
+        super().__init__(f"{recipe_id}: {'; '.join(reasons)}")
+        self.recipe_id = recipe_id
+        self.reasons = reasons
 
 
 @lru_cache(maxsize=1)
@@ -104,6 +114,29 @@ def missing_prerequisites(item: dict, refs: WorkspaceRefs) -> list[str]:
 def offered(refs: WorkspaceRefs) -> list[dict]:
     """The workflow recipes this workspace can draft today: runnable status, and every prerequisite met."""
     return [r for r in catalogue()["recipes"] if r["shape"] == "workflow" and r["status"] in RUNNABLE_STATUSES and not missing_prerequisites(r, refs)]
+
+
+def unavailable_reasons(item: dict, refs: WorkspaceRefs) -> list[str]:
+    """Why this workspace isn't offered the recipe — empty when it is (see ``offered``)."""
+    if item["shape"] == "workflow" and item["status"] in RUNNABLE_STATUSES:
+        return missing_prerequisites(item, refs)
+    return missing_prerequisites(item, refs) or [f"its status is {item['status']} (not runnable)"]
+
+
+def configure_for(session, group_id, recipe_id: str, values: Any, refs: WorkspaceRefs | None = None) -> dict:
+    """The recipe as this workspace would save it: ``{name, definition}`` with its setup values filled in —
+    the one path the Library's "Use recipe" and the agent's ``draft_workflow(recipe=…)`` share. Saves
+    nothing. Raises UnknownRecipe, RecipeUnavailable (not offered here) or RecipeConfigError (a value is
+    missing or mistyped)."""
+    from ..authoring import workspace_refs
+
+    item = entry(recipe_id)
+    reasons = unavailable_reasons(item, refs or workspace_refs(session, group_id))
+    if reasons:
+        raise RecipeUnavailable(recipe_id, reasons)
+    if values is not None and not isinstance(values, dict):
+        raise RecipeConfigError("vars must be an object of setup variable values.")
+    return instantiate(recipe_id, dict(values or {}))
 
 
 def example(item: dict) -> dict:
