@@ -34,13 +34,26 @@ def load_recipe(path: Path = KIT / "recipe.json") -> dict:
 
 
 # --- cutting the poses -----------------------------------------------------------------------------------------
+BACKGROUND_NEAR = 60  # this close to the sheet's background colour: background, wherever it is (gaps between limbs too)
+BACKGROUND_EDGE = 150  # this close, and right beside background: the soft blend around an outline
+
+
 def key_magenta(img: Image.Image) -> np.ndarray:
-    """RGBA with the magenta background — and anything tinted by it — transparent, and the 1-px blend eaten."""
+    """RGBA with the sheet's background made transparent. Judged by distance from the background's ACTUAL colour
+    (sampled from the border), not by "magenta-ish": a crimson cap or a purple body is far from #FF00FF and stays,
+    while the blended pixels around each outline, which touch the background, go too."""
     rgb = np.array(img.convert("RGB")).astype(int)
-    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
-    background = (r - g > 35) & (b - g > 35)  # characters are drawn without magenta
+    border = np.concatenate([rgb[0], rgb[-1], rgb[:, 0], rgb[:, -1]])
+    colour = np.median(border, axis=0)
+    r, g, b = colour
+    if not (r - g > 100 and b - g > 100):
+        raise SheetError(f"no magenta background found (its border is {tuple(int(v) for v in colour)}) — the sheet must be on flat #FF00FF")
+    distance = np.sqrt(((rgb - colour) ** 2).sum(axis=2))
+    near = distance < BACKGROUND_NEAR
+    beside = np.array(Image.fromarray((near * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5))) > 0
+    background = near | (beside & (distance < BACKGROUND_EDGE))
     if background.mean() < 0.2:
-        raise SheetError("no magenta background found — the sheet must be on flat #FF00FF")
+        raise SheetError("too little magenta background — the sheet must be on flat #FF00FF with space around every pose")
     alpha = Image.fromarray(np.where(background, 0, 255).astype(np.uint8)).filter(ImageFilter.MinFilter(3))
     return np.dstack([rgb.astype(np.uint8), np.array(alpha)])
 

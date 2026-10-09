@@ -268,3 +268,20 @@ def test_big_poses_close_together_with_loose_pieces_still_cut_into_sixteen():
     assert all(p.shape[0] > 200 for p in poses)  # each kept its foot
     marks = [int(np.nonzero(((p[..., 1] > 100) & (p[..., 0] < 60)).any(axis=0))[0].min()) for p in poses]
     assert marks == sorted(marks)  # still in row-by-row order
+
+
+def test_keying_keeps_reds_and_purples_and_clears_magenta_even_between_limbs():
+    """Fireball Mini lost its crimson cap to a key that dropped anything 'more red and blue than green'."""
+    img = Image.new("RGB", (400, 400), (246, 5, 245))
+    d = ImageDraw.Draw(img)
+    d.rectangle([100, 100, 300, 300], fill=(40, 30, 20))  # a dark outline…
+    d.rectangle([110, 110, 290, 160], fill=(208, 0, 48))  # …around a crimson cap
+    d.rectangle([110, 170, 290, 220], fill=(150, 60, 200))  # a purple body
+    d.rectangle([180, 240, 220, 300], fill=(246, 5, 245))  # magenta showing between two legs, closed in
+    d.rectangle([99, 99, 301, 99], fill=(220, 70, 210))  # the soft blend along the outline's top edge
+    a = kit.key_magenta(img)[..., 3]
+    assert (a[115:155, 115:285] == 255).all()  # crimson kept
+    assert (a[175:215, 115:285] == 255).all()  # purple kept
+    assert (a[245:300, 185:215] == 0).all()  # the gap between the legs is background
+    assert (a[99, 120:280] == 0).all()  # the blend beside the background goes too
+    assert a[0, 0] == 0
