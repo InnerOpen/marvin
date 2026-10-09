@@ -4,6 +4,7 @@
 
 import type { APIRoute } from "astro";
 import { getCookieName, getCookieSecure, getServerApiBaseUrl } from "@/lib/api/config";
+import { cookieMaxAge, safeReturnPath } from "@/lib/session";
 
 export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
   try {
@@ -12,7 +13,7 @@ export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
     const password = formData.get("password");
 
     // Get return path from query param
-    const returnPath = url.searchParams.get("return") || "/";
+    const returnPath = safeReturnPath(url.searchParams.get("return"));
 
     if (!username || !password) {
       const loginError =
@@ -57,14 +58,14 @@ export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
       httpOnly: true,
       secure: getCookieSecure(), // HTTPS deploys secure; HTTP (homelab NodePort) must not, or the cookie is dropped
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: cookieMaxAge(accessToken), // as long as the token itself: a dead token in a live cookie fails every page
     });
 
     // Successfully logged in, redirect to requested page or dashboard
     return redirect(returnPath, 303);
   } catch (error) {
     console.error("[auth/login] Error:", error);
-    const returnPath = new URL(request.url).searchParams.get("return") || "/";
+    const returnPath = safeReturnPath(new URL(request.url).searchParams.get("return"));
     const loginError =
       returnPath !== "/" ? `/login?error=server&return=${encodeURIComponent(returnPath)}` : "/login?error=server";
     return redirect(loginError, 303);

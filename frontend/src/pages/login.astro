@@ -8,18 +8,19 @@ import { getBrowserApiBaseUrl, getServerApiBaseUrl } from "@/lib/api/config";
 import { isAuthenticated } from "@/lib/auth";
 import { withEnvironmentPrefix } from "@/lib/environmentLabel";
 import { LOGIN_INFO_DEFAULTS, type LoginInfo, parseLoginInfo, shouldAutoRedirectToOidc } from "@/lib/loginInfo";
+import { safeReturnPath } from "@/lib/session";
 
 // Ensure this page is server-rendered (not prerendered)
 export const prerender = false;
 
 // Check if user is already logged in
 if (await isAuthenticated(Astro.cookies)) {
-  const returnPath = Astro.url.searchParams.get("return") || "/";
-  return Astro.redirect(returnPath);
+  return Astro.redirect(safeReturnPath(Astro.url.searchParams.get("return")));
 }
 
 const error = Astro.url.searchParams.get("error");
-const returnPath = Astro.url.searchParams.get("return");
+const returnParam = Astro.url.searchParams.get("return");
+const returnPath = returnParam ? safeReturnPath(returnParam) : null;
 
 // Fetch public login info for OIDC settings
 let info: LoginInfo = { ...LOGIN_INFO_DEFAULTS };

@@ -6,6 +6,7 @@
 import type { APIRoute } from "astro";
 import { getCookieName, getCookieSecure } from "@/lib/api/config";
 import { createSdkClient } from "@/lib/sdk";
+import { cookieMaxAge } from "@/lib/session";
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {
   const token = url.searchParams.get("token");
@@ -26,7 +27,7 @@ export const GET: APIRoute = async ({ url, cookies, redirect }) => {
     httpOnly: true,
     secure: getCookieSecure(), // HTTPS deploys secure; HTTP (homelab NodePort) must not, or the cookie is dropped
     sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 7,
+    maxAge: cookieMaxAge(token), // as long as the token itself (lib/session.ts)
   });
 
   return redirect("/", 303);
