@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.237 (2026-10-09)
+
+### Features
+
+- **dev**: Character kit names each pack's zip after the character
+  ([`b0697b4`](https://github.com/InnerOpen/marvin/commit/b0697b4d89f2364f67203d2845e86c7f9755f2ad))
+
+
 ## v1.0.0-rc.236 (2026-10-09)
 
 ### Features
