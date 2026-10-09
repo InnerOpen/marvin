@@ -513,8 +513,25 @@ try {
     window.addEventListener('resize', reclamp);
     new ResizeObserver(reclamp).observe(toggle);
 
+    // Pressing the tab of a tucked bubble pulls it out right under the finger, mid-gesture: keep dragging it, or let
+    // go and it stays there (that press isn't also a tap that opens it).
+    let pulledOut = false;
+    function pullOutUnder(x: number, y: number) {
+      const box = bubbleBox();
+      window.clearTimeout(peekTimer);
+      tuck = null;
+      root.classList.remove('tucked', 'tuck-pulse', 'peeking');
+      delete root.dataset.edge;
+      try { localStorage.removeItem(TUCK_KEY); } catch { /* nothing stored */ }
+      spot = spotFromRect(x - box.width / 2, y - box.height / 2, box, viewport());
+      applySpot(spot);
+      saveSpot(spot);
+      pulledOut = true;
+    }
+
     toggle.addEventListener('pointerdown', (e) => {
       dragging = true; moved = false;
+      if (tuck) pullOutUnder(e.clientX, e.clientY);
       const r = toggle.getBoundingClientRect();
       ox = r.left; oy = r.top; sx = e.clientX; sy = e.clientY; lastX = e.clientX;
       toggle.setPointerCapture(e.pointerId);
@@ -566,8 +583,9 @@ try {
     });
 
     toggle.addEventListener('click', () => {
-      if (moved) { moved = false; return; } // it was a drag, not a click
-      if (tuck) { untuck(); return; } // a tap on the sliver brings it back; the next one opens it
+      if (moved) { moved = false; pulledOut = false; return; } // it was a drag, not a click
+      if (pulledOut) { pulledOut = false; return; } // that press pulled it out of its edge; the next tap opens it
+      if (tuck) { untuck(); return; } // keyboard: Enter on a tucked bubble brings it back
       panel.classList.contains('open') ? closePanel() : openPanel();
     });
 
