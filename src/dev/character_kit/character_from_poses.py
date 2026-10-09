@@ -126,6 +126,7 @@ class Builder:
         self.frame_size, self.ground = recipe["frame"], recipe["ground"]
         ids = [p["id"] for p in recipe["poses"]]
         tiles = cut_poses(key_magenta(sheet), len(ids))
+        self.drawn = dict(zip(ids, tiles, strict=True))  # as drawn, full size: what a reference shows
         self.scale = recipe["height"] / tiles[0].shape[0]
         self.pose = {pid: self._sized(t) for pid, t in zip(ids, tiles, strict=True)}
 
@@ -292,9 +293,29 @@ def preview(pack: dict, path: Path, cell: int = 112) -> None:
     sheet.save(path)
 
 
-def write_pack(sheet_path: Path, out: Path, slug: str, recipe: dict | None = None, warn=None) -> Path:
+REFERENCE_POSES = ("neutral", "arm-high", "happy", "dizzy", "laptop", "run-a")
+
+
+def reference_from(builder: Builder, path: Path, tile: int = 384) -> None:
+    """A reference.png from the sheet's own poses (front, wave, happy, dizzy, laptop, run) on white — so a character the
+    model designed keeps that design when it's redrawn."""
+    poses = [builder.drawn[p] for p in REFERENCE_POSES if p in builder.drawn]
+    sheet = Image.new("RGB", (tile * len(poses), tile), (255, 255, 255))
+    for i, drawn in enumerate(poses):
+        im = Image.fromarray(drawn)
+        k = tile * 0.9 / max(im.size)
+        im = im.resize((round(im.width * k), round(im.height * k)), Image.LANCZOS)
+        cell = Image.new("RGBA", (tile, tile), (255, 255, 255, 255))
+        cell.alpha_composite(im, ((tile - im.width) // 2, tile - im.height - tile // 20))
+        sheet.paste(cell.convert("RGB"), (i * tile, 0))
+    sheet.save(path)
+
+
+def write_pack(sheet_path: Path, out: Path, slug: str, recipe: dict | None = None, warn=None, reference: Path | None = None) -> Path:
     """Build and write the pack; `warn` gets each clipping warning (default: stderr)."""
     builder = Builder(Image.open(sheet_path), recipe or load_recipe())
+    if reference is not None and not reference.exists():
+        reference_from(builder, reference)  # a new character: its first sheet is its look from now on
     pack = builder.build()
     for message in builder.clip_warnings(pack):
         (warn or (lambda m: sys.stderr.write(f"warning: {slug}: {m}\n")))(message)
@@ -332,7 +353,11 @@ def main(argv: list[str] | None = None) -> int:
         own_height = json.loads(bible.read_text(encoding="utf-8")).get("height") if bible.exists() else None
         recipe["height"] = args.height or own_height or recipe["height"]  # a wide character keeps its own, smaller
         warnings: list[str] = []
-        zip_path = write_pack(sheet, out, slug, recipe, warn=warnings.append)
+        reference = KIT / "characters" / slug / "reference.png" if not args.sheet else None
+        had_reference = reference is not None and reference.exists()
+        zip_path = write_pack(sheet, out, slug, recipe, warn=warnings.append, reference=reference)
+        if reference is not None and not had_reference:
+            sys.stderr.write(f"saved {reference} from this sheet: redraws of {slug} will keep this look\n")
         for message in warnings:
             sys.stderr.write(f"warning: {slug}: {message}\n")
         if warnings:

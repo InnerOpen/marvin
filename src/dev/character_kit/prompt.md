@@ -1,7 +1,6 @@
 Make the image square (1:1).
 
-The attached image shows my character "{name}": {description}. Keep exactly this design, colours,
-proportions, outline and {style} style. Copy no text, labels or background from the attached image.
+{intro}
 Always: {rules}.
 
 Draw ONE image: a 4×4 grid of 16 separate still poses of {name}. Each pose is large, about a

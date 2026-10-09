@@ -14,6 +14,11 @@ Dev tooling: `src/dev` is not in the production image.
 4. **Upload** — Admin → Character library → the pack → replace its files with the zip. Every file fills its slot by name;
    the peek-ledge margins are measured on upload.
 
+**A new character from just an idea** — skip the reference: write `characters/<slug>/character.json` (name, one-line
+description, style, a few "always" rules), run `make_prompt.py <slug> --new` and paste it with nothing attached; the
+model designs the character and draws all 16 poses in one image, so they match. The first build saves a
+`reference.png` from that sheet, and later redraws (without `--new`) keep that look.
+
 If the sheet comes back wrong (text on it, a gradient background, poses touching), regenerate rather than patch: the
 builder says what it found (`found 14 drawings, the recipe has 16 poses …`).
 
@@ -30,7 +35,7 @@ editing). Tilts (the dizzy wobble, side peeks) stay on the ground line and jumps
 | `characters/<slug>/poses.png` | the 16-pose sheet the model returned — the only AI output. **Not in git** (often over the 500 KB commit limit): keep your own copy, e.g. in Drive. Any path works with `--sheet`. |
 | `characters/<slug>/out/` | generated pack + preview (not committed) |
 | `recipe.json` | the 16 poses (with their prompt wording) and how each animation uses them — shared by every character. Change it and rebuild every pack. |
-| `prompt.md` | the prompt template `make_prompt.py` fills |
+| `prompt.md`, `intro-reference.md`, `intro-new.md` | the prompt template `make_prompt.py` fills, and its two openings: redraw the attached character, or design a new one (`--new`) |
 | `make_prompt.py` | prints the filled prompt |
 | `character_from_poses.py` | sheet → pack |
 | `export_references.py` | builds a `reference.png` (and a `character.json` stub) for every pack already in the library: `--api <url> --token <platform admin token>`, or `--json packs.json` |

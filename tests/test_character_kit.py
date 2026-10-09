@@ -136,12 +136,7 @@ def test_write_pack_zips_one_gif_per_animation_named_for_the_uploader(tmp_path):
 
 
 def test_the_prompt_lists_every_pose_in_sheet_order_and_the_bible(tmp_path, monkeypatch):
-    (tmp_path / "characters" / "testy").mkdir(parents=True)
-    bible = {"name": "Testy", "description": "a small test cube", "style": "pixel-art", "rules": ["always blue"]}
-    (tmp_path / "characters" / "testy" / "character.json").write_text(json.dumps(bible))
-    (tmp_path / "recipe.json").write_text((KIT / "recipe.json").read_text())
-    (tmp_path / "prompt.md").write_text((KIT / "prompt.md").read_text())
-    monkeypatch.setattr(prompts, "KIT", tmp_path)
+    _prompt_kit(tmp_path, monkeypatch)
     text = prompts.make_prompt("testy")
     poses = kit.load_recipe()["poses"]
     assert '"Testy": a small test cube' in text and "Always: always blue." in text
@@ -221,3 +216,39 @@ def test_a_characters_own_height_is_used(tmp_path, monkeypatch):
     idle = Image.open(folder / "out" / "gifs" / "idle.gif").convert("RGBA")
     rows = np.nonzero((np.array(idle)[..., 3] > 0).any(axis=1))[0]
     assert rows.max() - rows.min() + 1 == pytest.approx(80, abs=2)
+
+
+# --- a new character from a description ----------------------------------------------------------------------------
+
+
+def _prompt_kit(tmp_path, monkeypatch):
+    (tmp_path / "characters" / "testy").mkdir(parents=True)
+    bible = {"name": "Testy", "description": "a small test cube", "style": "pixel-art", "rules": ["always blue"]}
+    (tmp_path / "characters" / "testy" / "character.json").write_text(json.dumps(bible))
+    for name in ("recipe.json", "prompt.md", "intro-reference.md", "intro-new.md"):
+        (tmp_path / name).write_text((KIT / name).read_text())
+    monkeypatch.setattr(prompts, "KIT", tmp_path)
+
+
+def test_a_new_character_is_designed_from_its_description_without_a_reference(tmp_path, monkeypatch, capsys):
+    _prompt_kit(tmp_path, monkeypatch)
+    text = prompts.make_prompt("testy", new=True)
+    assert 'Design a new mascot character called "Testy": a small test cube' in text
+    assert "attached" not in text.lower() and "{" not in text
+    assert prompts.main(["testy"]) == 1  # redrawing needs a reference.png
+    assert "--new" in capsys.readouterr().err
+    assert prompts.main(["testy", "--new"]) == 0
+
+
+def test_a_new_characters_first_sheet_becomes_its_reference(tmp_path, monkeypatch):
+    folder = tmp_path / "characters" / "testy"
+    folder.mkdir(parents=True)
+    _sheet().save(folder / "poses.png")
+    (folder / "character.json").write_text(json.dumps({"name": "Testy", "description": "x"}))
+    monkeypatch.setattr(kit, "KIT", tmp_path)
+    assert kit.main(["testy"]) == 0
+    reference = Image.open(folder / "reference.png")
+    assert reference.size == (384 * len(kit.REFERENCE_POSES), 384)
+    before = (folder / "reference.png").read_bytes()
+    assert kit.main(["testy"]) == 0
+    assert (folder / "reference.png").read_bytes() == before  # an existing reference is never replaced
