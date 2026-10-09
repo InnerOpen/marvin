@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.239 (2026-10-09)
+
+### Bug Fixes
+
+- **auth**: An expired login goes to the login page, not "Unauthorized"
+  ([`6c521e4`](https://github.com/InnerOpen/marvin/commit/6c521e4b7c684e92fced45e0ad269b842111ef53))
+
+### Continuous Integration
+
+- Log in to Docker Hub before pulling from it
+  ([`f2708c2`](https://github.com/InnerOpen/marvin/commit/f2708c2c40a09a6e8e8b4659ffcd74c24caa48e3))
+
+
 ## v1.0.0-rc.238 (2026-10-09)
 
 ### Features
