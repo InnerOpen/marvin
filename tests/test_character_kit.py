@@ -234,7 +234,7 @@ def test_a_new_character_is_designed_from_its_description_without_a_reference(tm
     _prompt_kit(tmp_path, monkeypatch)
     text = prompts.make_prompt("testy", new=True)
     assert 'Design a new mascot character called "Testy": a small test cube' in text
-    assert "attached" not in text.lower() and "{" not in text
+    assert "attached image shows my character" not in text and "{" not in text  # only the layout guide is attached
     assert prompts.main(["testy"]) == 1  # redrawing needs a reference.png
     assert "--new" in capsys.readouterr().err
     assert prompts.main(["testy", "--new"]) == 0
@@ -263,7 +263,7 @@ def test_big_poses_close_together_with_loose_pieces_still_cut_into_sixteen():
         d.rectangle([x0, y0, x0 + 220, y0 + 180], fill=(150, 150, 140), outline=(40, 40, 40), width=3)  # 30 px apart
         d.rectangle([x0 + 20, y0 + 196, x0 + 80, y0 + 226], fill=(120, 120, 110))  # a separate foot, 16 px below
         d.rectangle([x0 + 6 + i * 8, y0 + 10, x0 + 14 + i * 8, y0 + 20], fill=(20, 120, 40))  # a mark of its order
-    poses = kit.cut_poses(kit.key_magenta(img), 16)
+    poses = kit.cut_poses(kit.key_background(img), 16)
     assert len(poses) == 16
     assert all(p.shape[0] > 200 for p in poses)  # each kept its foot
     marks = [int(np.nonzero(((p[..., 1] > 100) & (p[..., 0] < 60)).any(axis=0))[0].min()) for p in poses]
@@ -279,7 +279,7 @@ def test_keying_keeps_reds_and_purples_and_clears_magenta_even_between_limbs():
     d.rectangle([110, 170, 290, 220], fill=(150, 60, 200))  # a purple body
     d.rectangle([180, 240, 220, 300], fill=(246, 5, 245))  # magenta showing between two legs, closed in
     d.rectangle([99, 99, 301, 99], fill=(220, 70, 210))  # the soft blend along the outline's top edge
-    a = kit.key_magenta(img)[..., 3]
+    a = kit.key_background(img)[..., 3]
     assert (a[115:155, 115:285] == 255).all()  # crimson kept
     assert (a[175:215, 115:285] == 255).all()  # purple kept
     assert (a[245:300, 185:215] == 0).all()  # the gap between the legs is background
@@ -341,3 +341,37 @@ def test_a_pet_too_big_for_the_frame_is_built_smaller_until_nothing_is_cut_off(t
     assert warnings == [] and height < kit.load_recipe()["height"]
     with zipfile.ZipFile(zip_path) as zf:
         assert "running.gif" in zf.namelist() and "look-loop.gif" in zf.namelist()
+
+
+# --- background colour and layout guide --------------------------------------------------------------------------------
+
+
+def test_the_background_keeps_clear_of_the_characters_colours(tmp_path):
+    assert prompts.choose_background({"description": "a small grey robot"}, None)[0] == "magenta"
+    assert prompts.choose_background({"description": "a purple robot with pink cheeks"}, None)[0] != "magenta"
+    assert prompts.choose_background({"description": "x", "rules": ["green moss"]}, None)[0] == "magenta"
+    assert prompts.choose_background({"description": "x", "background": "cyan"}, None) == ("cyan", (0, 255, 255))
+    reference = tmp_path / "reference.png"
+    img = Image.new("RGB", (200, 100), (255, 255, 255))
+    ImageDraw.Draw(img).rectangle([20, 20, 180, 80], fill=(170, 60, 230))  # a purple character on the white page
+    img.save(reference)
+    name, colour = prompts.choose_background({"description": "x"}, reference)
+    assert name != "magenta" and np.sqrt(((np.array(colour) - (170, 60, 230)) ** 2).sum()) > 200
+
+
+def test_a_sheet_on_any_flat_background_is_cut_and_its_guide_lines_vanish(tmp_path):
+    green = _sheet().convert("RGB")
+    a = np.array(green)
+    a[(a == (255, 0, 255)).all(axis=2)] = (0, 255, 0)  # the same sheet, drawn on green
+    builder = kit.Builder(Image.fromarray(a), kit.load_recipe())
+    assert len(builder.pose) == 16
+    guide = tmp_path / "guide.png"
+    prompts.layout_guide((0, 255, 0), guide)
+    assert (kit.key_background(Image.open(guide))[..., 3] == 0).all()  # copied guide lines would be keyed away
+
+
+def test_the_prompt_names_its_background_and_asks_for_the_guide(tmp_path, monkeypatch):
+    _prompt_kit(tmp_path, monkeypatch)
+    text = prompts.make_prompt("testy", new=True)
+    assert "exactly #FF00FF (magenta)" in text and "layout guide" in text
+    assert (tmp_path / "characters" / "testy" / "layout-guide.png").exists()

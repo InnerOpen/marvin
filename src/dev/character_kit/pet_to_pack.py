@@ -29,7 +29,7 @@ from character_from_poses import (  # noqa: E402 - the kit's own module, beside 
     Builder,
     SheetError,
     clipped_edges,
-    key_magenta,
+    key_background,
     load_recipe,
     place,
     preview,
@@ -48,7 +48,7 @@ def read_sheet(path: Path) -> np.ndarray:
     """RGBA; a sheet without real transparency is keyed by its border colour like a pose sheet."""
     img = Image.open(path)
     rgba = np.array(img.convert("RGBA"))
-    return rgba if (rgba[..., 3] < 255).mean() > 0.2 else key_magenta(img)
+    return rgba if (rgba[..., 3] < 255).mean() > 0.2 else key_background(img)
 
 
 def cells(rgba: np.ndarray) -> list[list[np.ndarray]]:

@@ -8,7 +8,9 @@ Dev tooling: `src/dev` is not in the production image.
 
 1. **Prompt** — `uv run src/dev/character_kit/make_prompt.py rocky` prints the pose-sheet prompt for Rocky.
 2. **Generate** — paste it into ChatGPT (it follows a reference far better than Gemini's free tier) with
-   `characters/rocky/reference.png` attached. Save the image it returns as `characters/rocky/poses.png`.
+   `characters/rocky/reference.png` and `characters/rocky/layout-guide.png` attached (make_prompt writes the guide: a
+   4×4 grid of boxes and ground lines, in a shade the builder keys away if it's copied). Save the image it returns as
+   `characters/rocky/poses.png`.
 3. **Build** — `uv run src/dev/character_kit/character_from_poses.py rocky` writes `characters/rocky/out/rocky-pack.zip`
    and `out/preview.png`. Look at the preview first.
 4. **Upload** — Admin → Character library → the pack → replace its files with the zip. Every file fills its slot by name;
@@ -51,8 +53,10 @@ Tests: `tests/test_character_kit.py` (a synthetic sheet through the whole build)
 
 ## The sheet
 
-A square image, 4×4 poses in `recipe.json`'s order, on flat `#FF00FF` magenta with space between every pose and no
-magenta in the character. The builder keys out the magenta, finds each drawing by the empty space around it, scales all
+A square image, 4×4 poses in `recipe.json`'s order, on one flat background colour with space between every pose. The
+colour is chosen per character to keep clear of its own (the reference's colours, or the description's colour words
+for `--new`): magenta by default, green for a pink or purple character, never green for a green one…; set
+`"background"` in `character.json` to choose. The builder keys whatever flat colour the border has. The builder keys out the magenta, finds each drawing by the empty space around it, scales all
 16 by one factor (pose 1 becomes `height` px tall in a `frame`-px frame, feet on `ground`), and composes the animations.
 Side peeks lean out from behind a drawn ledge from the feet (only the head clears the edge); top and bottom slide out;
 each peek plays once over ~1.9 s, the time the bubble is out.

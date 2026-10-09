@@ -150,5 +150,7 @@ src/dev/data/*
 src/dev/character_kit/characters/*/out/
 # …and its pose sheets: AI output, often over the 500 KB commit limit — keep your own copy (Drive, Downloads)
 src/dev/character_kit/characters/*/poses.png
+# …and the layout guides make_prompt.py writes each run
+src/dev/character_kit/characters/*/layout-guide.png
 # Windows marks downloaded files with a Zone.Identifier sidecar when they're copied into WSL
 *:Zone.Identifier

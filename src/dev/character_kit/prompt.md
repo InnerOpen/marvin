@@ -10,5 +10,8 @@ or floor.
 
 {rows}
 
-The background must be one flat colour, exactly #FF00FF (magenta), edge to edge, with no gradient,
-vignette, glow or checkerboard. {name} itself must not use magenta anywhere.
+The attached layout guide shows the 4×4 grid: draw one pose in each cell, inside its box, feet on its line.
+Its faint lines only guide the layout — do not draw them.
+
+The background must be one flat colour, exactly {background_hex} ({background_name}), edge to edge, with no gradient,
+vignette, glow or checkerboard. {name} itself must not use {background_name} anywhere.

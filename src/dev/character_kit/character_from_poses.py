@@ -38,22 +38,26 @@ BACKGROUND_NEAR = 60  # this close to the sheet's background colour: background,
 BACKGROUND_EDGE = 150  # this close, and right beside background: the soft blend around an outline
 
 
-def key_magenta(img: Image.Image) -> np.ndarray:
-    """RGBA with the sheet's background made transparent. Judged by distance from the background's ACTUAL colour
-    (sampled from the border), not by "magenta-ish": a crimson cap or a purple body is far from #FF00FF and stays,
-    while the blended pixels around each outline, which touch the background, go too."""
+def key_background(img: Image.Image) -> np.ndarray:
+    """RGBA with the sheet's flat background made transparent — whichever colour make_prompt.py chose (magenta,
+    green, cyan…). Judged by distance from the background's ACTUAL colour, sampled from the border: a crimson cap or a
+    purple body stays, while the blended pixels around each outline, which touch the background, go too."""
     rgb = np.array(img.convert("RGB")).astype(int)
     border = np.concatenate([rgb[0], rgb[-1], rgb[:, 0], rgb[:, -1]])
     colour = np.median(border, axis=0)
-    r, g, b = colour
-    if not (r - g > 100 and b - g > 100):
-        raise SheetError(f"no magenta background found (its border is {tuple(int(v) for v in colour)}) — the sheet must be on flat #FF00FF")
+    saturated = colour.max() - colour.min() > 150
+    flat = float(np.median(np.sqrt(((border - colour) ** 2).sum(axis=1)))) < 30
+    if not (saturated and flat):
+        raise SheetError(
+            f"no flat background colour found (its border is {tuple(int(v) for v in colour)}) — the sheet must be on the one "
+            "flat colour the prompt names (#FF00FF magenta unless it chose another)"
+        )
     distance = np.sqrt(((rgb - colour) ** 2).sum(axis=2))
     near = distance < BACKGROUND_NEAR
     beside = np.array(Image.fromarray((near * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5))) > 0
     background = near | (beside & (distance < BACKGROUND_EDGE))
     if background.mean() < 0.2:
-        raise SheetError("too little magenta background — the sheet must be on flat #FF00FF with space around every pose")
+        raise SheetError("too little background — the sheet must be on one flat colour with space around every pose")
     alpha = Image.fromarray(np.where(background, 0, 255).astype(np.uint8)).filter(ImageFilter.MinFilter(3))
     return np.dstack([rgb.astype(np.uint8), np.array(alpha)])
 
@@ -161,7 +165,7 @@ class Builder:
         self.frame_size, self.ground = recipe["frame"], recipe["ground"]
         if tiles is None:
             ids = [p["id"] for p in recipe["poses"]]
-            tiles = dict(zip(ids, cut_poses(key_magenta(sheet), len(ids)), strict=True))
+            tiles = dict(zip(ids, cut_poses(key_background(sheet), len(ids)), strict=True))
         self.drawn = tiles  # as drawn, full size: what a reference shows
         self.scale = recipe["height"] / next(iter(tiles.values())).shape[0]
         self.pose = {pid: self._sized(t) for pid, t in tiles.items()}
