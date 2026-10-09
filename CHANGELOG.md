@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.219 (2026-10-09)
+
+### Bug Fixes
+
+- **assets**: The image cropper works with a finger and fits a phone
+  ([`ce86ee1`](https://github.com/InnerOpen/marvin/commit/ce86ee1028654676a318daee09e9582181cc010a))
+
+
 ## v1.0.0-rc.218 (2026-10-09)
 
 ### Bug Fixes
