@@ -15,6 +15,7 @@ and the four edge peeks from the kit's drawn ledges. Writes GIFs named for the u
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -34,6 +35,7 @@ from character_from_poses import (  # noqa: E402 - the kit's own module, beside 
     place,
     preview,
     save_gif,
+    zip_name,
 )
 
 COLUMNS = 8
@@ -148,6 +150,11 @@ class PetPack:
 MIN_HEIGHT, HEIGHT_STEP = 64, 4
 
 
+def display_name(slug: str) -> str:
+    """'null-signal' → 'Null Signal': the pack's name when --name doesn't give one."""
+    return " ".join(w.capitalize() for w in re.split(r"[-_\s]+", slug) if w)
+
+
 def fit(rgba: np.ndarray, recipe: dict) -> tuple[PetPack, dict, list[str]]:
     """The largest height (from recipe.json's down) at which no frame is cut off — the frames are hand-drawn, so a
     smaller pet is the only fix. Below MIN_HEIGHT it stops and returns the warnings."""
@@ -161,7 +168,7 @@ def fit(rgba: np.ndarray, recipe: dict) -> tuple[PetPack, dict, list[str]]:
         height -= HEIGHT_STEP
 
 
-def write(sheet: Path, out: Path, slug: str, height: int | None = None) -> tuple[Path, list[str], int]:
+def write(sheet: Path, out: Path, slug: str, height: int | None = None, name: str | None = None) -> tuple[Path, list[str], int]:
     """Writes the pack; returns the zip, any clipping warnings left, and the height used."""
     recipe = load_recipe()
     rgba = read_sheet(sheet)
@@ -174,26 +181,27 @@ def write(sheet: Path, out: Path, slug: str, height: int | None = None) -> tuple
         pet, pack, warnings = fit(rgba, recipe)
     gifs = out / "gifs"
     gifs.mkdir(parents=True, exist_ok=True)
-    for name, (frames, timing) in pack.items():
-        save_gif(frames, gifs / f"{name}.gif", timing)
+    for animation, (frames, timing) in pack.items():
+        save_gif(frames, gifs / f"{animation}.gif", timing)
     preview(pack, out / "preview.png")
-    zip_path = out / f"{slug}-pack.zip"
+    zip_path = out / f"{zip_name(name or display_name(slug))}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name in pack:
-            zf.write(gifs / f"{name}.gif", f"{name}.gif")
+        for animation in pack:
+            zf.write(gifs / f"{animation}.gif", f"{animation}.gif")
     return zip_path, warnings, pet.recipe["height"]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("sheet", type=Path, help="a ChatGPT pet sprite sheet (WebP or PNG)")
-    parser.add_argument("slug", help="the pack's name")
+    parser.add_argument("slug", help="a short name for its folder, e.g. null-signal")
+    parser.add_argument("--name", help="the character's name, which names the zip and so the pack (default: from slug, 'Null Signal')")
     parser.add_argument("--out", type=Path, help="where to write (default characters/<slug>/out)")
     parser.add_argument("--height", type=int, help="standing height in px (default: the largest at which nothing is cut off)")
     args = parser.parse_args(argv)
     out = args.out or KIT / "characters" / args.slug / "out"
     try:
-        zip_path, warnings, used = write(args.sheet, out, args.slug, args.height)
+        zip_path, warnings, used = write(args.sheet, out, args.slug, args.height, args.name)
     except SheetError as e:
         sys.stderr.write(f"{args.sheet}: {e}\n")
         return 1

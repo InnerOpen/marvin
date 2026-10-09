@@ -375,3 +375,14 @@ def test_the_prompt_names_its_background_and_asks_for_the_guide(tmp_path, monkey
     text = prompts.make_prompt("testy", new=True)
     assert "exactly #FF00FF (magenta)" in text and "layout guide" in text
     assert (tmp_path / "characters" / "testy" / "layout-guide.png").exists()
+
+
+def test_the_zip_is_named_after_the_character_so_uploading_it_names_the_pack(tmp_path, monkeypatch):
+    folder = tmp_path / "characters" / "testy"
+    folder.mkdir(parents=True)
+    _sheet().save(folder / "poses.png")
+    (folder / "character.json").write_text(json.dumps({"name": "Testy: The Cube?", "description": "x"}))
+    monkeypatch.setattr(kit, "KIT", tmp_path)
+    assert kit.main(["testy"]) == 0
+    assert [p.name for p in (folder / "out").glob("*.zip")] == ["Testy The Cube.zip"]  # Windows-safe
+    assert pets.display_name("null-signal") == "Null Signal"

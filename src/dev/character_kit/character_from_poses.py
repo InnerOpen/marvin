@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -351,7 +352,15 @@ def reference_from(builder: Builder, path: Path, tile: int = 384) -> None:
     sheet.save(path)
 
 
-def write_pack(sheet_path: Path, out: Path, slug: str, recipe: dict | None = None, warn=None, reference: Path | None = None) -> Path:
+def zip_name(name: str) -> str:
+    """The pack's zip file name: the character's display name, which Marvin's uploader takes as the pack's name when
+    none is typed — so uploading the zip names the character too. Only characters Windows forbids in a file name go."""
+    return re.sub(r'[\\/:*?"<>|]+', "", name).strip() or "character"
+
+
+def write_pack(
+    sheet_path: Path, out: Path, slug: str, recipe: dict | None = None, warn=None, reference: Path | None = None, name: str | None = None
+) -> Path:
     """Build and write the pack; `warn` gets each clipping warning (default: stderr)."""
     builder = Builder(Image.open(sheet_path), recipe or load_recipe())
     if reference is not None and not reference.exists():
@@ -361,13 +370,13 @@ def write_pack(sheet_path: Path, out: Path, slug: str, recipe: dict | None = Non
         (warn or (lambda m: sys.stderr.write(f"warning: {slug}: {m}\n")))(message)
     gifs = out / "gifs"
     gifs.mkdir(parents=True, exist_ok=True)
-    for name, (frames, timing) in pack.items():
-        save_gif(frames, gifs / f"{name}.gif", timing)
+    for animation, (frames, timing) in pack.items():
+        save_gif(frames, gifs / f"{animation}.gif", timing)
     preview(pack, out / "preview.png")
-    zip_path = out / f"{slug}-pack.zip"
+    zip_path = out / f"{zip_name(name or slug)}.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for name in pack:
-            zf.write(gifs / f"{name}.gif", f"{name}.gif")
+        for animation in pack:
+            zf.write(gifs / f"{animation}.gif", f"{animation}.gif")
     return zip_path
 
 
@@ -389,13 +398,14 @@ def main(argv: list[str] | None = None) -> int:
     out = args.out or KIT / "characters" / slug / "out"
     try:
         recipe = load_recipe()
-        bible = KIT / "characters" / slug / "character.json"
-        own_height = json.loads(bible.read_text(encoding="utf-8")).get("height") if bible.exists() else None
+        bible_path = KIT / "characters" / slug / "character.json"
+        bible = json.loads(bible_path.read_text(encoding="utf-8")) if bible_path.exists() else {}
+        own_height = bible.get("height")
         recipe["height"] = args.height or own_height or recipe["height"]  # a wide character keeps its own, smaller
         warnings: list[str] = []
         reference = KIT / "characters" / slug / "reference.png" if not args.sheet else None
         had_reference = reference is not None and reference.exists()
-        zip_path = write_pack(sheet, out, slug, recipe, warn=warnings.append, reference=reference)
+        zip_path = write_pack(sheet, out, slug, recipe, warn=warnings.append, reference=reference, name=bible.get("name"))
         if reference is not None and not had_reference:
             sys.stderr.write(f"saved {reference} from this sheet: redraws of {slug} will keep this look\n")
         for message in warnings:
