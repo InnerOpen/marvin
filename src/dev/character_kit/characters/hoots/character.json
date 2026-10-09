@@ -1,0 +1,10 @@
+{
+  "name": "Hoots",
+  "description": "a round, fluffy orange owl with big round glasses, a cream chest, a small beak, and wings it uses as arms",
+  "style": "pixel-art",
+  "rules": [
+    "orange feathers, cream chest",
+    "big round glasses, always",
+    "wings as arms"
+  ]
+}

@@ -1,0 +1,259 @@
+"""Build a bubble-character pack from ONE pose sheet — no AI past the image itself.
+
+    uv run src/dev/character_kit/character_from_poses.py seedy
+    uv run src/dev/character_kit/character_from_poses.py --sheet some/poses.png --out /tmp/pack
+
+The sheet is the image make_prompt.py asks for: 16 still poses (4 rows of 4, in recipe.json's order) on flat
+magenta (#FF00FF). Every pose is cut at ONE scale (the first pose is `height` px tall) with its feet on the same
+ground line, so the character is the same size and colour in every animation; the motion — bobs, blinks, jumps,
+wobbles, runs, peeks — is recipe.json, and the peek ledges are drawn here so they never move. Writes one GIF per
+animation (named so Marvin's uploader fills each slot), `<slug>-pack.zip` and `preview.png`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import zipfile
+from pathlib import Path
+
+import numpy as np
+from PIL import Image, ImageFilter, ImageOps
+
+KIT = Path(__file__).parent
+SOLID = 128  # GIF has no partial alpha: at or above shows, below is transparent
+
+
+class SheetError(ValueError):
+    """The sheet can't be read as the recipe's poses (wrong count, no magenta…)."""
+
+
+def load_recipe(path: Path = KIT / "recipe.json") -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+# --- cutting the poses -----------------------------------------------------------------------------------------
+def key_magenta(img: Image.Image) -> np.ndarray:
+    """RGBA with the magenta background — and anything tinted by it — transparent, and the 1-px blend eaten."""
+    rgb = np.array(img.convert("RGB")).astype(int)
+    r, g, b = rgb[..., 0], rgb[..., 1], rgb[..., 2]
+    background = (r - g > 35) & (b - g > 35)  # characters are drawn without magenta
+    if background.mean() < 0.2:
+        raise SheetError("no magenta background found — the sheet must be on flat #FF00FF")
+    alpha = Image.fromarray(np.where(background, 0, 255).astype(np.uint8)).filter(ImageFilter.MinFilter(3))
+    return np.dstack([rgb.astype(np.uint8), np.array(alpha)])
+
+
+def _runs(mask: np.ndarray, gap: int) -> list[list[int]]:
+    """[start, end] of each run of True, joining runs closer than `gap` (a raised arm, a laptop)."""
+    runs: list[list[int]] = []
+    start = None
+    for i, on in enumerate(mask):
+        if on and start is None:
+            start = i
+        if not on and start is not None:
+            runs.append([start, i - 1])
+            start = None
+    if start is not None:
+        runs.append([start, len(mask) - 1])
+    merged: list[list[int]] = []
+    for a0, a1 in runs:
+        if merged and a0 - merged[-1][1] < gap:
+            merged[-1][1] = a1
+        else:
+            merged.append([a0, a1])
+    return [m for m in merged if m[1] - m[0] > gap]
+
+
+def cut_poses(rgba: np.ndarray, count: int) -> list[np.ndarray]:
+    """The sheet's drawings, row by row, left to right, each cropped to itself."""
+    alpha = rgba[..., 3] > 0
+    gap = max(8, rgba.shape[1] // 40)
+    poses = []
+    for y0, y1 in _runs(alpha.sum(axis=1) > 2, gap):
+        for x0, x1 in _runs(alpha[y0 : y1 + 1].sum(axis=0) > 2, gap):
+            tile = rgba[y0 : y1 + 1, x0 : x1 + 1]
+            ys = np.nonzero(tile[..., 3].any(axis=1))[0]
+            poses.append(tile[ys.min() : ys.max() + 1])
+    if len(poses) != count:
+        raise SheetError(
+            f"found {len(poses)} drawings, the recipe has {count} poses — check the sheet is a clean grid with magenta "
+            "between every pose (no text, no touching poses)"
+        )
+    return poses
+
+
+# --- composing frames -------------------------------------------------------------------------------------------
+def place(canvas: Image.Image, im: Image.Image, x: int, y: int) -> None:
+    """Composite `im` onto `canvas` at (x, y), cropping whatever falls outside. (`paste` with a mask would square the
+    alpha of soft edge pixels and thin the outline.)"""
+    x0, y0 = max(0, -x), max(0, -y)
+    x1, y1 = min(im.width, canvas.width - x), min(im.height, canvas.height - y)
+    if x1 > x0 and y1 > y0:
+        canvas.alpha_composite(im.crop((x0, y0, x1, y1)), (x + x0, y + y0))
+
+
+class Builder:
+    def __init__(self, sheet: Image.Image, recipe: dict):
+        self.recipe = recipe
+        self.frame_size, self.ground = recipe["frame"], recipe["ground"]
+        ids = [p["id"] for p in recipe["poses"]]
+        tiles = cut_poses(key_magenta(sheet), len(ids))
+        self.scale = recipe["height"] / tiles[0].shape[0]
+        self.pose = {pid: self._sized(t) for pid, t in zip(ids, tiles, strict=True)}
+
+    def _sized(self, tile: np.ndarray) -> Image.Image:
+        im = Image.fromarray(tile)
+        return im.resize((max(1, round(im.width * self.scale)), max(1, round(im.height * self.scale))), Image.LANCZOS)
+
+    @staticmethod
+    def feet_x(im: Image.Image) -> float:
+        """Centre of the feet (bottom 12% of the drawing): what stays planted."""
+        a = np.array(im)[..., 3]
+        xs = np.nonzero((a[int(a.shape[0] * 0.88) :] > SOLID).any(axis=0))[0]
+        return (xs.min() + xs.max()) / 2 if len(xs) else im.width / 2
+
+    def frame(self, pose: str, dy: int = 0, dx: int = 0, squash: float = 1.0, angle: float = 0.0, flip: bool = False) -> Image.Image:
+        im = self.pose[pose]
+        if flip:
+            im = ImageOps.mirror(im)
+        if squash != 1.0:
+            im = im.resize((round(im.width / squash**0.5), round(im.height * squash)), Image.NEAREST)
+        canvas = Image.new("RGBA", (self.frame_size, self.frame_size), (0, 0, 0, 0))
+        place(canvas, im, round(self.frame_size / 2 - self.feet_x(im)) + dx, self.ground - im.height + dy)
+        if angle:  # wobble about the feet
+            canvas = canvas.rotate(angle, resample=Image.NEAREST, center=(self.frame_size / 2, self.ground))
+        return canvas
+
+    def _ledge(self, a: np.ndarray, box: tuple[int, int, int, int]) -> np.ndarray:
+        x0, y0, x1, y1 = box
+        a[y0:y1, x0:x1, :3] = self.recipe["ledge"]["rgb"]
+        a[y0:y1, x0:x1, 3] = 255
+        return a
+
+    def lean_peek(self, edge: str, pose: str, angle: float) -> Image.Image:
+        """Sideways: the body stays behind the ledge and leans out from its feet, so only the head clears the edge."""
+        size, w = self.frame_size, self.recipe["ledge"]["width"]
+        body = self.pose[pose] if edge == "left" else ImageOps.mirror(self.pose[pose])
+        pad = body.height
+        big = Image.new("RGBA", (body.width + 2 * pad, body.height + 2 * pad), (0, 0, 0, 0))
+        place(big, body, pad, pad)
+        pivot = (pad + self.feet_x(body), pad + body.height)
+        big = big.rotate(-angle if edge == "left" else angle, resample=Image.BICUBIC, center=pivot)
+        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        feet_at = w - body.width // 2 - 2 if edge == "left" else size - w + body.width // 2 + 2
+        place(canvas, big, round(feet_at - pivot[0]), round(self.ground - pivot[1]))
+        a = np.array(canvas)
+        if edge == "left":
+            a[:, :w] = 0  # behind the screen edge
+            return Image.fromarray(self._ledge(a, (0, 6, w, size - 1)))
+        a[:, size - w :] = 0
+        return Image.fromarray(self._ledge(a, (size - w, 6, size, size - 1)))
+
+    def slide_peek(self, edge: str, pose: str, share: float) -> Image.Image:
+        """Up or down: out from behind the ledge by `share` of its height (from the top it hangs head-down)."""
+        size, w = self.frame_size, self.recipe["ledge"]["width"]
+        body = self.pose[pose] if edge == "bottom" else ImageOps.flip(self.pose[pose])
+        shown = round(body.height * share)
+        y = size - w - shown if edge == "bottom" else w + shown - body.height
+        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        place(canvas, body, round(size / 2 - body.width / 2), y)
+        a = np.array(canvas)
+        if edge == "bottom":
+            a[size - w :] = 0
+            return Image.fromarray(self._ledge(a, (4, size - w, size - 4, size)))
+        a[:w] = 0
+        return Image.fromarray(self._ledge(a, (4, 0, size - 4, w)))
+
+    def animation(self, spec) -> tuple[list[Image.Image], list[int] | int]:
+        ms = self.recipe["frame_ms"]
+        if isinstance(spec, list):
+            return [self.frame(**f) for f in spec], ms
+        if "peek" in spec:
+            edge = spec["peek"]
+            if edge in ("left", "right"):
+                frames = [self.lean_peek(edge, p, a) for p, a in zip(spec["poses"], spec["lean"], strict=True)]
+            else:
+                frames = [self.slide_peek(edge, p, s) for p, s in zip(spec["poses"], spec["share"], strict=True)]
+            return frames, spec.get("timing", ms)
+        raise SheetError(f"unknown animation spec: {spec}")
+
+    def build(self) -> dict[str, tuple[list[Image.Image], list[int] | int]]:
+        out = {}
+        for name, spec in self.recipe["animations"].items():
+            if isinstance(spec, dict) and "mirror" in spec:
+                continue
+            out[name] = self.animation(spec)
+        for name, spec in self.recipe["animations"].items():
+            if isinstance(spec, dict) and "mirror" in spec:
+                frames, timing = out[spec["mirror"]]
+                out[name] = ([ImageOps.mirror(f) for f in frames], timing)
+        return {name: out[name] for name in self.recipe["animations"]}  # the recipe's order
+
+
+# --- writing ------------------------------------------------------------------------------------------------------
+def save_gif(frames: list[Image.Image], path: Path, durations) -> None:
+    imgs = []
+    for f in frames:
+        a = np.array(f)
+        pal = Image.fromarray(a[..., :3]).quantize(colors=255, method=Image.Quantize.MEDIANCUT)
+        px = np.array(pal)
+        px[a[..., 3] < SOLID] = 255
+        p = Image.fromarray(px, "P")
+        p.putpalette((pal.getpalette() + [0, 0, 0] * 256)[:768])
+        imgs.append(p)
+    imgs[0].save(path, save_all=True, append_images=imgs[1:], duration=durations, loop=0, transparency=255, disposal=2)
+
+
+def preview(pack: dict, path: Path, cell: int = 112) -> None:
+    """Every animation as a row, on dark grey: what to look at before uploading."""
+    width = max(len(frames) for frames, _ in pack.values())
+    sheet = Image.new("RGB", (width * cell, len(pack) * cell), (34, 34, 34))
+    for row, (frames, _) in enumerate(pack.values()):
+        for col, f in enumerate(frames):
+            tile = Image.new("RGBA", f.size, (34, 34, 34, 255))
+            tile.alpha_composite(f)
+            sheet.paste(tile.resize((cell, cell), Image.NEAREST).convert("RGB"), (col * cell, row * cell))
+    sheet.save(path)
+
+
+def write_pack(sheet_path: Path, out: Path, slug: str, recipe: dict | None = None) -> Path:
+    builder = Builder(Image.open(sheet_path), recipe or load_recipe())
+    pack = builder.build()
+    gifs = out / "gifs"
+    gifs.mkdir(parents=True, exist_ok=True)
+    for name, (frames, timing) in pack.items():
+        save_gif(frames, gifs / f"{name}.gif", timing)
+    preview(pack, out / "preview.png")
+    zip_path = out / f"{slug}-pack.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name in pack:
+            zf.write(gifs / f"{name}.gif", f"{name}.gif")
+    return zip_path
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("slug", nargs="?", help="a folder under characters/ holding poses.png")
+    parser.add_argument("--sheet", type=Path, help="a pose sheet anywhere (instead of characters/<slug>/poses.png)")
+    parser.add_argument("--out", type=Path, help="where to write (default characters/<slug>/out)")
+    args = parser.parse_args(argv)
+    if not args.slug and not args.sheet:
+        parser.error("give a character slug or --sheet")
+    slug = args.slug or args.sheet.stem
+    sheet = args.sheet or KIT / "characters" / slug / "poses.png"
+    if not sheet.exists():
+        parser.error(f"no pose sheet at {sheet} — generate one with make_prompt.py {slug}")
+    out = args.out or KIT / "characters" / slug / "out"
+    try:
+        zip_path = write_pack(sheet, out, slug)
+    except SheetError as e:
+        sys.stderr.write(f"{sheet}: {e}\n")
+        return 1
+    sys.stdout.write(f"{zip_path}\n{out / 'preview.png'}\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

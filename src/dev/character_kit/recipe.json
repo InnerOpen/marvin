@@ -1,0 +1,90 @@
+{
+  "_doc": "How every character's pack is built from its 16-pose sheet. Shared by all characters: change it here and every pack follows. Poses are listed in sheet order (4 rows of 4); `prompt` is what make_prompt.py asks the image model for. Frame fields: pose, dy (negative lifts), dx, squash (<1 flattens), angle (degrees, wobbles about the feet), flip (mirror). Peeks: `peek` is the edge; side peeks `lean` from the feet behind the ledge, top/bottom slide out by `share` of the height.",
+  "frame": 128,
+  "ground": 125,
+  "height": 108,
+  "frame_ms": 125,
+  "ledge": { "rgb": [58, 58, 64], "width": 12 },
+  "poses": [
+    { "id": "neutral", "prompt": "front, neutral" },
+    { "id": "blink", "prompt": "front, eyes closed (blink)" },
+    { "id": "happy", "prompt": "front, happy closed-eye smile" },
+    { "id": "glance-left", "prompt": "front, eyes glancing left" },
+    { "id": "glance-right", "prompt": "front, eyes glancing right" },
+    { "id": "arm-high", "prompt": "front, right arm raised high (waving)" },
+    { "id": "arm-half", "prompt": "front, right arm half raised" },
+    { "id": "thinking", "prompt": "thinking, hand on chin, eyes looking up" },
+    { "id": "laptop", "prompt": "holding a small grey laptop in one arm, typing with the other hand" },
+    { "id": "dizzy", "prompt": "dizzy, spiral eyes" },
+    { "id": "arms-up", "prompt": "excited, both arms up" },
+    { "id": "arms-crossed", "prompt": "impatient, arms crossed" },
+    { "id": "run-a", "prompt": "side view facing left, running, left leg forward" },
+    { "id": "run-b", "prompt": "side view facing left, running, right leg forward" },
+    { "id": "surprised", "prompt": "front, surprised (small open mouth)" },
+    { "id": "sad", "prompt": "front, sad" }
+  ],
+  "animations": {
+    "idle": [
+      { "pose": "neutral" }, { "pose": "neutral" }, { "pose": "neutral", "dy": -1 }, { "pose": "neutral", "dy": -1 },
+      { "pose": "neutral" }, { "pose": "blink" }, { "pose": "neutral" }, { "pose": "neutral" }
+    ],
+    "look-loop": [
+      { "pose": "neutral" }, { "pose": "glance-left" }, { "pose": "glance-left" }, { "pose": "glance-left" },
+      { "pose": "neutral" }, { "pose": "glance-right" }, { "pose": "glance-right" }, { "pose": "neutral" }
+    ],
+    "waving": [
+      { "pose": "neutral" }, { "pose": "arm-half" }, { "pose": "arm-high" }, { "pose": "arm-half" },
+      { "pose": "arm-high" }, { "pose": "arm-half" }, { "pose": "happy" }, { "pose": "neutral" }
+    ],
+    "review": [
+      { "pose": "thinking" }, { "pose": "thinking" }, { "pose": "thinking", "dy": -1 }, { "pose": "thinking", "dy": -1 },
+      { "pose": "thinking" }, { "pose": "thinking" }, { "pose": "surprised" }, { "pose": "thinking" }
+    ],
+    "running": [
+      { "pose": "laptop" }, { "pose": "laptop", "dy": -1 }, { "pose": "laptop" }, { "pose": "laptop", "dy": -1 },
+      { "pose": "laptop" }, { "pose": "laptop", "dy": -1 }, { "pose": "laptop" }, { "pose": "laptop", "dy": -1 }
+    ],
+    "waiting": [
+      { "pose": "arms-crossed" }, { "pose": "arms-crossed" }, { "pose": "arms-crossed", "dy": -2 }, { "pose": "arms-crossed" },
+      { "pose": "arms-crossed", "dy": -2 }, { "pose": "arms-crossed" }, { "pose": "glance-left" }, { "pose": "arms-crossed" }
+    ],
+    "jumping": [
+      { "pose": "neutral", "squash": 0.9 }, { "pose": "arms-up", "dy": -6 }, { "pose": "arms-up", "dy": -12 },
+      { "pose": "arms-up", "dy": -15 }, { "pose": "arms-up", "dy": -12 }, { "pose": "arms-up", "dy": -6 },
+      { "pose": "happy", "squash": 0.92 }, { "pose": "happy" }
+    ],
+    "failed": [
+      { "pose": "dizzy" }, { "pose": "dizzy", "angle": -5 }, { "pose": "dizzy", "angle": -9 }, { "pose": "dizzy", "angle": -5 },
+      { "pose": "dizzy" }, { "pose": "dizzy", "angle": 5 }, { "pose": "dizzy", "angle": 9 }, { "pose": "dizzy", "angle": 5 }
+    ],
+    "running-left": [
+      { "pose": "run-a" }, { "pose": "run-a", "dy": -3 }, { "pose": "run-b" }, { "pose": "run-b", "dy": -3 },
+      { "pose": "run-a" }, { "pose": "run-a", "dy": -3 }, { "pose": "run-b" }, { "pose": "run-b", "dy": -3 }
+    ],
+    "running-right": { "mirror": "running-left" },
+    "peek-left": {
+      "peek": "left",
+      "poses": ["neutral", "neutral", "glance-right", "glance-right", "happy", "glance-right", "neutral", "neutral"],
+      "lean": [6, 16, 28, 34, 34, 28, 16, 6],
+      "timing": [200, 200, 250, 300, 300, 250, 200, 200]
+    },
+    "peek-right": {
+      "peek": "right",
+      "poses": ["neutral", "neutral", "glance-right", "glance-right", "happy", "glance-right", "neutral", "neutral"],
+      "lean": [6, 16, 28, 34, 34, 28, 16, 6],
+      "timing": [200, 200, 250, 300, 300, 250, 200, 200]
+    },
+    "peek-top": {
+      "peek": "top",
+      "poses": ["neutral", "neutral", "neutral", "happy", "happy", "neutral", "neutral", "neutral"],
+      "share": [0.2, 0.45, 0.68, 0.72, 0.72, 0.68, 0.45, 0.2],
+      "timing": [200, 200, 250, 300, 300, 250, 200, 200]
+    },
+    "peek-bottom": {
+      "peek": "bottom",
+      "poses": ["neutral", "neutral", "glance-left", "glance-left", "glance-right", "glance-right", "neutral", "neutral"],
+      "share": [0.2, 0.45, 0.68, 0.72, 0.72, 0.68, 0.45, 0.2],
+      "timing": [200, 200, 250, 300, 300, 250, 200, 200]
+    }
+  }
+}

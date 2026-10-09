@@ -1,0 +1,10 @@
+{
+  "name": "Dewey",
+  "description": "a small light-blue water droplet with a white shine on top, pink cheeks, small dark eyes, and tiny stubby blue arms and feet",
+  "style": "pixel-art",
+  "rules": [
+    "a single water droplet, point on top",
+    "light blue with a white highlight",
+    "pink cheeks"
+  ]
+}

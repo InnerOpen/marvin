@@ -1,0 +1,10 @@
+{
+  "name": "Stacky",
+  "description": "a dark navy robot made of three stacked rounded blocks, each with a small smiling face, two antennae with ball tips, and short arms",
+  "style": "pixel-art",
+  "rules": [
+    "three stacked rounded blocks",
+    "dark navy with lighter edges",
+    "two antennae with round tips"
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "name": "Rocky",
+  "description": "a chunky brown rock creature with a light beige face, pink cheeks, small dark eyes, a few rock spikes on top, and stubby rocky arms",
+  "style": "pixel-art",
+  "rules": [
+    "brown rock body with a few spikes on top",
+    "light beige face with pink cheeks",
+    "stubby rock arms and feet"
+  ]
+}
