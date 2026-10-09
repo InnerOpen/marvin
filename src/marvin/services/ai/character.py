@@ -24,6 +24,10 @@ SVG, which is a script vector when served from the app's own origin. Zips are re
 entry-count and size caps checked from the archive's directory before anything is decompressed, and
 enforced again while reading; entry names are only ever used to pick a state, never as paths.
 
+An upload that is ONE character sheet — a 16-pose sheet or a ChatGPT pet sheet, loose or alone in a zip — is
+built into the whole pack first (expand_sheet; the building is services/ai/character_sheets.py), so the person
+drops in the image an image model gave them and gets every animation, named for its state.
+
 Some generated packs come with an opaque solid background ("matte") in a file or two — a GIF that
 declares a transparent colour but paints its background with another, identical one — which the bubble
 shows as a box around the character. Uploads clear it (clear_matte); scripts/repair_character_mattes.py
@@ -47,6 +51,7 @@ from fastapi import UploadFile
 from PIL import Image, ImageDraw, ImageSequence, PngImagePlugin
 from pydantic import UUID4
 
+from marvin.services.ai.character_sheets import build_from_sheet, gif_bytes
 from marvin.services.ai.persona import url_problem
 
 if TYPE_CHECKING:
@@ -162,6 +167,9 @@ class CharacterPlan:
     name: str | None = None
     # Files whose solid background was made transparent (clear_matte).
     cleared: list[str] = field(default_factory=list)
+    # The upload was one character sheet, built into these animations: what it was and the height ("16-pose sheet
+    # (height 108)"); None for an ordinary upload.
+    built_from: str | None = None
 
 
 # --- naming -------------------------------------------------------------------------------------
@@ -288,6 +296,7 @@ def read_uploads(uploads: Iterable[tuple[str, bytes]]) -> tuple[list[CharacterIm
 def plan_character(uploads: list[tuple[str, bytes]]) -> CharacterPlan:
     """Read an upload and give each state its best-named file. Raises CharacterError when unusable."""
     images, ignored = read_uploads(uploads)
+    images, built_from = expand_sheet(images)
     images, cleared = clear_mattes(images)
     if not images:
         raise CharacterError("no GIF, WebP or PNG images found — a character needs at least an idle animation")
@@ -302,7 +311,31 @@ def plan_character(uploads: list[tuple[str, bytes]]) -> CharacterPlan:
         states[IDLE_STATE] = images[0]
     zips = [_path(name).stem for name, data in uploads if is_zip(data)]
     name = zips[0] if zips else None
-    return CharacterPlan(images=images, states=states, ignored=ignored, idle_guessed=idle_guessed, name=name, cleared=cleared)
+    return CharacterPlan(images=images, states=states, ignored=ignored, idle_guessed=idle_guessed, name=name, cleared=cleared, built_from=built_from)
+
+
+def expand_sheet(images: list[CharacterImage]) -> tuple[list[CharacterImage], str | None]:
+    """A lone still image that is a character sheet, as the GIFs it builds — one per animation, named for its state —
+    and what it was built from; anything else as it came, and None. Never raises: an image that can't be built from
+    is just an image."""
+    if len(images) != 1 or images[0].extension == "gif":
+        return images, None
+    sheet = images[0]
+    try:
+        with Image.open(io.BytesIO(sheet.data)) as img:
+            built = build_from_sheet(img)
+        if built is None:
+            return images, None
+        gifs = [
+            CharacterImage(name=f"{name}.gif", data=gif_bytes(frames, timing), mime_type="image/gif", extension="gif")
+            for name, (frames, timing) in built.animations.items()
+        ]
+    except Exception:
+        logger.warning("Couldn't build a character from %s; keeping it as an image", sheet.name, exc_info=True)
+        return images, None
+    for warning in built.warnings:
+        logger.info("Character sheet %s: %s", sheet.name, warning)
+    return gifs, f"{built.kind} (height {built.height})"
 
 
 # --- clearing a solid background ----------------------------------------------------------------

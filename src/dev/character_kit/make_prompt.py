@@ -4,7 +4,7 @@
     uv run src/dev/character_kit/make_prompt.py bottle --new   # design a new one from character.json alone
 
 The prompt is the same for every character (prompt.md) — only characters/<slug>/character.json fills it in — and its
-16 poses come from recipe.json, in the order character_from_poses.py cuts them. The background is a flat colour
+16 poses come from Marvin's character recipe (services/ai/character_recipe.json), in the order they are cut. The background is a flat colour
 picked to be far from the character's own (magenta unless the character is pink or purple…), or character.json's
 "background". Save the image the model returns as characters/<slug>/poses.png.
 """
@@ -18,6 +18,8 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image, ImageDraw
+
+from marvin.services.ai.character_sheets import load_recipe
 
 KIT = Path(__file__).parent
 
@@ -90,7 +92,7 @@ def make_prompt(slug: str, new: bool = False) -> str:
     otherwise it redraws the one in characters/<slug>/reference.png."""
     folder = KIT / "characters" / slug
     character = json.loads((folder / "character.json").read_text(encoding="utf-8"))
-    poses = json.loads((KIT / "recipe.json").read_text(encoding="utf-8"))["poses"]
+    poses = load_recipe()["poses"]
     rows = []
     for row in range(0, len(poses), 4):
         cells = [f"{i + 1} {poses[i]['prompt']}" for i in range(row, min(row + 4, len(poses)))]

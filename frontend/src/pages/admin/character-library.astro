@@ -52,7 +52,7 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
   <div class="page-container">
     <form id="pack-form" class="settings-section">
       <h3>Add a pack</h3>
-      <p>A .zip or GIF, WebP or PNG files named for the states — waving.gif, running.gif and so on. Files named otherwise are kept to assign by hand.</p>
+      <p>A .zip or GIF, WebP or PNG files named for the states — waving.gif, running.gif and so on. Files named otherwise are kept to assign by hand. Or one character sheet — a ChatGPT pet sheet, or 16 poses on one flat colour — and every animation is built from it.</p>
       <div class="pack-new">
         <input class="input" name="name" placeholder="Name (defaults to the .zip's name)" maxlength="120" />
         <input class="input" type="file" name="files" accept=".zip,image/gif,image/webp,image/png" multiple required />
@@ -89,17 +89,35 @@ const usedBy = (p: Pack) => p.usedBy.map((u) => (u.agent ? `${u.workspace} (agen
 
 <script>
   import { fetchApi } from '@/lib/api/client';
+  import { builtFromLine } from '@/lib/marvin/characterPicker';
 
   const API = '/api/admin/character-packs';
   const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
   const form = document.getElementById('pack-form') as HTMLFormElement | null;
   const formStatus = document.getElementById('pack-status');
+  const BUILT_NOTE = 'marvin:character-library:built';
+  try {
+    const note = sessionStorage.getItem(BUILT_NOTE);
+    sessionStorage.removeItem(BUILT_NOTE);
+    if (note && formStatus) formStatus.textContent = note;
+  } catch {
+    /* storage blocked: no note */
+  }
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (formStatus) formStatus.textContent = 'Uploading…';
     try {
-      await fetchApi(API, { method: 'POST', body: new FormData(form) });
+      const pack = await fetchApi<{ builtFrom?: string | null; files: unknown[] }>(API, { method: 'POST', body: new FormData(form) });
+      // Said after the reload, beside the form: what was built from a sheet.
+      const built = builtFromLine(pack);
+      if (built) {
+        try {
+          sessionStorage.setItem(BUILT_NOTE, built);
+        } catch {
+          /* storage blocked: the pack itself still shows every animation */
+        }
+      }
       location.reload();
     } catch (err) {
       if (formStatus) formStatus.textContent = `Error: ${message(err)}`;

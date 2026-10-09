@@ -230,6 +230,9 @@ class AssistantCharacterUpload(AssistantCharacter):
     ignored: list[str] = []  # uploaded files that weren't a GIF, WebP or PNG image (or were duplicates)
     idle_guessed: bool = False  # no file was named for idle, so the first image stands in
     cleared: list[str] = []  # files whose solid background was made transparent (services/ai/character.py: clear_matte)
+    # The upload was one character sheet, built into these animations: what it was and the height used, e.g.
+    # "ChatGPT pet sheet (height 96)" (services/ai/character_sheets.py); null for an ordinary upload.
+    built_from: str | None = None
 
 
 class AssistantCharacterAssign(_MarvinModel):

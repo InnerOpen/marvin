@@ -1,5 +1,5 @@
 {
-  "_doc": "How every character's pack is built from its 16-pose sheet. Shared by all characters: change it here and every pack follows. Poses are listed in sheet order (4 rows of 4); `prompt` is what make_prompt.py asks the image model for. Frame fields: pose, dy (negative lifts), dx, squash (<1 flattens), angle (degrees, wobbles about the feet), flip (mirror). Peeks: `peek` is the edge; side peeks `lean` from the feet behind the ledge until `reveal` of the body's area clears it, top/bottom slide out by `share` of the height.",
+  "_doc": "How every character's pack is built from its 16-pose sheet (services/ai/character_sheets.py; a ChatGPT pet sheet borrows its peeks and frame). Shared by all characters: change it here and every pack follows. Poses are listed in sheet order (4 rows of 4); `prompt` is what the dev kit's make_prompt.py asks the image model for. Frame fields: pose, dy (negative lifts), dx, squash (<1 flattens), angle (degrees, wobbles about the feet), flip (mirror). Peeks: `peek` is the edge; side peeks `lean` from the feet behind the ledge until `reveal` of the body's area clears it, top/bottom slide out by `share` of the height.",
   "frame": 128,
   "ground": 125,
   "height": 108,

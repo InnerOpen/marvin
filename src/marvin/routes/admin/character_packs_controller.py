@@ -91,7 +91,9 @@ class AdminCharacterPacksController(BaseAdminController):
             delete_character_files(store, character)
             raise
         self.logger.info("Character pack %s added", pack.slug)
-        return CharacterPackUploadRead(**self._read(pack), ignored=plan.ignored, idle_guessed=plan.idle_guessed, cleared=plan.cleared)
+        return CharacterPackUploadRead(
+            **self._read(pack), ignored=plan.ignored, idle_guessed=plan.idle_guessed, cleared=plan.cleared, built_from=plan.built_from
+        )
 
     @router.post("/{pack_ref}", response_model=CharacterPackUploadRead, summary="Admin: Replace a Character Pack's Files")
     def replace_pack_files(self, pack_ref: str, files: list[UploadFile] = File(...)) -> CharacterPackUploadRead:
@@ -100,7 +102,9 @@ class AdminCharacterPacksController(BaseAdminController):
         plan = self._uploads(files)
         store = library_store(pack.id)
         save_character(self.session, pack, "pack", _pack_json(store_character(store, plan)), store)
-        return CharacterPackUploadRead(**self._read(pack), ignored=plan.ignored, idle_guessed=plan.idle_guessed, cleared=plan.cleared)
+        return CharacterPackUploadRead(
+            **self._read(pack), ignored=plan.ignored, idle_guessed=plan.idle_guessed, cleared=plan.cleared, built_from=plan.built_from
+        )
 
     @router.patch("/{pack_ref}", response_model=CharacterPackRead, summary="Admin: Rename a Character Pack")
     def rename_pack(self, pack_ref: str, data: CharacterPackUpdate) -> CharacterPackRead:

@@ -457,3 +457,30 @@ def test_the_inset_backfill_measures_files_stored_before_uploads_did(admin, sett
     db_session.refresh(pack_row)
     assert all(f.get("inset") for f in [*row.assistant_character["files"], *pack_row.pack["files"]])
     assert not [m for m in measure_stored_insets(db_session, storage) if m.owner in ("library pack " + pack_row.slug,)]
+
+
+# --- one character sheet, built into the pack ------------------------------------------------------
+
+
+def _sheet_upload(name: str, sheet: Image.Image) -> list[UploadFile]:
+    return [UploadFile(io.BytesIO(images.png_bytes(sheet)), filename=name)]
+
+
+def test_a_pose_sheet_uploaded_to_the_library_becomes_a_whole_pack(admin):
+    from marvin.routes.admin.character_packs_controller import AdminCharacterPacksController as C
+    from marvin.services.ai.character import CHARACTER_STATES
+
+    pack = C.create_pack(admin, name="Mossy", files=_sheet_upload("Mossy’s 16-pose grid.png", images.pose_sheet()))
+    assert pack.built_from == "16-pose sheet (height 108)" and pack.name == "Mossy"
+    assert set(pack.states) == set(CHARACTER_STATES) and pack.missing == [] and not pack.idle_guessed
+    assert all(f.get("inset") for f in admin._pack_or_404(pack.id).pack["files"])  # measured, so a peek's ledge lines up with the screen edge
+    assert pack.model_dump(by_alias=True)["builtFrom"] == pack.built_from
+
+
+def test_a_pet_sheet_uploaded_by_a_workspace_or_an_agent_becomes_its_character(settings, agents):
+    from marvin.routes.ai.operations_controller import AIOperationsController as C
+
+    own = C.upload_agent_character(agents, "scout", _sheet_upload("hoots-spritesheet.webp", images.pet_sheet()))
+    assert own.built_from.startswith("ChatGPT pet sheet") and {"peek_left", "peek_top", "idle_variant"} <= set(own.states)
+    character = settings.upload("idle.gif")  # an ordinary upload says nothing was built
+    assert character.built_from is None

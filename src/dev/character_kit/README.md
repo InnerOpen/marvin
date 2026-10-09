@@ -1,8 +1,13 @@
 # Character kit
 
 Make a bubble character's whole animation pack from **one** AI image. The image model draws 16 still poses; everything
-else — cutting, scaling, the 13 animations, peek ledges, timing, naming — is these scripts, with no AI and no tokens.
-Dev tooling: `src/dev` is not in the production image.
+else — cutting, scaling, the 14 animations, peek ledges, timing, naming — is code, with no AI and no tokens.
+
+**The building is Marvin's own** (`src/marvin/services/ai/character_sheets.py`, the recipe beside it in
+`character_recipe.json`): upload the sheet itself — the image ChatGPT gave you, or a ChatGPT pet sheet — in Admin →
+Character library or a character picker, and Marvin builds the pack, sized so nothing is cut off. This kit is the
+command line over the same code, plus what only a developer needs: prompts, each character's bible and reference, the
+Downloads pickup, preview.png. Dev tooling: `src/dev` is not in the production image.
 
 ## The loop (per character)
 
@@ -11,10 +16,10 @@ Dev tooling: `src/dev` is not in the production image.
    `characters/rocky/reference.png` and `characters/rocky/layout-guide.png` attached (make_prompt writes the guide: a
    4×4 grid of boxes and ground lines, in a shade the builder keys away if it's copied). Save the image it returns as
    `characters/rocky/poses.png`.
-3. **Build** — `uv run src/dev/character_kit/character_from_poses.py rocky` writes `characters/rocky/out/rocky-pack.zip`
-   and `out/preview.png`. Look at the preview first.
+3. **Build** — `uv run src/dev/character_kit/character_from_poses.py rocky` writes `characters/rocky/out/Rocky.zip`
+   and `out/preview.png` (a newer sheet named like the character in Downloads is picked up first). Look at the preview.
 4. **Upload** — Admin → Character library → the pack → replace its files with the zip. Every file fills its slot by name;
-   the peek-ledge margins are measured on upload.
+   the peek-ledge margins are measured on upload. (Or skip 3 and upload `poses.png` itself: same result, no preview.)
 
 **A new character from just an idea** — skip the reference: write `characters/<slug>/character.json` (name, one-line
 description, style, a few "always" rules), run `make_prompt.py <slug> --new` and paste it with nothing attached; the
@@ -29,9 +34,10 @@ look-direction rows and the kit's edge peeks, and picks the largest size at whic
 If the sheet comes back wrong (text on it, a gradient background, poses touching), regenerate rather than patch: the
 builder says what it found (`found 14 drawings, the recipe has 16 poses …`).
 
-If the builder warns `… cut off at the left edge in frames 2, 4` — a wide character's arms running off the frame —
-give that character its own smaller size: `"height": 96` in its `character.json` (`--height` tries one out without
-editing). Tilts (the dizzy wobble, side peeks) stay on the ground line and jumps top out at the frame on their own.
+A wide character whose arms would run off the frame is built smaller on its own: without a `height`, the builder
+takes the largest height (from the recipe's down) at which no frame is cut off, and says so (`built at height 96`).
+`"height"` in `character.json` (or `--height`) fixes one instead; then it warns `… cut off at the left edge in frames
+2, 4` if it doesn't fit. Tilts (the dizzy wobble, side peeks) stay on the ground line and jumps top out at the frame.
 
 ## What's here
 
@@ -41,19 +47,20 @@ editing). Tilts (the dizzy wobble, side peeks) stay on the ground line and jumps
 | `characters/<slug>/reference.png` | the picture attached to the prompt so the model redraws *this* character |
 | `characters/<slug>/poses.png` | the 16-pose sheet the model returned — the only AI output. **Not in git** (often over the 500 KB commit limit): keep your own copy, e.g. in Drive. Any path works with `--sheet`. |
 | `characters/<slug>/out/` | generated pack + preview (not committed) |
-| `recipe.json` | the 16 poses (with their prompt wording) and how each animation uses them — shared by every character. Change it and rebuild every pack. |
+| `src/marvin/services/ai/character_recipe.json` | the recipe: the 16 poses (with their prompt wording) and how each animation uses them — shared by every character and by Marvin's uploader. Change it and rebuild every pack. |
 | `prompt.md`, `intro-reference.md`, `intro-new.md` | the prompt template `make_prompt.py` fills, and its two openings: redraw the attached character, or design a new one (`--new`) |
 | `make_prompt.py` | prints the filled prompt |
-| `character_from_poses.py` | sheet → pack |
+| `character_from_poses.py` | sheet → pack (the command line over `character_sheets.py`) |
 | `pet_to_pack.py` | a ChatGPT pet sprite sheet → a pack (its own animation kept, peeks added) |
 | `reference/chatgpt-create-pet-skill.md` | ChatGPT's own Create Pet skill, for comparison and ideas |
 | `export_references.py` | builds a `reference.png` (and a `character.json` stub) for every pack already in the library: `--api <url> --token <platform admin token>`, or `--json packs.json` |
 
-Tests: `tests/test_character_kit.py` (a synthetic sheet through the whole build).
+Tests: `tests/test_character_sheets.py` (the building, synthetic sheets), `tests/test_character_kit.py` (these command
+lines), and the upload tests (`tests/test_assistant_character.py`, `tests/test_character_library.py`).
 
 ## The sheet
 
-A square image, 4×4 poses in `recipe.json`'s order, on one flat background colour with space between every pose. The
+A square image, 4×4 poses in the recipe's order, on one flat background colour with space between every pose. The
 colour is chosen per character to keep clear of its own (the reference's colours, or the description's colour words
 for `--new`): magenta by default, green for a pink or purple character, never green for a green one…; set
 `"background"` in `character.json` to choose. The builder keys whatever flat colour the border has. The builder keys out the magenta, finds each drawing by the empty space around it, scales all

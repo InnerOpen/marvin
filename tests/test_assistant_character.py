@@ -245,6 +245,53 @@ def test_the_plan_lists_the_files_whose_background_was_cleared():
     assert plan.states["idle_variant"].data != matted and plan.states["idle"].data == images.clean_gif()
 
 
+# --- one character sheet, built into the pack -----------------------------------------------------
+
+
+def test_a_lone_pose_sheet_becomes_every_animation_named_for_its_state():
+    plan = plan_character([("Mossy’s 16-pose magenta character grid.png", images.png_bytes(images.pose_sheet()))])
+    assert set(plan.states) == set(ch.CHARACTER_STATES)  # the four edge peeks too
+    assert all(i.mime_type == "image/gif" for i in plan.images) and len(plan.images) == len(ch.CHARACTER_STATES)
+    assert plan.states["greeting"].name == "waving.gif" and not plan.idle_guessed
+    assert plan.built_from == "16-pose sheet (height 108)" and plan.name is None  # a sheet's file name is no name
+
+
+def test_a_pet_sheet_alone_in_a_zip_is_built_too_and_the_zip_names_it():
+    sheet = images.png_bytes(images.pet_sheet())
+    plan = plan_character([("Hoots.zip", _zip({"hoots/hoots-spritesheet.png": sheet, "README.txt": b"hi"}))])
+    assert plan.built_from.startswith("ChatGPT pet sheet (height ") and plan.name == "Hoots"
+    assert {"idle", "idle_variant", "working", "peek_left", "peek_bottom"} <= set(plan.states)
+
+
+def test_a_sheet_among_other_images_is_just_an_image():
+    plan = plan_character([("poses.png", images.png_bytes(images.pose_sheet())), ("idle.gif", _gif())])
+    assert plan.built_from is None and [i.name for i in plan.images] == ["poses.png", "idle.gif"]
+
+
+@pytest.mark.parametrize(
+    ("upload", "names"),
+    [
+        pytest.param(lambda: [("mascot.png", images.matted_png())], ["mascot.png"], id="a single still character"),
+        pytest.param(lambda: [("idle.gif", images.clean_gif())], ["idle.gif"], id="a single animation"),
+        pytest.param(
+            lambda: [("pack.zip", _zip({f"{n}.gif": _gif() for n in SAMPLE_NAMES}))], [f"{n}.gif" for n in SAMPLE_NAMES], id="a zip of animations"
+        ),
+    ],
+)
+def test_an_ordinary_upload_is_not_built_from(upload, names):
+    plan = plan_character(upload())
+    assert plan.built_from is None and [i.name for i in plan.images] == names
+
+
+def test_a_sheet_that_cannot_be_built_is_kept_as_the_image_it_is(monkeypatch):
+    def broken(_img):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ch, "build_from_sheet", broken)
+    plan = plan_character([("poses.png", images.png_bytes(images.pose_sheet()))])
+    assert plan.built_from is None and plan.idle_guessed and [i.name for i in plan.images] == ["poses.png"]
+
+
 # --- the stored character, through the controller -----------------------------------------------
 
 

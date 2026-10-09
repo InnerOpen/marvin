@@ -43,7 +43,18 @@ export type StoredCharacter = {
   files: CharacterFile[];
   missing?: string[];
 };
-type UploadResult = StoredCharacter & { ignored: string[]; idleGuessed: boolean; cleared: string[] };
+type UploadResult = StoredCharacter & {
+  ignored: string[];
+  idleGuessed: boolean;
+  cleared: string[];
+  /** The upload was one character sheet, built into these animations: "16-pose sheet (height 108)". */
+  builtFrom?: string | null;
+};
+
+/** "Built 14 animations from a ChatGPT pet sheet (height 96)." — or null for an ordinary upload. */
+export function builtFromLine(res: { builtFrom?: string | null; files: unknown[] }): string | null {
+  return res.builtFrom ? `Built ${res.files.length} animations from a ${res.builtFrom}.` : null;
+}
 
 function parseData<T>(raw: string | undefined, fallback: T): T {
   try {
@@ -190,6 +201,8 @@ export function mountCharacterPicker(root: HTMLElement): void {
 
   function reportUpload(res: UploadResult) {
     const lines: string[] = [];
+    const built = builtFromLine(res);
+    if (built) lines.push(built);
     if (res.idleGuessed) {
       const idle = res.files.find((f) => f.url === res.states.idle);
       lines.push(
