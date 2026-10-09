@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.238 (2026-10-09)
+
+### Features
+
+- **bubble**: Upload one character sheet, get the whole character
+  ([`1a8de0b`](https://github.com/InnerOpen/marvin/commit/1a8de0b9410e8816cb7cb8f29b21cacf8d82ae89))
+
+
 ## v1.0.0-rc.237 (2026-10-09)
 
 ### Features
