@@ -115,7 +115,7 @@ Only the first 10 steps run; the validator warns when there are more.
 
 ## How to use
 
-1. **New workflow**, then pick a **Trigger** and add conditions under **Only if** with the guided field picker (fields depend on the trigger; `entry.*` is offered only where an entry exists).
+1. **New workflow**, or **Start from a recipe…** to begin from one of the [Workflow Library](#workflow-library)'s recipes. Then pick a **Trigger** and add conditions under **Only if** with the guided field picker (fields depend on the trigger; `entry.*` is offered only where an entry exists).
 2. Add steps under **Then do**. To read a step's output later, give the step an `id` in **Edit as JSON** (`$steps.subscribe.output.body.id`).
 3. **Save workflow**. Structural errors (unknown kind, missing field) block the save with `422`; advisory warnings (a condition that can never match) do not.
 4. **Dry run** to see the resolved plan without executing, then tick **Enabled** and **Run**.
@@ -138,6 +138,12 @@ A dry run of an event-triggered workflow (Event, Incoming webhook, After another
 }
 ```
 
+### Workflow Library
+
+**Settings → Automation → Workflow Library** (`/automation/library`) lists ready-made workflows. Each card says when it runs, what it changes (your content, another service, paid calls, notifications, email) and whether this workspace can use it: **Ready here**, **Needs setup** (with what is missing, such as a connected Buttondown integration), **Set up elsewhere** (it is not a workflow: the card lists the parts and links to the page each is set up on, such as Notifications or Email settings) or **Not possible yet** (an idea Marvin can't run, naming what it waits on). The page shows the first two by default. **Use in editor** opens the recipe in the workflow editor.
+
+In the editor, **Start from a recipe…** opens the same recipes. Choose one to read what it does, then set it up: each setting is a picker of this workspace's own names (an entry type and its fields, a connected integration of the right kind, an outgoing webhook, a collection, a status), or a box for a number or text. **Use recipe** fills the builder with the workflow; nothing is saved until you press **Save workflow**, and it saves switched off, so dry-run it before you enable it. A note above the builder names the recipe and lists anything to check, such as a webhook this workspace doesn't have. A recipe the guided builder can't show in full opens in **Edit as JSON**. An event's page (**Subscribe → From the Library**) and a connected integration's card list the recipes for that event or provider.
+
 ## API
 
 All routes need workspace ADMIN or OWNER. See [API reference](../api/index.md).
@@ -146,6 +152,8 @@ All routes need workspace ADMIN or OWNER. See [API reference](../api/index.md).
 |---|---|
 | `GET /api/automations` · `POST /api/automations` | List, create (`name`, `slug?`, `enabled`, `definition`). |
 | `GET` / `PATCH` / `DELETE /api/automations/{id}` | Read, update, delete (also removes the backing scheduled task). |
+| `GET /api/automations/library` | Every Library recipe with `missing` (what this workspace lacks; empty: ready), the `capabilities` ideas wait on, and `refs` for the setup pickers. |
+| `POST /api/automations/library/{id}/configure` | `{"vars": {…}}` → `{name, definition, issues}`, the recipe filled in for this workspace. Saves nothing. `404` unknown, `409` not usable here, `422` a bad setup value. |
 | `GET /api/automations/options` | Trigger types, event catalog, operators, condition fields per trigger, step kinds, AI operations, webhooks, incoming webhooks, other workflows, and the definition JSON Schema. |
 | `POST /api/automations/validate` | `issues[]` with `level` `error` or `warning`, `where`, `index`. |
 | `POST /api/automations/preview` | Resolve a `target` query with an optional test `payload`; returns `matches` (capped, after conditions), `total`, `capped`. |

@@ -1,7 +1,8 @@
 # Workflow Library
 
 Copy-paste workflow recipes for Marvin, held to what the engine can actually run. Phase 1 (this folder) is the
-code-backed audit, the catalogue and the validated recipes; the Library UI / install flow is phase 2.
+code-backed audit, the catalogue and the validated recipes; phase 2 (2026-10-09) gives people the same recipes in the
+app — see [In the app](#in-the-app-phase-2).
 
 ## Where things live (one store)
 
@@ -20,6 +21,32 @@ run** — runnable status and every prerequisite met (a Buttondown recipe is not
 connection is enabled); `recipe=<id>` shows one in full with its setup variables. `draft_workflow(recipe=<id>,
 vars={…})` instantiates it with typed substitution and saves it switched off. The guide's former hard-coded
 examples are now recipes in the `Starter examples` category.
+
+## In the app (phase 2)
+
+People reach the recipes in three places, and **installing always goes through the workflow editor** — never a blind
+Install button (the Blueprints gallery taught that cards alone teach nothing):
+
+- **Workflow editor → Start from a recipe…** (`/automation/workflows`, `components/RecipeDialog.astro`): the workflow
+  recipes, searchable, ready ones first and the rest greyed with what they need; choosing one shows what it does, when
+  it runs, what it changes and its setup form (pickers of this workspace's names). **Use recipe** fills the builder;
+  **Save** creates it switched off. `?recipe=<id>` opens the dialog on one recipe.
+- **Workflow Library** (`/automation/library`, Settings → Automation): every recipe explained, filtered by category and
+  readiness — *Ready here*, *Needs setup*, *Set up elsewhere* (configuration recipes, with a link to the page each part
+  is set up on) and *Not possible yet* (ideas, with the capability each waits on). Workflow recipes link to the editor.
+- **Where the question gets asked:** an event's page (Subscribe → *From the Library*) lists the recipes on that event,
+  and a connected integration's card lists the recipes that need its provider.
+
+Two admin endpoints back them (`routes/automations/automations_controller.py`):
+
+| Route | What |
+|---|---|
+| `GET /api/automations/library` | `recipes` (each catalogue entry, slimmed, with `missing` — this workspace's unmet prerequisites; empty means ready), `capabilities` (gap id → name, priority, acceptance) and `refs` (entry types with fields, integrations, collections, webhooks, statuses — what the setup pickers offer). |
+| `POST /api/automations/library/{id}/configure` | `{vars}` → `{name, definition, issues}`: the recipe filled in, **never saved**. `404` unknown recipe, `409` not usable here (an idea, a configuration recipe, a missing prerequisite — `detail` says why), `422` a missing or mistyped value (names the variable). `issues` are what the agent's draft check would flag (a webhook id this workspace doesn't have), shown in the editor, not blocking. |
+
+The agent's `draft_workflow(recipe=…)` and `configure` share one path, `recipes.configure_for`, so both refuse and
+fill in a recipe the same way. Picker logic (`lib/workflowLibrary.ts`) is pure and tested (`workflowLibrary.test.mjs`).
+Provenance ("installed from recipe X") is not recorded yet.
 
 ## Statuses (exact definitions)
 
