@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.231 (2026-10-09)
+
+### Features
+
+- **dev**: Character kit warns when a pose is cut off, and keeps tilts and jumps in frame
+  ([`24083ff`](https://github.com/InnerOpen/marvin/commit/24083ff4ae3b152882a5bd8a6315a2e91a2825c4))
+
+
 ## v1.0.0-rc.230 (2026-10-09)
 
 ### Bug Fixes
