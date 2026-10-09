@@ -61,6 +61,11 @@ CHARACTER_STATES = (
     IDLE_STATE,
     "idle_variant",  # played now and then while idle
     "peek",  # tucked into a screen edge, it looks out now and then
+    # The same from one edge (tucked into the left edge, looking out rightwards…); a pack without one peeks as above.
+    "peek_left",
+    "peek_right",
+    "peek_top",
+    "peek_bottom",
     "greeting",  # the panel opens
     "thinking",  # a message was sent; no agent step yet
     "working",  # agent steps are running
@@ -77,6 +82,11 @@ STATE_ALIASES: dict[str, tuple[str, ...]] = {
     IDLE_STATE: ("idle",),
     "idle_variant": ("look-loop", "look", "look-around"),
     "peek": ("peek", "peeking", "peek-a-boo"),
+    # "peak-…" too: the spelling is easy to slip into when naming files.
+    "peek_left": ("peek-left", "peeking-left", "peak-left"),
+    "peek_right": ("peek-right", "peeking-right", "peak-right"),
+    "peek_top": ("peek-top", "peeking-top", "peak-top"),
+    "peek_bottom": ("peek-bottom", "peeking-bottom", "peak-bottom"),
     "greeting": ("waving", "wave", "greeting"),
     "thinking": ("review", "thinking", "think"),
     "working": ("running", "working", "run"),

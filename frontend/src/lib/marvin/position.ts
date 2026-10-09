@@ -104,8 +104,9 @@ export function tuckAt(edge: Edge, left: number, top: number, box: Size, viewpor
   return { edge, along: clamp(length ? centre / length : 0.5, 0, 1), restore };
 }
 
-/** How much of a tucked bubble shows while it peeks out. */
-export const PEEK_SHARE = 0.5;
+/** How much of a tucked bubble shows while it peeks out: all of it — at half, a character drawn in the middle of its
+ * frame played its peek behind the screen edge. */
+export const PEEK_SHARE = 1;
 /** Seconds between peeks unless BUBBLE_PEEK_SECONDS says otherwise (it was a random 45–75 s until 2026-10-09). */
 export const PEEK_EVERY_DEFAULT_S = 5;
 
@@ -114,8 +115,9 @@ export function peekEveryMs(configuredSeconds?: number | null): number {
   const seconds = configuredSeconds != null && configuredSeconds > 0 ? configuredSeconds : PEEK_EVERY_DEFAULT_S;
   return seconds * 1000;
 }
-/** How long a peek lasts (the character's peek plays meanwhile). */
-export const PEEK_OUT_MS = 2_200;
+/** How long a peek stays out: it starts back in (a 0.35 s slide) before the character's peek ends (PEEK_MS, 2 s in
+ * character.ts), so the idle frame never shows outside. */
+export const PEEK_OUT_MS = 1_650;
 
 /** Top-left of a tucked bubble: TUCK_PEEK on screen (`peeking`: PEEK_SHARE of it), kept within the edge's length. */
 export function tuckedPosition(tuck: Tuck, box: Size, viewport: Size, peeking = false): { left: number; top: number } {

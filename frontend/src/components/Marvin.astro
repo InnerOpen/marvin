@@ -460,7 +460,7 @@ try {
       schedulePeek();
     }
 
-    // Now and then the tucked bubble looks out (half of it, for a couple of seconds, playing the character's peek) and
+    // Now and then the tucked bubble comes out (all of it, for a couple of seconds, playing the peek for its edge) and
     // slides back. Not while the page scrolls or is in the background, never with reduced motion.
     let peekTimer: number | undefined;
     let lastScrollAt = 0;
@@ -473,8 +473,10 @@ try {
     function peek() {
       if (!tuck) return;
       if (document.hidden || dragging || Date.now() - lastScrollAt < PEEK_OUT_MS) { schedulePeek(); return; }
-      applyTuck(tuck, true);
-      cue('peek');
+      // The edge's own peek first, so the bubble comes out sized for that animation (reclamp re-places it if the
+      // image is still on its way), then out it slides.
+      cue(`peek_${tuck.edge}` as CharacterEvent);
+      requestAnimationFrame(() => { if (tuck) applyTuck(tuck, true); });
       peekTimer = window.setTimeout(() => {
         if (tuck) applyTuck(tuck);
         schedulePeek();
@@ -506,7 +508,8 @@ try {
     // remembered spot to what fits now (without overwriting it, so it springs back on a bigger screen).
     function reclamp() {
       if (dragging) return;
-      if (tuck) { applyTuck(tuck); return; }
+      // A peek's animation can differ in size from idle: placed again, it stays out.
+      if (tuck) { applyTuck(tuck, root.classList.contains('peeking')); return; }
       applySpot(clampSpot(spot, bubbleBox(), viewport()));
       if (panel.classList.contains('open')) placePanel();
     }

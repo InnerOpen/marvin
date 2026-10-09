@@ -15,6 +15,10 @@ export const CHARACTER_STATES = [
   "idle",
   "idle_variant",
   "peek",
+  "peek_left",
+  "peek_right",
+  "peek_top",
+  "peek_bottom",
   "greeting",
   "thinking",
   "working",
@@ -33,6 +37,11 @@ const FALLBACKS: Record<CharacterState, CharacterState[]> = {
   idle_variant: ["idle"],
   // Peeking out of a screen edge is a hello: a pack without its own peek waves, else fidgets.
   peek: ["greeting", "idle_variant", "idle"],
+  // Peeking out of one edge (tucked into the left edge…): a pack without that one uses its plain peek.
+  peek_left: ["peek", "greeting", "idle_variant", "idle"],
+  peek_right: ["peek", "greeting", "idle_variant", "idle"],
+  peek_top: ["peek", "greeting", "idle_variant", "idle"],
+  peek_bottom: ["peek", "greeting", "idle_variant", "idle"],
   greeting: ["idle"],
   thinking: ["idle"],
   working: ["idle"],
@@ -48,6 +57,10 @@ const FALLBACKS: Record<CharacterState, CharacterState[]> = {
 export type CharacterEvent =
   | "open" // the panel opened
   | "peek" // tucked into an edge, it looks out for a moment
+  | "peek_left" // …out of the left edge (and so on): the bubble sends the edge it is tucked into
+  | "peek_right"
+  | "peek_top"
+  | "peek_bottom"
   | "send" // a message went out
   | "progress" // the agent took a step
   | "parked" // the run waits on the user's approval
@@ -61,6 +74,10 @@ export type CharacterEvent =
 const EVENT_STATE: Record<CharacterEvent, CharacterState> = {
   open: "greeting",
   peek: "peek",
+  peek_left: "peek_left",
+  peek_right: "peek_right",
+  peek_top: "peek_top",
+  peek_bottom: "peek_bottom",
   send: "thinking",
   progress: "working",
   parked: "waiting",
@@ -87,6 +104,10 @@ const ONE_SHOT_MS: Partial<Record<CharacterState, number>> = {
   success: SUCCESS_MS,
   idle_variant: IDLE_VARIANT_MS,
   peek: PEEK_MS,
+  peek_left: PEEK_MS,
+  peek_right: PEEK_MS,
+  peek_top: PEEK_MS,
+  peek_bottom: PEEK_MS,
   error: ERROR_HOLD_MS,
 };
 
