@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.227 (2026-10-09)
+
+### Bug Fixes
+
+- **bubble**: A peek lines up the drawn ledge with the screen edge
+  ([`2584c10`](https://github.com/InnerOpen/marvin/commit/2584c10846c924c0b438b0642a3b9b3218a814a6))
+
+### Features
+
+- **bubble**: Retire the plain peek; the edge peeks are Peek left / right / top / bottom
+  ([`be3f0d6`](https://github.com/InnerOpen/marvin/commit/be3f0d6a5eed832687a6266a81b07fdc97e28878))
+
+
 ## v1.0.0-rc.226 (2026-10-09)
 
 ### Features
