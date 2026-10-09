@@ -434,7 +434,7 @@ def test_regenerate_without_a_persona_is_refused(db_session, ctrl, started):
 def test_the_settings_the_bubble_reads_carry_the_lines(db_session, ctrl, workspace, monkeypatch):
     from marvin.routes.groups.ai_settings_controller import AISettingsController
 
-    monkeypatch.setattr("marvin.services.ai.character_library.agent_character_states", lambda session, gid: {})
+    monkeypatch.setattr("marvin.services.ai.character_library.agent_characters", lambda session, gid: {})
     _set_lines(db_session, workspace, OLD, bl.SOURCE_GENERATED)
 
     result = AISettingsController.get_ai_settings(ctrl)

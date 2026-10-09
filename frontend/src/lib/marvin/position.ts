@@ -119,10 +119,19 @@ export function peekEveryMs(configuredSeconds?: number | null): number {
  * character.ts), so the idle frame never shows outside. */
 export const PEEK_OUT_MS = 1_650;
 
-/** Top-left of a tucked bubble: TUCK_PEEK on screen (`peeking`: PEEK_SHARE of it), kept within the edge's length. */
-export function tuckedPosition(tuck: Tuck, box: Size, viewport: Size, peeking = false): { left: number; top: number } {
+/** The empty frame around a character image's drawing on each side, as shares of the frame (measured by the server
+ * at upload: AI settings' `characterInsets`). */
+export type Inset = Partial<Record<Edge, number>>;
+/** A peek never hides more of its frame than this, whatever an inset says: something always comes out. */
+const MAX_PEEK_INSET = 0.9;
+
+/** Top-left of a tucked bubble: TUCK_PEEK on screen (`peeking`: PEEK_SHARE of it), kept within the edge's length.
+ * Peeking, the empty frame on the edge's side (`inset`) stays off screen, so the drawing — a peek's drawn ledge —
+ * meets the edge instead of floating off it. */
+export function tuckedPosition(tuck: Tuck, box: Size, viewport: Size, peeking = false, inset?: Inset | null): { left: number; top: number } {
   const across = tuck.edge === "left" || tuck.edge === "right" ? box.width : box.height;
-  const shown = peeking ? Math.round(across * PEEK_SHARE) : TUCK_PEEK;
+  const margin = clamp(inset?.[tuck.edge] ?? 0, 0, MAX_PEEK_INSET);
+  const shown = peeking ? Math.round(across * (PEEK_SHARE - margin)) : TUCK_PEEK;
   const alongEdge = (length: number, size: number) =>
     Math.round(clamp(tuck.along * length - size / 2, 0, length - size));
   switch (tuck.edge) {

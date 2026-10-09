@@ -94,16 +94,22 @@ class AISettingsController(BaseUserController):
     def get_ai_settings(self) -> WorkspaceAISettingsRead:
         """Return current settings; returns defaults when no row exists yet."""
         allow_ws = self._allow_workspace_credentials()
-        from marvin.services.ai.character_library import agent_character_states
+        from marvin.services.ai.character import insets_by_url
+        from marvin.services.ai.character_library import agent_characters as resolve_agent_characters
 
-        agent_characters = agent_character_states(self.session, self.group_id)
+        agents = resolve_agent_characters(self.session, self.group_id)
+        agent_characters = {slug: character["states"] for slug, character in agents.items()}
+        insets = {url: inset for character in agents.values() for url, inset in insets_by_url(character).items()}
         row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
         if not row:
-            return WorkspaceAISettingsRead(group_id=self.group_id, allow_workspace_credentials=allow_ws, agent_characters=agent_characters)
+            return WorkspaceAISettingsRead(
+                group_id=self.group_id, allow_workspace_credentials=allow_ws, agent_characters=agent_characters, character_insets=insets
+            )
         result = WorkspaceAISettingsRead.model_validate(row)
         result.allow_workspace_credentials = allow_ws
         result.assistant_character = self._effective_character(row)
         result.agent_characters = agent_characters
+        result.character_insets = {**insets, **insets_by_url(result.assistant_character)}
         result.bubble_lines_generating = _bubble_lines_generating(self.group_id)
         return result
 

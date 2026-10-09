@@ -195,8 +195,11 @@ def with_current_urls(character: dict | None, session: Session | None = None) ->
 def pack_character(pack: CharacterPackModel) -> dict:
     """A pack as a workspace or agent sees it: its states, under its id and name — not its files, which
     only the library edits."""
+    from marvin.services.ai.character import insets_by_url
+
     current = with_current_urls(pack.pack or {}) or {}
-    return {LIBRARY_KEY: str(pack.id), "name": pack.name, "states": dict(current.get("states") or {}), "files": []}
+    # The files stay with the library, but where each drawing sits in its frame travels with the states.
+    return {LIBRARY_KEY: str(pack.id), "name": pack.name, "states": dict(current.get("states") or {}), "files": [], "insets": insets_by_url(current)}
 
 
 def resolve(session: Session, character: dict | None, packs: dict[str, CharacterPackModel | None] | None = None) -> dict | None:
@@ -213,8 +216,8 @@ def resolve(session: Session, character: dict | None, packs: dict[str, Character
     return pack_character(pack) if pack is not None else None
 
 
-def agent_character_states(session: Session, group_id) -> dict[str, dict]:
-    """{agent slug: states} for the workspace's agents that have a character of their own — what the
+def agent_characters(session: Session, group_id) -> dict[str, dict]:
+    """{agent slug: resolved character} for the workspace's agents that have a character of their own — what the
     bubble swaps to on `/use` or while a hand-off works (the rest play the workspace's)."""
     from marvin.db.models.groups.agents import WorkspaceAgentModel
 
@@ -223,7 +226,7 @@ def agent_character_states(session: Session, group_id) -> dict[str, dict]:
     )
     packs: dict[str, CharacterPackModel | None] = {}
     resolved = ((slug, resolve(session, character, packs)) for slug, character in rows)
-    return {slug: character["states"] for slug, character in resolved if character and character.get("states")}
+    return {slug: character for slug, character in resolved if character and character.get("states")}
 
 
 # --- managing it ----------------------------------------------------------------------------------

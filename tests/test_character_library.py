@@ -416,3 +416,44 @@ def test_the_matte_repair_overwrites_each_file_in_place(boxed_files, storage, db
     asset = db_session.query(Assets).filter_by(storage_key=boxed_files[-1]).one()
     assert asset.file_size == len(_stored_bytes(storage, boxed_files[-1]))
     assert not {r.key for r in repair_stored_mattes(db_session, storage)} & set(boxed_files)  # nothing left to do
+
+
+# --- where each drawing sits in its frame -------------------------------------------------------------
+
+
+def test_an_upload_records_where_each_drawing_sits_and_the_bubble_gets_it(settings):
+    character = settings.upload("idle.gif", "peek-top.gif")
+    assert all(f.get("inset") for f in settings._settings_row().assistant_character["files"])
+    insets = settings.get().character_insets
+    assert set(insets) == {character.states["idle"], character.states["peek_top"]}
+    assert set(next(iter(insets.values()))) == {"top", "right", "bottom", "left"}
+
+
+def test_a_library_pack_brings_its_insets_without_its_files(admin, settings):
+    pack = admin.create("idle.gif", "peek-left.gif", name="Edges")
+    settings.use_library(pack.slug)
+    got = settings.get()
+    assert got.assistant_character["files"] == []
+    assert set(got.character_insets) == set(got.assistant_character["states"].values())
+
+
+def test_the_inset_backfill_measures_files_stored_before_uploads_did(admin, settings, storage, db_session):
+    from marvin.db.models.platform import CharacterPackModel
+    from marvin.scripts.measure_character_insets import measure_stored_insets
+
+    pack = admin.create("idle.gif", name="Old pack")
+    settings.upload("idle.gif")
+    row, pack_row = settings._settings_row(), db_session.get(CharacterPackModel, uuid.UUID(str(pack.id)))
+    unmeasured = lambda c: {**c, "files": [{k: v for k, v in f.items() if k != "inset"} for f in c["files"]]}  # noqa: E731
+    row.assistant_character, pack_row.pack = unmeasured(row.assistant_character), unmeasured(pack_row.pack)
+    db_session.commit()
+
+    dry = measure_stored_insets(db_session, storage)
+    assert {m.owner.split(" ")[0] for m in dry if m.inset} >= {"library", "workspace"}
+    assert not any(f.get("inset") for f in row.assistant_character["files"])  # a dry run records nothing
+
+    measure_stored_insets(db_session, storage, apply=True)
+    db_session.refresh(row)
+    db_session.refresh(pack_row)
+    assert all(f.get("inset") for f in [*row.assistant_character["files"], *pack_row.pack["files"]])
+    assert not [m for m in measure_stored_insets(db_session, storage) if m.owner in ("library pack " + pack_row.slug,)]

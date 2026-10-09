@@ -100,6 +100,10 @@ class WorkspaceAISettingsRead(BubbleLinesState, WorkspaceAISettingsCreate):
     # {agent slug: states} for agents with a bubble character of their own, so the bubble can swap on
     # `/use` and during hand-offs without another request. Not persisted on the workspace row.
     agent_characters: dict[str, dict[str, str]] = {}
+    # {image URL: {top, right, bottom, left}}: the empty frame around each character image's drawing, as shares of
+    # the frame, for the workspace's and its agents' characters — a tucked bubble lines up the drawing, not the
+    # frame, with the screen edge. An image missing here was stored before it was measured.
+    character_insets: dict[str, dict[str, float]] = {}
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -454,3 +454,42 @@ def test_patching_null_removes_the_character_and_its_assets(ctrl, db_session, wo
 def test_patching_other_fields_leaves_the_character_alone(ctrl):
     up = ctrl.upload([("idle.gif", _gif())])
     assert ctrl.patch(assistant_name="Ada").assistant_character["states"] == up.states
+
+
+# --- where the drawing sits in its frame ----------------------------------------------------------
+
+
+def _drawn_png(size: tuple[int, int], box: tuple[int, int, int, int]) -> ch.CharacterImage:
+    """A transparent frame of `size` with an opaque rectangle filling `box` (left, top, right, bottom inclusive)."""
+    from PIL import ImageDraw
+
+    img = Image.new("RGBA", size, (0, 0, 0, 0))
+    ImageDraw.Draw(img).rectangle(box, fill=(40, 90, 200, 255))
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return ch.CharacterImage(name="peek-top.png", data=buf.getvalue(), mime_type="image/png", extension="png")
+
+
+def test_measure_inset_gives_the_empty_frame_on_each_side_as_a_share():
+    inset = ch.measure_inset(_drawn_png((100, 50), (10, 5, 59, 39)))
+    assert inset == {"top": 0.1, "right": 0.4, "bottom": 0.2, "left": 0.1}
+
+
+def test_measure_inset_covers_every_frame_and_ignores_a_faint_fringe():
+    frames = []
+    for box in ((10, 10, 19, 19), (30, 20, 39, 29)):
+        img = Image.new("RGBA", (50, 50), (0, 0, 0, 0))
+        img.paste((200, 0, 0, 255), box)
+        img.putpixel((0, 0), (200, 0, 0, ch.INSET_ALPHA))  # antialiasing haze in the corner: still empty
+        frames.append(img)
+    buf = io.BytesIO()
+    frames[0].save(buf, "PNG", save_all=True, append_images=frames[1:])
+    inset = ch.measure_inset(ch.CharacterImage(name="a.png", data=buf.getvalue(), mime_type="image/png", extension="png"))
+    assert inset == {"top": 0.2, "right": 0.22, "bottom": 0.42, "left": 0.2}
+
+
+def test_measure_inset_is_none_for_an_empty_frame_or_unreadable_bytes():
+    buf = io.BytesIO()
+    Image.new("RGBA", (10, 10), (0, 0, 0, 0)).save(buf, "PNG")
+    assert ch.measure_inset(ch.CharacterImage(name="e.png", data=buf.getvalue(), mime_type="image/png", extension="png")) is None
+    assert ch.measure_inset(ch.CharacterImage(name="x.gif", data=b"GIF89a-not-really", mime_type="image/gif", extension="gif")) is None

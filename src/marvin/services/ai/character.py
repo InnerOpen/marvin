@@ -550,13 +550,15 @@ def character_file_ids(store: CharacterFileStore, character: dict | None) -> lis
 
 
 def store_character(store: CharacterFileStore, plan: CharacterPlan) -> dict:
-    """Store each planned image; the new character JSON. All-or-nothing."""
+    """Store each planned image, with where its drawing sits in the frame (`inset`); the new character JSON.
+    All-or-nothing."""
     batch = uuid.uuid4().hex[:8]
     files: list[dict] = []
     try:
         for index, image in enumerate(plan.images):
             stored = store.put(image, stored_name(image), f"bubble-character-{batch}-{index:02d}")
-            files.append({"name": image.name, **stored})
+            inset = measure_inset(image)
+            files.append({"name": image.name, **stored, **({"inset": inset} if inset else {})})
     except Exception:
         delete_character_files(store, {"files": files})
         raise
@@ -598,6 +600,48 @@ def read_upload_files(files: Iterable[UploadFile]) -> list[tuple[str, bytes]]:
             raise CharacterError(f"{f.filename} is too large")
         uploads.append((f.filename or "upload", data))
     return uploads
+
+
+# --- where the drawing sits in its frame ---------------------------------------------------------
+
+# Alpha at or below this is empty frame: the faint fringe an antialiased edge leaves doesn't count as drawing.
+INSET_ALPHA = 32
+
+
+def measure_inset(image: CharacterImage) -> dict[str, float] | None:
+    """The empty frame around the drawing on each side, as a share of the frame's width or height, over every
+    frame — so the bubble lines up what is drawn, not the frame, with a screen edge (a peek's drawn ledge). None
+    when the image can't be read or nothing is drawn."""
+    try:
+        animation = _decode(image.data)
+    except Exception:
+        logger.warning("Couldn't measure %s", image.name, exc_info=True)
+        return None
+    if animation is None or not animation.frames:
+        return None
+    drawn = np.zeros(animation.frames[0].shape[:2], dtype=bool)
+    for frame in animation.frames:
+        drawn |= frame[..., 3] > INSET_ALPHA
+    if not drawn.any():
+        return None
+    rows, cols = np.flatnonzero(drawn.any(axis=1)), np.flatnonzero(drawn.any(axis=0))
+    height, width = drawn.shape
+    return {
+        "top": round(rows[0] / height, 4),
+        "right": round((width - 1 - cols[-1]) / width, 4),
+        "bottom": round((height - 1 - rows[-1]) / height, 4),
+        "left": round(cols[0] / width, 4),
+    }
+
+
+def insets_by_url(character: dict | None) -> dict[str, dict[str, float]]:
+    """{file URL: inset} of a character's measured files — or, for a library pack resolved without its files,
+    the `insets` it carries."""
+    if not character:
+        return {}
+    if "insets" in character:
+        return dict(character["insets"] or {})
+    return {f["url"]: f["inset"] for f in character.get("files") or [] if isinstance(f, dict) and f.get("url") and f.get("inset")}
 
 
 def describe(character: dict | None) -> dict | None:

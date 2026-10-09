@@ -111,6 +111,16 @@ describe("tucking into an edge", () => {
     assert.equal(tuckedPosition({ ...tuck, edge: "left" }, box, view, true).left, 0);
   });
 
+  test("a peek keeps the empty frame on the edge's side off screen, so the drawing meets the edge", () => {
+    const tuck = tuckAt("right", 390, 374, box, view, home);
+    const inset = { top: 0.2, right: 0.25, bottom: 0, left: 0.5 };
+    assert.equal(tuckedPosition(tuck, box, view, true, inset).left, 400 - 39); // 52 × 0.75 shows; the right 13 px stay off
+    assert.equal(tuckedPosition({ ...tuck, edge: "top" }, box, view, true, inset).top, -10); // the top 20% stays above
+    assert.equal(tuckedPosition({ ...tuck, edge: "bottom" }, box, view, true, inset).top, 800 - 52);
+    assert.equal(tuckedPosition(tuck, box, view, false, inset).left, 400 - TUCK_PEEK); // tucked: unchanged
+    assert.equal(tuckedPosition(tuck, box, view, true, { right: 5 }).left, 400 - 5); // never all of it hidden
+  });
+
   test("a stored tuck survives a reload and nonsense is ignored", () => {
     const stored = JSON.parse(JSON.stringify(tuckAt("left", -40, 100, box, view, home)));
     assert.equal(parseTuck(stored, box, view).edge, "left");
