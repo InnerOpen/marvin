@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.226 (2026-10-09)
+
+### Features
+
+- **bubble**: A peek per edge, and the whole character comes out
+  ([`09a8882`](https://github.com/InnerOpen/marvin/commit/09a8882760997a29d9a243b5809ef704eab22bcb))
+
+
 ## v1.0.0-rc.225 (2026-10-09)
 
 ### Bug Fixes
