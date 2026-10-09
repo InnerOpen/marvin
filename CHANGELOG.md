@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.235 (2026-10-09)
+
+### Documentation
+
+- **dev**: Keep ChatGPT's Create Pet skill as a character-kit reference
+  ([`953ce17`](https://github.com/InnerOpen/marvin/commit/953ce1793b8122d053e213cfe947457ae1131b26))
+
+### Features
+
+- **dev**: Character kit converts ChatGPT pet sprite sheets into packs
+  ([`21fc1a4`](https://github.com/InnerOpen/marvin/commit/21fc1a495446e0c901fc0cdafd824dd1f56acbba))
+
+
 ## v1.0.0-rc.234 (2026-10-09)
 
 ### Bug Fixes
