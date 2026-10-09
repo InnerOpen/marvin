@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.222 (2026-10-09)
+
+### Bug Fixes
+
+- **bubble**: A tucked bubble shows a tab you can see, and doesn't slide across on reload
+  ([`42cb589`](https://github.com/InnerOpen/marvin/commit/42cb589d40ea9103f62364d02e767531ffd5998b))
+
+
 ## v1.0.0-rc.221 (2026-10-09)
 
 ### Features
