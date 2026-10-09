@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.223 (2026-10-09)
+
+### Features
+
+- **bubble**: Pressing a tucked bubble's tab pulls it out under your finger
+  ([`a347202`](https://github.com/InnerOpen/marvin/commit/a347202ef679382c98cc77d8d36b28e53f943322))
+
+
 ## v1.0.0-rc.222 (2026-10-09)
 
 ### Bug Fixes
