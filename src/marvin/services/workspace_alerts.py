@@ -153,13 +153,10 @@ def admin_emails(session: Session, group_id) -> list[str]:
 
 
 def smtp_ready(session: Session, group_id) -> bool:
-    """The workspace has an active SMTP profile, or the platform SMTP settings are on (its fallback)."""
-    from marvin.core.config import get_app_settings
-    from marvin.db.models.groups.smtp_profiles import WorkspaceSMTPProfileModel
+    """The workspace has an active SMTP profile, or the platform's sender can send (its fallback)."""
+    from marvin.services.email.email_senders import email_ready
 
-    if get_app_settings().SMTP_ENABLED:
-        return True
-    return session.query(WorkspaceSMTPProfileModel.id).filter_by(group_id=group_id, is_active=True).first() is not None
+    return email_ready(group_id, session)
 
 
 class WorkspaceScope(alerting.AlertScope):

@@ -68,11 +68,16 @@ const INTEGRATIONS_PATH = "/workspace/settings/integrations";
           <label class="switch"><input type="checkbox" id="pa-email-enabled" checked={email.enabled} /> On</label>
         </div>
         {email.smtpReady ? (
-          <p class="lead">Built in. Sent with the platform SMTP settings (<a href="/admin/email-settings">Email settings</a>).</p>
+          <p class="lead">
+            Built in. Sent with the platform SMTP settings (<a href="/admin/email-settings">Email settings</a>), or,
+            when those aren't set, the platform workspace's active SMTP profile.
+          </p>
         ) : (
           <p class="notice warn" role="status" data-testid="smtp-missing">
-            <strong>SMTP isn't configured,</strong> so email alerts are recorded as not sent. Set the platform SMTP
-            settings (<a href="/admin/email-settings">Email settings</a>) to start sending them.
+            <strong>Email isn't set up,</strong> so email alerts are recorded as not sent. Set the platform SMTP
+            settings (<a href="/admin/email-settings">Email settings</a>), or turn on an SMTP profile in the platform
+            workspace (<a href="/workspace/settings/email/smtp">Settings → Email → SMTP</a> while in it), to start
+            sending them.
           </p>
         )}
         <fieldset class="recipients">

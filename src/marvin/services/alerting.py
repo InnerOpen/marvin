@@ -145,7 +145,7 @@ class AlertScope:
     nobody: str
     """Why "everyone" can be no one: "no super admin has an email address"."""
     email_setup: str
-    """What sends email, for "Not sent: …": "SMTP isn't configured (Admin → Email settings)"."""
+    """What sends email, for "Not sent: …": "email isn't set up (Settings → Email → SMTP, …)"."""
     where: str
     """Whose connections routes use: "the platform workspace"."""
     per_channel_kinds: bool = False

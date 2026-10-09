@@ -18,7 +18,7 @@ from marvin.core.root_logger import get_logger  # Application logger
 from marvin.services import BaseService  # Base service class
 
 # Email sender implementations
-from .email_senders import ABCEmailSender, DefaultEmailSender
+from .email_senders import ABCEmailSender, email_ready, platform_sender
 
 # Current working directory of this file, used to locate the 'templates' subdirectory.
 CWD = Path(__file__).parent
@@ -74,7 +74,7 @@ class EmailService(BaseService):
 
     This service handles the construction of email content using `EmailTemplate`
     and dispatches emails through a configured email sender (which defaults to
-    `DefaultEmailSender` if not provided). It provides methods for sending
+    `platform_sender()` if not provided). It provides methods for sending
     specific types of application emails like password resets and invitations.
     """
 
@@ -84,7 +84,7 @@ class EmailService(BaseService):
 
         Args:
             sender (ABCEmailSender | None, optional): An email sender instance.
-                If None, `DefaultEmailSender` is used. Defaults to None.
+                If None, the workspace's sender (with `group_id`) or `platform_sender()`. Defaults to None.
             locale (str | None, optional): The locale string (e.g., "en_US") for
                 email localization. Currently, the translator part is commented out,
                 so this parameter's effect is pending full i18n implementation.
@@ -111,8 +111,9 @@ class EmailService(BaseService):
         # Sender resolution:
         #  - explicit sender wins
         #  - otherwise, when scoped to a workspace, route through its active SMTP profile
-        #    (WorkspaceEmailSender falls back to global settings when none is active)
-        #  - unscoped falls back to the global DefaultEmailSender
+        #    (WorkspaceEmailSender falls back to the platform's sender when none is active)
+        #  - unscoped uses the platform's sender: the platform SMTP settings, else the
+        #    platform workspace's active SMTP profile (email_senders.platform_sender)
         if sender is not None:
             self.sender: ABCEmailSender = sender
         elif group_id:
@@ -120,7 +121,7 @@ class EmailService(BaseService):
 
             self.sender = WorkspaceEmailSender(group_id)
         else:
-            self.sender = DefaultEmailSender()
+            self.sender = platform_sender()
 
         # Placeholder for localization/translation functionality.
         # If uncommented, `local_provider` would need to be defined and return a Translator instance.
@@ -129,15 +130,9 @@ class EmailService(BaseService):
         self.logger.info(f"EmailService initialized. Sender: {type(self.sender).__name__}. Locale: {locale or 'default'}.")
 
     def _can_send(self) -> bool:
-        """Whether email can be dispatched: global SMTP is configured, OR this service is
-        scoped to a workspace that has an active SMTP profile of its own."""
-        if self.settings.SMTP_ENABLED:
-            return True
-        from marvin.services.email.email_senders import WorkspaceEmailSender
-
-        if isinstance(self.sender, WorkspaceEmailSender):
-            return self.sender._active_profile() is not None
-        return False
+        """Whether email can be dispatched: global SMTP is configured, OR this service's workspace
+        or the platform workspace has an active SMTP profile (email_senders.email_ready)."""
+        return email_ready(getattr(self.sender, "group_id", None))
 
     def send_email(self, email_to: str, email_data: EmailTemplate) -> bool:  # Renamed `data` to `email_data`
         """

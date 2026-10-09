@@ -1602,12 +1602,13 @@ class WorkspaceSeedLoader:
         from marvin.core.config import get_app_settings
         from marvin.core.security import url_safe_token
         from marvin.schemas.group.invite_token import InviteTokenSave
+        from marvin.services.email.email_senders import email_ready
         from marvin.services.email.email_service import EmailService
 
         settings = get_app_settings()
 
-        # Check if SMTP is enabled
-        if not settings.SMTP_ENABLED:
+        # Sent by the platform's sender (SMTP settings, else the platform workspace's profile)
+        if not email_ready():
             self.logger.warning(f"SMTP not enabled - cannot send owner invitation to {owner_email}")
             self.logger.info(f"Owner invitation token should be created manually for: {owner_email}")
             return

@@ -25,6 +25,7 @@ from marvin.schemas.group.email_template import (
     EmailTemplateUpdate,
 )
 from marvin.services.email import EmailService  # Service for handling email operations
+from marvin.services.email.email_senders import email_ready
 from marvin.services.event_bus_service.event_types import EventEmailTemplateData, EventOperation, EventTypes
 
 # APIRouter for admin "email" section, prefixed with /email
@@ -69,7 +70,7 @@ class AdminEmailController(BaseAdminController):
             EmailReady: A Pydantic model indicating if the email (SMTP) service is ready.
         """
         # Returns a simple boolean status based on application settings
-        return EmailReady(ready=self.settings.SMTP_ENABLED)
+        return EmailReady(ready=email_ready())
 
     @router.post("", response_model=EmailSuccess, summary="Send a Test Email")
     async def send_test_email(

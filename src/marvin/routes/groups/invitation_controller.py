@@ -27,6 +27,7 @@ from marvin.schemas.group.invite_token import (  # Pydantic schemas for invite t
 )
 from marvin.schemas.mapper import cast  # Utility for casting between schema types
 from marvin.schemas.response.pagination import PaginationQuery  # For pagination parameters
+from marvin.services.email.email_senders import email_ready
 from marvin.services.email.email_service import EmailService
 from marvin.services.event_bus_service.event_types import EventInvitationData, EventOperation, EventTypes
 
@@ -148,8 +149,8 @@ class GroupInvitationsController(BaseUserController):
         """
         self.checks.can_manage_members(self.group_id)
 
-        if not self.settings.SMTP_ENABLED:
-            # If SMTP is not enabled, raise an error
+        if not email_ready(self.group_id):
+            # No SMTP for this workspace: its own profile, the platform settings or the platform workspace's profile
             self.logger.error("SMTP service is not enabled, cannot send email invitations.")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Email service is currently unavailable. Please try again later."

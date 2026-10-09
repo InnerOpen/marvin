@@ -16,6 +16,7 @@ from marvin.schemas.admin.about import (  # Pydantic schemas for response models
     AppStatistics,
     CheckAppConfig,
 )
+from marvin.services.email.email_senders import email_ready
 
 # APIRouter for admin "about" section, prefixed with /about
 # All routes in this controller will be under /admin/about due to AdminAPIRouter in main app and this prefix.
@@ -219,7 +220,7 @@ class AdminAboutController(BaseAdminController):
         is_up_to_date_status = APP_VERSION in ["develop", "nightly"] or get_latest_version(settings.GITHUB_VERSION_URL) == APP_VERSION
 
         return CheckAppConfig(
-            email_ready=settings.SMTP_ENABLED,  # SMTP (email) configured and enabled
+            email_ready=email_ready(),  # SMTP settings, or the platform workspace's active SMTP profile
             ldap_ready=settings.LDAP_ENABLED,  # LDAP configured and enabled
             base_url_set=settings.BASE_URL != "http://localhost:8080",  # Base URL customized from default
             is_up_to_date=is_up_to_date_status,  # Application version is current

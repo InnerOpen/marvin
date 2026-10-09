@@ -3,9 +3,9 @@
 Super admins see platform events (backups, storage, security) in the bell and on Admin → Events. These
 settings also send the ones that matter somewhere people look when they aren't in Marvin:
 
-  * **email** — built in and on by default: the platform SMTP settings (Admin → Email settings), to every
-    super admin unless an explicit list is set. Without SMTP nothing is sent, and the channel's last
-    delivery says so;
+  * **email** — built in and on by default: the platform SMTP settings (Admin → Email settings), else the
+    platform workspace's active SMTP profile (email_senders.platform_sender), to every super admin unless an
+    explicit list is set. Without either nothing is sent, and the channel's last delivery says so;
   * **push** — when the server has Web Push (VAPID): to the devices of the super admins who turned push on
     with "Platform alerts" in their Profile;
   * **integration routes** — any action that can carry a message (``alert_routing.message_actions``: Slack's
@@ -138,9 +138,10 @@ def super_admin_emails(session: Session) -> list[str]:
 
 
 def smtp_ready() -> bool:
-    from marvin.core.config import get_app_settings
+    """The platform SMTP settings are on, or the platform workspace has an active SMTP profile."""
+    from marvin.services.email.email_senders import email_ready
 
-    return bool(get_app_settings().SMTP_ENABLED)
+    return email_ready()
 
 
 class PlatformScope(alerting.AlertScope):
@@ -154,7 +155,7 @@ class PlatformScope(alerting.AlertScope):
     test_title = TEST_TITLE
     everyone = "every super admin"
     nobody = "no super admin has an email address"
-    email_setup = "SMTP isn't configured (Admin → Email settings)"
+    email_setup = "email isn't set up (Admin → Email settings, or an active SMTP profile in the platform workspace)"
     where = "the platform workspace"
     push_category = web_push.PLATFORM_ALERTS
     push_everyone = "super admins who turned on push with “Platform alerts” in their Profile"
@@ -186,7 +187,7 @@ class PlatformScope(alerting.AlertScope):
     def email_service(self):
         from marvin.services.email.email_service import EmailService
 
-        return EmailService()  # no workspace: the platform SMTP settings
+        return EmailService()  # no workspace: the platform's sender (SMTP settings, else the platform workspace's profile)
 
     def scope_label(self, session: Session) -> str:
         return SCOPE
