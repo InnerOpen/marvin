@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.224 (2026-10-09)
+
+### Bug Fixes
+
+- **email**: Platform mail falls back to the platform workspace's SMTP profile
+  ([`48a44a5`](https://github.com/InnerOpen/marvin/commit/48a44a52114a097d1b845adb81164cd1bcbca55c))
+
+
 ## v1.0.0-rc.223 (2026-10-09)
 
 ### Features
