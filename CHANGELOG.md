@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.220 (2026-10-09)
+
+### Features
+
+- **bubble**: Tuck the bubble into a screen edge, and keep it out of the way while scrolling
+  ([`5a6b4f0`](https://github.com/InnerOpen/marvin/commit/5a6b4f0cf949779eb80acf38110f8cea346cc5e2))
+
+
 ## v1.0.0-rc.219 (2026-10-09)
 
 ### Bug Fixes
