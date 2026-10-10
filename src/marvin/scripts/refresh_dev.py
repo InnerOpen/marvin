@@ -40,6 +40,7 @@ from marvin.services.backup_engine.layout import ASSETS_PREFIX, PG_PREFIX, Backu
 
 log = logging.getLogger("marvin.refresh")
 SOURCE_TYPE = "s3"
+PROGRESS_EVERY = 100  # assets: one HEAD each against the copy's bucket, so a thousand take minutes
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -112,7 +113,10 @@ def copy_missing_assets(source, settings: engine.BackupSettings, env: dict[str, 
     dest = providers[-1]  # the provider new uploads go to is listed last (BACKUP_ASSET_PROVIDERS)
     copied = present = 0
     staged = work / "asset"
-    for key in sorted(source.list(ASSETS_PREFIX)):
+    keys = sorted(source.list(ASSETS_PREFIX))
+    for n, key in enumerate(keys, 1):
+        if n % PROGRESS_EVERY == 0:
+            log.info("assets: %d / %d checked (%d copied)", n, len(keys), copied)
         storage_key = key[len(ASSETS_PREFIX) :]
         if dest.exists(storage_key):
             present += 1
