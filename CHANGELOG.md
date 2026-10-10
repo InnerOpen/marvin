@@ -6,6 +6,30 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.243 (2026-10-10)
+
+### Bug Fixes
+
+- **auth**: A session the API rejects goes to the login page too
+  ([`547cba3`](https://github.com/InnerOpen/marvin/commit/547cba34413d680039d737b081748411055f48ce))
+
+- **auth**: Find API and site-client tokens by lookup, not by checking every hash
+  ([`496e8cf`](https://github.com/InnerOpen/marvin/commit/496e8cf2c957b00767cf6224a501d0b8a8c2b54e))
+
+- **bubble**: The pose prompt says plainly which way to run; the fix for a sheet that didn't
+  ([`c73051b`](https://github.com/InnerOpen/marvin/commit/c73051bf6d74724c41efd5867d0c11f95ea47c85))
+
+### Chores
+
+- **dev**: Character kit — Elvira, Fireball Mini, Mossy and Purple Bot
+  ([`6648510`](https://github.com/InnerOpen/marvin/commit/66485101fcdace3c16deb458edc647c0fd5a0100))
+
+### Features
+
+- **bubble**: A hand-off's answer keeps the delegate's character; a drop into an edge stops the walk
+  ([`3a9d44d`](https://github.com/InnerOpen/marvin/commit/3a9d44d9ae8c4b9b20bbef7a2f611b4701a14bbb))
+
+
 ## v1.0.0-rc.242 (2026-10-10)
 
 ### Bug Fixes
