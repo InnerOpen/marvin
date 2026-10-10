@@ -97,6 +97,18 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         task_config={"age_days": 30},
     ),
     SystemTaskDefinition(
+        slug="create_workspace_bundles",
+        name="Workspace Backup Bundles",
+        task_type="create_workspace_bundles",
+        description=(
+            "Write each workspace's backup bundle into the backups directory (2 kept per workspace); the backup targets "
+            "copy them off-site under bundles/<workspace>/ as per-workspace restore points. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"keep": 2},
+    ),
+    SystemTaskDefinition(
         slug="optimize_database",
         name="Optimize Database",
         task_type="optimize_database",

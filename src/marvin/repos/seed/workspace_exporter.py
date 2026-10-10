@@ -99,12 +99,14 @@ class WorkspaceExporter:
 
         return export_data
 
-    def export_workspace_bundle(self, include_system_types: bool = False, temp_dir: Path | None = None) -> Path:
+    def export_workspace_bundle(self, include_system_types: bool = False, temp_dir: Path | None = None, label: str | None = None) -> Path:
         """Export workspace metadata + all asset binaries into a zip bundle.
 
         Args:
             include_system_types: Whether to include system entry types
             temp_dir: Directory to write the zip file into (defaults to system temp)
+            label: Marks who made it in the name, before the token (`<slug>-backup-<date>-scheduled-<token>.zip`
+                for the create_workspace_bundles task), so that task's retention never removes a bundle made by hand
 
         Returns:
             Path to the created zip file
@@ -125,7 +127,7 @@ class WorkspaceExporter:
             temp_dir = Path(tempfile.gettempdir())
 
         token = secrets.token_hex(8)
-        basename = f"{workspace_slug}-backup-{datetime.now(UTC).date().isoformat()}-{token}"
+        basename = f"{workspace_slug}-backup-{datetime.now(UTC).date().isoformat()}-{f'{label}-' if label else ''}{token}"
         zip_path = temp_dir / f"{basename}.zip"
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             json_content = json.dumps(export_data, indent=2, ensure_ascii=False)

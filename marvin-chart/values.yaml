@@ -301,9 +301,10 @@ backup:
   #   schedule, timeZone       cron schedule and the zone it is read in (empty = the controller's, UTC);
   #                            also passed to the job (BACKUP_SCHEDULE / BACKUP_TIME_ZONE) and recorded
   #                            with each run, so Admin → Backup health knows when the next one is due
-  #   retention                {hourly, daily, weekly} → BACKUP_KEEP_*; a key left out keeps the
-  #                            engine's default (48 / 30 / 0). hourly counts database backups only;
-  #                            daily >= 1; 0 turns hourly or weekly off
+  #   retention                {hourly, daily, weekly, bundles} → BACKUP_KEEP_*; a key left out keeps the
+  #                            engine's default (48 / 30 / 0 / 14). hourly counts database backups only;
+  #                            daily >= 1; 0 turns hourly or weekly off. bundles: workspace backup bundles
+  #                            (DATA_DIR/backups) kept per workspace under bundles/; 0 = not copied here
   #   prefix                   key prefix inside the target (BACKUP_PREFIX), e.g. "dev/"
   #   activeDeadlineSeconds    a run (including time Pending) is failed after this long (default 3600)
   #   startingDeadlineSeconds  skip a run that couldn't start this long after its time (default 3600, 0 = no limit)

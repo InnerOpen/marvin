@@ -13,9 +13,10 @@ The old single-target job (`marvin.scripts.offsite_backup`, CronJob `marvin-offs
 | `sqlite/marvin-<UTC YYYYmmddTHHMMSSZ>.db.gz` | the SQLite database, copied with SQLite's online backup API while the backend runs, checked with `PRAGMA integrity_check`, then gzipped. A copy that fails the check is not uploaded. |
 | `postgres/marvin-<UTC stamp>.dump` | with `dbEngine: postgres`, instead of `sqlite/`: a `pg_dump --format=custom` of the app's database, read back with `pg_restore --list` before upload. See [Postgres](#postgres). |
 | `config/marvin-config-<UTC stamp>.tar.gz` | `.secret`, `scheduler_state.json` and `templates/` (custom email templates) from `DATA_DIR` |
+| `bundles/<workspace>/<workspace>-backup-<date>-….zip` | per-workspace restore points: every zip in `DATA_DIR/backups` — the daily **Workspace Backup Bundles** system task's (`-scheduled-` in the name) and any made from Admin → Backups — copied once (a bundle's name is unique). A bundle holds the workspace's content, settings and asset files, its secrets encrypted under the workspace's own backup key. The backend writes them and keeps only the newest 2 scheduled ones per workspace locally; the target keeps a longer history. |
 | `assets/<path>` | every uploaded file, read through the storage provider, mirrored incrementally: a file is copied when its key is missing in the target or its size or digest differs (MD5 from the ETag on an `s3` target, `sha256` on a `local` one). Assets are never deleted from a target, so a file deleted in Marvin stays there. |
 
-The database and config objects carry a `sha256` of the object in their metadata (a `<file>.meta.json` sidecar on a `local` target), and the database also a `db-sha256` of the uncompressed file; restore checks both. Logs, `.temp`, `backups/`, the `marvin.db.pre-*` snapshots and the live `marvin.db-wal` / `marvin.db-shm` are not backed up. The copy is consistent: one read transaction covers the whole database, so writes made during the backup are either all in it or all left out.
+The database and config objects carry a `sha256` of the object in their metadata (a `<file>.meta.json` sidecar on a `local` target), and the database also a `db-sha256` of the uncompressed file; restore checks both. Logs, `.temp`, the `marvin.db.pre-*` snapshots and the live `marvin.db-wal` / `marvin.db-shm` are not backed up. The copy is consistent: one read transaction covers the whole database, so writes made during the backup are either all in it or all left out.
 
 !!! danger "Every target holds the installation secret"
     `.secret` is the key that decrypts every secret Marvin stores (workspace secrets, provider keys, integration credentials). It has to be backed up, or encrypted values are unreadable after a restore, but it means anyone who can read a target can read those secrets. Keep the bucket private, give the backup a token scoped to that one bucket (on R2: an **Object Read & Write** API token limited to the bucket), keep the token out of Git, and treat a leaked token as leaking the secrets: rotate the token and the stored secrets. The same goes for the NAS export.
@@ -25,6 +26,8 @@ The database and config objects carry a `sha256` of the object in their metadata
 After a successful upload, older database (`postgres/` or `sqlite/`) and `config/` objects in that target are pruned. The run keeps the newest database backup of each of the last `hourly` hours, the newest backup of each of the last `daily` days and the newest of each of the last `weekly` ISO weeks, and deletes the rest. Hours, days and weeks are counted among those that have a backup, not back from now, so a run of failures never empties a target. A prefix is pruned only when that run's upload to it succeeded. Keys the engine did not name (for example a manually uploaded `postgres/before-cutover.dump`) and everything under `assets/` are never deleted. Two backups in the same hour (a one-off run after the scheduled one) keep only the newer.
 
 The counts are a target's `retention: {hourly, daily, weekly}` (`BACKUP_KEEP_HOURLY` / `_DAILY` / `_WEEKLY`). A key left out keeps the engine's default, 48 / 30 / 0 ("30 days, hourly for the last two"); 0 turns the hourly or weekly rule off; daily must be at least 1, so a run never prunes the backup it just made.
+
+Workspace bundles have their own count, `retention.bundles` (`BACKUP_KEEP_BUNDLES`, default 14): the newest that many per workspace by the date in the name, pruned after that run's copies succeeded. 0 means the target gets no bundles at all. A file in `bundles/` the engine did not name is never deleted.
 
 | Target | Hourly | Daily | Weekly |
 |---|---|---|---|
@@ -175,6 +178,22 @@ Each workspace has the same for its own failures — workflows, scheduled tasks,
 `restore --target <type> --into DIR` downloads the chosen database object (default: the newest for the engine), checks its checksums (and `integrity_check` for SQLite) before it touches `DIR`, then the config archive, then any assets missing or different locally. It never deletes local files. Into a directory that already has `marvin.db` or `.secret` it refuses unless given `--force`, and with `--force` it moves the existing `marvin.db`, `marvin.db-wal`, `marvin.db-shm`, `.secret`, `scheduler_state.json` and `templates/` aside as `<name>.pre-restore-<stamp>` rather than overwriting them. Moving the `-wal` aside matters: left beside a restored database, SQLite would replay it onto that database. With Postgres it downloads and verifies the dump as `DIR/marvin.dump` and never loads it; load it with `pg_restore` (see [Postgres](#postgres)).
 
 Options: `--db-key postgres/marvin-<stamp>.dump` (or `sqlite/…`) and `--config-key config/…` pick an older backup than the newest; `--skip-db`, `--skip-config`, `--skip-assets`.
+
+### One workspace, from a bundle
+
+To put back one workspace rather than the whole installation, list the target's bundles, download one and import it from **Admin → Backups → Import** into that workspace (with its backup key, from **Admin → Backups**, if it has secrets):
+
+```bash
+oc -n marvin create job --from=cronjob/marvin-backup-r2 marvin-r2-bundle --dry-run=client -o json \
+  | jq '.spec.template.spec.containers[0].command = ["sh", "-c"]
+        | .spec.template.spec.containers[0].args = ["python -m marvin.scripts.backup list --target s3 --name r2 | grep ^bundles/grace-martin-franklin/
+            && python -m marvin.scripts.backup bundle --target s3 --name r2 --into /app/data/.temp/restore
+               --key bundles/grace-martin-franklin/<file>.zip"]' \
+  | oc apply -f -
+oc -n marvin logs -f job/marvin-r2-bundle -c backup; oc -n marvin delete job marvin-r2-bundle
+```
+
+`bundle` checks the download against the sha256 stored with it and refuses any key that isn't a bundle. The file lands on the data volume (`.temp/restore/`), where `oc cp` from the backend pod gets it to your machine for the import.
 
 ### Into the cluster
 

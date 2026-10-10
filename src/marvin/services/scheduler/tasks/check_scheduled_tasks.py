@@ -7,6 +7,8 @@ It emits scheduled_task.triggered events that are handled by the ScheduledTaskLi
 
 from datetime import UTC, datetime
 
+from starlette.concurrency import run_in_threadpool
+
 from marvin.core import root_logger
 from marvin.db.db_setup import session_context
 from marvin.repos.repository_factory import AllRepositories
@@ -16,7 +18,14 @@ from marvin.services.event_bus_service.event_types import EventScheduledTaskData
 logger = root_logger.get_logger(__name__)
 
 
-def check_scheduled_tasks() -> None:
+async def check_scheduled_tasks() -> None:
+    """The minutely tick, off the event loop: the handlers run inside it (the listener is synchronous here), and
+    one that takes a while — a workspace bundle, a reindex — would otherwise stall every API request meanwhile.
+    The tick is awaited, so two never overlap."""
+    await run_in_threadpool(check_once)
+
+
+def check_once() -> None:
     """
     Find and trigger scheduled tasks that are due to run.
 

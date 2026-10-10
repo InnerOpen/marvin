@@ -71,4 +71,80 @@ def _owned_schedule(task: ScheduledTaskModel) -> tuple[str | None, str | None]:
     return config.get("cron_expression"), config.get("timezone")
 
 
+class CreateWorkspaceBundlesHandler(ScheduledTaskHandler):
+    """
+    Write every workspace's backup bundle (the Backups feature's zip: its content, settings and asset files,
+    secrets encrypted under the workspace's backup key) into BACKUP_DIR, on a schedule.
+
+    These are per-workspace restore points: import one into a workspace from Admin → Backups. The backup
+    targets copy them off-site (`bundles/<workspace>/`, backup_engine), so the backend never needs a target's
+    credentials. Locally only the newest `keep` scheduled bundles per workspace stay; a bundle someone made by
+    hand (no "scheduled" in its name) is never removed here.
+
+    Configuration (task_config):
+    - keep: int (default: 2) - scheduled bundles kept on the data volume per workspace (>= 1)
+    """
+
+    name = "Workspace Backup Bundles"
+    description = "Write a backup bundle of every workspace for the backup targets to copy off-site (admin only)"
+    admin_only = True
+    config_schema = {
+        "type": "object",
+        "properties": {
+            "keep": {"type": "integer", "default": 2, "minimum": 1, "description": "Scheduled bundles kept locally per workspace"},
+        },
+    }
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        if task.group_id:
+            return "Skipped: create_workspace_bundles is admin-only and cannot run in a workspace context"
+
+        from marvin.core.config import get_app_dirs
+        from marvin.db.db_setup import session_context
+        from marvin.db.models.groups import Groups
+        from marvin.repos.all_repositories import get_repositories
+        from marvin.repos.seed.workspace_exporter import WorkspaceExporter
+
+        keep = max(int((task.task_config or {}).get("keep", 2)), 1)
+        backup_dir = get_app_dirs().BACKUP_DIR
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        written, total_bytes, removed, failed = 0, 0, 0, []
+        with session_context() as session:
+            workspaces = [(g.id, g.slug) for g in session.query(Groups).order_by(Groups.slug).all()]
+            for group_id, slug in workspaces:
+                try:
+                    zip_path = WorkspaceExporter(get_repositories(session, group_id=group_id)).export_workspace_bundle(
+                        temp_dir=backup_dir, label=SCHEDULED_LABEL
+                    )
+                except Exception as e:  # noqa: BLE001 — one workspace failing must not cost the others their bundle
+                    session.rollback()
+                    logger.warning("Workspace bundle %s failed: %s", slug, e)
+                    failed.append(slug)
+                    continue
+                written += 1
+                total_bytes += zip_path.stat().st_size
+                removed += _prune_scheduled(backup_dir, slug, keep)
+
+        summary = f"Bundled {written} workspace(s), {total_bytes / 1024**2:.1f} MB; removed {removed} older scheduled bundle(s)"
+        if failed:
+            # Raise so the run is recorded as failed (and alerts), after the others were written.
+            raise RuntimeError(f"{summary}; failed: {', '.join(failed)}")
+        logger.info("Workspace bundles: %s", summary)
+        return summary
+
+
+SCHEDULED_LABEL = "scheduled"
+
+
+def _prune_scheduled(backup_dir, slug: str, keep: int) -> int:
+    """Remove all but the newest `keep` scheduled bundles of one workspace; hand-made bundles are left alone."""
+    # "<slug>-backup-" anchors the workspace: another slug that merely starts with this one ("acme-co") differs there.
+    mine = sorted(backup_dir.glob(f"{slug}-backup-*-{SCHEDULED_LABEL}-*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+    stale = mine[keep:]
+    for path in stale:
+        path.unlink(missing_ok=True)
+    return len(stale)
+
+
 TaskHandlerRegistry.register("run_backup_target", RunBackupTargetHandler)
+TaskHandlerRegistry.register("create_workspace_bundles", CreateWorkspaceBundlesHandler)

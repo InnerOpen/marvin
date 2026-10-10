@@ -6,6 +6,7 @@
     python -m marvin.scripts.backup prune   --target TYPE [--dry-run]
     python -m marvin.scripts.backup restore --target TYPE --into DIR [--db-key KEY] [--config-key KEY]
                                             [--skip-db] [--skip-config] [--skip-assets] [--force]
+    python -m marvin.scripts.backup bundle  --target TYPE --key bundles/<workspace>/<file>.zip --into DIR
 
 TYPE is the target's type: the built-in `local` (a directory on another volume, BACKUP_LOCAL_ROOT) or
 a storage plugin's target slug (e.g. `s3`); it defaults to BACKUP_TARGET. NAME labels the target in
@@ -59,6 +60,9 @@ def _parser() -> argparse.ArgumentParser:
     r.add_argument("--skip-config", action="store_true")
     r.add_argument("--skip-assets", action="store_true")
     r.add_argument("--force", action="store_true", help="replace an existing marvin.db/.secret in --into; only with the backend stopped")
+    b = command("bundle", "download one workspace backup bundle (see `list`) to import from Admin → Backups")
+    b.add_argument("--key", required=True, help="bundles/<workspace>/<workspace>-backup-<date>-….zip")
+    b.add_argument("--into", type=Path, required=True, help="directory to download it into")
     return p
 
 
@@ -91,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "list":
             for obj in engine.list_backups(target):
                 sys.stdout.write(f"{obj.key}\t{obj.size}\n")
+        elif args.command == "bundle":
+            sys.stdout.write(f"{engine.fetch_bundle(target, args.key, args.into)}\n")
         elif args.command == "prune":
             report = engine.run_prune(settings, target, dry_run=args.dry_run)
             log.info("backup[%s]: pruned %d%s", name, report.pruned, " (dry run)" if args.dry_run else "")

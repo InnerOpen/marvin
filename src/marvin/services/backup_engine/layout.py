@@ -21,6 +21,7 @@ DB_PREFIX = "sqlite/"
 PG_PREFIX = "postgres/"
 CONFIG_PREFIX = "config/"
 ASSETS_PREFIX = "assets/"
+BUNDLES_PREFIX = "bundles/"
 TS_FORMAT = "%Y%m%dT%H%M%SZ"
 
 # The keys the engine names (and so may prune): each family with its own extension.
@@ -28,6 +29,11 @@ _KEY_EXT = {"sqlite/marvin-": ".db.gz", "postgres/marvin-": ".dump", "config/mar
 _STAMPED_KEY = re.compile(
     r"^(?P<family>sqlite/marvin-|postgres/marvin-|config/marvin-config-)(?P<ts>\d{8}T\d{6}Z)(?P<ext>\.db\.gz|\.dump|\.tar\.gz)$"
 )
+
+
+# A workspace backup bundle as Marvin names it (repos/seed/workspace_exporter.py): `<slug>-backup-<date>-<token>.zip`,
+# or `-scheduled-<token>` from the create_workspace_bundles task. Only these are copied to `bundles/` and pruned.
+_BUNDLE_NAME = re.compile(r"^(?P<slug>[^/]+?)-backup-(?P<date>\d{4}-\d{2}-\d{2})-(?:[a-z]+-)?[0-9a-f]{16}\.zip$")
 
 
 class BackupError(Exception):
@@ -54,6 +60,29 @@ def asset_key(storage_key: str) -> str:
     return ASSETS_PREFIX + storage_key
 
 
+def bundle_key(filename: str) -> str | None:
+    """`bundles/<workspace>/<filename>` for a bundle Marvin named, else None (not ours to copy)."""
+    m = _BUNDLE_NAME.match(filename)
+    return f"{BUNDLES_PREFIX}{m['slug']}/{filename}" if m else None
+
+
+def expired_bundles(keys: Iterable[str], keep: int) -> list[str]:
+    """Bundle keys beyond the newest `keep` of each workspace, by the date in the name. Keys the engine did not
+    name are never expired."""
+    by_workspace: dict[str, list[tuple[str, str]]] = {}
+    for key in keys:
+        if not key.startswith(BUNDLES_PREFIX):
+            continue
+        folder, _, filename = key[len(BUNDLES_PREFIX) :].partition("/")
+        m = _BUNDLE_NAME.match(filename)
+        if m and m["slug"] == folder:
+            by_workspace.setdefault(folder, []).append((m["date"], key))
+    expired = []
+    for bundles in by_workspace.values():
+        expired += [key for _, key in sorted(bundles, reverse=True)[keep:]]
+    return sorted(expired)
+
+
 def db_prefix(engine: str) -> str:
     return PG_PREFIX if engine == "postgres" else DB_PREFIX
 
@@ -77,15 +106,17 @@ class Retention:
     hourly: int = 48
     daily: int = 30
     weekly: int = 0
+    bundles: int = 14
+    """Workspace backup bundles kept per workspace under `bundles/`; 0 = don't copy bundles to this target."""
 
     def __post_init__(self) -> None:
-        if self.daily < 1 or self.hourly < 0 or self.weekly < 0:
-            raise BackupError(f"retention needs daily >= 1 and hourly, weekly >= 0, not {self}")
+        if self.daily < 1 or self.hourly < 0 or self.weekly < 0 or self.bundles < 0:
+            raise BackupError(f"retention needs daily >= 1 and hourly, weekly, bundles >= 0, not {self}")
 
     @classmethod
     def from_env(cls, env: Mapping[str, Any]) -> Retention:
         counts = {}
-        for name in ("hourly", "daily", "weekly"):
+        for name in ("hourly", "daily", "weekly", "bundles"):
             var = f"BACKUP_KEEP_{name.upper()}"
             raw = str(env.get(var) or "").strip()
             if not raw:

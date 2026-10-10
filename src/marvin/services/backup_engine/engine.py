@@ -16,6 +16,9 @@ What a run backs up, and how:
   ``scheduler_state.json``, ``templates/``.
 - an incremental asset mirror under ``assets/``: an asset is copied when the target lacks it, or the
   size or a comparable digest differs. Never deleted from the target.
+- workspace backup bundles: each zip in ``DATA_DIR/backups`` (the Backups feature's, and the daily
+  ``create_workspace_bundles`` task's) copied once to ``bundles/<workspace>/``, the newest
+  ``retention.bundles`` per workspace kept — per-workspace restore points beside the full backup.
 
 Each step that fails is reported and the rest still run; a family is pruned only after this run's
 upload to it succeeded, counting backups that exist (a run of failures never empties a target), and
@@ -47,15 +50,18 @@ from marvin_integration_sdk.storage import BackupTarget, StorageConfigError, Sto
 
 from .layout import (
     ASSETS_PREFIX,
+    BUNDLES_PREFIX,
     CONFIG_PREFIX,
     DB_PREFIX,
     PG_PREFIX,
     BackupError,
     Retention,
     asset_key,
+    bundle_key,
     config_key,
     db_key,
     db_prefix,
+    expired_bundles,
     key_timestamp,
     pg_key,
     select_expired,
@@ -313,6 +319,8 @@ class Report:
     assets_uploaded: int = 0
     assets_uploaded_bytes: int = 0
     assets_unchanged: int = 0
+    bundles_uploaded: int = 0
+    bundles_uploaded_bytes: int = 0
     pruned: int = 0
     failures: list[str] = field(default_factory=list)
 
@@ -327,7 +335,10 @@ class Report:
             db = f"db {_mb(self.db_bytes)} ({self.db_key})"
         config = f"config {len(self.config_files)} item(s)" if self.config_key else "config not backed up"
         assets = f"assets {self.assets_uploaded} {verb} ({_mb(self.assets_uploaded_bytes)}), {self.assets_unchanged} unchanged"
-        parts = [db, config, assets, f"pruned {self.pruned}", f"{seconds:.1f}s"]
+        parts = [db, config, assets]
+        if self.bundles_uploaded:
+            parts.append(f"bundles {self.bundles_uploaded} {verb} ({_mb(self.bundles_uploaded_bytes)})")
+        parts += [f"pruned {self.pruned}", f"{seconds:.1f}s"]
         if dry_run:
             parts.insert(0, "DRY RUN")
         if self.failures:
@@ -482,6 +493,41 @@ def backup_assets(source: AssetSources, target: BackupTarget, report: Report, dr
             staged.unlink(missing_ok=True)
 
 
+BUNDLES_DIR = "backups"  # under DATA_DIR, where the Backups feature writes workspace bundles
+
+
+def backup_bundles(settings: BackupSettings, target: BackupTarget, report: Report, dry_run: bool) -> None:
+    """Copy each workspace bundle the target lacks (a bundle's name is unique, so presence is enough), then
+    keep the newest `retention.bundles` per workspace. Bundles are written and thinned locally by the
+    backend; the target keeps a longer history."""
+    keep = settings.retention.bundles
+    folder = settings.data_dir / BUNDLES_DIR
+    if not keep or not folder.is_dir():
+        return
+    remote = target.list(BUNDLES_PREFIX)
+    for path in sorted(folder.glob("*.zip")):
+        key = bundle_key(path.name)
+        if key is None or key in remote:
+            continue
+        if not dry_run:
+            target.put_file(key, path, {META_SHA256: file_digest(path)}, "application/zip")
+        report.bundles_uploaded += 1
+        report.bundles_uploaded_bytes += path.stat().st_size
+        remote[key] = TargetObject(key=key, size=path.stat().st_size)
+        log.info("bundle: %s", key)
+    prune_bundles(target, keep, report, dry_run, listing=remote)
+
+
+def prune_bundles(target: BackupTarget, keep: int, report: Report, dry_run: bool, listing: Mapping[str, Any] | None = None) -> list[str]:
+    expired = expired_bundles(listing if listing is not None else target.list(BUNDLES_PREFIX), keep)
+    for key in expired:
+        log.info("prune: %s%s", key, " (dry run)" if dry_run else "")
+    if expired and not dry_run:
+        target.delete(expired)
+    report.pruned += len(expired)
+    return expired
+
+
 def prune(target: BackupTarget, prefix: str, retention: Retention, report: Report, dry_run: bool) -> list[str]:
     expired = select_expired(target.list(prefix), retention, prefix)
     for key in expired:
@@ -521,6 +567,11 @@ def run_backup(
         except Exception as exc:
             report.failures.append(f"assets: {explain(exc)}")
             log.error("assets: %s", exc)
+        try:
+            backup_bundles(settings, target, report, dry_run)
+        except Exception as exc:  # pruning happens inside, only after every copy succeeded
+            report.failures.append(f"bundles: {explain(exc)}")
+            log.error("bundles: %s", exc)
     return report
 
 
@@ -529,15 +580,18 @@ def run_prune(settings: BackupSettings, target: BackupTarget, dry_run: bool = Fa
     report = Report(target=target.slug)
     for prefix in (DB_PREFIX, PG_PREFIX, CONFIG_PREFIX):
         prune(target, prefix, settings.retention, report, dry_run)
+    if settings.retention.bundles:
+        prune_bundles(target, settings.retention.bundles, report, dry_run)
     return report
 
 
 def list_backups(target: BackupTarget) -> list[TargetObject]:
-    """The database and config backups in a target, oldest first per family."""
+    """The database and config backups in a target, oldest first per family, then the workspace bundles."""
     found: list[TargetObject] = []
     for prefix in (DB_PREFIX, PG_PREFIX, CONFIG_PREFIX):
         found += [o for k, o in sorted(target.list(prefix).items()) if key_timestamp(k) is not None]
-    return found
+    bundles = target.list(BUNDLES_PREFIX)
+    return found + [o for k, o in sorted(bundles.items()) if bundle_key(k.rsplit("/", 1)[-1]) == k]
 
 
 # --------------------------------------------------------------------------------------------------
@@ -612,6 +666,22 @@ def restore_config(target: BackupTarget, key: str, into: Path, suffix: str) -> l
         (into / ".secret").chmod(0o600)
     log.info("restored %s -> %s (%s)", key, into, ", ".join(tops))
     return tops
+
+
+def fetch_bundle(target: BackupTarget, key: str, into: Path) -> Path:
+    """Download one workspace bundle into `into`, checked against its sha256, for Admin → Backups → Import."""
+    if not key.startswith(BUNDLES_PREFIX) or bundle_key(key.rsplit("/", 1)[-1]) != key:
+        raise BackupError(f"{key}: not a workspace bundle key (bundles/<workspace>/<workspace>-backup-….zip)")
+    into.mkdir(parents=True, exist_ok=True)
+    dest = into / key.rsplit("/", 1)[-1]
+    meta = target.get(key, dest)
+    try:
+        _verify_sha(dest, meta.get(META_SHA256), key)
+    except BackupError:
+        dest.unlink(missing_ok=True)
+        raise
+    log.info("fetched %s -> %s", key, dest)
+    return dest
 
 
 def _local_matches(path: Path, obj: TargetObject) -> bool:
