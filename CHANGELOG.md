@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.241 (2026-10-10)
+
+### Features
+
+- **auth**: Throttle repeated failed sign-ins per account and per IP
+  ([`64b2b78`](https://github.com/InnerOpen/marvin/commit/64b2b78867d0dabfbad63de7cd5214454afd39a7))
+
+- **deploy**: Bake the site-wide plugins into the image
+  ([`2be28e1`](https://github.com/InnerOpen/marvin/commit/2be28e1ed3220920d7e9b50e245547b1aae76083))
+
+
 ## v1.0.0-rc.240 (2026-10-09)
 
 ### Bug Fixes
