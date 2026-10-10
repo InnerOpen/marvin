@@ -55,7 +55,7 @@ oc -n marvin-dev get cluster marvin-dev-pg -w          # until "Cluster in healt
 oc -n marvin-dev rollout status deploy/marvin-backend  # restarts until marvin-dev-pg-app exists
 ```
 
-On first start against the empty database the backend migrates and seeds the default group and admin. Then load production (below, `--pause-outbound`), take the first backup and test the restore ([Backups](#backups)). Dev follows `develop`: `oc -n marvin-dev rollout restart deploy/marvin-backend deploy/marvin-frontend` picks up the newest build.
+On first start against the empty database the backend migrates and seeds the default group and admin. Then load production (`task dev:refresh`, below), take the first backup and test the restore ([Backups](#backups)). Dev follows `develop`: `oc -n marvin-dev rollout restart deploy/marvin-backend deploy/marvin-frontend` picks up the newest build.
 
 !!! warning "Production data in dev"
     A copy of production brings real users, tokens, webhook URLs, workflows and scheduled tasks. Stored secrets stay unreadable (dev has its own `.secret`), but plain-text outgoing webhooks — a Cloudflare Pages deploy hook, for one — would fire. Dev therefore runs with the scheduler off **and** the copy is loaded with `--pause-outbound`, which switches off, in dev's database only, webhooks, integrations and their subscriptions, workflows, email subscriptions, SMTP profiles, MCP servers, scheduled tasks and auto site rebuilds. AI providers stay on (they only run when someone asks for an AI action). To test a feature, re-enable just what it needs: `--unpause webhook_urls` (the rows the pause switched off, nothing else), or in the UI.
@@ -152,9 +152,28 @@ What it does:
 
 Rehearsal on a copy of production (2026-10-06, Postgres 16 and 17, also inside the built image as a random UID): 61 tables, 15,949 rows, 94 foreign keys re-validated, every checksum equal, one note (`ai_executions.completed_at`: one value carried `+00:00`). About 10 s. The backend then started on the copy and served entries, event-type connections, workflows and a workflow dry run.
 
-### Loading production data into dev
+### Refreshing dev from production
 
-Run the tool locally against dev's database through a port-forward — the production file never lands on the cluster's dev volume. Take a consistent copy of production's file (SQLite backup API in the backend pod into `/tmp`, `oc cp` it out, delete the pod-side copy), treat the local copy as sensitive and delete it afterwards. Copy with the same Marvin version dev runs (same Alembic head).
+One command, from a workstation logged in to the cluster:
+
+```bash
+task dev:refresh                    # or scripts/dev-refresh.sh; add `-- --skip-assets` for the database only
+```
+
+It scales dev's backend to 0, then runs `python -m marvin.scripts.refresh_dev` in a Job made from dev's own backup CronJob (`marvin-backup-r2`), which already has the backup plugin, the R2 token, dev's database and dev's asset storage; only the source bucket changes (`marvin-backups`, production's). The Job:
+
+1. fetches production's newest `postgres/` dump, checked against its sha256 (so data is at most an hour old);
+2. loads it with `pg_restore --clean --if-exists --no-owner --single-transaction` into `marvin-dev-pg` — it all lands or none of it does;
+3. pauses outbound activity in dev's copy (the same switches as `--pause-outbound` below: webhooks, integrations and their actions, workflows, email subscriptions, SMTP, MCP servers, scheduled tasks, auto rebuilds), recorded so `--unpause` can restore them;
+4. copies every asset file dev's storage (`marvin-assets-dev`) lacks from production's asset mirror (`assets/` in `marvin-backups`), so restored rows don't point at missing files. Nothing in dev's storage is overwritten or deleted.
+
+Then the script scales the backend back up (it does even if the Job fails) and waits for it. A failed Job is kept for its logs (`oc -n marvin-dev logs job/marvin-refresh-… -c backup`); it is never retried on its own. Production's `.secret` isn't copied: dev already holds it, so copied secrets decrypt.
+
+The Job refuses to run when the source bucket is its own backup bucket (that would be production's job) or when `--confirm-db-host` doesn't name the database it is about to replace, so it can't be pointed at production by mistake.
+
+### Loading a SQLite database into dev (historical)
+
+Before production moved to Postgres, dev was loaded from production's SQLite file with the copy tool, locally, through a port-forward:
 
 ```bash
 oc -n marvin-dev scale deploy/marvin-backend --replicas=0
@@ -166,8 +185,6 @@ DB_ENGINE=postgres POSTGRES_SERVER=127.0.0.1 POSTGRES_PORT=15432 POSTGRES_USER=$
 kill %1; oc -n marvin-dev scale deploy/marvin-backend --replicas=1
 shred -u /path/to/marvin-copy.db
 ```
-
-`--truncate` because the backend already seeded the empty database on its first start.
 
 ## Production cutover
 

@@ -59,6 +59,11 @@ tasks:
   #     - uv run scripts/seed_mashandburnco.py
   #     - echo "✅ Reset complete! Marvin running with fresh data."
 
+  dev:refresh:
+    desc: refresh marvin-dev from production's newest backup (database, outbound paused, missing assets)
+    cmds:
+      - scripts/dev-refresh.sh {{.CLI_ARGS}}
+
   dev:services:start:
     desc: start dev support services (postgres, mailpit, …)
     cmds:
