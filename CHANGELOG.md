@@ -6,6 +6,18 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.244 (2026-10-10)
+
+### Features
+
+- **workflows**: A step can name a capability; the notification recipes work with Slack
+  ([`d4c0fae`](https://github.com/InnerOpen/marvin/commit/d4c0faea0b65fe6f472f8948cd3a3a15bee4bbe8))
+
+- **workflows**: A workflow remembers the recipe it was made from; the Library shows where each is
+  in use
+  ([`1dd24ff`](https://github.com/InnerOpen/marvin/commit/1dd24ff6cf9e3f69c701b343e5a8d0986e58a2c2))
+
+
 ## v1.0.0-rc.243 (2026-10-10)
 
 ### Bug Fixes
