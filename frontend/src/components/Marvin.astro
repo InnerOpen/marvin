@@ -59,7 +59,7 @@ try {
   import { resolveCapability, helpHtml, esc, setPendingRegister, resumePendingRun, onRunProgress, getActiveAgent, getSessionTone, setSessionTone, TONE_EVENT, setAskPageAllowed, resumeBubbleRun, parkedCardFor, type MarvinResult } from '@/lib/marvin/capabilities';
   import { type ApprovalCard, approvalCardHtml, decisionsFrom } from '@/lib/approvals';
   import { OPEN_BUBBLE_EVENT } from '@/lib/activity/toast';
-  import { createCast, type Cast } from '@/lib/marvin/cast';
+  import { createCast, sameStates, type Cast } from '@/lib/marvin/cast';
   import { createCharacter, dragDirection, type Character, type CharacterEvent, type CharacterStates } from '@/lib/marvin/character';
   import { MARVIN_VOICE, voiceFor, pick } from '@/lib/marvin/persona';
   import { askPageAllowed, bubbleAllowed } from '@/lib/marvin/gate';
@@ -129,16 +129,35 @@ try {
       characterInsets = settings?.characterInsets ?? {};
       cast = createCast(settings?.assistantCharacter?.states, settings?.agentCharacters ?? {}, getActiveAgent());
       showCast();
-      if (cast.hasAny) {
-        onRunProgress((progress) => {
-          if (!busy) return; // a late poll of a finished run
-          // A hand-off's delegate shows its own character while it works.
-          if (cast?.progress(progress.events)) showCast();
-          if (progress.status === 'awaiting_approval') cue('parked');
-          else if (progress.events.length) cue('progress');
-        });
+      // Registered whether or not anyone has a character yet: one may be given while this page is open.
+      onRunProgress((progress) => {
+        if (!busy || !cast?.hasAny) return; // a late poll of a finished run, or nothing to animate
+        // A hand-off's delegate shows its own character while it works.
+        if (cast.progress(progress.events)) showCast();
+        if (progress.status === 'awaiting_approval') cue('parked');
+        else if (progress.events.length) cue('progress');
+      });
+    }
+
+    /**
+     * Re-read who has a character: a picker on this page changed one, or `/use` switched to an agent given one
+     * after this page loaded. Without it the bubble keeps what was true when the page opened, so `/use` to a
+     * newly dressed agent changed who answers but not who shows.
+     */
+    async function refreshCast() {
+      if (!cast) return; // the bubble hasn't loaded its settings yet; it will read them itself
+      try {
+        const settings = await fetchApi<any>('/api/groups/ai-settings');
+        const before = cast.states;
+        characterInsets = settings?.characterInsets ?? {};
+        cast = createCast(settings?.assistantCharacter?.states, settings?.agentCharacters ?? {}, getActiveAgent());
+        if (!sameStates(before, cast.states)) showCast();
+      } catch {
+        /* keep what's showing */
       }
     }
+    // Pickers (AI settings → Persona, an agent's Character) announce each change: the bubble on the same page follows.
+    document.addEventListener('character-change', () => void refreshCast());
 
     function applyIcon(icon: string) {
       const slot = document.getElementById('marvin-icon')!;
@@ -874,7 +893,8 @@ try {
       cue('send');
       try {
         const res = await cap.run(arg);
-        // After `/use`, the agent now talking may have a character of its own.
+        // After `/use`, the agent now talking may have a character of its own — possibly given since this page loaded.
+        if (cap.id === 'use') await refreshCast();
         if (gen === generation) { commitResult(thinking, res); finish(res.parked ? 'parked' : 'reply'); }
       } catch (err: any) {
         if (gen === generation) { commitReply(thinking, errorHtml(err)); finish('error'); }
