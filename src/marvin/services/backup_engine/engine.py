@@ -445,7 +445,7 @@ def asset_needs_copy(source: StorageProvider, key: str, remote: TargetObject | N
     return ours is not None and ours != remote.digest
 
 
-AssetSources = StorageProvider | Sequence[StorageProvider] | None
+type AssetSources = StorageProvider | Sequence[StorageProvider] | None
 
 
 def _sources(source: AssetSources) -> list[StorageProvider]:
