@@ -48,7 +48,7 @@ Trashing or restoring an asset or resource that a site shows (attached to a publ
 ## Where
 
 - **Trash** collection (`/workspace/collections/<id>`, listed with the system collections, 🗑️): **Entries**, **Assets** and **Resources** tabs (`#assets` / `#resources` opens one), each with per-item **Restore** and **Delete forever** and **Restore selected**; **Empty trash** (workspace ADMIN/OWNER) for all three, and how long the Trash keeps things.
-- Entry, asset and resource pages: **Move to Trash**; on a trashed one, the banner with **Restore** and **Delete forever**. The asset and resource lists have **Move to Trash** per row.
+- Entry, asset and resource pages: **Move to Trash**; on a trashed one, the banner with **Restore** and **Delete forever**. The asset and resource lists have **Move to Trash** per row. They also list what is in the Trash, like Entries: a **Trash** group in the by-type view (**Types**) and **Statuses → In the Trash** in the filter (shown when the Trash has any). **All Statuses** leaves trashed items out of the **All** view. A trashed row is marked *In the Trash* and has one action, **Open**, to its page, where the banner offers **Restore** and **Delete forever**.
 - **Settings → General → Trash**: the workspace's auto-empty choice (ADMIN/OWNER).
 - **Admin → Site Settings → Trash**: the platform default (super admin).
 

@@ -1,39 +1,37 @@
 ---
+import AssetRow from "@/components/AssetRow.astro";
 import FilterBar from "@/components/FilterBar.astro";
-import TagList from "@/components/TagList.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getAssets } from "@/lib/api/platform";
+import { listTrashedAssets } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
+import { getMimeCategory } from "@/lib/assetCategory";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; uploading is AUTHOR+, editing and deleting assets EDITOR+.
 const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
 
 let assets = [];
+// Trashed assets aren't in the library list: loaded so the Trash group lists them and "In the Trash" in
+// Statuses shows them. "All Statuses" leaves them out, as on Entries.
+let trashedAssets: any[] = [];
 let error: string | null = null;
 
 // Ask files (chat attachments) live apart from the library: a link to them, with their count.
 let askFiles = 0;
 try {
-  const [library, asks] = await Promise.all([
+  const [library, asks, trashed] = await Promise.all([
     getAssets(authToken),
     fetchApi<unknown[]>("/api/platform/assets?scope=ask", {}, authToken).catch(() => []),
+    listTrashedAssets(authToken).catch(() => []),
   ]);
   assets = library;
   askFiles = asks.length;
+  trashedAssets = trashed;
 } catch (e) {
   error = e instanceof Error ? e.message : String(e);
   console.error("[Assets] Failed to load:", error);
-}
-
-// Categorize by MIME type
-function getMimeCategory(mimeType: string): string {
-  if (mimeType.startsWith("image/")) return "image";
-  if (mimeType.startsWith("video/")) return "video";
-  if (mimeType.startsWith("audio/")) return "audio";
-  if (mimeType.includes("pdf")) return "document";
-  return "other";
 }
 
 // Group assets by MIME category
@@ -85,7 +83,12 @@ const sortedCategoryGroups = categoryOrder
                   { value: "document", label: "Documents" },
                   { value: "other", label: "Other" }
                 ]
-              }
+              },
+              ...(trashedAssets.length > 0 ? [{
+                id: "status-filter",
+                label: "Statuses",
+                options: [{ value: "trashed", label: "In the Trash" }]
+              }] : [])
             ]}
           />
           <a class="button secondary" href="/workspace/assets/ask-files" title="Files attached to chat questions, kept out of the library">Ask files{askFiles ? ` (${askFiles})` : ""}</a>
@@ -93,7 +96,7 @@ const sortedCategoryGroups = categoryOrder
         </div>
       </div>
 
-      {assets.length === 0 ? (
+      {assets.length === 0 && trashedAssets.length === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">🖼️</div>
           <h3>No assets yet</h3>
@@ -128,57 +131,10 @@ const sortedCategoryGroups = categoryOrder
               </thead>
               <tbody>
                 {assets.map((asset: any) => (
-                  <tr class="asset-row" data-type={getMimeCategory(asset.mimeType)}>
-                    <td>
-                      <div class="preview">
-                        {asset.publicUrl && getMimeCategory(asset.mimeType) === 'image' ? (
-                          <img
-                            src={asset.publicUrl}
-                            alt={asset.altText ?? asset.name}
-                            style={`object-position: ${asset.focalPoint ?? "50% 50%"}`}
-                          />
-                        ) : (
-                          <span class="file-icon">{
-                            getMimeCategory(asset.mimeType) === 'video' ? '🎬' :
-                            getMimeCategory(asset.mimeType) === 'audio' ? '🎵' :
-                            getMimeCategory(asset.mimeType) === 'document' ? '📄' : '📎'
-                          }</span>
-                        )}
-                      </div>
-                    </td>
-                    <td class="asset-name">
-                      <strong>{asset.name}</strong>
-                      {asset.slug && <div class="slug"><code>{asset.slug}</code></div>}
-                      {asset.tags?.length > 0 && <div class="tags-row"><TagList tags={asset.tags} /></div>}
-                    </td>
-                    <td class="asset-type"><span class="type-badge">{asset.mimeType}</span></td>
-                    <td>
-                      {asset.width && asset.height
-                        ? `${asset.width} × ${asset.height}`
-                        : '—'}
-                    </td>
-                    <td>
-                      {asset.fileSize
-                        ? `${(asset.fileSize / 1024).toFixed(1)} KB`
-                        : '—'}
-                    </td>
-                    <td class="alt-text-cell">{asset.altText || '—'}</td>
-                    <td>
-                      <div class="actions">
-                        <a href={`/workspace/assets/${asset.id}/view`} class="button secondary small">View</a>
-                        {access.canEdit && (
-                        <>
-                        <a href={`/workspace/assets/${asset.id}`} class="button secondary small">Edit</a>
-                        <form method="POST" action={`/api/assets/${asset.id}/delete`} style="display:inline;">
-                          <button type="submit" class="button secondary small" title="Move to the Trash (restore it from there)">
-                            Move to Trash
-                          </button>
-                        </form>
-                        </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                  <AssetRow asset={asset} canEdit={access.canEdit} />
+                ))}
+                {trashedAssets.map((asset: any) => (
+                  <AssetRow asset={asset} canEdit={access.canEdit} inTrash />
                 ))}
               </tbody>
             </table>
@@ -208,62 +164,41 @@ const sortedCategoryGroups = categoryOrder
                   </thead>
                   <tbody>
                     {groupAssets.map((asset: any) => (
-                      <tr class="asset-row" data-type={getMimeCategory(asset.mimeType)}>
-                        <td>
-                          <div class="preview">
-                            {asset.publicUrl && getMimeCategory(asset.mimeType) === 'image' ? (
-                              <img
-                                src={asset.publicUrl}
-                                alt={asset.altText ?? asset.name}
-                                style={`object-position: ${asset.focalPoint ?? "50% 50%"}`}
-                              />
-                            ) : (
-                              <span class="file-icon">{
-                                getMimeCategory(asset.mimeType) === 'video' ? '🎬' :
-                                getMimeCategory(asset.mimeType) === 'audio' ? '🎵' :
-                                getMimeCategory(asset.mimeType) === 'document' ? '📄' : '📎'
-                              }</span>
-                            )}
-                          </div>
-                        </td>
-                        <td class="asset-name">
-                          <strong>{asset.name}</strong>
-                          {asset.slug && <div class="slug"><code>{asset.slug}</code></div>}
-                          {asset.tags?.length > 0 && <div class="tags-row"><TagList tags={asset.tags} /></div>}
-                        </td>
-                        <td class="asset-type"><span class="type-badge">{asset.mimeType}</span></td>
-                        <td>
-                          {asset.width && asset.height
-                            ? `${asset.width} × ${asset.height}`
-                            : '—'}
-                        </td>
-                        <td>
-                          {asset.fileSize
-                            ? `${(asset.fileSize / 1024).toFixed(1)} KB`
-                            : '—'}
-                        </td>
-                        <td class="alt-text-cell">{asset.altText || '—'}</td>
-                        <td>
-                          <div class="actions">
-                            <a href={`/workspace/assets/${asset.id}/view`} class="button secondary small">View</a>
-                            {access.canEdit && (
-                            <>
-                            <a href={`/workspace/assets/${asset.id}`} class="button secondary small">Edit</a>
-                            <form method="POST" action={`/api/assets/${asset.id}/delete`} style="display:inline;">
-                              <button type="submit" class="button secondary small" title="Move to the Trash (restore it from there)">
-                                Move to Trash
-                              </button>
-                            </form>
-                            </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                      <AssetRow asset={asset} canEdit={access.canEdit} />
                     ))}
                   </tbody>
                 </table>
               </details>
             ))}
+            {trashedAssets.length > 0 && (
+              <details class="collection-group" data-group-type="trash">
+                <summary class="collection-header">
+                  <h3 class="collection-title">
+                    <span class="collapse-chevron"></span>
+                    Trash
+                    <span class="collection-count">{trashedAssets.length}</span>
+                  </h3>
+                </summary>
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Preview</th>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th>Dimensions</th>
+                      <th>Size</th>
+                      <th>Alt Text</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trashedAssets.map((asset: any) => (
+                      <AssetRow asset={asset} canEdit={access.canEdit} inTrash />
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            )}
           </div>
         </>
       )}
@@ -272,8 +207,10 @@ const sortedCategoryGroups = categoryOrder
 </AppLayout>
 
 <script>
+  import { showsForStatus } from '@/lib/trashFilter';
   const searchInput = document.getElementById('filter-search') as HTMLInputElement;
   const typeFilter = document.getElementById('type-filter') as HTMLSelectElement;
+  const statusFilter = document.getElementById('status-filter') as HTMLSelectElement | null;
   const tableView = document.getElementById('table-view');
   const groupedView = document.getElementById('grouped-view');
   const viewTableBtn = document.getElementById('view-table');
@@ -298,16 +235,20 @@ const sortedCategoryGroups = categoryOrder
   function filterAssets() {
     const searchQuery = searchInput?.value.toLowerCase() || '';
     const typeQuery = typeFilter?.value || '';
+    const statusQuery = statusFilter?.value || '';
     const rows = document.querySelectorAll('.asset-row');
 
     rows.forEach(row => {
       const name = row.querySelector('.asset-name')?.textContent?.toLowerCase() || '';
       const type = row.getAttribute('data-type') || '';
+      const trashed = row.hasAttribute('data-in-trash');
+      const inTrashGroup = Boolean(row.closest('[data-group-type="trash"]'));
 
       const matchesSearch = !searchQuery || name.includes(searchQuery);
       const matchesType = !typeQuery || type === typeQuery;
+      const matchesStatus = showsForStatus(statusQuery, trashed, inTrashGroup);
 
-      (row as HTMLElement).style.display = (matchesSearch && matchesType) ? '' : 'none';
+      (row as HTMLElement).style.display = (matchesSearch && matchesType && matchesStatus) ? '' : 'none';
     });
 
     document.querySelectorAll('.collection-group').forEach(group => {
@@ -320,6 +261,7 @@ const sortedCategoryGroups = categoryOrder
 
   searchInput?.addEventListener('input', filterAssets);
   typeFilter?.addEventListener('change', filterAssets);
+  statusFilter?.addEventListener('change', filterAssets);
 </script>
 
 <style>
@@ -363,76 +305,6 @@ const sortedCategoryGroups = categoryOrder
     margin: 0;
     color: var(--muted);
     max-width: 32rem;
-  }
-
-  .preview {
-    width: 80px;
-    height: 80px;
-    border-radius: 6px;
-    overflow: hidden;
-    background: var(--panel-2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .preview img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .file-icon {
-    font-size: 2rem;
-    opacity: 0.7;
-  }
-
-  .slug {
-    margin-top: 0.25rem;
-    font-size: 0.75rem;
-    color: var(--muted);
-  }
-  .tags-row {
-    margin-top: 0.35rem;
-  }
-
-  .type-badge {
-    display: inline-block;
-    padding: 0.25rem 0.5rem;
-    background: var(--panel-2);
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    text-transform: uppercase;
-  }
-
-  .alt-text-cell {
-    max-width: 200px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.875rem;
-    color: var(--muted);
-  }
-
-  .actions {
-    display: flex;
-    gap: 0.5rem;
-  }
-
-  .button.small {
-    min-height: 32px;
-    padding: 6px 10px;
-    font-size: 0.875rem;
-  }
-
-  .button.danger {
-    color: var(--color-error);
-    border-color: var(--color-error);
-  }
-
-  .button.danger:hover {
-    background: var(--color-error-bg);
   }
 
   .view-toggle {
