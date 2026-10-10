@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.248 (2026-10-10)
+
+### Chores
+
+- **chart**: Delete values-staging.yaml — no staging exists; marvin-dev is pre-production
+  ([`c643796`](https://github.com/InnerOpen/marvin/commit/c64379639fb73b2247bab946dd4bf40bb23a4843))
+
+### Features
+
+- **chart**: Dev yields to production on worker01 — PriorityClass, quota, half-CPU limits
+  ([`df457c7`](https://github.com/InnerOpen/marvin/commit/df457c79e5e76651c83e9912e2d9f9800ed6e5ca))
+
+
 ## v1.0.0-rc.247 (2026-10-10)
 
 ### Features
