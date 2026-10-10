@@ -208,6 +208,24 @@ are added by each caller. Keep in step with configmap.yaml / secret.yaml.
 {{- with include "marvin.webPushEnv" . | trim }}
 {{ . }}
 {{- end }}
+{{- with include "marvin.backupRunnerEnv" . | trim }}
+{{ . }}
+{{- end }}
+{{- end -}}
+
+{{/*
+run_backup_target (services/backup_runner.py): start a target's run as a Job from its CronJob. Only with
+backup.scheduledTasks.enabled, which also renders the Role that lets the backend do it.
+*/}}
+{{- define "marvin.backupRunnerEnv" -}}
+{{- if and .Values.backup.targets .Values.backup.scheduledTasks.enabled }}
+- name: BACKUP_RUNNER
+  value: kubernetes
+- name: BACKUP_CRONJOB_PREFIX
+  value: {{ printf "%s-backup-" (include "marvin.fullname" .) | quote }}
+- name: BACKUP_TARGETS
+  value: {{ $names := list }}{{ range .Values.backup.targets }}{{ $names = append $names (printf "%s:%s" (toString .name) (toString .type)) }}{{ end }}{{ join "," $names | quote }}
+{{- end }}
 {{- end -}}
 
 {{/*

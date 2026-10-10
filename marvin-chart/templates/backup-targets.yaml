@@ -114,6 +114,10 @@ metadata:
     app.kubernetes.io/component: backup
 spec:
   schedule: {{ $schedule | quote }}
+  {{- if $t.suspend }}
+  # Marvin schedules this target (a run_backup_target task); the CronJob is its Job template.
+  suspend: true
+  {{- end }}
   {{- with $t.timeZone }}
   timeZone: {{ . | quote }}
   {{- end }}
@@ -128,6 +132,8 @@ spec:
       labels:
         app.kubernetes.io/instance: {{ $.Release.Name }}
         app.kubernetes.io/component: backup
+        # services/backup_runner.py finds a target's running Job by this, the CronJob's and its own.
+        marvin.backup/target: {{ $name }}
     spec:
       backoffLimit: 2
       # Bounds a stuck run (or one left Pending with no backend pod to sit beside), so

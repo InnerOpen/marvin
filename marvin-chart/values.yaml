@@ -318,6 +318,9 @@ backup:
   #                            nfsvers=4.2])}: a static PV `<namespace>-<fullname>-backup-<name>`
   #                            (ReadWriteMany, Retain, storageClassName "", claimRef) + PVC
   #     subPath                a subdirectory of that volume to use; the kubelet creates it if missing
+  #   suspend                  true = the CronJob never fires on its own: Marvin schedules the target with a
+  #                            run_backup_target scheduled task (needs scheduledTasks.enabled), and the
+  #                            CronJob is only the Job template
   # targets:
   #   - name: nas-nightly
   #     type: local
@@ -328,6 +331,14 @@ backup:
   #       nfs: {server: 192.168.30.10, path: /tank/backups/marvin}
   #       subPath: prod
   targets: []
+  # Start backups from Admin → Scheduled Tasks (task type run_backup_target, config {target: <name>}):
+  # Run Now, or a schedule Marvin owns. The backend creates a Job from the target's CronJob, so the pod,
+  # its credentials and its node stay what the CronJob says; the backend never holds a target's secrets.
+  # Security trade: this renders a Role letting the backend's service account get CronJobs and create /
+  # list Jobs in this namespace (nothing else) — a backend compromise could then start Jobs from those
+  # templates. Off by default.
+  scheduledTasks:
+    enabled: false
 
 # Web Push — notifications for the installable admin app (phones and browsers that turned them on in
 # Profile → Notifications). The backend's VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY / VAPID_SUBJECT come from an

@@ -337,6 +337,18 @@ class AppSettings(BaseSettings):
     LOG_LEVEL: str = "info"
     """ corresponds to standard Python Log levels """
 
+    BACKUP_RUNNER: str = ""
+    """ how the `run_backup_target` scheduled task starts a backup (services/backup_runner.py): "kubernetes"
+    (a Job from the target's CronJob; the chart sets it with backup.scheduledTasks.enabled), "process" (a child
+    of the backend, for installs without Kubernetes), or "" (off: the task refuses to run). """
+
+    BACKUP_TARGETS: str = ""
+    """ the targets `run_backup_target` may start: `name` or `name:type`, comma separated (type defaults to
+    the name). The chart fills it from backup.targets. """
+
+    BACKUP_CRONJOB_PREFIX: str = ""
+    """ kubernetes runner: a target's CronJob is this + its name (the chart's `<fullname>-backup-`). """
+
     EVENT_LOG_RETENTION_DAYS: int = 90
     """ default retention for the event_log audit trail; the prune_event_logs task deletes
     rows older than this. 0 disables pruning (keep forever). Overridable per-task. """

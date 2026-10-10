@@ -1,0 +1,37 @@
+{{- /*
+backup.scheduledTasks.enabled: the backend's service account may read this namespace's CronJobs and
+create / list Jobs, so a run_backup_target scheduled task can start a backup target's run as a Job from its
+CronJob (services/backup_runner.py). Nothing else: no pods, secrets, deletes or other namespaces.
+*/}}
+{{- if and .Values.backup.targets .Values.backup.scheduledTasks.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "marvin.fullname" . }}-backup-runner
+  labels:
+    {{- include "marvin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+rules:
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "marvin.fullname" . }}-backup-runner
+  labels:
+    {{- include "marvin.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "marvin.fullname" . }}-backup-runner
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "marvin.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
