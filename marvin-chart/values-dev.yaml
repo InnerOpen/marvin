@@ -82,6 +82,10 @@ persistence:
 # recovery by choice. Retention 24 hourly + 7 daily, no weekly — less than production's, since dev's data
 # is disposable. Dev has no NAS target.
 backup:
+  # Admin → Scheduled Tasks can start these targets (run_backup_target: Run Now, or a Marvin-owned schedule) as a
+  # Job from the CronJob; renders Role marvin-backup-runner (get cronjobs, create/list jobs, this namespace only).
+  scheduledTasks:
+    enabled: true
   targets:
     - name: r2
       type: s3
