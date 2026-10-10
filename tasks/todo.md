@@ -520,11 +520,35 @@ cannot create a workflow / entry type / collection / scheduled task, and has no 
 
 # AI provider plugins — model vendors as site-wide plugins (2026-10-03, Jared: "make a backlog item")
 
-**Status (2026-10-07):** started with OpenAI (Jared 2026-10-07: "move on to the OpenAI plugin after all is
-validated"). SDK contract 0.8.0, core registry and the `marvin-ai-openai` package (openai + azure) are built and
-tested locally on `feat/ai-provider-plugins` (core), `feat/ai-provider-contract` (SDK) and `feat/ai-provider-types`
-(marvin-sdk); nothing pushed, no GitHub repo for the plugin yet. Other vendors not started. See "Review (OpenAI
-slice)" below.
+**Status (2026-10-10):** the OpenAI slice is done and live — SDK contract 0.8.0 (`39c4920`), core registry +
+loader (`5007c453`), `marvin-ai-openai` 0.1.0 (openai + azure, own price table) baked into the image, core's
+openai/azure providers removed (`d15c0d84`; the "B. Remove core's built-in openai / azure" checkboxes below are
+done by that commit). Built in still: anthropic, google, ollama.
+
+**Plan v2 (2026-10-10, Jared decided):** no built-ins in the end; LiteLLM as the price feed; an unpriced run is
+counted and admins are warned (never silently $0, never blocked). Slices, each shippable alone:
+1. [ ] **Unpriced runs are visible.** `month_spend` counts runs with no price separately; AI executions and the
+       budget page say "N runs this month have no price (model …)"; one admin alert per newly-seen unpriced
+       provider/model (platform alert route, like backup alerts). Fix `AI_DEFAULT_PROVIDER` defaulting to `openai`
+       (no longer in core): default empty = the first installed provider.
+2. [ ] **Prices live with their provider.** Built-in anthropic/google declare `prices` (current models); core's
+       `PRICING` drops the openai/azure rows (the plugin's table is the source) and stays only as the last
+       fallback until slice 5 removes it.
+3. [ ] **Admin price overrides.** Admin → AI: per provider/model input/output $/1M tokens, top of the lookup;
+       "Backfill" recomputes `estimated_cost_usd` for this month's unpriced runs of that model.
+4. [ ] **LiteLLM feed.** Daily system task fetches the price list from a **configurable URL** (Jared 2026-10-10):
+       platform setting `AI_PRICE_FEED_URL`, editable in Admin → AI, defaulting to LiteLLM's
+       `model_prices_and_context_window.json` on GitHub raw (MIT); empty = feed off. Same format required (LiteLLM's
+       keys), so a mirror or a self-hosted copy works. Stores the rows for installed providers; lookup = override >
+       provider table > feed. Source URL and age shown on the price list; a failed fetch keeps the last good copy
+       and alerts admins.
+5. [ ] **One package per vendor:** `marvin-ai-anthropic`, `marvin-ai-google` (google-genai), `marvin-ai-ollama`,
+       each with the conformance kit; baked into the image (plugins group) so installs see no change; core ships
+       no providers and drops `PRICING`.
+6. [ ] (optional, needs admin keys) **Billed-cost reconciliation:** OpenAI Costs API / Anthropic cost report vs
+       our estimates, monthly.
+7. [ ] **Housekeeping:** tag SDK and plugin releases and pin tags instead of `rev=main`; remove merged branches
+       and leftover worktrees (`feat/ai-provider-*`).
 
 Why: one new model (gpt-6.1-sol) needed three core releases in a day (max_tokens renamed, tools refused while
 reasoning, no price). The Responses API switch removed the per-model rules; what is left is vendor churn
