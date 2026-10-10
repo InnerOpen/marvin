@@ -6,6 +6,28 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.245 (2026-10-10)
+
+### Features
+
+- **backups**: Start a backup target from Admin → Scheduled Tasks (Run Now or a Marvin-owned
+  schedule)
+  ([`a2247e9`](https://github.com/InnerOpen/marvin/commit/a2247e952dafcaba50879c9deeba2041c0eb1d18))
+
+### Refactoring
+
+- **maintenance**: Cleanup buttons become system scheduled tasks; heartbeat logs at DEBUG
+  ([`c38f9fd`](https://github.com/InnerOpen/marvin/commit/c38f9fd1ff0c2e74cf8b82c8e61e00ef6a2ab6c8))
+
+- **storage**: Slice 7 — remove the old off-site job and core's S3 provider
+  ([`1326f42`](https://github.com/InnerOpen/marvin/commit/1326f4281694433417d32f032bbd71a9e9524061))
+
+### Testing
+
+- A workflow's read shape includes its source recipe
+  ([`d77ae50`](https://github.com/InnerOpen/marvin/commit/d77ae506a2bf399dffe756181428eb56b064fbfd))
+
+
 ## v1.0.0-rc.244 (2026-10-10)
 
 ### Features
