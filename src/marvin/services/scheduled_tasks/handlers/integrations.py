@@ -123,12 +123,14 @@ class RunIntegrationActionHandler(ScheduledTaskHandler):
                 _rotate_secret(session, row, gid, result["secret_update"])
 
         summary = _summary(slug, action, result, created)
-        logger.info("Integration action: %s", summary)
         # Quiet on a routine nothing-happened run: polling every couple of minutes, most runs find
         # no new work, and logging each one drowns the runs that mattered. None means "not worth a
-        # row" — the listener still logs it when a person triggered the run by hand.
+        # row" — the listener still logs it when a person triggered the run by hand. The console
+        # line follows the same rule (DEBUG still shows every run).
         if not _worth_logging(result, created):
+            logger.debug("Integration action: %s", summary)
             return None
+        logger.info("Integration action: %s", summary)
         return summary
 
 

@@ -44,7 +44,7 @@ def check_scheduled_tasks() -> None:
                 logger.debug("No scheduled tasks due for execution")
                 return
 
-            logger.info(f"Found {len(due_tasks)} scheduled task(s) due for execution")
+            logger.debug(f"Found {len(due_tasks)} scheduled task(s) due for execution")
 
             for task in due_tasks:
                 try:

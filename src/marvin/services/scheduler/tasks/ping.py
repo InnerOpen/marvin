@@ -22,4 +22,4 @@ def ping() -> None:
     are being executed. Its output will appear in the application logs if the
     log level is set to DEBUG or lower.
     """
-    logger.info("🏓 Ping!")
+    logger.debug("🏓 Ping!")

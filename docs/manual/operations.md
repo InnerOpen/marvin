@@ -91,6 +91,7 @@ Since rc.159 an upload makes an image's opaque solid background transparent. Fil
 | Event log (`prune_event_logs`) | `EVENT_LOG_RETENTION_DAYS` | 90 days; `0` keeps forever; overridable per task |
 | AI executions (`prune_ai_executions`) | `AI_EXECUTION_RETENTION_DAYS` | 90 days; a workspace's `logging_config.retention_days` overrides |
 | Scheduled-task execution log (`prune_scheduled_task_executions`) | task config `retention_days` | 30 days (rc.97) |
+| Revoked API tokens and site clients (`prune_revoked_tokens`) | task config `age_days` | 30 days after revocation |
 
 Since rc.96 an automatic run whose handler returns `None` writes no execution row; manual runs always do.
 

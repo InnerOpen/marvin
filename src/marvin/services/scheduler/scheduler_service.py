@@ -229,8 +229,9 @@ async def run_minutely() -> None:  # Made async
     """
     current_time_utc = datetime.now(UTC)
     next_run_time = current_time_utc + timedelta(minutes=MINUTES)
-    logger.info(
-        f" {MINUTES} mins) callbacks at {current_time_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}. "
+    # DEBUG, like the per-minute lines below it: once a minute is a heartbeat, not an event.
+    logger.debug(
+        f"Running minutely (every {MINUTES} mins) callbacks at {current_time_utc.strftime('%Y-%m-%d %H:%M:%S %Z')}. "
         f"Next run approx: {next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
     )
     if not _is_leader():
@@ -242,4 +243,4 @@ async def run_minutely() -> None:  # Made async
             await _scheduled_async_task_wrapper(registered_func)  # e.g. work it moves off the event loop itself
         else:
             _scheduled_task_wrapper(registered_func)
-    logger.info(f"Finished processing minutely (every {MINUTES} mins) callbacks.")
+    logger.debug(f"Finished processing minutely (every {MINUTES} mins) callbacks.")

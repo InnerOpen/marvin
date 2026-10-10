@@ -548,7 +548,7 @@ class ScheduledTaskListener(BuiltinReaction):
 
                 # Get and execute handler
                 handler = TaskHandlerRegistry.get_handler(task.task_type)
-                self.logger.info(f"Executing scheduled task: {task.name} (type: {task.task_type})")
+                self.logger.debug(f"Executing scheduled task: {task.name} (type: {task.task_type})")
                 output = handler.execute(task, event_bus)
 
                 # Calculate duration
@@ -603,7 +603,9 @@ class ScheduledTaskListener(BuiltinReaction):
                         entity_type="scheduled_task",
                     )
 
-                self.logger.info(f"Scheduled task '{task.name}' completed successfully in {duration_ms}ms")
+                # The console follows the execution log: a nothing-happened run is a DEBUG line, not an INFO one.
+                log = self.logger.info if worth_recording else self.logger.debug
+                log(f"Scheduled task '{task.name}' completed successfully in {duration_ms}ms")
 
             except ValueError as e:
                 # Handler not found

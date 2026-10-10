@@ -20,47 +20,21 @@ try {
 <AdminLayout crumb="admin.maintenance">
   <div class="toolbar">
     <div>
-      <h2>Maintenance & Cleanup</h2>
-      <p>Run maintenance and cleanup operations</p>
+      <h2>Maintenance</h2>
+      <p>Storage use, and where cleanup happens</p>
     </div>
   </div>
 
   <div class="page-container">
     <div class="maintenance-grid">
-      <!-- Cleanup Tasks -->
+      <!-- Cleanup runs as scheduled tasks: one place with config, history and Run Now. -->
       <section class="card">
-        <h3>Cleanup Tasks</h3>
-        <p class="card-description">Run maintenance and cleanup operations</p>
-        <div class="cleanup-tasks">
-          <div class="task-item">
-            <div class="task-info">
-              <strong>Clean Expired Tokens</strong>
-              <p>Remove expired API tokens and user sessions</p>
-            </div>
-            <button class="button secondary small" id="cleanup-tokens">Run Cleanup</button>
-          </div>
-          <div class="task-item">
-            <div class="task-info">
-              <strong>Clean Old Events</strong>
-              <p>Remove event logs older than 90 days</p>
-            </div>
-            <button class="button secondary small" id="cleanup-events">Run Cleanup</button>
-          </div>
-          <div class="task-item">
-            <div class="task-info">
-              <strong>Optimize Database</strong>
-              <p>Run VACUUM and ANALYZE on database tables</p>
-            </div>
-            <button class="button secondary small" id="optimize-db">Run Optimization</button>
-          </div>
-          <div class="task-item">
-            <div class="task-info">
-              <strong>Clear Cache</strong>
-              <p>Clear application caches and temporary files</p>
-            </div>
-            <button class="button secondary small" id="clear-cache">Clear Cache</button>
-          </div>
-        </div>
+        <h3>Cleanup</h3>
+        <p class="card-description">
+          Temporary files, revoked tokens, old events and execution logs are cleaned up on a schedule.
+          See what ran, change a schedule, or run one now (Optimize Database is there too, run-on-demand) in
+          <a href="/admin/scheduled-tasks">Scheduled Tasks</a>.
+        </p>
       </section>
 
       <!-- Storage Information -->
@@ -101,70 +75,6 @@ try {
     </div>
   </div>
 </AdminLayout>
-
-<script>
-  import { createSdkClient } from '@/lib/sdk';
-
-  // SDK uses cookie-based auth automatically via credentials: 'include'
-  // No need to extract the HttpOnly token - the browser sends it automatically
-  const sdk = createSdkClient();
-
-  // Cleanup tokens
-  document.getElementById('cleanup-tokens')?.addEventListener('click', async () => {
-    if (!confirm('Clean up expired tokens? This will remove all expired API tokens and sessions.')) return;
-
-    try {
-
-      const result = await sdk.adminMaintenance.cleanupTokens();
-      alert(result.message || 'Cleanup completed successfully');
-      window.location.reload();
-    } catch (error) {
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  });
-
-  // Cleanup events
-  document.getElementById('cleanup-events')?.addEventListener('click', async () => {
-    if (!confirm('Clean up old events? This will remove old event log entries.')) return;
-
-    try {
-
-      const result = await sdk.adminMaintenance.cleanupEvents();
-      alert(result.message || 'Cleanup completed successfully');
-      window.location.reload();
-    } catch (error) {
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  });
-
-  // Optimize database
-  document.getElementById('optimize-db')?.addEventListener('click', async () => {
-    if (!confirm('Optimize database? This may take a few moments.')) return;
-
-    try {
-
-      const result = await sdk.adminMaintenance.optimizeDatabase();
-      alert(result.message || 'Database optimized successfully');
-      window.location.reload();
-    } catch (error) {
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  });
-
-  // Clear cache
-  document.getElementById('clear-cache')?.addEventListener('click', async () => {
-    if (!confirm('Clear application cache?')) return;
-
-    try {
-
-      const result = await sdk.adminMaintenance.clearCache();
-      alert(result.message || 'Cache cleared successfully');
-      window.location.reload();
-    } catch (error) {
-      alert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  });
-</script>
 
 <style>
   .toolbar {
@@ -212,46 +122,9 @@ try {
 
   .card-description {
     margin: 0 0 20px;
+    line-height: 1.5;
     font-size: 14px;
     color: var(--muted);
-  }
-
-  .cleanup-tasks {
-    display: grid;
-    gap: 12px;
-  }
-
-  .task-item {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 16px;
-    background: var(--panel-2);
-    border-radius: var(--radius);
-  }
-
-  .task-info {
-    flex: 1;
-  }
-
-  .task-info strong {
-    display: block;
-    font-size: 14px;
-    font-weight: 600;
-    margin-bottom: 4px;
-  }
-
-  .task-info p {
-    margin: 0;
-    font-size: 13px;
-    color: var(--muted);
-  }
-
-  .button.small {
-    padding: 6px 14px;
-    font-size: 13px;
-    flex-shrink: 0;
   }
 
   .storage-list {

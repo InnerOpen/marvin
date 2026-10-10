@@ -16,6 +16,7 @@ logger = get_logger(__name__)
 # hour. A cron schedule (`0 3 * * *`) would pin the hour now that cron runs (services/cron.py);
 # these system tasks don't care when in the day they run, so they keep the interval.
 _DAILY_SECONDS = 24 * 60 * 60
+_WEEKLY_SECONDS = 7 * _DAILY_SECONDS
 # Scheduled publish/expiry granularity: an entry goes live (or expires) within this of its time.
 _PUBLISHING_INTERVAL_SECONDS = 5 * 60
 
@@ -31,6 +32,8 @@ class SystemTaskDefinition:
     schedule_type: str
     schedule_config: dict
     task_config: dict = field(default_factory=dict)
+    # False ships a Run-Now-only task: listed in Admin → Scheduled Tasks, runs when an admin asks (or enables it).
+    enabled: bool = True
 
 
 SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
@@ -76,6 +79,36 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         schedule_config={"interval_seconds": _DAILY_SECONDS},
     ),
     SystemTaskDefinition(
+        slug="cleanup_temp_files",
+        name="Cleanup Temporary Files",
+        task_type="cleanup_temp_files",
+        description="Remove files older than 24 hours from the temporary upload directory (imports, uploads in flight). Admin-only; runs daily.",
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"age_hours": 24},
+    ),
+    SystemTaskDefinition(
+        slug="prune_revoked_tokens",
+        name="Prune Revoked Tokens",
+        task_type="prune_revoked_tokens",
+        description="Delete API tokens and site clients revoked more than 30 days ago (they can never sign in again). Admin-only; runs daily.",
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+        task_config={"age_days": 30},
+    ),
+    SystemTaskDefinition(
+        slug="optimize_database",
+        name="Optimize Database",
+        task_type="optimize_database",
+        description=(
+            "VACUUM + ANALYZE the database. Off by default — Postgres autovacuum already does this routinely; "
+            "use Run Now after a large delete. Weekly if enabled."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _WEEKLY_SECONDS},
+        enabled=False,
+    ),
+    SystemTaskDefinition(
         slug="publish_scheduled_entries",
         name="Publish Scheduled Entries",
         task_type="publish_scheduled_entries",
@@ -118,7 +151,7 @@ def seed_system_scheduled_tasks(session) -> int:
                 "name": defn.name,
                 "slug": defn.slug,
                 "description": defn.description,
-                "enabled": True,
+                "enabled": defn.enabled,
                 "schedule_type": defn.schedule_type,
                 "schedule_config": defn.schedule_config,
                 "task_type": defn.task_type,
