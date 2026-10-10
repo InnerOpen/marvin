@@ -12,6 +12,7 @@ import copy  # Deep-copy Uvicorn's logging config before customizing it
 import logging  # Access-log filtering (silence health probes)
 from collections.abc import AsyncGenerator, Mapping  # Type hints
 from contextlib import asynccontextmanager  # For creating async context managers (lifespan)
+from pathlib import Path  # The package directory the dev reloader watches
 
 import uvicorn  # ASGI server for running FastAPI
 from fastapi import FastAPI  # The main FastAPI class
@@ -451,7 +452,10 @@ def main() -> None:
         host="0.0.0.0",  # Listen on all available network interfaces
         port=settings.API_PORT,  # Port from application settings
         reload=not settings.PRODUCTION,  # Enable auto-reloading in non-production environments
-        reload_dirs=["."] if not settings.PRODUCTION else None,  # Directories to watch for changes
+        # The package's own source, never "." — that is "/" in a container (every file on it polled) and the whole
+        # checkout, frontend/node_modules included, on a laptop. Reload is for laptops only: its parent process has
+        # imported the app as well, so a reloading server needs about twice the memory (keep PRODUCTION=true in pods).
+        reload_dirs=[str(Path(__file__).parent)] if not settings.PRODUCTION else None,
         reload_delay=2 if not settings.PRODUCTION else None,  # Delay before reloading
         log_level="info",  # Uvicorn's own log level
         use_colors=True,  # Enable colored logging output

@@ -81,7 +81,7 @@ image:
 
 ```yaml
 config:
-  production: false          # Enable production mode
+  production: true           # container mode; false = laptop-dev (known signing key, auto-reload: ~2x memory)
   environmentLabel: ""       # e.g. DEV / STAGING: UI badge + "[DEV] " tab titles; empty = nothing shown
   platformWorkspaceName: ""  # name of the admin's workspace on a fresh install; empty = "Default"
   allowSignup: true          # Allow user signups

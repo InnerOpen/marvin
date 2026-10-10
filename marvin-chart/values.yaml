@@ -202,8 +202,9 @@ persistence:
 
 # Application configuration
 config:
-  # Environment mode
-  production: false
+  # Container runtime mode — keep true for every cluster install. false is laptop-dev mode: a fixed, publicly known
+  # token signing key, localhost CORS, debug handlers and an auto-reloading server.
+  production: true
 
   # Short tag for a non-production instance, e.g. "DEV" or "STAGING" (upper-cased, max 12 chars).
   # The UI badges the app/admin headers and the login page with it and prefixes tab titles with
