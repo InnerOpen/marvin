@@ -9,7 +9,9 @@ import {
   expiredSessionRedirect,
   FALLBACK_COOKIE_SECONDS,
   isExpired,
+  SESSION_CHECK_MS,
   safeReturnPath,
+  sessionRejected,
   tokenExpiresAt,
 } from "./session.ts";
 
@@ -93,5 +95,39 @@ describe("safeReturnPath", () => {
     ]) {
       assert.equal(safeReturnPath(value), "/", String(value));
     }
+  });
+});
+
+describe("sessionRejected", () => {
+  const asked = (status) => {
+    const calls = { n: 0 };
+    const ask = async () => {
+      calls.n += 1;
+      if (status instanceof Error) throw status;
+      return status;
+    };
+    return { calls, ask };
+  };
+
+  test("a 401 from the API means the session is dead", async () => {
+    assert.equal(await sessionRejected("t-401", asked(401).ask, NOW), true);
+  });
+
+  test("an accepted session isn't asked about again for a while", async () => {
+    const { calls, ask } = asked(200);
+    assert.equal(await sessionRejected("t-ok", ask, NOW), false);
+    assert.equal(await sessionRejected("t-ok", ask, NOW + SESSION_CHECK_MS - 1), false);
+    assert.equal(calls.n, 1);
+    await sessionRejected("t-ok", ask, NOW + SESSION_CHECK_MS + 1);
+    assert.equal(calls.n, 2);
+  });
+
+  test("an unreachable or failing API never signs anyone out, and is asked again next time", async () => {
+    const down = asked(new Error("ECONNREFUSED"));
+    assert.equal(await sessionRejected("t-down", down.ask, NOW), false);
+    const broken = asked(500);
+    assert.equal(await sessionRejected("t-500", broken.ask, NOW), false);
+    await sessionRejected("t-500", broken.ask, NOW + 1);
+    assert.equal(broken.calls.n, 2);
   });
 });

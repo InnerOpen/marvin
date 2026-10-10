@@ -66,3 +66,38 @@ export function safeReturnPath(value: string | null | undefined): string {
   if (!value?.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return "/";
   return value;
 }
+
+/** How long a session the API accepted isn't asked about again (per token, in this server's memory). */
+export const SESSION_CHECK_MS = 5 * 60_000;
+const SESSION_CHECK_LIMIT = 1000;
+const acceptedUntil = new Map<string, number>();
+
+/**
+ * Whether the API rejects this unexpired token: a rotated server secret, a deleted or disabled user — the token
+ * still looks valid by its own expiry, but every page's API calls would fail with "Unauthorized". `askApi` answers
+ * the HTTP status of a cheap authenticated call. Only a 401 counts as rejected: an API that can't be reached says
+ * nothing about the session, so it never signs anyone out. An accepted token isn't asked about again for
+ * SESSION_CHECK_MS.
+ */
+export async function sessionRejected(
+  token: string,
+  askApi: () => Promise<number>,
+  now: number = Date.now(),
+): Promise<boolean> {
+  if ((acceptedUntil.get(token) ?? 0) > now) return false;
+  let status: number;
+  try {
+    status = await askApi();
+  } catch {
+    return false;
+  }
+  if (status === 401) {
+    acceptedUntil.delete(token);
+    return true;
+  }
+  if (status >= 200 && status < 300) {
+    if (acceptedUntil.size >= SESSION_CHECK_LIMIT) acceptedUntil.clear(); // bounded: a full map just starts over
+    acceptedUntil.set(token, now + SESSION_CHECK_MS);
+  }
+  return false;
+}
