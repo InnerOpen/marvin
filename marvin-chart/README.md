@@ -8,7 +8,7 @@ Marvin is an event bus application with webhook delivery, scheduling, and state 
 
 - Automated database migrations on application startup
 - API and server-rendered web UI from a single image, exposed on separate ports
-- Multi-environment support (dev, staging, production)
+- Multi-environment support (per-install values files)
 - OpenShift Route integration
 - Persistent storage for SQLite database
 - Configurable resource limits
@@ -33,16 +33,6 @@ helm install marvin ./marvin-chart
 helm install marvin ./marvin-chart --namespace marvin-dev --create-namespace
 ```
 
-### Staging Deployment
-
-```bash
-helm install marvin ./marvin-chart \
-  --namespace marvin-staging \
-  --create-namespace \
-  --values marvin-chart/values-staging.yaml \
-  --set image.tag=$(git rev-parse --short HEAD)
-```
-
 ### Production Deployment
 
 ```bash
@@ -60,11 +50,10 @@ helm upgrade --install marvin ./marvin-chart \
 
 ### Values Files
 
-The chart includes three values files for different environments:
-
-- **values.yaml** - Development defaults (1 replica, debug logging, local SMTP)
-- **values-staging.yaml** - Staging overrides (2 replicas, info logging)
+- **values.yaml** - Defaults (1 replica, combined mode, debug logging, local SMTP)
 - **values-production.yaml** - Production settings (2+ replicas, strict security)
+- **values-k8s.yaml** - Plain Kubernetes (no OpenShift Route)
+- **values-iwobble.yaml** / **values-dev.yaml** - iwobble's production and its pre-production copy (`marvin-dev`)
 
 ### Key Configuration Options
 
