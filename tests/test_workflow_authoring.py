@@ -118,7 +118,7 @@ def test_guide_lists_marvins_real_vocabulary(ws):
     from marvin.services.events.event_catalog import TRIGGERABLE_EVENT_TYPES
 
     guide = authoring_guide(ws.session, ws.gid)
-    assert set(guide) == {*SECTIONS, "more"}
+    assert set(guide) == {*SECTIONS, "more"} - {"editor"}  # the editor labels come only with section=editor
     events = {e for names in guide["events"]["triggerable"].values() for e in names}
     assert events == TRIGGERABLE_EVENT_TYPES and "entry_published" in events
     assert set(guide["triggers"]) == set(TRIGGER_MODELS)

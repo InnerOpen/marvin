@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 from marvin.schemas.group.agent import SYSTEM_AGENT_SLUGS
-from marvin.services.ai.operations.base import INVOCATION_SOURCES, ROLE_VIEWER
+from marvin.services.ai.operations.base import INVOCATION_SOURCES, ROLE_ADMIN, ROLE_VIEWER
 
 ASK_SYSTEM_PROMPT = (
     "You answer questions about this workspace using ONLY what your tools return: search_content for "
@@ -26,6 +26,24 @@ ASK_SYSTEM_PROMPT = (
     "answer from the results and name the entries you drew on. If the results don't contain the answer, "
     "say so plainly rather than guessing. Never invent content. If part of a question clearly belongs to "
     "another agent listed below, refer it with suggest_agent (once) and still answer what you can."
+)
+
+# Builder configures Marvin with the admin — workflows today — never the site's code. Guided steps first (Jared,
+# 2026-10-02: "you told me how to build it, and I was able to build it"); drafting is the opt-in second mode.
+BUILDER_SYSTEM_PROMPT = (
+    "You help the admin set Marvin up to do what they need: workflows (automations), and how entry types, collections, "
+    "scheduled tasks and integrations fit in. You configure Marvin; you never write code for their site.\n"
+    "First, learn the real pieces: workflow_authoring_guide (this workspace's entry types, fields, collections and "
+    "integrations; section=editor gives the editor's own labels), search_docs / read_doc for how Marvin works (cite the "
+    "page's url), and list_workflows / get_workflow for what exists. Never name a step, field, operator or option those "
+    "don't show.\n"
+    "Then answer with numbered steps for THIS workspace, in the editor's words (Trigger, Run on a query, Fields equal, "
+    "Only if, Set fields, Preview matches…): where to click, what to choose, the real field names and typed values "
+    "(true, 45 — not \"45\"), what Preview matches should report, and what to watch for (a manual run touches at most "
+    "250 entries at a time and runs while the page waits; run it once). End by offering to draft it for them.\n"
+    "Only when they say yes: draft_workflow (it asks the user to approve, and creates the workflow switched off), then "
+    "give the editor link, the Preview count and a short explanation of each part. Never switch a workflow on or run "
+    "it: a person reviews it, switches it on and runs it. To change a draft, update_workflow_draft."
 )
 
 # Users call the indexed workspace content "the RAG", "the knowledge base", "the index" or "what you know".
@@ -253,6 +271,41 @@ SYSTEM_AGENTS: dict[str, AgentSpec] = {
         # suggest_agent runs nothing: Ask can point the user at a specialist but never calls one.
         tool_allowlist=("search_content", "workspace_overview", "search_docs", "read_doc", "suggest_agent"),
         handoff_hint="the user wants a grounded answer from the workspace content, with citations",
+        is_system=True,
+    ),
+    "builder": AgentSpec(
+        slug="builder",
+        name="Builder",
+        description="Sets Marvin up with you: step-by-step how-tos for workflows, and drafts them switched off on request.",
+        system_prompt=BUILDER_SYSTEM_PROMPT,
+        tool_allowlist=(
+            "workflow_authoring_guide",
+            "search_docs",
+            "read_doc",
+            "list_workflows",
+            "get_workflow",
+            "describe_event",
+            "list_entry_types",
+            "get_entry_type",
+            "list_collections",
+            "find_entries",
+            "workspace_overview",
+            "draft_workflow",
+            "update_workflow_draft",
+            "suggest_agent",
+        ),
+        # Writes ask first (a custom-style agent's default), so a draft always waits for the user's approval.
+        allow_writes=True,
+        min_role=ROLE_ADMIN,  # the workflow tools are ADMIN, like the Workflows page
+        handoff_hint=(
+            "the user asks how to set something up in Marvin, automate something, build or change a workflow, "
+            "or bulk-update entries"
+        ),
+        suggestions=(
+            "How do I turn on Sell online for every available artwork with a price?",
+            "Announce new posts in Slack when they're published",
+            "Archive drafts nobody has touched in 90 days",
+        ),
         is_system=True,
     ),
     "chat": AgentSpec(

@@ -24,10 +24,11 @@ import json
 import types
 import typing
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 # What the guide offers in detail (`section=`); without one it gives a bounded overview of all of them.
-SECTIONS = ("shape", "triggers", "events", "target", "conditions", "actions", "templates", "workspace", "examples")
+SECTIONS = ("shape", "triggers", "events", "target", "conditions", "actions", "templates", "workspace", "examples", "editor")
 
 # Workspace lists are capped, like workspace_overview's structure: the guide must stay one tool result.
 REF_LIMIT = 50
@@ -419,13 +420,26 @@ _EXAMPLES_NOTE = (
 )
 
 
+_EDITOR_LABELS = Path(__file__).with_name("editor_labels.json")
+
+
+def _editor() -> dict:
+    """The workflow editor's own words for each part (a copy of frontend/src/lib/workflowLabels.json, kept equal by
+    tests/test_editor_labels.py): guided steps name what the person sees ("Run on a query", "Set fields"), not
+    the definition's keys."""
+    labels = json.loads(_EDITOR_LABELS.read_text())
+    labels.pop("_comment", None)
+    return {"note": "Use these labels when telling a person what to click; the keys are the definition's names.", **labels}
+
+
 def authoring_guide(session, group_id, section: str | None = None, recipe: str | None = None) -> dict:
     """The guide: every section in brief, or one in detail; ``recipe`` names one Library recipe to show in full
     (the examples section). Raises ValueError for an unknown section."""
     if section and section not in SECTIONS:
         raise ValueError(f"unknown section '{section}' — one of: {', '.join(SECTIONS)}")
     detail = section is not None
-    want = (section,) if section else SECTIONS
+    # The editor's labels only on request: the overview has a size budget, and guided steps ask for them.
+    want = (section,) if section else tuple(x for x in SECTIONS if x != "editor")
     out: dict[str, Any] = {}
     refs: WorkspaceRefs | None = None
     if "shape" in want:
@@ -450,10 +464,13 @@ def authoring_guide(session, group_id, section: str | None = None, recipe: str |
     if "examples" in want:
         assert refs is not None
         out["examples"] = _examples(refs, detail, recipe)
+    if "editor" in want:
+        out["editor"] = _editor()
     if not detail:
         out["more"] = (
             "Call again with section= one of " + ", ".join(SECTIONS) + " for detail: event descriptions, field types, what each entry op "
-            "sends, integration action args, the Library recipes this workspace can run (section=examples, then recipe=<id>). "
+            "sends, integration action args, the Library recipes this workspace can run (section=examples, then recipe=<id>), "
+            "the editor's own labels for each part (section=editor) when telling a person what to click. "
             "Then call draft_workflow — with recipe + vars to instantiate a recipe, or with a definition."
         )
     return out

@@ -61,7 +61,7 @@ def _set(workspace, slug: str, policy: dict | None) -> dict:
 
 
 def test_only_persona_built_ins_have_an_editable_matrix():
-    assert agents.BUILTIN_POLICY_SLUGS == ("marvin", "ask")
+    assert agents.BUILTIN_POLICY_SLUGS == ("marvin", "ask", "builder")
 
 
 def test_stored_overrides_are_cleaned_on_read():

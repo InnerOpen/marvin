@@ -61,7 +61,8 @@ def _last_run(session, row) -> dict | None:
         "set_data…), template syntax (${event.*}, ${entry.*}, ${steps.<id>.output.*}), this workspace's "
         "collections, entry types, integrations and their actions, webhooks and workflows, and the Library recipes "
         "this workspace can run (section=examples lists them; recipe=<id> shows one in full with its setup "
-        "variables). Call it before draft_workflow. Without `section` it gives everything in brief; with one, that "
+        "variables), and the editor's own labels for each part (section=editor) to use when telling a person "
+        "what to click. Call it before draft_workflow. Without `section` it gives everything in brief; with one, that "
         "part in detail."
     ),
     input_schema={
@@ -69,7 +70,7 @@ def _last_run(session, row) -> dict | None:
         "properties": {
             "section": {
                 "type": "string",
-                "enum": ["shape", "triggers", "events", "target", "conditions", "actions", "templates", "workspace", "examples"],
+                "enum": ["shape", "triggers", "events", "target", "conditions", "actions", "templates", "workspace", "examples", "editor"],
                 "description": "one part in detail (event descriptions, field types, integration action args, the recipes)",
             },
             "recipe": {"type": "string", "description": "a Library recipe id (from section=examples): its full definition and setup variables"},

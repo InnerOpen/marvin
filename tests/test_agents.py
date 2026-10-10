@@ -123,7 +123,7 @@ def test_resolve_agent_prefers_system_then_rows_then_none():
 
 def test_list_agents_puts_system_agents_first():
     specs = list_agents(_session_with([_row()]), "g1")
-    assert [s.slug for s in specs] == ["marvin", "ask", "chat", "workshop"]
+    assert [s.slug for s in specs] == ["marvin", "ask", "builder", "chat", "workshop"]
 
 
 # ── Tool filtering + gates ───────────────────────────────────────────────────
@@ -560,3 +560,20 @@ def test_preamble_has_the_tagging_rule_only_when_tags_can_be_attached():
     assert TAGGING_RULE in workspace_preamble("W", ["attach_tag", "list_tags"])
     assert TAGGING_RULE not in workspace_preamble("W", ["search_content"])
     assert "never apply the tag vocabulary" in TAGGING_RULE
+
+
+def test_builder_drafts_only_with_approval_and_never_switches_on_or_runs():
+    """Builder (2026-10-10): guided steps first, then a draft the user approves — created switched off."""
+    from marvin.services.ai.operations.base import ROLE_ADMIN
+    from marvin.services.ai.tools import get_tool
+    from marvin.services.ai.tools.categories import category_of
+
+    builder = SYSTEM_AGENTS["builder"]
+    assert builder.min_role == ROLE_ADMIN and builder.handoff_hint and "workflow" in builder.handoff_hint
+    for name in builder.tool_allowlist:
+        assert get_tool(name) is not None, name  # every tool it names exists
+    assert not {"run_workflow", "set_automation_enabled"} & set(builder.tool_allowlist)
+    for name in ("draft_workflow", "update_workflow_draft"):
+        assert resolve_policy(builder, name, category_of(name, read_only=False), ROLE_ADMIN)[0] == POLICY_ASK
+    assert resolve_policy(builder, "search_docs", "docs_read", ROLE_ADMIN)[0] == POLICY_ALLOW
+    assert "section=editor" in builder.system_prompt and "switched off" in builder.system_prompt

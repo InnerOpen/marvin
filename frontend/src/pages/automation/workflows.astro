@@ -232,6 +232,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
 </AppLayout>
 
 <script>
+  import WORKFLOW_LABELS from "@/lib/workflowLabels.json";
   import {
     createAutomation,
     updateAutomation,
@@ -281,12 +282,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
 
   // ── Option-driven controls ────────────────────────────────────────────────
   const prettyEvent = (e: string) => e.replace(/_/g, " ");
-  const TRIGGER_TYPE_LABELS: Record<string, string> = {
-    event: "Event", manual: "Manual (Run button)", schedule: "Schedule",
-    chained: "After another workflow", on_error: "When a workflow fails",
-    incoming_webhook: "Incoming webhook (external POST)",
-    mcp: "MCP tool (external hosts)",
-  };
+  const TRIGGER_TYPE_LABELS: Record<string, string> = WORKFLOW_LABELS.triggerTypes;
   function webhookName(ref: string | undefined): string {
     if (!ref || ref === "any") return "any incoming webhook";
     const w = (OPTIONS.incomingWebhooks || []).find((x: any) => x.slug === ref || x.id === ref);
@@ -371,20 +367,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       banner.setAttribute("hidden", "");  // never block the builder on the validator
     }
   }
-  const KIND_LABELS: Record<string, string> = {
-    operation: "AI operation",
-    entry: "Entry action",
-    emit_event: "Emit event",
-    handler: "Run task",
-    webhook: "Call webhook",
-    integration: "Run integration",
-  };
-  const ENTRY_OP_LABELS: Record<string, string> = {
-    publish: "Publish", unpublish: "Unpublish", archive: "Archive", trash: "Move to Trash",
-    restore: "Restore (from archive or Trash)",
-    add_to_collection: "Add to collection", remove_from_collection: "Remove from collection",
-    set_metadata: "Set metadata", set_data: "Set fields", request_review: "Send to review",
-  };
+  const KIND_LABELS: Record<string, string> = WORKFLOW_LABELS.stepKinds;
+  const ENTRY_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.entryOps;
   const COLLECTION_OPS = new Set(["add_to_collection", "remove_from_collection"]);
   // Trash / restore also act on an asset or a resource (entity_type); every other op is entries only.
   const ITEM_OPS = new Set(["trash", "restore"]);
@@ -403,11 +387,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   // …and for top-level keys the builder has no fields for (`on_failure`), so a guided save keeps them.
   const BUILDER_KEYS = new Set(["trigger", "target", "conditions", "actions"]);
   let originalExtras: Record<string, unknown> = {};
-  const COND_OP_LABELS: Record<string, string> = {
-    eq: "equals", neq: "not equals", contains: "contains", in: "is one of",
-    starts_with: "starts with", exists: "exists", changed: "changed",
-    changed_from: "changed from", changed_to: "changed to",
-  };
+  const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
   const KIND_ORDER = ["operation", "entry", "handler", "webhook", "integration", "emit_event"];

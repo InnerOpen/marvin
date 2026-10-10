@@ -138,6 +138,19 @@ A dry run of an event-triggered workflow (Event, Incoming webhook, After another
 }
 ```
 
+### Example: switch a field on for many entries
+
+"Turn on **Sell online** for every available artwork with a price" is one workflow run once by hand:
+
+1. **New workflow**, name it, **Trigger** → **Manual (Run button)**.
+2. Tick **Run on a query** → **Entries**; **Entry type** → your artwork type; **Fields equal** → `availability` = `available` (the field's key and the value exactly as stored). Narrow with **Fields equal** rather than **Only if**: the query is what's capped at 250, conditions only skip rows inside it.
+3. If "has a price" isn't an equality, add it under **Only if**: `entry.data.price` **exists**.
+4. **Then do** → **Entry action** → **Set fields**: `sell_online` = `true`. Values are typed: a checkbox takes `true`, a number `45`, not `"45"`.
+5. **Preview matches** shows how many entries it will touch (and whether the 250 cap applies); **Dry run** shows the resolved plan.
+6. **Save workflow**, tick **Enabled**, **Run** once and wait for it (see above); untick **Enabled** afterwards if it was a one-off.
+
+Builder (an agent: ask "how do I…") gives these steps for your own types and fields, in these words, and can draft the workflow switched off for you to check.
+
 ### Workflow Library
 
 **Settings → Automation → Workflow Library** (`/automation/library`) lists ready-made workflows. Each card says when it runs, what it changes (your content, another service, paid calls, notifications, email) and whether this workspace can use it: **Ready here**, **Needs setup** (with what is missing, such as a connected Buttondown integration), **Set up elsewhere** (it is not a workflow: the card lists the parts and links to the page each is set up on, such as Notifications or Email settings) or **Not possible yet** (an idea Marvin can't run, naming what it waits on). The page shows the first two by default. **Use in editor** opens the recipe in the workflow editor.

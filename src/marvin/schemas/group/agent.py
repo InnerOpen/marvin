@@ -13,7 +13,7 @@ from marvin.services.ai.tones import SLUG_RE as TONE_SLUG_RE
 AgentKind = Literal["persona", "model"]
 PolicyValue = Literal["allow", "block", "ask"]  # ask = bound, but every call waits for the user (Ask threads)
 # Built-in agents are code, not rows; a user-defined agent may not shadow them.
-SYSTEM_AGENT_SLUGS = ("marvin", "ask", "chat")
+SYSTEM_AGENT_SLUGS = ("marvin", "ask", "builder", "chat")
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 
 
