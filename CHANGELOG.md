@@ -6,6 +6,23 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.246 (2026-10-10)
+
+### Bug Fixes
+
+- **chart**: Default to production mode — dev mode OOMKilled the Kind install (Helm Validation red
+  since 10-06)
+  ([`647d385`](https://github.com/InnerOpen/marvin/commit/647d385d35dc422b1d6201fd18dc881d9eeb279d))
+
+### Features
+
+- **agents**: Set_automation_enabled — switch an automation on or off after the admin approves
+  ([`0d4de83`](https://github.com/InnerOpen/marvin/commit/0d4de836c98ea7ffe9874dd0a0bb24743406b9ba))
+
+- **trash**: Assets and Resources list what's in the Trash, like Entries
+  ([`a75d4a0`](https://github.com/InnerOpen/marvin/commit/a75d4a03fa8e23ccedd9f84183daf4e5e5cc105c))
+
+
 ## v1.0.0-rc.245 (2026-10-10)
 
 ### Features
