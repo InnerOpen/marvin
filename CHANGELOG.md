@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.242 (2026-10-10)
+
+### Bug Fixes
+
+- **bubble**: /use shows an agent's character even if it was given one after the page loaded
+  ([`4889238`](https://github.com/InnerOpen/marvin/commit/4889238e1e3982744ac6f3f65ce09b718f4c0a5c))
+
+
 ## v1.0.0-rc.241 (2026-10-10)
 
 ### Features
