@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.251 (2026-10-10)
+
+### Features
+
+- **dev**: `task dev:refresh` — refresh marvin-dev from production's newest backup in one command
+  ([`7f1031f`](https://github.com/InnerOpen/marvin/commit/7f1031fd7358bf22b47d199569060460cc33af52))
+
+- **events**: Turn on / Turn off on an event's integration actions and workflows, installed ones too
+  ([`1dd1a8c`](https://github.com/InnerOpen/marvin/commit/1dd1a8c1bfc49b83bbb113b4ab23e18cb59f9e14))
+
+
 ## v1.0.0-rc.250 (2026-10-10)
 
 ### Features
