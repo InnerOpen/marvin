@@ -190,11 +190,20 @@ try {
       if (panel.classList.contains('open')) placePanel(); // a character and the icon differ in size
     }
 
-    /** A run ended, or `/use` switched agents: the active agent is the one talking again. */
+    /**
+     * A run ended, or `/use` switched agents. An answer (or an approval card) from a run a hand-off's delegate worked on
+     * stays with the delegate's character until the next message (handBack), so you see who answered; anything else —
+     * an error, Clear, `/use` — gives the bubble back to the active agent now (cast.settle).
+     */
     function finish(event: CharacterEvent) {
-      if (cast?.use(getActiveAgent())) showCast();
+      if (cast?.settle(event, getActiveAgent())) showCast();
       cue(event);
       if (tuck && (event === 'reply' || event === 'parked')) root.classList.add('tuck-pulse'); // an answer is waiting
+    }
+
+    /** The active agent is the one talking again (a new message: the delegate that answered the last one steps back). */
+    function handBack() {
+      if (cast?.use(getActiveAgent())) showCast();
     }
 
     function showIcon() {
@@ -340,6 +349,7 @@ try {
       greeted = true;
       const gen = generation;
       const thinking = addMsg('marvin', thinkingHtml(), false);
+      handBack();
       cue('send');
       try {
         const res = await resumePendingRun(run);
@@ -586,6 +596,7 @@ try {
       toggle.releasePointerCapture(e.pointerId);
       root.classList.remove('will-tuck');
       if (moved) {
+        cue('drop'); // let go: stop walking, whether it rests here or tucks into an edge
         const left = ox + e.clientX - sx, top = oy + e.clientY - sy;
         const edge = tuckEdge(left, top, bubbleBox(), viewport());
         if (edge) {
@@ -596,7 +607,6 @@ try {
         spot = spotFromRect(r.left, r.top, bubbleBox(), viewport());
         applySpot(spot);
         saveSpot(spot);
-        cue('drop');
       }
     });
     // Double-click puts him back in his default corner.
@@ -825,6 +835,7 @@ try {
       busy = true;
       const gen = generation;
       const thinking = addMsg('marvin', thinkingHtml(), false);
+      handBack();
       cue('send');
       try {
         const res = await resumeBubbleRun(card, decisions);
@@ -890,6 +901,7 @@ try {
       busy = true;
       const gen = generation;
       const thinking = addMsg('marvin', thinkingHtml(), false);
+      handBack();
       cue('send');
       try {
         const res = await cap.run(arg);

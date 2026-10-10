@@ -78,15 +78,27 @@ export interface Cast {
   use(slug: string): boolean;
   /** A progress poll of the running run: a delegate may have taken over, or handed back. */
   progress(events: readonly ActingEvent[]): boolean;
+  /**
+   * The run ended with `outcome`. When a hand-off's delegate worked on it and it answered (or parked on an approval),
+   * the delegate keeps the bubble — the router writes the final reply, so "acting" is back on it by then, but the
+   * answer is the delegate's. Anything else (an error, no hand-off) goes back to the active agent. The next message
+   * hands back with `use`.
+   */
+  settle(outcome: string, active: string): boolean;
 }
 
 /**
  * Tracks who's talking and what to show. Every method returns whether `states` changed — the bubble
  * swaps the character only then, so the animation isn't restarted for nothing.
  */
-export function createCast(workspace: CharacterStates | null | undefined, agents: AgentCharacters, active: string = MAIN_AGENT): Cast {
+export function createCast(
+  workspace: CharacterStates | null | undefined,
+  agents: AgentCharacters,
+  active: string = MAIN_AGENT,
+): Cast {
   let activeSlug = active || MAIN_AGENT;
   let acting = activeSlug;
+  let delegated: string | undefined; // the last delegate seen in the current run
   const statesFor = (slug: string) => mergeStates(slug === MAIN_AGENT ? undefined : agents[slug], workspace);
   let states = statesFor(acting);
 
@@ -110,10 +122,19 @@ export function createCast(workspace: CharacterStates | null | undefined, agents
     },
     use(slug) {
       activeSlug = slug || MAIN_AGENT;
+      delegated = undefined;
       return actAs(activeSlug);
     },
     progress(events) {
+      delegated = events.findLast((e) => e.via && e.via !== activeSlug)?.via ?? delegated;
       return actAs(actingAgent(events, activeSlug));
+    },
+    settle(outcome, active) {
+      activeSlug = active || MAIN_AGENT;
+      const answered = outcome === "reply" || outcome === "parked";
+      const who = answered && delegated ? delegated : activeSlug;
+      delegated = undefined;
+      return actAs(who);
     },
   };
 }

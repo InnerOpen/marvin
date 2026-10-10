@@ -81,10 +81,41 @@ describe("createCast", () => {
     assert.equal(cast.acting, "scout");
     assert.equal(cast.states?.working, "/s/run.gif");
     // Later polls of the same delegate keep it without a swap.
-    assert.equal(cast.progress([{ type: "tool_call", via: "scout" }, { type: "tool_result", via: "scout" }]), false);
+    assert.equal(
+      cast.progress([
+        { type: "tool_call", via: "scout" },
+        { type: "tool_result", via: "scout" },
+      ]),
+      false,
+    );
     assert.equal(cast.use(MAIN_AGENT), true); // the answer landed: the active agent again
     assert.equal(cast.acting, MAIN_AGENT);
     assert.ok(sameStates(cast.states, WORKSPACE));
+  });
+
+  test("a hand-off's answer stays with the delegate until the next message", () => {
+    const cast = createCast(WORKSPACE, AGENTS);
+    cast.progress([{ type: "tool_call" }, { type: "thinking", via: "scout" }]);
+    cast.progress([{ type: "tool_call" }, { type: "thinking", via: "scout" }, { type: "answer" }]); // the router writes the reply
+    assert.equal(cast.acting, MAIN_AGENT);
+    assert.equal(cast.settle("reply", MAIN_AGENT), true); // the answer landed: it was scout's
+    assert.equal(cast.acting, "scout");
+    assert.equal(cast.states?.working, "/s/run.gif");
+    assert.equal(cast.use(MAIN_AGENT), true); // the next message hands back
+    assert.ok(sameStates(cast.states, WORKSPACE));
+  });
+
+  test("a run without a hand-off, or one that failed, settles on the active agent", () => {
+    const cast = createCast(WORKSPACE, AGENTS);
+    cast.progress([{ type: "thinking" }]);
+    assert.equal(cast.settle("reply", MAIN_AGENT), false);
+    cast.progress([{ via: "scout" }]);
+    assert.equal(cast.settle("error", MAIN_AGENT), true); // the delegate showed while working; an error hands back
+    assert.equal(cast.acting, MAIN_AGENT);
+    cast.progress([{ via: "scout" }]);
+    cast.use(MAIN_AGENT); // a new message forgets the last run's delegate
+    assert.equal(cast.settle("reply", MAIN_AGENT), false);
+    assert.equal(cast.acting, MAIN_AGENT);
   });
 
   test("a hand-off under /use is followed from, and handed back to, the used agent", () => {
