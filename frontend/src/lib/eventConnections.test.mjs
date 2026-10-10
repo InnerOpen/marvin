@@ -19,6 +19,8 @@ import {
   systemEmailNote,
   triggerableEvents,
   triggerFromQuery,
+  switchable,
+  switchHint,
 } from "./eventConnections.ts";
 
 const square = { integrationId: "i1", name: "Square", provider: "square", blueprint: "sell_online" };
@@ -186,5 +188,20 @@ describe("builder ?trigger=", () => {
     assert.equal(triggerFromQuery("?trigger=user_signup", events), null);
     assert.equal(triggerFromQuery("?workflow=x", events), null);
     assert.equal(triggerFromQuery("", events), null);
+  });
+});
+
+describe("the On/Off switch on an event's reactions", () => {
+  const action = { kind: "integration_action", id: "s1", name: "Slack", enabled: false, switchedOn: true };
+  test("integration actions and workflows with their own switch get one; the rest don't", () => {
+    assert.equal(switchable(action), true);
+    assert.equal(switchable({ ...action, kind: "workflow", switchedOn: false }), true);
+    assert.equal(switchable({ kind: "webhook", id: "w", name: "Hook", enabled: true, switchedOn: null }), false);
+    assert.equal(switchable({ ...action, id: null }), false);
+  });
+  test("an action switched on under a switched-off integration says why it won't run", () => {
+    assert.match(switchHint(action), /integration is switched off/);
+    assert.equal(switchHint({ ...action, enabled: true }), null);
+    assert.equal(switchHint({ ...action, switchedOn: false }), null);
   });
 });

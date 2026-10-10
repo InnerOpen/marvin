@@ -19,6 +19,8 @@ import {
   isSystemEmail,
   managedHere,
   newWorkflowHref,
+  switchable,
+  switchHint,
   systemEmailNote,
   triggerableEvents,
 } from "@/lib/eventConnections";
@@ -333,6 +335,22 @@ const openTemplates = emailTemplates.filter((t: any) => {
                     );
                   }
                   if (!managedHere(r)) {
+                    if (switchable(r)) {
+                      return (
+                        <ConnectionRow name={r.name} enabled={r.enabled} detail={r.detail} note={switchHint(r)} installedBy={r.installedBy}>
+                          <button
+                          type="button"
+                          class="button small secondary js-switch"
+                          data-switch-kind={r.kind}
+                          data-switch-id={r.id ?? ''}
+                          data-switch-on={r.switchedOn ? "true" : "false"}
+                        >
+                          {r.switchedOn ? "Turn off" : "Turn on"}
+                        </button>
+                          {r.managedAt && <a class="button small secondary" href={r.managedAt}>Open</a>}
+                        </ConnectionRow>
+                      );
+                    }
                     return (
                       <ConnectionRow
                         name={r.name}
@@ -371,7 +389,18 @@ const openTemplates = emailTemplates.filter((t: any) => {
                     );
                   }
                   return (
-                    <ConnectionRow name={r.name} enabled={r.enabled} detail={r.detail}>
+                    <ConnectionRow name={r.name} enabled={r.enabled} detail={r.detail} note={switchHint(r)}>
+                      {switchable(r) && (
+                        <button
+                            type="button"
+                            class="button small secondary js-switch"
+                            data-switch-kind={r.kind}
+                            data-switch-id={r.id ?? ''}
+                            data-switch-on={r.switchedOn ? "true" : "false"}
+                          >
+                            {r.switchedOn ? "Turn off" : "Turn on"}
+                          </button>
+                      )}
                       <button type="button" class="button small secondary danger js-int-disconnect" data-sub-id={r.id ?? ''}>Disconnect</button>
                     </ConnectionRow>
                   );
@@ -1112,6 +1141,26 @@ const openTemplates = emailTemplates.filter((t: any) => {
         alert('Error: ' + (e instanceof Error ? e.message : String(e)));
         btn.disabled = false; btn.textContent = 'Connect';
       }
+    });
+
+    // On/Off for an integration action or a workflow (installed ones too): the same PATCH routes as their own
+    // pages, audited (integration_action_enabled / automation_disabled, …). Only `enabled` changes.
+    document.querySelectorAll<HTMLButtonElement>('.js-switch').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.switchId!;
+        const enabled = btn.dataset.switchOn !== 'true';
+        btn.disabled = true;
+        try {
+          const { createSdkClient } = await import('@/lib/sdk');
+          const sdk = createSdkClient();
+          if (btn.dataset.switchKind === 'workflow') await sdk.automations.update(id, { enabled });
+          else await sdk.integrations.updateSubscription(id, { enabled });
+          window.location.reload();
+        } catch (e) {
+          alert('Error: ' + (e instanceof Error ? e.message : String(e)));
+          btn.disabled = false;
+        }
+      });
     });
 
     document.querySelectorAll<HTMLButtonElement>('.js-int-disconnect').forEach((btn) => {

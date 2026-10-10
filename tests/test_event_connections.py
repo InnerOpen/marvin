@@ -297,6 +297,20 @@ def test_integration_actions_appear_disabled_and_disappear(db_session, world):
     assert sorted((r.detail, r.enabled) for r in rows if r.name == "Acme") == [("archive", False)]
 
 
+
+def test_each_switchable_reaction_carries_its_own_switch_apart_from_whether_it_runs(db_session, world):
+    """The event page's On/Off acts on `switched_on`; `enabled` also needs the integration on."""
+    off = integration(db_session, world.a, name="Off Co", provider="offco", enabled=False)
+    isub(db_session, world.a, off, "entry_published")  # its switch on, its integration off
+    workflow(db_session, world.a, "Tag", trigger={"type": "event", "event": "entry_published"}, enabled=False)
+    webhook(db_session, world.a, "Hook", ["entry_published"])
+
+    rows = connections.reactions(db_session, world.a, "entry_published")
+    by_kind = {r.kind: r for r in rows}
+    assert (by_kind["integration_action"].switched_on, by_kind["integration_action"].enabled) == (True, False)
+    assert (by_kind["workflow"].switched_on, by_kind["workflow"].enabled) == (False, False)
+    assert by_kind["webhook"].switched_on is None  # managed on its own page, no switch here
+
 def test_emails_appear_disabled_without_addresses(db_session, world):
     note = template(db_session, world.a, "Note")
     off_template = template(db_session, world.a, "Paused", enabled=False)
@@ -947,7 +961,7 @@ def test_workspace_admins_read_both(db_session, world, role):
     assert set(body) == {"eventType", "name", "description", "category", "senders", "reactions", "audited", "recent", "leadsTo", "causedBy"}
     assert [e["messageTitle"] for e in body["recent"]] == ["published"]
     flow = next(r for r in body["reactions"] if r["kind"] == "workflow")
-    assert set(flow) == {"kind", "id", "name", "enabled", "detail", "triggerType", "managedAt", "installedBy"}
+    assert set(flow) == {"kind", "id", "name", "enabled", "switchedOn", "detail", "triggerType", "managedAt", "installedBy"}
     assert "site_rebuild_queued" in [r["eventType"] for r in body["leadsTo"]]
     assert "very-secret-token" not in res.text
 

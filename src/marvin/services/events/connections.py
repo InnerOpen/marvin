@@ -318,6 +318,7 @@ def _reaction(row, runs: bool) -> EventReaction:
         id=row.id,
         name=row.name or "",
         enabled=runs,
+        switched_on=bool(row.own_enabled) if kind in ("integration_action", "workflow") else None,
         detail=detail,
         trigger_type=row.trigger_type if kind == "workflow" else None,
         managed_at=managed_at,

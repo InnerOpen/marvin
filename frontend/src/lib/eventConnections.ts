@@ -19,6 +19,8 @@ export interface EventReaction {
   id?: string | null;
   name: string;
   enabled: boolean;
+  /** An integration action's or workflow's own switch; `enabled` also needs its integration on. */
+  switchedOn?: boolean | null;
   detail?: string | null;
   triggerType?: string | null;
   managedAt?: string | null;
@@ -126,6 +128,21 @@ export function groupSenders(senders: EventSender[]): Group<SenderKind, EventSen
 /** The system email template's row (Marvin's own invitation / reset / welcome email), not a subscription. */
 export function isSystemEmail(r: EventReaction): boolean {
   return r.kind === "email" && r.detail === "System template";
+}
+
+/**
+ * Whether the event page offers an On/Off switch for a reaction: an integration action's or a workflow's own switch,
+ * including what an integration installed — `enabled` is the admin's switch; its settings stay with the integration
+ * (blueprints never overwrite an existing row, so a switch sticks). Same audited path as the agent's
+ * set_automation_enabled (services/automation/toggle.py).
+ */
+export function switchable(r: EventReaction): boolean {
+  return (r.kind === "integration_action" || r.kind === "workflow") && Boolean(r.id) && typeof r.switchedOn === "boolean";
+}
+
+/** Why a reaction whose own switch is on still won't run, if that's the case. */
+export function switchHint(r: EventReaction): string | null {
+  return r.switchedOn && !r.enabled && r.kind === "integration_action" ? "On, but its integration is switched off, so it won't run." : null;
 }
 
 /**

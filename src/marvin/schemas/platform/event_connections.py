@@ -32,6 +32,10 @@ class EventReaction(_MarvinModel):
     name: str
     enabled: bool
     """Whether the event bus runs it now. A switched-off one is listed too, as False."""
+    switched_on: bool | None = None
+    """An integration action's or workflow's own switch, which an admin can flip (services/automation/toggle.py).
+    It can be on while `enabled` is False: an integration action also needs its integration switched on.
+    None for the kinds that have no such switch here."""
     detail: str | None = None
     """What it does or listens to beyond the type: an integration's action, who an email goes to, a workflow's
     target (the incoming webhook slug, or the workflow a chained / on-error trigger waits for)."""
