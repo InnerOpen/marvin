@@ -3,9 +3,7 @@ Backup targets (backup.targets[]): one CronJob per target running the backup eng
 `python -m marvin.scripts.backup run --target <type> --name <name>`, from the backend image. Each target
 has its own schedule, retention, run and exit code, so a failing target never stops another. A `local`
 target writes into a volume of its own: an existing claim, or a static NFS PV + PVC rendered here
-(OpenShift's restricted-v2 SCC rules out inline nfs: volumes). Independent of the single-target
-`backup.enabled` CronJob (backup-cronjob.yaml, offsite_backup.py), which the targets replaced and which
-stays, off, as the rollback until it is removed. Runbook: docs/manual/offsite-backup.md.
+(OpenShift's restricted-v2 SCC rules out inline nfs: volumes). Runbook: docs/manual/offsite-backup.md.
 */}}
 {{- if .Values.backup.targets }}
 {{- if not .Values.persistence.enabled }}

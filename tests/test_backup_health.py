@@ -866,10 +866,26 @@ def test_the_platform_feed_carries_backup_failures_for_the_bell(db_session, runs
     assert admin(PlatformRole.NONE).get("/api/admin/events/feed").status_code == 403
 
 
+class _S3PluginStandIn(MemoryStorageProvider):
+    """Stands in for the marvin-storage-s3 plugin (baked into the image, not installed in tests): its settings."""
+
+    slug = "s3"
+    settings = (
+        Setting("STORAGE_S3_BUCKET", "Bucket", required=True),
+        Setting("STORAGE_S3_REGION", "Region", default="auto"),
+        Setting("STORAGE_S3_ENDPOINT", "Endpoint URL"),
+        Setting("STORAGE_S3_ACCESS_KEY", "Access key ID"),
+        Setting("STORAGE_S3_SECRET_KEY", "Secret access key", secret=True),
+        Setting("STORAGE_REMOTE_PUBLIC_URL", "Public base URL"),
+    )
+
+
 @pytest.fixture
 def storage_platform(entry_points, monkeypatch, tmp_path):  # noqa: F811
     from marvin.services.storage import provider_factory
     from tests.test_storage_providers import _settings
+
+    entry_points.append(_EP("s3", StoragePlugin(slug="s3", name="S3-compatible", provider=_S3PluginStandIn)))
 
     settings = _settings(
         STORAGE_PROVIDER="local",

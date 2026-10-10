@@ -10,13 +10,11 @@ from marvin_integration_sdk.storage import BackupTarget, Setting, StorageConfigE
 from .base_provider import BaseStorageProvider, StorageMetadata, StorageProvider
 from .local_provider import LocalStorageProvider
 from .provider_factory import get_storage_provider, provider_for, validate_storage_config
-from .s3_provider import S3StorageProvider
 
 __all__ = [
     "BackupTarget",
     "BaseStorageProvider",
     "LocalStorageProvider",
-    "S3StorageProvider",
     "Setting",
     "StorageConfigError",
     "StorageMetadata",

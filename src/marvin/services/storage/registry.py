@@ -19,11 +19,10 @@ from marvin.services.plugin_loader import PluginLoadReport, load_entry_points, s
 logger = logging.getLogger(__name__)
 
 BUILTIN = "builtin"
-CORE_TEMPORARY = "core"
 LOCAL = "local"
 
 _plugins: dict[str, StoragePlugin] = {}
-_sources: dict[str, str] = {}  # slug → BUILTIN, CORE_TEMPORARY, or the entry-point name that added it
+_sources: dict[str, str] = {}  # slug → BUILTIN, or the entry-point name that added it
 _reports: list[PluginLoadReport] | None = None
 
 
@@ -31,22 +30,19 @@ def _builtins() -> Iterator[tuple[StoragePlugin, str]]:
     from marvin.services.backup_engine.local_target import LocalBackupTarget
 
     from .local_provider import LocalStorageProvider
-    from .s3_provider import S3StorageProvider
 
+    # S3-compatible storage (R2, AWS, MinIO) is the marvin-storage-s3 plugin, baked into the image.
     yield StoragePlugin(slug=LOCAL, name="Local disk", provider=LocalStorageProvider, target=LocalBackupTarget), BUILTIN
-    yield StoragePlugin(slug="s3", name="S3-compatible (core, until marvin-storage-s3)", provider=S3StorageProvider), CORE_TEMPORARY
 
 
 def register(plugin: StoragePlugin, source: str) -> None:
-    """Add a plugin under its slug. ``local`` is built in for good; core's temporary entries give way to
-    an installed plugin with the same slug; any other clash is refused (the first one stays)."""
+    """Add a plugin under its slug. ``local`` is built in for good; any other clash is refused (the first
+    one stays)."""
     current = _sources.get(plugin.slug)
     if current == BUILTIN:
         raise ValueError(f"storage slug {plugin.slug!r} is built in and can't be replaced")
-    if current not in (None, CORE_TEMPORARY):
+    if current is not None:
         raise ValueError(f"storage slug {plugin.slug!r} is already provided by plugin '{current}'")
-    if current == CORE_TEMPORARY:
-        logger.info(f"storage plugin '{source}' replaces core's built-in '{plugin.slug}'")
     _plugins[plugin.slug] = plugin
     _sources[plugin.slug] = source
 

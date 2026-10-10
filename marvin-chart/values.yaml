@@ -278,38 +278,10 @@ secrets:
   # External services (if any)
   # Add your secrets here
 
-# Nightly off-site backup (templates/backup-cronjob.yaml) to an S3-compatible bucket such as
-# Cloudflare R2. A CronJob runs `python -m marvin.scripts.offsite_backup` from the backend image on
-# the backend's node (the data PVC is ReadWriteOnce) and uploads:
-#   sqlite/marvin-<UTC stamp>.db.gz          consistent snapshot (online backup API + integrity_check)
-#   config/marvin-config-<UTC stamp>.tar.gz  .secret, scheduler_state.json, templates/
-#   assets/<path>                            incremental mirror; remote copies are never deleted
-# Retention for sqlite/ and config/: the newest backup of each of the last 14 days, plus the newest of
-# each of the last 8 weeks. The bucket holds the app's .secret, which decrypts every stored secret:
-# keep it private and its token scoped to that one bucket. Runbook: docs/manual/offsite-backup.md.
-# With dbEngine: postgres the database part is instead postgres/marvin-<UTC stamp>.dump: a pg_dump
-# (custom format) — the Postgres backup. Run it hourly there (schedule: "0 * * * *"); postgres/ then
-# also keeps the newest of each of the last 48 hours.
+# Backups: backup.targets (templates/backup-targets.yaml), below. The single-target off-site CronJob
+# (offsite_backup.py, `backup.enabled`) it replaced was removed in storage slice 7 (2026-10-10).
 backup:
-  enabled: false
-  # Cron schedule, and the zone it is read in (empty = the cluster controller's zone, usually UTC).
-  schedule: "15 3 * * *"
-  timeZone: ""
-  # An existing Secret (never rendered by this chart) with the keys AWS_ACCESS_KEY_ID,
-  # AWS_SECRET_ACCESS_KEY, BACKUP_S3_ENDPOINT and BACKUP_S3_BUCKET. Required when enabled.
-  existingSecret: ""
-  # "auto" is right for R2; set the bucket's region for AWS.
-  s3Region: auto
-  # Key prefix inside the bucket (e.g. "staging/") to share one bucket between environments, each with
-  # its own retention. Empty = the bucket root; production and dev each have their own bucket instead.
-  prefix: ""
-  # Retention counts (BACKUP_KEEP_HOURLY / _DAILY / _WEEKLY); a key left out keeps the script's default
-  # (48 hourly, postgres/ only; 14 daily, min 1; 8 weekly). 0 turns hourly/weekly off. e.g. {hourly: 24, daily: 7, weekly: 0}
-  retention: {}
-  # A run (including time Pending with no backend pod to sit beside) is failed after this long.
-  activeDeadlineSeconds: 3600
-  # Skip a run that could not start within this many seconds of its schedule (0/empty = no limit).
-  startingDeadlineSeconds: 3600
+  # Default resources for each target's CronJob (a target may set its own).
   resources:
     requests:
       cpu: 50m
@@ -317,12 +289,11 @@ backup:
     limits:
       cpu: 500m
       memory: 512Mi
-  # Backup targets for the backup engine (templates/backup-targets.yaml), independent of `enabled`
-  # above (the retired single-target offsite_backup.py CronJob, kept as the rollback). One CronJob
+  # Backup targets for the backup engine (templates/backup-targets.yaml). One CronJob
   # `<fullname>-backup-<name>` per target runs `python -m marvin.scripts.backup run --target <type>
   # --name <name>` from the backend image, on the backend's node, with the plugins init container when
-  # plugins.packages is set. Same key layout as the off-site job (postgres/ or sqlite/, config/,
-  # assets/). Each target has its own schedule, retention and exit code. Empty = nothing rendered.
+  # plugins.packages is set. Keys: postgres/ or sqlite/, config/, assets/. Each target has its own
+  # schedule, retention and exit code. Empty = nothing rendered.
   #   name                     DNS label, unique; the CronJob name must stay within 52 characters
   #   type                     `local` (built in: a directory on a volume of its own), or a storage
   #                            plugin's target slug (e.g. `s3`, from plugins.packages)

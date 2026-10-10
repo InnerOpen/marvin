@@ -142,8 +142,8 @@ def test_only_an_available_provider_can_be_chosen(platform):
 
     with pytest.raises(UnavailableProviderError, match="'r2'"):
         _choose("r2")
-    with pytest.raises(UnavailableProviderError, match="STORAGE_S3_BUCKET"):
-        _choose("s3")  # installed (core's), not configured
+    with pytest.raises(UnavailableProviderError, match="'s3'"):
+        _choose("s3")  # not installed here: s3 is the marvin-storage-s3 plugin's (core's own is gone since slice 7)
     assert provider_factory.chosen_upload_provider() is None
 
 
@@ -212,7 +212,7 @@ def test_admin_storage_page_data(db_session, workspace, admin):
     providers = {p["slug"]: p for p in body["providers"]}
     assert providers["local"]["available"] and providers["local"]["source"] == "builtin"
     assert providers["fakes3"]["available"] and providers["fakes3"]["source"] == "fake"
-    assert not providers["s3"]["available"] and "STORAGE_S3_BUCKET" in providers["s3"]["error"]
+    assert "s3" not in providers  # no core S3 any more: only installed plugins are listed
     assert providers["local"]["assets"] >= 1 and providers["local"]["bytes"] >= 5
     mine = [w for w in body["workspaces"] if w["workspaceId"] == str(workspace.gid)]
     assert mine == [{"workspaceId": str(workspace.gid), "workspace": f"Switch {workspace.gid.hex[:8]}", "provider": "local", "assets": 1, "bytes": 5}]

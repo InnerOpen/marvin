@@ -170,8 +170,8 @@ every secret Marvin stores: keep it private and its token scoped to it. One-off 
 `values.yaml`; runbook (restore, retention):
 [docs/manual/offsite-backup.md](../docs/manual/offsite-backup.md).
 
-`backup.enabled` is the retired single-target job (`<release>-offsite-backup`,
-`marvin.scripts.offsite_backup`, S3 only), kept off as the rollback until it is removed.
+The retired single-target job (`backup.enabled`, `marvin.scripts.offsite_backup`) was removed in storage
+slice 7 (2026-10-10).
 
 #### Web Push (app notifications)
 

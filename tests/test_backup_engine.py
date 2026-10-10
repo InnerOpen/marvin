@@ -1,6 +1,6 @@
 """The backup engine (services/backup_engine, scripts/backup): key layout and per-target retention, the built-in
 local target (conformance kit, atomic writes, sidecar digests, the same-volume guardrail), and backup /
-restore round trips through it, assets read via the storage provider. Ported from test_offsite_backup,
+restore round trips through it, assets read via the storage provider. Ported from the old test_offsite_backup,
 which keeps testing the old script until the cutover."""
 
 import gzip
@@ -81,13 +81,11 @@ def _keys(target) -> set[str]:
 
 
 def test_key_layout_is_the_old_scripts():
-    """Same names as offsite_backup, so a target reads and prunes the history it wrote."""
-    from marvin.scripts import offsite_backup as ob
-
-    assert keys.db_key(NOW) == ob.db_key(NOW) == "sqlite/marvin-20261006T071500Z.db.gz"
-    assert keys.pg_key(NOW) == ob.pg_key(NOW) == "postgres/marvin-20261006T071500Z.dump"
-    assert keys.config_key(NOW) == ob.config_key(NOW) == "config/marvin-config-20261006T071500Z.tar.gz"
-    assert keys.asset_key("ws1/a.png") == ob.asset_key("ws1/a.png") == "assets/ws1/a.png"
+    """The names the old offsite_backup.py wrote (removed in slice 7), so a target reads and prunes that history."""
+    assert keys.db_key(NOW) == "sqlite/marvin-20261006T071500Z.db.gz"
+    assert keys.pg_key(NOW) == "postgres/marvin-20261006T071500Z.dump"
+    assert keys.config_key(NOW) == "config/marvin-config-20261006T071500Z.tar.gz"
+    assert keys.asset_key("ws1/a.png") == "assets/ws1/a.png"
 
 
 @pytest.mark.parametrize("key", ["assets/sqlite/marvin-20261006T071500Z.db.gz", "sqlite/marvin-20261006T071500Z.dump", "sqlite/other.db.gz"])

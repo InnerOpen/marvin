@@ -4,7 +4,7 @@ Marvin's own **Backups** (see [Operations → Backups](operations.md#backups)) e
 
 Production runs two targets: `r2` hourly to the R2 bucket `marvin-backups` (the off-site copy) and `nas-nightly` to the NAS. Dev runs `r2` hourly to `marvin-backups-dev`. Each target has its own schedule, retention, run and exit code, so a failing NAS never stops the R2 run and the other way round.
 
-The old single-target job (`marvin.scripts.offsite_backup`, CronJob `marvin-offsite-backup`, `backup.enabled`) is retired: the `r2` target replaced it in dev and production, writing the same objects into the same buckets (see [The old off-site job](#the-old-off-site-job)). It stays in the image and chart as the rollback until it is removed.
+The old single-target job (`marvin.scripts.offsite_backup`, CronJob `marvin-offsite-backup`, `backup.enabled`) is retired: the `r2` target replaced it in dev and production, writing the same objects into the same buckets (see [The old off-site job](#the-old-off-site-job)). It was removed from the image and chart in storage slice 7 (2026-10-10); the targets carry on its history.
 
 ## What is backed up
 
@@ -230,6 +230,4 @@ Exit codes: `0` success, `1` a step failed (the summary or error line says which
 
 ## The old off-site job
 
-`python -m marvin.scripts.offsite_backup` (CronJob `<release>-offsite-backup`, `backup.enabled`, `backup.schedule`, `backup.existingSecret`, `backup.s3Region`, `backup.prefix`, `backup.retention`) was the S3-only predecessor: same key layout, its own retention (48 hourly for `postgres/`, 14 daily, 8 weekly by default). The `r2` target replaced it on 2026-10-06 (dev) and at the following production promotion, reading and pruning the history it left. `values-dev.yaml` and `values-iwobble.yaml` keep its settings with `enabled: false` until it is deleted (slice 7 of the storage plan, after a week of green `r2` runs).
-
-**Rolling back to it:** set `backup.enabled: true` and remove the `r2` target (or suspend `marvin-backup-r2` with `oc patch cronjob marvin-backup-r2 -p '{"spec":{"suspend":true}}'`) so the two don't write the same bucket at the same minute, then upgrade; or `helm rollback` to the revision before the cutover. Either way the old job carries on the bucket's history, assets included (it reads the new target's objects as its own).
+`python -m marvin.scripts.offsite_backup` (CronJob `<release>-offsite-backup`, `backup.enabled` and the other `backup.*` settings) was the S3-only predecessor, with the same key layout. The `r2` target replaced it on 2026-10-06 (dev and production), and it was removed in storage slice 7 (2026-10-10), together with core's own S3 provider: S3-compatible storage is now only the `marvin-storage-s3` plugin, baked into the image. Rolling back past that means a Marvin image from before slice 7 (`helm rollback` to a revision before it); the backups themselves need nothing, since the targets write the same layout.

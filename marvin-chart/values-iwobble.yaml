@@ -74,15 +74,6 @@ persistence:
 # Backups: the backup engine, one CronJob per target (marvin-backup-<name>; docs/manual/offsite-backup.md).
 # Each target has its own schedule, retention, run and exit code: a failing NAS never stops R2.
 backup:
-  # The old single-target offsite_backup.py CronJob (marvin-offsite-backup), retired by the r2 target
-  # below in the same upgrade. Its settings stay until slice 7 removes it, so `enabled: true` (with the
-  # r2 target removed or suspended) is the rollback.
-  enabled: false
-  existingSecret: marvin-r2-backup
-  timeZone: America/New_York
-  schedule: "0 * * * *"
-  activeDeadlineSeconds: 2700
-  startingDeadlineSeconds: 900
   # r2: the off-site copy. Hourly pg_dump (+ config + assets) to Cloudflare R2, bucket marvin-backups,
   # through the s3 target of marvin-storage-s3 (a plugin baked into the image); the Secret is created by hand
   # from `pass` (marvin/r2/*), never committed. Same key layout as the old job, so it carries on that

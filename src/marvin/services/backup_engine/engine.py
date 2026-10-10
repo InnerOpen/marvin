@@ -1,7 +1,7 @@
 """The backup engine: back up a Marvin data directory to one backup target, restore from it, prune it.
 
-A port of ``scripts/offsite_backup.py`` (which keeps running until the cutover) onto the storage
-contract: the S3 ``Bucket`` became any ``BackupTarget``, and assets are read through the storage
+Grew out of the old single-target ``scripts/offsite_backup.py`` (removed in storage slice 7), moved onto the storage
+contract: its S3 ``Bucket`` became any ``BackupTarget``, and assets are read through the storage
 provider (``iter_keys`` + ``get``) rather than ``DATA_DIR/assets``, so backups keep working once assets
 live in a cloud bucket. The key layout is unchanged (see ``layout``), so a target reads and prunes the
 history the old script wrote.

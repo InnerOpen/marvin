@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.12.*"
 
 [manifest]
@@ -1128,7 +1128,6 @@ dependencies = [
     { name = "alembic" },
     { name = "authlib" },
     { name = "bcrypt" },
-    { name = "boto3" },
     { name = "dotenv" },
     { name = "email-validator" },
     { name = "fastapi" },
@@ -1231,7 +1230,6 @@ requires-dist = [
     { name = "anthropic", marker = "extra == 'anthropic'", specifier = ">=0.40.0" },
     { name = "authlib", specifier = ">=1.5.2" },
     { name = "bcrypt", specifier = ">=4.3.0" },
-    { name = "boto3", specifier = ">=1.35.0" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "email-validator", specifier = ">=2.3.0" },
     { name = "fastapi", specifier = ">=0.115.12" },

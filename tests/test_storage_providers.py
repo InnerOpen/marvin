@@ -121,8 +121,10 @@ def test_a_plugin_can_not_replace_local(entry_points):
     assert registry.plugins()["local"].provider is LocalStorageProvider
 
 
-def test_a_plugin_replaces_cores_temporary_s3(entry_points):
-    assert registry.source_of("s3") == registry.CORE_TEMPORARY
+def test_s3_comes_only_from_its_plugin(entry_points):
+    """Core's own S3 provider was removed in storage slice 7: `s3` is the marvin-storage-s3 plugin's."""
+    registry.load_plugins(force=True)
+    assert "s3" not in registry.plugins()
     entry_points.append(_EP("s3", StoragePlugin(slug="s3", name="S3 plugin", provider=FakeRemote)))
     assert registry.load_plugins(force=True)[0].ok
     assert registry.plugins()["s3"].provider is FakeRemote
@@ -137,8 +139,9 @@ def test_broken_plugins_are_reported_not_fatal(entry_points):
     assert reports["fake"].ok
 
 
-def test_core_s3_names_its_missing_bucket(entry_points):
-    with pytest.raises(StorageConfigError, match="STORAGE_S3_BUCKET"):
+def test_s3_without_its_plugin_says_no_plugin_provides_it(entry_points):
+    registry.load_plugins(force=True)
+    with pytest.raises(StorageConfigError, match="no installed storage plugin provides it"):
         provider_factory.get_storage_provider(_settings(STORAGE_PROVIDER="s3", STORAGE_S3_BUCKET=None))
 
 

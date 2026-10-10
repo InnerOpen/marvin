@@ -1,4 +1,5 @@
-"""Backup key naming and retention, the same layout ``scripts/offsite_backup.py`` writes.
+"""Backup key naming and retention — the layout the old ``scripts/offsite_backup.py`` wrote, so a target carries on
+the history it left.
 
     sqlite/marvin-<UTC YYYYmmddTHHMMSSZ>.db.gz          consistent SQLite snapshot (gzip)
     postgres/marvin-<UTC YYYYmmddTHHMMSSZ>.dump         pg_dump --format=custom

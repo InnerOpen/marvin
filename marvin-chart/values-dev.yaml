@@ -78,18 +78,6 @@ persistence:
 # recovery by choice. Retention 24 hourly + 7 daily, no weekly — less than production's, since dev's data
 # is disposable. Dev has no NAS target.
 backup:
-  # The old single-target offsite_backup.py CronJob (marvin-offsite-backup), retired by the r2 target
-  # below. Its settings stay until slice 7 removes it, so `enabled: true` (with the r2 target removed or
-  # suspended) is the rollback.
-  enabled: false
-  existingSecret: marvin-r2-backup
-  retention:
-    hourly: 24
-    daily: 7
-    weekly: 0
-  schedule: "0 * * * *"
-  activeDeadlineSeconds: 2700
-  startingDeadlineSeconds: 900
   targets:
     - name: r2
       type: s3
