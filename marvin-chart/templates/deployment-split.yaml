@@ -34,6 +34,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "marvin.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       terminationGracePeriodSeconds: {{ int .Values.shutdown.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -150,6 +153,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "marvin.serviceAccountName" . }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
       {{- /* The preStop sleep counts against the grace period; keep a margin for node to exit after it. */}}
       terminationGracePeriodSeconds: {{ max 30 (add $frontendPreStop 10) }}
       securityContext:

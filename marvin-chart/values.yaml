@@ -102,6 +102,11 @@ resources:
     memory: "512Mi"
     cpu: "500m"
 
+# PriorityClass for every pod the chart renders (backend, frontend, backup jobs, the CNPG cluster). Empty = the
+# cluster default. The class itself is cluster-scoped and created by an admin (.github/deploy/marvin-dev-limits.yaml
+# makes `marvin-dev-low`, so dev yields to production on a shared node).
+priorityClassName: ""
+
 # Liveness and readiness probes
 livenessProbe:
   enabled: true

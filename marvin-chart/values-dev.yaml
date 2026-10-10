@@ -48,12 +48,16 @@ postgres:
       size: 10Gi
       storageClass: managed-nfs-storage
 
+# Dev shares worker01 with production: it yields first (PriorityClass marvin-dev-low, never preempts) and bursts to
+# half a CPU per pod. The namespace's quota (.github/deploy/marvin-dev-limits.yaml) is sized for these numbers.
+priorityClassName: marvin-dev-low
+
 resources:
   requests:
     cpu: 100m
     memory: 256Mi
   limits:
-    cpu: "1"
+    cpu: 500m
     memory: 768Mi
 
 # Same relaxed probe cadence as production (see values-iwobble.yaml for why).

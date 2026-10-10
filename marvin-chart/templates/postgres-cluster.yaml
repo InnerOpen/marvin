@@ -24,6 +24,9 @@ metadata:
     helm.sh/resource-policy: keep
 spec:
   instances: {{ int $c.instances }}
+  {{- with .Values.priorityClassName }}
+  priorityClassName: {{ . }}
+  {{- end }}
   imageName: {{ $c.imageName }}
   {{- with $c.resources }}
   resources:

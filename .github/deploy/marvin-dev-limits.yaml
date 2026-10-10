@@ -1,0 +1,60 @@
+# marvin-dev shares worker01 (3.5 CPU, ~15 GiB) with production; dev's first 91 MB upload and image pulls once
+# showed up as production /health timeouts. These keep dev from starving production of CPU or memory:
+#
+# - PriorityClass marvin-dev-low (cluster-scoped): below every default pod, and it never preempts anything. Under
+#   memory pressure the kubelet evicts dev first, and the scheduler places production ahead of it. values-dev.yaml
+#   sets `priorityClassName: marvin-dev-low`, so the chart puts it on dev's backend, frontend, backup jobs and the
+#   CNPG cluster.
+# - ResourceQuota: dev's total, sized for a rolling deploy (two backends and two frontends at once) during a backup:
+#   CPU limits 4 x 500m + Postgres 500m + backup 500m = 3, memory limits 4 x 768Mi + 1Gi + 512Mi ≈ 4.6Gi.
+# - LimitRange: a container that names no resources (the CNPG Postgres container has no CPU limit) gets 50m/128Mi
+#   requested and 500m/512Mi as limits, so the quota can count it; none may ask for more than 1 CPU / 1Gi.
+#
+# What this does not limit: disk and network I/O. A large upload or image pull in dev still competes with
+# production for NFS and the NIC; only a second worker node fixes that.
+#
+# Apply once, as a cluster admin (CI never applies this; the deploy ServiceAccount can't create quotas, and
+# shouldn't — a limit the deploy can rewrite isn't one):
+#   oc apply -f .github/deploy/marvin-dev-limits.yaml
+# Then roll dev so running pods pick up the class: the next Promote does it, or
+#   oc -n marvin-dev rollout restart deploy/marvin-backend deploy/marvin-frontend
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: marvin-dev-low
+value: -100
+preemptionPolicy: Never
+globalDefault: false
+description: "Marvin dev (marvin-dev): yields to production on a shared node; never preempts."
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: marvin-dev-compute
+  namespace: marvin-dev
+spec:
+  hard:
+    requests.cpu: "1"
+    requests.memory: 2Gi
+    limits.cpu: "3"
+    limits.memory: 5Gi
+    pods: "10"
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: marvin-dev-defaults
+  namespace: marvin-dev
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        cpu: 50m
+        memory: 128Mi
+      default:
+        cpu: 500m
+        memory: 512Mi
+      max:
+        cpu: "1"
+        memory: 1Gi
