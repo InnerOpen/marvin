@@ -76,6 +76,26 @@ def plugins() -> Mapping[str, AIProviderPlugin]:
     return dict(_plugins)
 
 
+# The platform default when AI_DEFAULT_PROVIDER is unset: the first of these that is installed, else the first
+# installed provider by name. openai first keeps every install that relied on the old hard-coded default as it was.
+DEFAULT_PREFERENCE = ("openai", "anthropic", "google", "azure", "ollama")
+
+
+def default_provider(app=None) -> str | None:
+    """The platform's default provider: AI_DEFAULT_PROVIDER when set (installed or not — startup says so), else
+    the preferred installed one, else None (no provider installed). `app`: the settings to read (default: the
+    app's)."""
+    if app is None:
+        from marvin.core.config import get_app_settings
+
+        app = get_app_settings()
+    configured = (getattr(app, "AI_DEFAULT_PROVIDER", "") or "").strip()
+    if configured:
+        return configured
+    installed = plugins()
+    return next((slug for slug in DEFAULT_PREFERENCE if slug in installed), None) or next(iter(sorted(installed)), None)
+
+
 def source_of(slug: str) -> str | None:
     load_plugins()
     return _sources.get(slug)

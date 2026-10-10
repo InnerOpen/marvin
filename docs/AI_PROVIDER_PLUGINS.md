@@ -53,8 +53,9 @@ The SDK README has a full example.
    slug (the first one stays; the other is reported as failed). A plugin that fails to import is
    logged and listed on **Admin → Plugins** as failed, and never stops startup.
 3. **Unknown slugs are refused**, naming what is installed. Startup stops when `AI_DEFAULT_PROVIDER`
-   is set to a provider nothing provides (like an unknown `STORAGE_PROVIDER`); left at its default
-   (`openai`) without the OpenAI plugin, startup only logs a warning and platform AI is off until it is installed. AI Settings and the
+   is set to a provider nothing provides (like an unknown `STORAGE_PROVIDER`). Unset (the default), it is the
+   first installed of openai, anthropic, google, azure, ollama (`registry.default_provider`); with none installed,
+   startup only logs a warning and platform AI is off until one is. AI Settings and the
    Providers config refuse to *choose* one (422). A workspace already set to a provider that has since
    been uninstalled gets a clear error on its next AI call, never a silent switch to another vendor.
 

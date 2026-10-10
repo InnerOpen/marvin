@@ -527,7 +527,7 @@ done by that commit). Built in still: anthropic, google, ollama.
 
 **Plan v2 (2026-10-10, Jared decided):** no built-ins in the end; LiteLLM as the price feed; an unpriced run is
 counted and admins are warned (never silently $0, never blocked). Slices, each shippable alone:
-1. [ ] **Unpriced runs are visible.** `month_spend` counts runs with no price separately; AI executions and the
+1. [x] **Unpriced runs are visible.** (done 2026-10-10) `month_spend` counts runs with no price separately; AI executions and the
        budget page say "N runs this month have no price (model …)"; one admin alert per newly-seen unpriced
        provider/model (platform alert route, like backup alerts). Fix `AI_DEFAULT_PROVIDER` defaulting to `openai`
        (no longer in core): default empty = the first installed provider.

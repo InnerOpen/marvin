@@ -63,7 +63,9 @@ def platform_model(provider_type: str | None = None) -> str | None:
     """The platform's default model for a provider (``AI_DEFAULT_PROVIDER`` when none is given):
     ``<SLUG>_MODEL`` (``OPENAI_MODEL``), else the provider's own default."""
     app = get_app_settings()
-    provider_type = provider_type or getattr(app, "AI_DEFAULT_PROVIDER", "openai")
+    provider_type = provider_type or registry.default_provider(app)
+    if not provider_type:
+        return None
     configured = settings_source(app).get(f"{provider_type}_MODEL".upper().replace("-", "_"))
     if configured:
         return configured
@@ -89,7 +91,9 @@ def get_workspace_ai_provider(session: Session, group_id: UUID4) -> AIProvider:
         raise AIDisabledError(f"AI is disabled for workspace {group_id}")
 
     if settings.credential_mode == "platform":
-        provider_type = settings.provider or getattr(get_app_settings(), "AI_DEFAULT_PROVIDER", "openai")
+        provider_type = settings.provider or registry.default_provider(get_app_settings())
+        if not provider_type:
+            raise AIConfigError("No AI provider is installed: a platform admin installs one (Admin → Plugins).")
         return build_provider(provider_type, platform_credentials(provider_type))
 
     if settings.credential_mode == "workspace":
@@ -123,18 +127,20 @@ def validate_ai_config(app=None) -> list[str]:
     provider. Returns one line per provider for the startup log.
 
     Set explicitly to a provider nothing provides, it raises ``AIConfigError``: a misconfigured platform, where
-    every platform-mode workspace would fail. Left at its default (``openai``) without the marvin-ai-openai
-    plugin, it only warns: an install that hasn't set up AI still starts, and AI says it isn't configured."""
+    every platform-mode workspace would fail. Unset, the default is the preferred installed provider
+    (``registry.default_provider``); with none installed it only warns: the install still starts, and AI says it
+    isn't configured."""
     app = app or get_app_settings()
     reports = registry.load_plugins()
-    default = getattr(app, "AI_DEFAULT_PROVIDER", "openai") or "openai"
+    configured = (getattr(app, "AI_DEFAULT_PROVIDER", "") or "").strip()
+    default = registry.default_provider(app)
     lines = []
-    try:
-        registry.provider_class(default)
-    except AIConfigError as e:
-        if "AI_DEFAULT_PROVIDER" in getattr(app, "model_fields_set", set()):
-            raise
-        logging.getLogger(__name__).warning(f"AI_DEFAULT_PROVIDER: platform AI is off until a plugin provides '{default}': {e}")
+    if configured:
+        registry.provider_class(configured)  # raises AIConfigError: set to a provider nothing provides
+    elif default is None:
+        logging.getLogger(__name__).warning("AI_DEFAULT_PROVIDER: no AI provider is installed; platform AI is off until one is")
+    else:
+        lines.append(f"default provider: {default} (AI_DEFAULT_PROVIDER unset)")
     for slug in sorted(registry.plugins()):
         report = registry.report_for(slug)
         lines.append(f"{slug} ({'built in' if report is None else f'{report.distribution} {report.version}'})")

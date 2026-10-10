@@ -81,11 +81,11 @@ def _ai_sources() -> list[tuple[Any, list[Any]]]:
 def ai_provider_workspaces(session: Session) -> dict[str, int]:
     """Provider slug → how many workspaces have AI on and choose it: their AI settings' provider (the
     platform default when unset, in platform mode), or a default provider row in workspace mode."""
-    from marvin.core.config import get_app_settings
     from marvin.db.models.groups.ai_providers import AIProviderModel
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+    from marvin.services.ai.registry import default_provider
 
-    default = getattr(get_app_settings(), "AI_DEFAULT_PROVIDER", "openai")
+    default = default_provider()
     rows = {r.group_id: r.provider_type for r in session.query(AIProviderModel).filter_by(is_default=True, enabled=True)}
     counts: dict[str, int] = {}
     for s in session.query(WorkspaceAISettingsModel).filter_by(enabled=True):

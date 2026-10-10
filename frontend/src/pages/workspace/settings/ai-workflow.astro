@@ -409,6 +409,7 @@ const modCfg = s.moderationConfig ?? {};
           <span class="hint">Runs since midnight UTC, including failed ones.</span>
         </div>
       </div>
+      <p class="usage-unpriced" id="usage-unpriced" role="status" hidden></p>
       <table class="usage-ops" id="usage-ops" hidden>
         <thead><tr><th>Top this month</th><th>Runs</th><th>Tokens</th><th>Est. cost</th></tr></thead>
         <tbody></tbody>
@@ -488,6 +489,7 @@ const modCfg = s.moderationConfig ?? {};
 </AppLayout>
 
 <script>
+  import { unpricedNotice } from '@/lib/aiUsage';
   import { fetchApi } from '@/lib/api/client';
   import { previewTone } from '@/lib/api/aiTones';
   import { characterPreviewView, promptPreviewHtml, promptPreviewMessage } from '@/lib/promptPreview';
@@ -524,6 +526,13 @@ const modCfg = s.moderationConfig ?? {};
     if (detail) detail.textContent = `${num(u.monthRuns)} runs · ${num(u.monthTokens)} tokens${resets ? ` · resets ${resets}` : ''}`;
     const dayLimit = u.limits?.maxRequestsPerDay;
     meter('day', dayLimit ? `${num(u.todayRuns)} of ${num(dayLimit)} runs (${u.dayPercent}%)` : `${num(u.todayRuns)} runs · no limit`, u.dayPercent ?? null, warnAt);
+
+    const unpriced = document.getElementById('usage-unpriced');
+    const note = unpricedNotice(u.unpricedRuns, u.unpricedModels);
+    if (unpriced) {
+      unpriced.textContent = note ?? '';
+      unpriced.hidden = !note;
+    }
 
     const table = document.getElementById('usage-ops') as HTMLTableElement | null;
     const body = table?.querySelector('tbody');
@@ -1090,6 +1099,7 @@ const modCfg = s.moderationConfig ?? {};
   .usage-fill[data-level="warn"] { background: var(--color-warning, #d97706); }
   .usage-fill[data-level="over"] { background: var(--color-error, #c0392b); }
   .usage-ops { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+  .usage-unpriced { margin: 0 0 12px; padding: 8px 12px; border-left: 3px solid var(--color-warning, #d97706); background: var(--panel-2); font-size: 13px; }
   .usage-ops th, .usage-ops td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
   .usage-ops th:not(:first-child), .usage-ops td:not(:first-child) { text-align: right; font-variant-numeric: tabular-nums; }
   .usage-ops th { color: var(--muted); font-weight: 500; }

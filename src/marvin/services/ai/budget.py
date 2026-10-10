@@ -48,6 +48,13 @@ class Usage:
     today_runs: int = 0
     resets_on: date | None = None
     by_operation: list[dict] = field(default_factory=list)
+    unpriced: list[dict] = field(default_factory=list)
+    """This month's completed runs with no price, per provider and model: their cost is unknown, so the monthly
+    limit can't see it ({provider, model, runs, tokens})."""
+
+    @property
+    def unpriced_runs(self) -> int:
+        return sum(u["runs"] for u in self.unpriced)
 
     @property
     def month_percent(self) -> float | None:
@@ -120,6 +127,45 @@ def month_spend(session, group_id, now: datetime | None = None) -> float:
         .scalar()
         or 0.0
     )
+
+
+def unpriced(session, group_id, now: datetime | None = None) -> list[dict]:
+    """This month's completed runs that used tokens but have no price (no price for that provider/model anywhere),
+    most runs first. A self-hosted provider's runs cost 0, not nothing, so they aren't here."""
+    from marvin.db.models.groups.ai_executions import AIExecutionModel as Run
+
+    now = now or datetime.now(UTC)
+    rows = (
+        session.query(Run.provider_type, Run.model_id, func.count(Run.id), func.coalesce(func.sum(Run.total_tokens), 0))
+        .filter(
+            Run.group_id == group_id,
+            Run.created_at >= _month_start(now),
+            Run.status == "completed",
+            Run.estimated_cost_usd.is_(None),
+            Run.total_tokens > 0,
+        )
+        .group_by(Run.provider_type, Run.model_id)
+        .all()
+    )
+    found = [{"provider": p, "model": m, "runs": int(n), "tokens": int(t)} for p, m, n, t in rows]
+    return sorted(found, key=lambda u: (-u["runs"], u["provider"], u["model"]))
+
+
+def first_unpriced_between(session, start: datetime, end: datetime) -> list[dict]:
+    """(workspace, provider, model) whose first unpriced run (within the execution log's retention) falls in
+    [start, end): the models that just started running with no price. Used by the hourly check, which looks at
+    the previous whole hour, so each one is reported once."""
+    from marvin.db.models.groups.ai_executions import AIExecutionModel as Run
+
+    first = func.min(Run.created_at)
+    rows = (
+        session.query(Run.group_id, Run.provider_type, Run.model_id, first)
+        .filter(Run.status == "completed", Run.estimated_cost_usd.is_(None), Run.total_tokens > 0)
+        .group_by(Run.group_id, Run.provider_type, Run.model_id)
+        .having(first >= start, first < end)
+        .all()
+    )
+    return [{"group_id": g, "provider": p, "model": m} for g, p, m, _ in rows]
 
 
 def runs_today(session, group_id, now: datetime | None = None) -> int:
@@ -249,4 +295,5 @@ def usage(session, group_id, now: datetime | None = None) -> Usage:
         today_runs=runs_today(session, group_id, now),
         resets_on=_next_month(now),
         by_operation=ops[:TOP_OPERATIONS],
+        unpriced=unpriced(session, group_id, now),
     )

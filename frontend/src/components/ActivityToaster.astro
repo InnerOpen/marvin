@@ -135,6 +135,7 @@ const { userId = null, askPage = true, platformFeed = false } = Astro.props;
     ai_operation_failed: { tone: "err", label: "AI operation failed" },
     ai_budget_threshold_reached: { tone: "warn", label: "AI budget", href: () => "/workspace/settings/ai-workflow#usage-section" },
     ai_budget_exceeded: { tone: "err", label: "AI budget reached", href: () => "/workspace/settings/ai-workflow#usage-section" },
+    ai_model_unpriced: { tone: "warn", label: "AI model has no price", href: () => "/workspace/settings/ai-workflow#usage-section" },
     ai_provider_quota_exceeded: { tone: "err", label: "AI provider out of quota", href: () => "/workspace/settings/ai-workflow" },
     // Full reindex runs only — every publish/edit also auto-indexes that one item, which isn't news.
     ai_embeddings_reindexed: {

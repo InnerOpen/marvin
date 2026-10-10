@@ -192,6 +192,15 @@ class AIUsageLimits(_MarvinModel):
     max_tokens_per_request: int | None = None
 
 
+class AIUnpricedModel(_MarvinModel):
+    """A provider/model this month's runs used with no price: their cost counts as unknown, not $0."""
+
+    provider: str
+    model: str
+    runs: int
+    tokens: int
+
+
 class WorkspaceAIUsage(_MarvinModel):
     """Where the workspace stands against its AI limits — see services/ai/budget.py."""
 
@@ -206,6 +215,9 @@ class WorkspaceAIUsage(_MarvinModel):
     day_percent: float | None = None
     resets_on: date | None = None
     by_operation: list[AIUsageOperation] = []
+    unpriced_runs: int = 0
+    """This month's completed runs with no price: `month_cost_usd` and the monthly limit leave their cost out."""
+    unpriced_models: list[AIUnpricedModel] = []
 
 
 class AssistantCharacterFile(_MarvinModel):

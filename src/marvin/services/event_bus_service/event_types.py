@@ -465,6 +465,8 @@ class EventTypes(EventTypeBase):
     """A workflow was switched off — from its page, the API, or an agent with the admin's approval."""
     ai_budget_exceeded = auto()
     """Event dispatched when the workspace monthly AI cost limit is reached."""
+    ai_model_unpriced = auto()
+    """A workspace started running an AI model with no price: its runs don't count toward the cost limit."""
     ai_provider_quota_exceeded = auto()
     """Event dispatched when the AI provider rejects a call for lack of quota/credits (no tokens available)."""
 
@@ -1605,7 +1607,7 @@ class EventAIBudgetData(EventDocumentDataBase):
     document_type: EventDocumentTypeBase = EventDocumentType.ai
     operation: EventOperationBase = EventOperation.info
     reason: str
-    """What triggered it: 'monthly_cost' | 'provider_quota'."""
+    """What triggered it: 'monthly_cost' | 'provider_quota' | 'unpriced_model'."""
     current_value: float | None = None
     """Current spend (USD) for cost events."""
     limit_value: float | None = None
@@ -1613,7 +1615,9 @@ class EventAIBudgetData(EventDocumentDataBase):
     percent: float | None = None
     """Percent of the limit reached."""
     provider_type: str | None = None
-    """The provider involved (for provider_quota)."""
+    """The provider involved (for provider_quota, unpriced_model)."""
+    model_id: str | None = None
+    """The model involved (for unpriced_model)."""
     operation_slug: str | None = None
     """The operation that triggered it (for provider_quota)."""
     detail: str | None = None

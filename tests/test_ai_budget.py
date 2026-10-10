@@ -201,3 +201,74 @@ def test_a_workflow_ai_step_is_refused_over_budget(monkeypatch):
 )
 def test_an_agent_run_reads_as_the_agents_current_name(slug, label):
     assert operation_label(slug, {"marvin": "Sunny", "shop-assistant": "Shop Assistant"}) == label
+
+
+# ── Runs with no price (2026-10-10): counted and shown, never silently $0 ─────
+
+
+def _unpriced(db_session, gid, provider, model, tokens=100, at=NOW, status="completed"):
+    row = _run(db_session, gid, cost=None, tokens=tokens, status=status, at=at)
+    row.provider_type, row.model_id = provider, model
+    db_session.commit()
+    return row
+
+
+def test_usage_lists_this_months_unpriced_runs_by_model(db_session, workspace):
+    _run(db_session, workspace, cost=0.5, tokens=1000)  # priced
+    _run(db_session, workspace, cost=0.0, tokens=500)  # self-hosted: costs 0, not unknown
+    for _ in range(3):
+        _unpriced(db_session, workspace, "anthropic", "claude-next")
+    _unpriced(db_session, workspace, "google", "gemini-next")
+    _unpriced(db_session, workspace, "google", "gemini-next", tokens=0)  # no tokens: nothing to price
+    _unpriced(db_session, workspace, "google", "gemini-next", status="failed")
+    _unpriced(db_session, workspace, "google", "gemini-next", at=datetime(2026, 9, 30, tzinfo=UTC))  # last month
+
+    u = budget.usage(db_session, workspace, now=NOW)
+
+    assert u.unpriced == [
+        {"provider": "anthropic", "model": "claude-next", "runs": 3, "tokens": 300},
+        {"provider": "google", "model": "gemini-next", "runs": 1, "tokens": 100},
+    ]
+    assert u.unpriced_runs == 4 and u.month_cost_usd == pytest.approx(0.5)
+
+
+def test_a_model_is_reported_in_the_hour_its_first_unpriced_run_happened(db_session, workspace):
+    _unpriced(db_session, workspace, "anthropic", "claude-next", at=datetime(2026, 10, 3, 14, 20, tzinfo=UTC))
+    _unpriced(db_session, workspace, "anthropic", "claude-next", at=datetime(2026, 10, 3, 15, 5, tzinfo=UTC))
+    _unpriced(db_session, workspace, "google", "gemini-old", at=datetime(2026, 10, 2, 9, 0, tzinfo=UTC))
+
+    hour = lambda h: (datetime(2026, 10, 3, h, tzinfo=UTC), datetime(2026, 10, 3, h + 1, tzinfo=UTC))  # noqa: E731
+    mine = lambda found: [(f["provider"], f["model"]) for f in found if f["group_id"] == workspace]  # noqa: E731
+
+    assert mine(budget.first_unpriced_between(db_session, *hour(14))) == [("anthropic", "claude-next")]
+    assert mine(budget.first_unpriced_between(db_session, *hour(15))) == []  # seen already: no second report
+
+
+def test_the_hourly_check_sends_one_event_per_newly_seen_model(db_session, workspace, monkeypatch):
+    import sys
+    from contextlib import contextmanager
+
+    import marvin.services.scheduler.tasks  # noqa: F401 — loads the module
+
+    task = sys.modules["marvin.services.scheduler.tasks.check_unpriced_models"]  # the package re-exports the function by this name
+
+    sent = []
+
+    class Bus:
+        def __init__(self, *a, **k):
+            pass
+
+        def dispatch(self, *, event_type, group_id, document_data, **_):
+            sent.append((event_type.name, group_id, document_data.provider_type, document_data.model_id, document_data.reason))
+
+    @contextmanager
+    def this_session():
+        yield db_session
+
+    monkeypatch.setattr("marvin.services.event_bus_service.event_bus_service.EventBusService", Bus)
+    monkeypatch.setattr(task, "session_context", this_session)
+    _unpriced(db_session, workspace, "anthropic", "claude-next", at=datetime(2026, 10, 3, 14, 20, tzinfo=UTC))
+
+    task.check_unpriced_models(now=datetime(2026, 10, 3, 15, 7, tzinfo=UTC))  # looks at 14:00–15:00
+
+    assert ("ai_model_unpriced", workspace, "anthropic", "claude-next", "unpriced_model") in sent

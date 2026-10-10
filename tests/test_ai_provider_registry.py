@@ -350,13 +350,27 @@ def test_startup_refuses_an_unknown_default_provider(entry_points):
     assert "plugin 'broken' failed to load: nope" in lines
 
 
-def test_startup_only_warns_when_the_default_provider_was_never_chosen(entry_points, caplog):
-    """AI_DEFAULT_PROVIDER left at its default (`openai`) on an install without the OpenAI plugin: start, say so."""
-    default_only = SimpleNamespace(AI_DEFAULT_PROVIDER="openai", model_fields_set=set())
+def test_an_unset_default_is_the_preferred_installed_provider(entry_points, caplog):
+    """AI_DEFAULT_PROVIDER unset (2026-10-10; it used to mean `openai`, which core no longer ships): openai when a
+    plugin provides it, else the next of anthropic, google, azure, ollama that is installed."""
+    unset = SimpleNamespace(AI_DEFAULT_PROVIDER="", model_fields_set=set())
 
-    lines = factory.validate_ai_config(default_only)
+    assert registry.default_provider(unset) == "anthropic"  # built-ins only: no openai here
+    assert "default provider: anthropic (AI_DEFAULT_PROVIDER unset)" in factory.validate_ai_config(unset)
 
-    assert "anthropic (built in)" in lines
-    assert "platform AI is off until a plugin provides 'openai'" in caplog.text
-    with pytest.raises(AIConfigError):  # chosen explicitly: a misconfiguration, as before
+    entry_points.append(_EP("openai", OPENAI_PLUGIN, dist="marvin-ai-openai"))
+    registry.reset()
+    assert registry.default_provider(unset) == "openai"  # prod and dev set nothing and keep openai
+    assert registry.default_provider(SimpleNamespace(AI_DEFAULT_PROVIDER="google")) == "google"
+
+
+def test_an_explicit_default_nothing_provides_still_stops_startup(entry_points):
+    with pytest.raises(AIConfigError):
         factory.validate_ai_config(SimpleNamespace(AI_DEFAULT_PROVIDER="openai", model_fields_set={"AI_DEFAULT_PROVIDER"}))
+
+
+def test_with_no_provider_installed_startup_only_warns(entry_points, caplog, monkeypatch):
+    monkeypatch.setattr(registry, "plugins", lambda: {})
+    assert registry.default_provider(SimpleNamespace(AI_DEFAULT_PROVIDER="")) is None
+    factory.validate_ai_config(SimpleNamespace(AI_DEFAULT_PROVIDER="", model_fields_set=set()))
+    assert "no AI provider is installed" in caplog.text

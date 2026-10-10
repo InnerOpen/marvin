@@ -228,7 +228,8 @@ def get_entity_history(ctx: ToolContext, args: dict) -> str:
 
 
 _HINT_STOPWORDS = frozenset(
-    "a an and are does do event events fire fires happen happens i if is it my of on someone something the to what when who".split()
+    # "no" / "not" name no event: "no such thing" matched "AI Model Has No Price" on the word alone.
+    "a an and are does do event events fire fires happen happens i if is it my no not of on someone something the to what when who".split()
 )
 
 

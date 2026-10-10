@@ -357,6 +357,7 @@ async def start_scheduler() -> None:
         scheduler_tasks.expire_parked_runs,
         scheduler_tasks.empty_expired_trash,
         scheduler_tasks.remind_trash_auto_empty,
+        scheduler_tasks.check_unpriced_models,
         # scheduler_tasks.locked_user_reset,
     )
 

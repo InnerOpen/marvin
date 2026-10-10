@@ -41,7 +41,7 @@ BUILDER_SYSTEM_PROMPT = (
     "operator or option those don't show.\n"
     "Then answer with numbered steps for THIS workspace, in the editor's words (Trigger, Run on a query, Fields equal, "
     "Only if, Set fields, Preview matches…): where to click, what to choose, the real field names and typed values "
-    "(true, 45 — not \"45\"), what Preview matches should report, and what to watch for (a manual run touches at most "
+    '(true, 45 — not "45"), what Preview matches should report, and what to watch for (a manual run touches at most '
     "250 entries at a time and runs while the page waits; run it once). End by offering to draft it for them.\n"
     "Only when they say yes: draft_workflow (it asks the user to approve, and creates the workflow switched off), then "
     "give the editor link, the Preview count and a short explanation of each part. Never switch a workflow on or run "
@@ -299,10 +299,7 @@ SYSTEM_AGENTS: dict[str, AgentSpec] = {
         # Writes ask first (a custom-style agent's default), so a draft always waits for the user's approval.
         allow_writes=True,
         min_role=ROLE_ADMIN,  # the workflow tools are ADMIN, like the Workflows page
-        handoff_hint=(
-            "the user asks how to set something up in Marvin, automate something, build or change a workflow, "
-            "or bulk-update entries"
-        ),
+        handoff_hint=("the user asks how to set something up in Marvin, automate something, build or change a workflow, or bulk-update entries"),
         suggestions=(
             "How do I turn on Sell online for every available artwork with a price?",
             "Announce new posts in Slack when they're published",

@@ -1935,6 +1935,21 @@ CATALOG: list[CatalogEntry] = [
         ],
     ),
     CatalogEntry(
+        event_type="ai_model_unpriced",
+        name="AI Model Has No Price",
+        description=(
+            "The workspace started running an AI model Marvin has no price for: its runs are counted but their cost "
+            "is unknown, so the monthly cost limit can't see it. Sent once per provider and model."
+        ),
+        category="AI",
+        sent_by=["The hourly unpriced-model check (scheduler)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("provider_type", "The AI provider", "anthropic"),
+            EventVariable("model_id", "The model with no price", "claude-new-model"),
+        ],
+    ),
+    CatalogEntry(
         event_type="ai_budget_exceeded",
         name="AI Budget Exceeded",
         description="The workspace monthly AI cost limit was reached.",

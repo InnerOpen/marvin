@@ -987,8 +987,10 @@ class AppSettings(BaseSettings):
     # ===============================================
     # Additional AI Providers (platform credential mode)
 
-    AI_DEFAULT_PROVIDER: str = "openai"
-    """Provider used by workspaces in platform credential mode (openai | anthropic | google)."""
+    AI_DEFAULT_PROVIDER: str = ""
+    """Provider used by workspaces in platform credential mode, by slug (openai, anthropic, google, azure, ollama or
+    a plugin's). Empty: the first installed of openai, anthropic, google, azure, ollama (services/ai/registry.py
+    default_provider). Set to a provider nothing provides, startup refuses."""
     AI_ALLOW_WORKSPACE_CREDENTIALS: bool = True
     """Whether workspaces may use their own AI credentials (credential_mode='workspace').
     When false, only platform-provided credentials are allowed and the workspace option is
