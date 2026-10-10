@@ -116,6 +116,18 @@ jobs:
             *) echo "::error::${{ matrix.suffix }} image is not the ${{ matrix.target }} target (entrypoint=$entrypoint, expected to contain '${{ matrix.expect }}')"; exit 1 ;;
           esac
 
+      # The site-wide plugins are baked in (pyproject.toml `plugins` group): each is installed and loads.
+      - name: Verify baked-in plugins
+        if: matrix.target != 'frontend'
+        run: |
+          set -euo pipefail
+          name=$(printf '%s' "${{ env.IMAGE_NAME }}${{ matrix.suffix }}" | tr '[:upper:]' '[:lower:]')
+          img="${{ env.REGISTRY }}/${name}@${{ steps.build.outputs.digest }}"
+          plugins=$(sed -n '/^plugins = \[/,/^\]/p' pyproject.toml | grep -o '"marvin-[a-z0-9-]* @' | tr -d '" @' | tr '\n' ' ')
+          echo "Expecting: $plugins"
+          docker run --rm -e PLUGINS="$plugins" -v "$PWD/docker/check-plugins.py:/tmp/check-plugins.py:ro" \
+            --entrypoint /app/.venv/bin/python "$img" /tmp/check-plugins.py
+
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

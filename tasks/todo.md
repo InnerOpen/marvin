@@ -2694,3 +2694,62 @@ files. But AI should be able to move them to Assets."
 - [ ] Tests: queue logic DOM-free (`lib/uploadQueue.ts`) under node --test.
 
 Order: B (small, separate) → A → C → D. Commits `feat(assets):`, `refactor(ai)!:`/`feat(ai):`, `feat(pwa):`.
+
+# Login brute-force protection + plugins baked into the image (2026-10-09, Jared: growing lockout 15 min → 1 h; bake with the init-container escape hatch)
+
+## A. Login brute-force protection
+Today: `CredentialsProvider.authenticate` counts bad passwords per user (`login_attemps`) and locks at 5
+(`SECURITY_MAX_LOGIN_ATTEMPTS`) for 24 h (`SECURITY_USER_LOCKOUT_TIME`). Problems: the count is never cleared when the
+lock expires (effectively permanent until an admin unlocks); 423 "User account is locked" reveals the account exists;
+unknown usernames and LDAP failures aren't counted; nothing throttles by IP; anyone can lock a user out deliberately;
+the frontend login proxy doesn't forward the visitor IP (the backend sees the frontend pod); the
+`login_failed_multiple_times` event is defined, routed by Platform alerts, but never sent.
+
+- [x] One `LoginThrottle` service on the existing DB-backed `RateLimitService` (`submission_rate_limits` table, survives
+      restarts/replicas): failures counted per normalized username (known or not, MARVIN or LDAP) and per client IP.
+- [x] Per account: N failures in a window → that username is throttled for a cool-off that grows (e.g. 5 → 15 min,
+      10 → 1 h), then clears by itself. Replaces the `login_attemps`/`locked_at` lock (admin unlock keeps working;
+      the permanent-lock bug goes).
+- [x] Per IP: many failures across any usernames from one IP → that IP is throttled (stops spraying / stuffing).
+- [x] One answer for every refusal: 429 "Too many attempts — try again in N minutes" (Retry-After), whether or not the
+      account exists. Wrong password stays the generic 401.
+- [x] Throttle checked before the password hash is computed (cheap refusal); success clears that username's count.
+- [x] Client IP: frontend `/api/auth/login` forwards the visitor's IP (Astro `clientAddress` / `CF-Connecting-IP`);
+      login keys on Cloudflare's `CF-Connecting-IP` first (Cloudflare overwrites it; a caller can't fake it through
+      Cloudflare), then the forwarded IP. A spoofed IP can only dodge the per-IP limit, never the per-account one.
+- [x] Same family: `POST /users/forgot-password` limited per email and per IP (it can be used to email-bomb someone).
+- [x] Emit `login_failed_multiple_times` (platform scope) when an account is throttled → Platform alerts deliver it;
+      take it out of `_NO_EMITTER` (+ the catalog tests that pin that set).
+- [x] Settings: `SECURITY_MAX_LOGIN_ATTEMPTS` (5), `SECURITY_LOGIN_IP_MAX_FAILURES`, the cool-off minutes; docs
+      (manual: security / operations), what's new.
+- [x] Tests: lock after N, cool-off expiry, unknown user same answer, per-IP across usernames, success clears,
+      forgot-password limit, event emitted once per lock, IP precedence.
+- Not in this: API-token / site-client bcrypt loops (CPU cost per bad token — separate fix), MFA, Cloudflare Access
+  (infra; still a good outer layer for admin/admin-dev).
+
+## B. Plugins baked into the image
+Today: an init container pip-installs 11 plugins from GitHub branch tarballs (+ PyPI deps) into an emptyDir on every
+backend start and every backup run (`marvin-chart/templates/_helpers.tpl` plugins helpers; lists in
+`values-iwobble.yaml` / `values-dev.yaml`). No plugin repo has tags.
+
+- [x] Plugins become a `plugins` dependency group in Marvin's `pyproject.toml` (git URLs on their branches); `uv.lock`
+      pins each to an exact commit → the `develop-<sha>` image pins every plugin, reproducibly.
+- [x] Dockerfile `uv-base`: `uv sync --frozen --no-dev --group postgres --group plugins` → plugins in `/app/.venv`,
+      no PYTHONPATH shadowing.
+- [x] Image check in CI (docker.yml): load the entry points in the built image and assert every expected plugin
+      (integrations, storage, AI provider) loads.
+- [x] Chart: prod/dev `plugins.packages` emptied → no init container, no start-up downloads, backups start instantly.
+      The init-container path stays for an extra/hot-fix plugin without a Marvin build.
+- [x] Updating a plugin = `uv lock --upgrade-package marvin-integration-<x>` → commit → CI → Promote.
+- [x] Docs (chart README / operations), Brain notes.
+- Verify: image builds locally; entry points load; dev pod starts without the init container; backups run.
+
+## Review
+- A (`2b503dd9`): `auth_throttles` table + `LoginThrottle`; provider's own counter removed (frees anyone stuck in the
+  old never-ending lock); 10 new tests; full suite green; live check through the local login form: 5 × invalid, then
+  "Too many sign-in attempts. Try again in 15 minutes."; the backend saw the forwarded IP. Not done: API-token /
+  site-client bcrypt loops (separate), Cloudflare Access (infra, Jared's call).
+- B: `plugins` group + `[tool.uv] override-dependencies` (each plugin's own pyproject points the SDK at a sibling
+  checkout for dev, which uv follows); lock made with the image's uv 0.9.30 (local 0.6.14 rewrote the whole lock);
+  local image build: all 10 plugins load (`docker/check-plugins.py`), the app's registries find them without
+  PYTHONPATH; the check fails on a missing plugin; chart lints; prod/dev render no init container.

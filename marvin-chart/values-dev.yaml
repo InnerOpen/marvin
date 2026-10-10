@@ -73,7 +73,7 @@ persistence:
 
 # Backups: the backup engine, one CronJob per target (marvin-backup-<name>; docs/manual/offsite-backup.md).
 # r2: hourly pg_dump (+ config + assets) to dev's own bucket, marvin-backups-dev (BACKUP_S3_BUCKET in the
-# Secret), through the s3 target of marvin-storage-s3 (plugins.packages below). Same key layout as the
+# Secret), through the s3 target of marvin-storage-s3 (a plugin baked into the image). Same key layout as the
 # old offsite_backup.py job, so it carries on that history. At most an hour of data lost; no point-in-time
 # recovery by choice. Retention 24 hourly + 7 daily, no weekly — less than production's, since dev's data
 # is disposable. Dev has no NAS target.
@@ -126,24 +126,12 @@ route:
     - name: X-Robots-Tag
       value: "noindex, nofollow"
 
-# --- Site-wide plugins — same set as production -------------------------------------------------
-# One pip install into an emptyDir on PYTHONPATH, in the backend and in each backup CronJob (the r2
-# target comes from marvin-storage-s3). The SDK tarball only satisfies pip; the install keeps
-# only what the image doesn't already have, so the image's SDK and dependencies are the ones imported.
+# --- Site-wide plugins ---------------------------------------------------------------------------
+# Baked into the image (pyproject.toml `plugins` group, pinned by uv.lock): the integrations,
+# marvin-storage-s3 (the r2 backup target) and marvin-ai-openai. Nothing is installed at start-up.
+# To add one or hot-fix one ahead of a build, list it here (see values.yaml).
 plugins:
-  packages:
-    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-apprise/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-openai-images/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-instagram/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-square/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-cloudflare-pages/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-buttondown/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-n8n/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-storage-s3/archive/refs/heads/main.tar.gz
-    # Replaces the built-in openai and azure AI providers (same slugs, so saved provider settings carry over).
-    - https://github.com/InnerOpen/marvin-ai-openai/archive/refs/heads/main.tar.gz
+  packages: []
 
 extraEnv:
   # Dev holds a copy of production: no scheduler, so nothing fires on its own (webhook delivery,

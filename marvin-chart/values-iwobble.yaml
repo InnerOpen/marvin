@@ -84,7 +84,7 @@ backup:
   activeDeadlineSeconds: 2700
   startingDeadlineSeconds: 900
   # r2: the off-site copy. Hourly pg_dump (+ config + assets) to Cloudflare R2, bucket marvin-backups,
-  # through the s3 target of marvin-storage-s3 (plugins.packages below); the Secret is created by hand
+  # through the s3 target of marvin-storage-s3 (a plugin baked into the image); the Secret is created by hand
   # from `pass` (marvin/r2/*), never committed. Same key layout as the old job, so it carries on that
   # history. At most an hour of data lost. Retention 48 hourly + 30 daily + 8 weekly (Jared 2026-10-06).
   # nas-nightly: the NAS on pve (export /tank/backups/marvin: all_squash to uid 3100, which owns it 0770,
@@ -138,27 +138,11 @@ route:
     insecureEdgeTerminationPolicy: Redirect
 
 # --- Site-wide plugins ---------------------------------------------------------------------------
-# One pip install into an emptyDir on PYTHONPATH, in the backend and in each backup CronJob (the r2
-# target comes from marvin-storage-s3); the app discovers them through the `marvin.integrations` and
-# `marvin.storage_providers` entry-point groups. The SDK tarball only satisfies pip; the install keeps
-# only what the image doesn't already have, so the image's SDK and dependencies are the ones imported.
-# NOTE: pinned to branch tarballs (SDK default branch is `develop`, plugins `main`) — swap to tags
-# for reproducible builds. Re-downloaded on every pod start and every backup run, so the backend and
-# the backup jobs need GitHub (and PyPI, for boto3) egress.
+# Baked into the image (pyproject.toml `plugins` group, pinned by uv.lock): the integrations,
+# marvin-storage-s3 (the r2 backup target) and marvin-ai-openai. Nothing is installed at start-up.
+# To add one or hot-fix one ahead of a build, list it here (see values.yaml).
 plugins:
-  packages:
-    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-apprise/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-slack/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-openai-images/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-instagram/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-square/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-cloudflare-pages/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-buttondown/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-integration-n8n/archive/refs/heads/main.tar.gz
-    - https://github.com/InnerOpen/marvin-storage-s3/archive/refs/heads/main.tar.gz
-    # Replaces the built-in openai and azure AI providers (same slugs, so saved provider settings carry over).
-    - https://github.com/InnerOpen/marvin-ai-openai/archive/refs/heads/main.tar.gz
+  packages: []
 
 extraEnv:
   # Assets are served off this backend but the site (dev.mashandburnco.com) is a different origin,

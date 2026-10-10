@@ -1,6 +1,9 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.12.*"
+
+[manifest]
+overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60" }]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -115,6 +118,25 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/95/7d/4c1bd541d4dffa1b52bd83fb8527089e097a106fc90b467a7313b105f840/anyio-4.9.0.tar.gz", hash = "sha256:673c0c244e15788651a4ff38710fea9675823028a6f08a5eda409e0c9840a028", size = 190949, upload-time = "2025-03-17T00:02:54.77Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a1/ee/48ca1a7c89ffec8b6a0c5d02b89c305671d5ffd8d3c94acf8b8c408575bb/anyio-4.9.0-py3-none-any.whl", hash = "sha256:9f76d541cad6e36af7beb62e978876f3b41e3e04f2c1fbf0884604c0a9c4d93c", size = 100916, upload-time = "2025-03-17T00:02:52.713Z" },
+]
+
+[[package]]
+name = "apprise"
+version = "2.0.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "click" },
+    { name = "markdown" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "requests-oauthlib" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/1b/8d/61c02aeb9b7644d915106252b8fc42e5f3b3765343c9fe3bef5489e903a4/apprise-2.0.1.tar.gz", hash = "sha256:8cae8ae5877b9cfd1dddffc17ac1e50f780ab6bdf948f95215e2466ef7230565", size = 3353898, upload-time = "2026-10-03T19:44:56.142Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/db/0e/b0ca7dde275f100ecc199dba362a8f1783c906393ab0d3f2c148d8500ddc/apprise-2.0.1-py3-none-any.whl", hash = "sha256:2a9b0f4fc906227f70998ea4462184dd605e796d3932e6e7ce0fe0f134048610", size = 2456127, upload-time = "2026-10-03T19:44:53.265Z" },
 ]
 
 [[package]]
@@ -1183,6 +1205,18 @@ dev = [
 ldap = [
     { name = "python-ldap" },
 ]
+plugins = [
+    { name = "marvin-ai-openai" },
+    { name = "marvin-integration-apprise" },
+    { name = "marvin-integration-buttondown" },
+    { name = "marvin-integration-cloudflare-pages" },
+    { name = "marvin-integration-instagram" },
+    { name = "marvin-integration-n8n" },
+    { name = "marvin-integration-openai-images" },
+    { name = "marvin-integration-slack" },
+    { name = "marvin-integration-square" },
+    { name = "marvin-storage-s3" },
+]
 postgres = [
     { name = "psycopg2-binary" },
 ]
@@ -1259,13 +1293,108 @@ dev = [
     { name = "types-pyyaml", specifier = ">=6.0.12.20250402" },
 ]
 ldap = [{ name = "python-ldap", specifier = ">=3.4.5" }]
+plugins = [
+    { name = "marvin-ai-openai", git = "https://github.com/InnerOpen/marvin-ai-openai?rev=main" },
+    { name = "marvin-integration-apprise", git = "https://github.com/InnerOpen/marvin-integration-apprise?rev=main" },
+    { name = "marvin-integration-buttondown", git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=main" },
+    { name = "marvin-integration-cloudflare-pages", git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=main" },
+    { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=main" },
+    { name = "marvin-integration-n8n", git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=main" },
+    { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=main" },
+    { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=main" },
+    { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=main" },
+    { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=main" },
+]
 postgres = [{ name = "psycopg2-binary", specifier = ">=2.9" }]
 vault = [{ name = "hvac", specifier = ">=2.0" }]
+
+[[package]]
+name = "marvin-ai-openai"
+version = "0.1.0"
+source = { git = "https://github.com/InnerOpen/marvin-ai-openai?rev=main#82432989902df1e20d93bcfa615db168a389b97c" }
+dependencies = [
+    { name = "marvin-integration-sdk" },
+    { name = "openai" },
+]
+
+[[package]]
+name = "marvin-integration-apprise"
+version = "0.2.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-apprise?rev=main#57585178e35a6874eb360c96a4d2eff388fe6d4f" }
+dependencies = [
+    { name = "apprise" },
+    { name = "marvin-integration-sdk" },
+]
+
+[[package]]
+name = "marvin-integration-buttondown"
+version = "0.6.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=main#2dbf1aaf9476e97dabe65c4646ef96fbbaab9a73" }
+dependencies = [
+    { name = "marvin-integration-sdk" },
+]
+
+[[package]]
+name = "marvin-integration-cloudflare-pages"
+version = "0.1.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=main#a7f4d0d275f289635db9241bf0f7aa1a466c826b" }
+dependencies = [
+    { name = "marvin-integration-sdk" },
+]
+
+[[package]]
+name = "marvin-integration-instagram"
+version = "0.3.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=main#7eacc06d7b3a50aafcfc1d98787d6cb8308fbd4a" }
+dependencies = [
+    { name = "marvin-integration-sdk" },
+]
+
+[[package]]
+name = "marvin-integration-n8n"
+version = "0.1.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=main#d094d2d5bf729332046e6c6765f091ed42b8ea7b" }
+dependencies = [
+    { name = "marvin-integration-sdk" },
+]
+
+[[package]]
+name = "marvin-integration-openai-images"
+version = "0.2.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=main#2e80b4c97a33825dbebd39c81fe87e896faf9401" }
+dependencies = [
+    { name = "marvin-integration-sdk" },
+]
 
 [[package]]
 name = "marvin-integration-sdk"
 version = "0.8.0"
 source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60#39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60" }
+
+[[package]]
+name = "marvin-integration-slack"
+version = "0.2.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-slack?rev=main#dbc32f19c5cb54761bec049b9bc35b68a0414233" }
+dependencies = [
+    { name = "marvin-integration-sdk" },
+]
+
+[[package]]
+name = "marvin-integration-square"
+version = "0.3.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-square?rev=main#9ae825e8f9ed7ff6030cfdbc547bdab08a1d116c" }
+dependencies = [
+    { name = "marvin-integration-sdk" },
+]
+
+[[package]]
+name = "marvin-storage-s3"
+version = "0.1.0"
+source = { git = "https://github.com/InnerOpen/marvin-storage-s3?rev=main#ac078df2888869eb21f3bc50e680960e6db7323b" }
+dependencies = [
+    { name = "boto3" },
+    { name = "marvin-integration-sdk" },
+]
 
 [[package]]
 name = "mccabe"
@@ -1500,6 +1629,34 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/25/5761d832a81df431e260719ec45de696414266613c9ee268394dd5ad8236/numpy-2.2.6-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:fe27749d33bb772c80dcd84ae7e8df2adc920ae8297400dabec45f0dedb3f6de", size = 18313783, upload-time = "2025-05-17T21:36:56.883Z" },
     { url = "https://files.pythonhosted.org/packages/57/0a/72d5a3527c5ebffcd47bde9162c39fae1f90138c961e5296491ce778e682/numpy-2.2.6-cp312-cp312-win32.whl", hash = "sha256:4eeaae00d789f66c7a25ac5f34b71a7035bb474e679f410e5e1a94deb24cf2d4", size = 6246506, upload-time = "2025-05-17T21:37:07.368Z" },
     { url = "https://files.pythonhosted.org/packages/36/fa/8c9210162ca1b88529ab76b41ba02d433fd54fecaf6feb70ef9f124683f1/numpy-2.2.6-cp312-cp312-win_amd64.whl", hash = "sha256:c1f9540be57940698ed329904db803cf7a402f3fc200bfe599334c9bd84a40b2", size = 12614190, upload-time = "2025-05-17T21:37:26.213Z" },
+]
+
+[[package]]
+name = "oauthlib"
+version = "4.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7a/d8/a1bcc8ba112a627f8ffbdc212a78ce18d3ac07e91a5ca65d27918eee25a1/oauthlib-4.0.0.tar.gz", hash = "sha256:efb274799819440f95b4ab3b818869f1ce9ae26c5beacba0201d1a1b76b54f86", size = 187232, upload-time = "2026-09-28T06:01:18.77Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d9/f4/78229a1066068ca14fc60fb26cf7381cabe4382261392b90e5f9552722d4/oauthlib-4.0.0-py3-none-any.whl", hash = "sha256:624c28c13a0a59cabf9747dfa52af63be3e512a7f2714df16e91b5b3a145e6cd", size = 159715, upload-time = "2026-09-28T06:01:17.008Z" },
+]
+
+[[package]]
+name = "openai"
+version = "2.54.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "jiter" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "tqdm" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/50/9a/8c75e8c8a5b407a0586faeb2afac91674ff955c191ecc1d6d3b6669f6788/openai-2.54.0.tar.gz", hash = "sha256:e3e6f8bc1ba30ddf381ace1a14340eed381cb984a1a59bd0f34b5be3b5d49cfa", size = 1100285, upload-time = "2026-08-11T18:46:59.035Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/64/a8/bb76c7356de8ad57f59d5ff993d434df0607f07f08bcc9c9a5c275e399c0/openai-2.54.0-py3-none-any.whl", hash = "sha256:89089789197ccdb87f173a03145ed1598d00795220c93e96cf712b1cbf5e5f2b", size = 1660351, upload-time = "2026-08-11T18:46:56.684Z" },
 ]
 
 [[package]]
@@ -2054,6 +2211,19 @@ wheels = [
 ]
 
 [[package]]
+name = "requests-oauthlib"
+version = "2.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "oauthlib" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/42/f2/05f29bc3913aea15eb670be136045bf5c5bbf4b99ecb839da9b422bb2c85/requests-oauthlib-2.0.0.tar.gz", hash = "sha256:b3dffaebd884d8cd778494369603a9e7b58d29111bf6b41bdc2dcd87203af4e9", size = 55650, upload-time = "2024-03-22T20:32:29.939Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3b/5d/63d4ae3b9daea098d5d6f5da83984853c1bbacd5dc826764b249fe119d24/requests_oauthlib-2.0.0-py2.py3-none-any.whl", hash = "sha256:7dd8a5c40426b779b0868c404bdef9768deccf22749cde15852df527e6269b36", size = 24179, upload-time = "2024-03-22T20:32:28.055Z" },
+]
+
+[[package]]
 name = "requests-toolbelt"
 version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2365,6 +2535,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f8/b1/0c11f5058406b3af7609f121aaa6b609744687f1d158b3c3a5bf4cc94238/typing_inspection-0.4.1.tar.gz", hash = "sha256:6ae134cc0203c33377d43188d4064e9b357dba58cff3185f22924610e70a9d28", size = 75726, upload-time = "2025-05-21T18:55:23.885Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/17/69/cd203477f944c353c31bade965f880aa1061fd6bf05ded0726ca845b6ff7/typing_inspection-0.4.1-py3-none-any.whl", hash = "sha256:389055682238f53b04f7badcb49b989835495a96700ced5dab2d8feae4b26f51", size = 14552, upload-time = "2025-05-21T18:55:22.152Z" },
+]
+
+[[package]]
+name = "tzdata"
+version = "2026.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/68/f1b440335057bfce71b6e50a9d09445aa2ecbd08359a337976627b8409e7/tzdata-2026.5.tar.gz", hash = "sha256:8cc73c0a0bfca7dbfa59235d60b2eff82231dee33f53d206db1acd9173cfc0a7", size = 200404, upload-time = "2026-10-03T09:23:14.143Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/94/21/1e5995a1c920cce14e4bffae20c665ec10e7ed03ab25e006cd741092b718/tzdata-2026.5-py2.py3-none-any.whl", hash = "sha256:b683bd1b6659ddcd810ff02ad09ba821d4bf1065072805063eb35c49617905ac", size = 347996, upload-time = "2026-10-03T09:23:12.535Z" },
 ]
 
 [[package]]

@@ -97,10 +97,35 @@ ldap = ["python-ldap>=3.4.5"]
 # Optional PostgreSQL driver. SQLAlchemy's bare `postgresql://` dialect uses psycopg2;
 # the binary wheel needs no build step. Opt in with `uv sync --group postgres`.
 postgres = ["psycopg2-binary>=2.9"]
+
+# The site-wide plugins baked into the image (docker/Dockerfile: `--group plugins`), so a pod never downloads
+# them at start-up. Each follows its repo's branch here and uv.lock pins the exact commit, so an image tag pins
+# every plugin. Update one: `uv lock --upgrade-package marvin-integration-slack`, commit, let CI build it.
+# The chart's plugins.packages can still add one at start-up (a hot fix) without a build.
+plugins = [
+    "marvin-integration-apprise @ git+https://github.com/InnerOpen/marvin-integration-apprise@main",
+    "marvin-integration-slack @ git+https://github.com/InnerOpen/marvin-integration-slack@main",
+    "marvin-integration-openai-images @ git+https://github.com/InnerOpen/marvin-integration-openai-images@main",
+    "marvin-integration-instagram @ git+https://github.com/InnerOpen/marvin-integration-instagram@main",
+    "marvin-integration-square @ git+https://github.com/InnerOpen/marvin-integration-square@main",
+    "marvin-integration-cloudflare-pages @ git+https://github.com/InnerOpen/marvin-integration-cloudflare-pages@main",
+    "marvin-integration-buttondown @ git+https://github.com/InnerOpen/marvin-integration-buttondown@main",
+    "marvin-integration-n8n @ git+https://github.com/InnerOpen/marvin-integration-n8n@main",
+    "marvin-storage-s3 @ git+https://github.com/InnerOpen/marvin-storage-s3@main",
+    # Replaces the built-in openai and azure AI providers (same slugs, so saved provider settings carry over).
+    "marvin-ai-openai @ git+https://github.com/InnerOpen/marvin-ai-openai@main",
+]
 # Optional HashiCorp Vault secret backend (SECRET_BACKEND=vault). Opt in with `uv sync --group vault`.
 vault = ["hvac>=2.0"]
 # Optional Bitwarden Secrets Manager backend (SECRET_BACKEND=bitwarden). Opt in with `uv sync --group bitwarden`.
 bitwarden = ["bitwarden-sdk>=1.0.0"]
+
+[tool.uv]
+# Every plugin builds against the one SDK commit Marvin pins above: their own pyproject points the SDK at a
+# sibling checkout (or another commit) for local development, which uv would otherwise follow.
+override-dependencies = [
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60",
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra -q"

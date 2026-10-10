@@ -44,8 +44,8 @@ The SDK README has a full example.
 `services/ai/registry.py` holds what this platform has:
 
 1. **Core's built-ins**: `anthropic`, `google`, `ollama`. OpenAI and Azure OpenAI (`openai`, `azure`)
-   left core on 2026-10-08: they are the `marvin-ai-openai` plugin, which the chart installs by default
-   (`plugins.packages` in `values.yaml`; an environment's own list must keep it). For local development,
+   left core on 2026-10-08: they are the `marvin-ai-openai` plugin, baked into the image with the other
+   site-wide plugins (the `plugins` group in `pyproject.toml`). For local development,
    `uv pip install -e ../MarvinAIOpenAI` (re-run after `uv sync`, like the integration plugins).
 2. **Installed plugins**, from the `marvin.ai_providers` entry points (the shared plugin loader,
    `services/plugin_loader.py`). A plugin whose slug matches a built-in **replaces** it: the startup log

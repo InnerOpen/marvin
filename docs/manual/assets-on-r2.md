@@ -27,7 +27,7 @@ For each environment: production `marvin-assets` + `assets.iwobble.com`, dev `ma
 
 ## Switching (dev first, then production)
 
-The code must be deployed first (this release), with `marvin-storage-s3` in `plugins.packages` (it already is). Commands are for production (`-n marvin`); dev is the same with `-n marvin-dev`, `marvin-assets-dev` and `assets-dev.iwobble.com`.
+The code must be deployed first (this release), with `marvin-storage-s3` installed (it is baked into the image). Commands are for production (`-n marvin`); dev is the same with `-n marvin-dev`, `marvin-assets-dev` and `assets-dev.iwobble.com`.
 
 **1. Secret** (once per namespace; the plugin's own variable names):
 

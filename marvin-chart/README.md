@@ -288,7 +288,17 @@ consequences worth knowing before you pick an approach:
   installed, the `marvin_integration_sdk` package is absent and those routes are never registered.
 - Adding or removing a plugin therefore requires a pod restart. Nothing is hot-loaded.
 
-### Recommended: a derived image
+### Marvin's own plugins: baked in
+
+The site-wide plugins Marvin runs (the integrations, `marvin-storage-s3`, `marvin-ai-openai`) are baked
+into every Marvin image: the `plugins` dependency group in `pyproject.toml`, each at the commit `uv.lock`
+pins, installed by the Dockerfile (`uv sync --group plugins`). The image tag therefore pins every plugin,
+nothing is downloaded when a pod or a backup job starts, and CI fails the build if one is missing or
+doesn't import (`docker/check-plugins.py`). To update one: `uv lock --upgrade-package <name>`, commit,
+and let CI build and promote it. `plugins.packages` (below) stays for an extra plugin or a hot fix
+ahead of a build.
+
+### Recommended for your own plugins: a derived image
 
 Pin the plugin set into an image and let the tag describe it. Dependency conflicts surface as a
 build failure rather than an import error in a running pod, and the deployment stays immutable.
@@ -304,7 +314,7 @@ image:
   tag: "1.0.0-rc.10"
 ```
 
-### Without rebuilding: `plugins.packages`
+### Without rebuilding: `plugins.packages` (empty by default)
 
 List the plugins as pip requirements and the chart installs them at pod start into a shared
 `emptyDir` on `PYTHONPATH`, in every pod that runs Marvin code: the backend (split or combined) and
