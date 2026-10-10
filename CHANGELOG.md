@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.254 (2026-10-10)
+
+### Features
+
+- **ai**: Runs with no price are counted and shown, not $0 — AI provider plugins slice 1
+  ([`abd140b`](https://github.com/InnerOpen/marvin/commit/abd140b36b7a6e8da08b9f3714f45ea641077068))
+
+
 ## v1.0.0-rc.253 (2026-10-10)
 
 ### Bug Fixes
