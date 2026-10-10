@@ -5995,7 +5995,7 @@
         {
           "name": "notify_integration",
           "type": "integration_slug",
-          "description": "Slug of a connected Apprise integration (Settings → Integrations) whose `notify` action sends the message.",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
           "example": "alerts"
         }
       ],
@@ -6018,11 +6018,9 @@
       "prerequisites": {
         "integrations": [
           {
-            "provider": "apprise",
-            "actions": [
-              "notify"
-            ],
-            "note": "Any connected provider with a `notify`-style action works; swap the step's action/args (Slack: send_message/text)."
+            "capability": "notify",
+            "examples": "Slack or Apprise",
+            "note": "Any connected integration that can send a notification: the step names the `notify` capability with a title and body, and Marvin sends through that integration's own message action."
           }
         ]
       },
@@ -6030,10 +6028,10 @@
         {
           "kind": "integration_connection",
           "required": true,
-          "name": "Apprise",
+          "name": "A notification integration (Slack, Apprise…)",
           "purpose": "Delivers the editor notice.",
           "referenced_by": "actions[1].integration",
-          "create": "Settings → Integrations → Connect Apprise"
+          "create": "Settings → Integrations → connect Slack or Apprise"
         }
       ],
       "side_effects": [
@@ -6043,7 +6041,7 @@
         },
         {
           "kind": "notification",
-          "description": "Sends a message to the configured Apprise targets (chat/email/push, per the connection's URLs)."
+          "description": "Sends a notification through the chosen integration (a Slack channel, or Apprise's chat/email/push targets)."
         }
       ],
       "cost_notes": "None (no AI).",
@@ -6057,7 +6055,7 @@
       "verification": {
         "level": "fixture-executed",
         "mocked": [
-          "integration:apprise"
+          "integration:notify"
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_blocked_publication_rescue"
       },
@@ -6111,7 +6109,7 @@
         {
           "name": "notify_integration",
           "type": "integration_slug",
-          "description": "Slug of a connected Apprise integration (Settings → Integrations) whose `notify` action sends the message.",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
           "example": "alerts"
         }
       ],
@@ -6137,11 +6135,9 @@
       "prerequisites": {
         "integrations": [
           {
-            "provider": "apprise",
-            "actions": [
-              "notify"
-            ],
-            "note": "Any connected provider with a `notify`-style action works; swap the step's action/args (Slack: send_message/text)."
+            "capability": "notify",
+            "examples": "Slack or Apprise",
+            "note": "Any connected integration that can send a notification: the step names the `notify` capability with a title and body, and Marvin sends through that integration's own message action."
           }
         ],
         "features": [
@@ -6152,10 +6148,10 @@
         {
           "kind": "integration_connection",
           "required": true,
-          "name": "Apprise",
+          "name": "A notification integration (Slack, Apprise…)",
           "purpose": "Delivers the owner notice.",
           "referenced_by": "actions[2].integration",
-          "create": "Settings → Integrations → Connect Apprise"
+          "create": "Settings → Integrations → connect Slack or Apprise"
         }
       ],
       "side_effects": [
@@ -6169,7 +6165,7 @@
         },
         {
           "kind": "notification",
-          "description": "Sends a message to the configured Apprise targets (chat/email/push, per the connection's URLs)."
+          "description": "Sends a notification through the chosen integration (a Slack channel, or Apprise's chat/email/push targets)."
         }
       ],
       "cost_notes": "None (no AI).",
@@ -6198,7 +6194,7 @@
       "verification": {
         "level": "fixture-executed",
         "mocked": [
-          "integration:apprise"
+          "integration:notify"
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_form_intake_desk"
       },
@@ -6239,7 +6235,7 @@
         {
           "name": "notify_integration",
           "type": "integration_slug",
-          "description": "Slug of a connected Apprise integration (Settings → Integrations) whose `notify` action sends the message.",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
           "example": "alerts"
         }
       ],
@@ -6259,11 +6255,9 @@
       "prerequisites": {
         "integrations": [
           {
-            "provider": "apprise",
-            "actions": [
-              "notify"
-            ],
-            "note": "Any connected provider with a `notify`-style action works; swap the step's action/args (Slack: send_message/text)."
+            "capability": "notify",
+            "examples": "Slack or Apprise",
+            "note": "Any connected integration that can send a notification: the step names the `notify` capability with a title and body, and Marvin sends through that integration's own message action."
           }
         ],
         "features": [
@@ -6274,16 +6268,16 @@
         {
           "kind": "integration_connection",
           "required": true,
-          "name": "Apprise",
+          "name": "A notification integration (Slack, Apprise…)",
           "purpose": "Delivers the notice.",
           "referenced_by": "actions[0].integration",
-          "create": "Settings → Integrations → Connect Apprise"
+          "create": "Settings → Integrations → connect Slack or Apprise"
         }
       ],
       "side_effects": [
         {
           "kind": "notification",
-          "description": "Sends a message to the configured Apprise targets (chat/email/push, per the connection's URLs)."
+          "description": "Sends a notification through the chosen integration (a Slack channel, or Apprise's chat/email/push targets)."
         }
       ],
       "cost_notes": "None (no AI).",
@@ -6295,7 +6289,7 @@
       "verification": {
         "level": "fixture-executed",
         "mocked": [
-          "integration:apprise"
+          "integration:notify"
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_submission_surge_alert"
       },
@@ -6450,7 +6444,7 @@
         {
           "name": "notify_integration",
           "type": "integration_slug",
-          "description": "Slug of a connected Apprise integration (Settings → Integrations) whose `notify` action sends the message.",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
           "example": "alerts"
         }
       ],
@@ -6470,11 +6464,9 @@
       "prerequisites": {
         "integrations": [
           {
-            "provider": "apprise",
-            "actions": [
-              "notify"
-            ],
-            "note": "Any connected provider with a `notify`-style action works; swap the step's action/args (Slack: send_message/text)."
+            "capability": "notify",
+            "examples": "Slack or Apprise",
+            "note": "Any connected integration that can send a notification: the step names the `notify` capability with a title and body, and Marvin sends through that integration's own message action."
           }
         ],
         "features": [
@@ -6485,10 +6477,10 @@
         {
           "kind": "integration_connection",
           "required": true,
-          "name": "Apprise",
+          "name": "A notification integration (Slack, Apprise…)",
           "purpose": "Delivers the notice.",
           "referenced_by": "actions[0].integration",
-          "create": "Settings → Integrations → Connect Apprise"
+          "create": "Settings → Integrations → connect Slack or Apprise"
         },
         {
           "kind": "incoming_webhook",
@@ -6540,7 +6532,7 @@
       "side_effects": [
         {
           "kind": "notification",
-          "description": "Sends a message to the configured Apprise targets (chat/email/push, per the connection's URLs)."
+          "description": "Sends a notification through the chosen integration (a Slack channel, or Apprise's chat/email/push targets)."
         }
       ],
       "cost_notes": "None (no AI).",
@@ -6561,7 +6553,7 @@
       "verification": {
         "level": "fixture-executed",
         "mocked": [
-          "integration:apprise"
+          "integration:notify"
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_deployment_celebration"
       },
@@ -6602,7 +6594,7 @@
         {
           "name": "notify_integration",
           "type": "integration_slug",
-          "description": "Slug of a connected Apprise integration (Settings → Integrations) whose `notify` action sends the message.",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
           "example": "alerts"
         }
       ],
@@ -6622,11 +6614,9 @@
       "prerequisites": {
         "integrations": [
           {
-            "provider": "apprise",
-            "actions": [
-              "notify"
-            ],
-            "note": "Any connected provider with a `notify`-style action works; swap the step's action/args (Slack: send_message/text)."
+            "capability": "notify",
+            "examples": "Slack or Apprise",
+            "note": "Any connected integration that can send a notification: the step names the `notify` capability with a title and body, and Marvin sends through that integration's own message action."
           }
         ],
         "features": [
@@ -6637,10 +6627,10 @@
         {
           "kind": "integration_connection",
           "required": true,
-          "name": "Apprise",
+          "name": "A notification integration (Slack, Apprise…)",
           "purpose": "Delivers the notice.",
           "referenced_by": "actions[0].integration",
-          "create": "Settings → Integrations → Connect Apprise"
+          "create": "Settings → Integrations → connect Slack or Apprise"
         },
         {
           "kind": "incoming_webhook",
@@ -6684,7 +6674,7 @@
       "side_effects": [
         {
           "kind": "notification",
-          "description": "Sends a message to the configured Apprise targets (chat/email/push, per the connection's URLs)."
+          "description": "Sends a notification through the chosen integration (a Slack channel, or Apprise's chat/email/push targets)."
         }
       ],
       "cost_notes": "None (no AI).",
@@ -6704,7 +6694,7 @@
       "verification": {
         "level": "fixture-executed",
         "mocked": [
-          "integration:apprise"
+          "integration:notify"
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_deployment_failure_desk"
       },

@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.12.*"
 
 [manifest]
@@ -1373,8 +1373,8 @@ source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=39c492
 
 [[package]]
 name = "marvin-integration-slack"
-version = "0.2.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-slack?rev=main#dbc32f19c5cb54761bec049b9bc35b68a0414233" }
+version = "0.3.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-slack?rev=main#dd1fd6ac8fbee9bf4133416f094d4789ccc0af42" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]

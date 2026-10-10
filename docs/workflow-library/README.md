@@ -17,7 +17,7 @@ app — see [In the app](#in-the-app-phase-2).
 | Tests | `tests/test_workflow_library.py` |
 
 The AI authoring guide (`workflow_authoring_guide`, section `examples`) lists the recipes **this workspace can
-run** — runnable status and every prerequisite met (a Buttondown recipe is not offered where no Buttondown
+run** — runnable status and every prerequisite met; a prerequisite is a provider by name or a capability (`{"capability": "notify"}` — any connected integration that can notify, Slack or Apprise; the notification recipes' steps name the capability, not an action) (a Buttondown recipe is not offered where no Buttondown
 connection is enabled); `recipe=<id>` shows one in full with its setup variables. `draft_workflow(recipe=<id>,
 vars={…})` instantiates it with typed substitution and saves it switched off. The guide's former hard-coded
 examples are now recipes in the `Starter examples` category.

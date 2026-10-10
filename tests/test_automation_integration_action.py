@@ -143,3 +143,65 @@ def test_integration_step_needs_admin_role(db_session, workspace, shop):
     with pytest.raises(AutomationActionError):
         _run(db_session, workspace, {"integration": "shop", "action": "create_listing", "args": {"slug": "x"}}, role=ROLE_EDITOR)
     assert shop.calls == []
+
+
+# --- a step that names a capability (notify) instead of an action ------------------------------------------------
+
+
+class _FakeChat(IntegrationProvider):
+    """Slack-shaped: its message action takes `text` (and a title), declares `notify`."""
+
+    slug = "fake_chat"
+    name = "Fake chat"
+    actions = (
+        ProviderAction(
+            key="send_message",
+            label="Send message",
+            capability="notify",
+            input_schema={"type": "object", "properties": {"text": {"type": "string"}, "channel": {"type": "string"}}},
+        ),
+    )
+
+    def __init__(self):
+        self.calls: list[tuple[str, dict]] = []
+
+    def run_action(self, key, args, ctx):
+        self.calls.append((key, args))
+        return {"sent": True}
+
+
+@fixture
+def chat(monkeypatch, db_session, workspace):
+    provider = _FakeChat()
+    monkeypatch.setitem(INTEGRATION_REGISTRY, provider.slug, provider)
+    monkeypatch.setattr("marvin.services.secrets.resolver.resolve_secret", lambda ref, gid=None: "tok")
+    db_session.add(IntegrationModel(session=db_session, group_id=workspace, provider="fake_chat", name="chat", slug="chat", enabled=True))
+    db_session.commit()
+    return provider
+
+
+def test_a_notify_step_sends_through_whatever_message_action_the_integration_has(db_session, workspace, chat):
+    out = _run(
+        db_session,
+        workspace,
+        {"integration": "chat", "capability": "notify", "args": {"title": "Published", "body": "${event.entry.title} is live", "channel": "#news"}},
+    )
+    assert out == {"sent": True}
+    assert chat.calls == [("send_message", {"channel": "#news", "text": "*Published*\nWeightless Hour is live"})]  # title over body, in `text`
+
+
+def test_a_notify_step_on_an_integration_that_cannot_notify_says_so(db_session, workspace, shop):
+    with pytest.raises(AutomationActionError, match="can't notify"):
+        _run(db_session, workspace, {"integration": "shop", "capability": "notify", "args": {"body": "x"}})
+
+
+def test_a_capability_is_what_the_library_matches_a_notify_recipe_against(db_session, workspace, chat):
+    from marvin.services.automation import recipes
+    from marvin.services.automation.authoring import workspace_refs
+
+    refs = workspace_refs(db_session, workspace)
+    assert next(i for i in refs.integrations if i["slug"] == "chat")["capabilities"] == ["notify"]
+    item = recipes.entry("deployment-celebration")
+    assert recipes.missing_prerequisites(item, refs) == []  # Slack-shaped is enough: no Apprise needed
+    refs.integrations = [i for i in refs.integrations if i["slug"] != "chat"]
+    assert recipes.missing_prerequisites(item, refs) == ["needs a connected integration that can notify (Slack or Apprise)"]

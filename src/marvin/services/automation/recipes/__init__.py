@@ -94,8 +94,13 @@ def missing_prerequisites(item: dict, refs: WorkspaceRefs) -> list[str]:
     enabled), an AI operation it can't run here, a job not on the allowlist. Empty: it is offered."""
     reasons: list[str] = []
     connected = {i["provider"] for i in refs.integrations if i.get("enabled")}
+    able = {c for i in refs.integrations if i.get("enabled") for c in (i.get("capabilities") or [])}
     for need in (item.get("prerequisites") or {}).get("integrations") or []:
-        if need["provider"] not in connected:
+        # A provider by name (Buttondown, n8n…), or any connected integration that can do something (notify).
+        if need.get("capability"):
+            if need["capability"] not in able:
+                reasons.append(f"needs a connected integration that can {need['capability']} ({need.get('examples') or 'Slack or Apprise'})")
+        elif need["provider"] not in connected:
             reasons.append(f"needs a connected {need['provider']} integration")
     requires = item.get("requires") or {}
     for op in requires.get("operations") or []:

@@ -10,7 +10,7 @@
         "kind": "integration",
         "id": "notify",
         "integration": "{{notify_integration}}",
-        "action": "notify",
+        "capability": "notify",
         "args": {
           "title": "Site deployment failed",
           "body": "${event.error_message}\nDeployment: ${event.deployment_id}\nSite: ${event.site_url}"

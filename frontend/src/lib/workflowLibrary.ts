@@ -23,6 +23,8 @@ export interface Recipe {
   /** workflow (fills the builder) | configuration (set up on existing pages) | idea (needs a capability). */
   shape: "workflow" | "configuration" | "idea" | string;
   providers: string[];
+  /** What a connected integration must be able to do instead of a named provider (notify: Slack, Apprise…). */
+  capabilities?: string[];
   sideEffects: { kind: string; description: string }[];
   setupVariables: RecipeVariable[];
   supportingObjects: { kind: string; name: string; purpose: string; required: boolean }[];
@@ -33,7 +35,7 @@ export interface Recipe {
 
 export interface LibraryRefs {
   entryTypes: { slug: string; name: string; fields: string[] }[];
-  integrations: { slug: string; name: string; provider: string; enabled: boolean }[];
+  integrations: { slug: string; name: string; provider: string; enabled: boolean; capabilities?: string[] }[];
   collections: { slug?: string | null; name: string }[];
   outgoingWebhooks: { id?: string | null; name: string }[];
   incomingWebhooks: { slug?: string | null; name: string; enabled?: boolean | null }[];
@@ -114,9 +116,17 @@ export function choicesFor(variable: RecipeVariable, recipe: Recipe, refs: Libra
       );
     }
     case "integration_slug": {
+      // A named provider (Buttondown, n8n…), or any integration that can do what the recipe needs (notify).
       const wanted = new Set(recipe.providers);
-      const connected = refs.integrations.filter((i) => i.enabled && (!wanted.size || wanted.has(i.provider)));
-      const needs = recipe.providers.length ? `a connected ${recipe.providers.join(" or ")} integration` : "a connected integration";
+      const able = new Set(recipe.capabilities ?? []);
+      const fits = (i: LibraryRefs["integrations"][number]) =>
+        (!wanted.size && !able.size) || wanted.has(i.provider) || (i.capabilities ?? []).some((c) => able.has(c));
+      const connected = refs.integrations.filter((i) => i.enabled && fits(i));
+      const needs = recipe.providers.length
+        ? `a connected ${recipe.providers.join(" or ")} integration`
+        : able.size
+          ? `a connected integration that can ${[...able].join(" and ")} (Slack, Apprise…)`
+          : "a connected integration";
       return select(
         connected.map((i) => ({ value: i.slug, label: i.name })),
         { text: `This needs ${needs}.`, href: INTEGRATIONS_HREF },
@@ -146,7 +156,10 @@ export function choicesFor(variable: RecipeVariable, recipe: Recipe, refs: Libra
         { text: "No collections yet.", href: "/workspace/collections" },
       );
     case "status":
-      return select(refs.statuses.map((s) => ({ value: s, label: humanize(s) })), { text: "" });
+      return select(
+        refs.statuses.map((s) => ({ value: s, label: humanize(s) })),
+        { text: "" },
+      );
     case "integer":
     case "number":
       return { input: "integer" };
@@ -161,7 +174,9 @@ export function choicesFor(variable: RecipeVariable, recipe: Recipe, refs: Libra
  * has. Entry types are settled before the field keys that depend on them. */
 export function initialValues(recipe: Recipe, refs: LibraryRefs, current: Values = {}): Values {
   const values: Values = {};
-  const ordered = [...recipe.setupVariables].sort((a, b) => Number(a.type === "field_key") - Number(b.type === "field_key"));
+  const ordered = [...recipe.setupVariables].sort(
+    (a, b) => Number(a.type === "field_key") - Number(b.type === "field_key"),
+  );
   for (const variable of ordered) {
     const picker = choicesFor(variable, recipe, refs, values);
     const kept = current[variable.name];
@@ -207,7 +222,11 @@ export interface LibraryFilters {
 export function matches(recipe: Recipe, query: string, filters: LibraryFilters = {}): boolean {
   if (filters.category && recipe.categorySlug !== filters.category) return false;
   const state = readiness(recipe);
-  if (filters.readiness === "usable" ? state !== "ready" && state !== "setup" : filters.readiness && state !== filters.readiness) {
+  if (
+    filters.readiness === "usable"
+      ? state !== "ready" && state !== "setup"
+      : filters.readiness && state !== filters.readiness
+  ) {
     return false;
   }
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -224,7 +243,11 @@ const READINESS_ORDER: Readiness[] = ["ready", "setup", "elsewhere", "idea"];
 export function groupRecipes(recipes: Recipe[]): { category: string; slug: string; recipes: Recipe[] }[] {
   const groups = new Map<string, { category: string; slug: string; recipes: Recipe[] }>();
   for (const recipe of recipes) {
-    const group = groups.get(recipe.categorySlug) ?? { category: recipe.category, slug: recipe.categorySlug, recipes: [] };
+    const group = groups.get(recipe.categorySlug) ?? {
+      category: recipe.category,
+      slug: recipe.categorySlug,
+      recipes: [],
+    };
     group.recipes.push(recipe);
     groups.set(recipe.categorySlug, group);
   }
@@ -278,7 +301,10 @@ export function setupPage(kind: string, recipe?: Recipe): { label: string; href:
       return { label: "Integrations", href: INTEGRATIONS_HREF };
     case "integration_event_subscription": {
       const event = recipe?.trigger.event;
-      return { label: "the event’s page", href: event ? `/automation/events/${encodeURIComponent(event)}` : "/automation/events" };
+      return {
+        label: "the event’s page",
+        href: event ? `/automation/events/${encodeURIComponent(event)}` : "/automation/events",
+      };
     }
     case "scheduled_task":
       return { label: "Scheduled tasks", href: "/workspace/scheduled-tasks/new" };

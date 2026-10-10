@@ -10,7 +10,7 @@
         "kind": "integration",
         "id": "notify",
         "integration": "{{notify_integration}}",
-        "action": "notify",
+        "capability": "notify",
         "args": {
           "title": "Submission surge: ${event.form_name}",
           "body": "${event.submission_count} submissions in ${event.window_minutes} minutes (threshold ${event.threshold}). Review them before acting — nothing was deleted."

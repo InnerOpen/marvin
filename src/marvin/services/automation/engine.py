@@ -899,7 +899,9 @@ def run_retry(
     defn = automation.definition or {}
     actions = (defn.get("actions") or [])[:MAX_ACTIONS]
     failed = actions[row.step_index] if row.step_index < len(actions) else {}
-    if failed.get("kind") != "integration" or failed.get("integration") != row.integration_slug or failed.get("action") != row.action:
+    # A step naming a capability (notify) has no action key of its own: the one it ran is the retry's.
+    named = failed.get("action") or (row.action if failed.get("capability") else None)
+    if failed.get("kind") != "integration" or failed.get("integration") != row.integration_slug or named != row.action:
         errors.finish_retry(session, row, "superseded", "the workflow's steps changed since the failure")
         return "superseded"
 

@@ -123,7 +123,9 @@ def test_guide_lists_marvins_real_vocabulary(ws):
     assert events == TRIGGERABLE_EVENT_TYPES and "entry_published" in events
     assert set(guide["triggers"]) == set(TRIGGER_MODELS)
     assert set(guide["actions"]["kinds"]) == set(ACTION_MODELS)
-    assert guide["actions"]["kinds"]["integration"]["required"] == ["integration", "action"]
+    integration = guide["actions"]["kinds"]["integration"]
+    assert integration["required"] == ["integration"]  # plus `action`, or `capability` (notify) instead
+    assert {"action", "capability"} <= set(integration["optional"]) and "capability" in integration["description"]
     assert set(guide["actions"]["entry_ops"]) == set(OP_SENDS)
     assert guide["actions"]["entry_ops"]["unpublish"] == "status → draft"
     assert set(guide["target"]["query"]) == set(SPEC_KEYS) and "has_images" in guide["target"]["query"]

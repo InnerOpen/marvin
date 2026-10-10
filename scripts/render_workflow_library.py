@@ -67,7 +67,9 @@ def render(cat: dict) -> str:
             continue
         needs = []
         for i in (r.get("prerequisites") or {}).get("integrations") or []:
-            needs.append(f"{i['provider']} integration")
+            needs.append(
+                f"{i['provider']} integration" if i.get("provider") else f"an integration that can {i['capability']} ({i.get('examples') or 'any'})"
+            )
         needs += (r.get("prerequisites") or {}).get("features") or []
         for o in r.get("supporting_objects") or []:
             if o.get("required") and o["kind"] not in ("integration_connection",):

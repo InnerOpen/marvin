@@ -217,13 +217,21 @@ class WebhookAction(_DefnBase):
 
 
 class IntegrationAction(_DefnBase):
-    """Runs a connected integration's action (`integration`: its slug, `action`: the action key) with `args`."""
+    """Runs a connected integration's action (`integration`: its slug, `action`: the action key) with `args` — or,
+    with `capability` instead of `action`, whichever of its actions offers that (`notify`: `title`, `body`)."""
 
     kind: Literal["integration"]
     integration: str  # the workspace integration's slug
-    action: str  # the provider action key
+    action: str | None = None  # the provider action key…
+    capability: str | None = None  # …or a capability it offers (`notify`), whatever the provider
     args: dict[str, Any] = Field(default_factory=dict)  # values may be templates; result → $steps.<id>.output
     id: str | None = None
+
+    @model_validator(mode="after")
+    def _action_or_capability(self):
+        if not (self.action or self.capability):
+            raise ValueError("an integration step needs `action` (the provider action key) or `capability` (e.g. notify)")
+        return self
 
 
 ACTION_MODELS: dict[str, type[_DefnBase]] = {

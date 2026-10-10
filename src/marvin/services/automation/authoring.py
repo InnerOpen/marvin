@@ -132,9 +132,25 @@ def _integration_actions(provider_slug: str) -> list[dict] | None:
                 "description": a.description,
                 "args": {k: (v.get("type") if isinstance(v, dict) else None) or "any" for k, v in props.items()},
                 "required": list(schema.get("required") or []),
+                "capability": getattr(a, "capability", None),
             }
         )
     return out
+
+
+def _integration_capabilities(provider_slug: str) -> list[str] | None:
+    """What a provider can do for a step that names a capability (`notify`…); None when it isn't installed."""
+    from marvin.services.integrations import INTEGRATIONS_AVAILABLE
+
+    if not INTEGRATIONS_AVAILABLE:
+        return None
+    from marvin.services.integrations import get_provider
+    from marvin.services.integrations.alert_routing import capabilities_of
+
+    try:
+        return sorted(capabilities_of(get_provider(provider_slug)))
+    except KeyError:
+        return None
 
 
 def workspace_refs(session, group_id) -> WorkspaceRefs:
@@ -166,6 +182,7 @@ def workspace_refs(session, group_id) -> WorkspaceRefs:
                 "provider": row.provider,
                 "enabled": bool(row.enabled),
                 "actions": _integration_actions(row.provider),
+                "capabilities": _integration_capabilities(row.provider),
             }
         )
     # Ids and names only: an outgoing webhook's URL can carry a credential.
@@ -651,10 +668,14 @@ def _step_issues(step: dict, path: str, where: str, refs: WorkspaceRefs, issues:
             names = "; ".join(f"{w['id']} ({w['name']})" for w in refs.outgoing_webhooks[:10]) or "(none in this workspace)"
             bad("webhook_id", f"No outgoing webhook “{wid}” here. Outgoing webhooks: {names}.")
     elif kind == "integration":
-        slug, key = step.get("integration"), step.get("action")
+        slug, key, capability = step.get("integration"), step.get("action"), step.get("capability")
         row = next((i for i in refs.integrations if i["slug"] == slug), None)
         if row is None:
             bad("integration", f"No integration “{slug}” here. Integrations: {_close(str(slug), [i['slug'] for i in refs.integrations])}.")
+        elif not key and capability:
+            if row.get("capabilities") is not None and capability not in row["capabilities"]:
+                able = ", ".join(i["slug"] for i in refs.integrations if capability in (i.get("capabilities") or [])) or "(none here)"
+                bad("capability", f"“{slug}” can't {capability}. Integrations that can: {able}.")
         elif row["actions"] is not None and key not in {a["action"] for a in row["actions"]}:
             actions = ", ".join(a["action"] for a in row["actions"]) or "(none)"
             bad("action", f"“{slug}” has no action “{key}” a workflow can run. Actions: {actions}.")

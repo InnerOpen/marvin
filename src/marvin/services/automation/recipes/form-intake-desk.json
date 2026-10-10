@@ -34,7 +34,7 @@
         "kind": "integration",
         "id": "notify",
         "integration": "{{notify_integration}}",
-        "action": "notify",
+        "capability": "notify",
         "args": {
           "title": "New submission: ${entry.title}",
           "body": "${event.form_name} — ${entry.data.{{message_field}}}"

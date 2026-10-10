@@ -61,3 +61,37 @@ def message_actions(provider) -> list[MessageAction]:
         required = tuple(k for k in schema.get("required") or () if k in inputs)
         found.append(MessageAction(key=action.key, label=action.label, body_field=body, title_field=title, inputs=inputs, required=required))
     return found
+
+
+def capabilities_of(provider) -> set[str]:
+    """The capabilities a provider offers to unattended callers (a workflow step): those its actions declare, and
+    ``notify`` when it has a message action — what a recipe's ``{"capability": …}`` prerequisite is matched against."""
+    found = {
+        a.capability for a in getattr(provider, "actions", ()) or () if getattr(a, "capability", None) and not getattr(a, "requires_approval", False)
+    }
+    if any(not _needs_approval(provider, m.key) for m in message_actions(provider)):
+        found.add(MESSAGE_CAPABILITY)
+    return found
+
+
+def capability_action(provider, capability: str, args: dict) -> tuple[str, dict] | None:
+    """For a step that names a capability instead of an action: the provider's action for it and the step's
+    arguments in that action's terms, or None when the provider has none. ``notify`` takes the standard ``title``
+    and ``body`` and maps them onto the message action's own fields (Slack's ``text``, Apprise's ``body``…); any
+    other argument passes through. Other capabilities pass the arguments as they are."""
+    if capability == MESSAGE_CAPABILITY:
+        action = next((m for m in message_actions(provider) if not _needs_approval(provider, m.key)), None)
+        if action is None:
+            return None
+        title, body = str(args.get("title") or ""), str(args.get("body") or "")
+        rest = {k: v for k, v in args.items() if k not in ("title", "body")}
+        carried = action.args(title, body) if title else {action.body_field: body}
+        return action.key, {**rest, **carried}
+    for declared in getattr(provider, "actions", ()) or ():
+        if getattr(declared, "capability", None) == capability and not getattr(declared, "requires_approval", False):
+            return declared.key, dict(args)
+    return None
+
+
+def _needs_approval(provider, key: str) -> bool:
+    return any(getattr(a, "key", None) == key and getattr(a, "requires_approval", False) for a in getattr(provider, "actions", ()) or ())

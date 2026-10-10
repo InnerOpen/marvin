@@ -317,6 +317,7 @@ class WorkflowRecipe(_MarvinModel):
     status: str  # verified-current | supported-after-configuration | needs-engine-capability | needs-adapter
     shape: str  # workflow | configuration | idea
     providers: list[str] = []  # integration providers it needs connected
+    capabilities: list[str] = []  # …or what a connected integration must be able to do (notify), whichever provider
     side_effects: list[WorkflowRecipeSideEffect] = []
     setup_variables: list[WorkflowRecipeVariable] = []
     supporting_objects: list[WorkflowRecipeSupportingObject] = []
@@ -341,6 +342,7 @@ class WorkflowLibraryIntegration(_MarvinModel):
     name: str
     provider: str
     enabled: bool = False
+    capabilities: list[str] = []  # what it can do for a step naming a capability (notify)
 
 
 class WorkflowLibraryRef(_MarvinModel):

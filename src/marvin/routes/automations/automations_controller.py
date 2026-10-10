@@ -85,7 +85,8 @@ def _library_recipe(item: dict, refs) -> WorkflowRecipe:
 
     return WorkflowRecipe(
         **{key: item[key] for key in ("id", "title", "outcome", "category", "category_slug", "tags", "trigger", "status", "shape")},
-        providers=[need["provider"] for need in (item.get("prerequisites") or {}).get("integrations") or []],
+        providers=[need["provider"] for need in (item.get("prerequisites") or {}).get("integrations") or [] if need.get("provider")],
+        capabilities=[need["capability"] for need in (item.get("prerequisites") or {}).get("integrations") or [] if need.get("capability")],
         side_effects=item.get("side_effects") or [],
         setup_variables=item.get("setup_variables") or [],
         supporting_objects=item.get("supporting_objects") or [],
@@ -208,7 +209,7 @@ class AutomationsController(BaseUserController):
             capabilities=recipes.catalogue()["capabilities"],
             refs=WorkflowLibraryRefs(
                 entry_types=refs.entry_types,
-                integrations=refs.integrations,
+                integrations=[{**i, "capabilities": i.get("capabilities") or []} for i in refs.integrations],
                 collections=refs.collections,
                 outgoing_webhooks=refs.outgoing_webhooks,
                 incoming_webhooks=refs.incoming_webhooks,

@@ -15,7 +15,7 @@
         "kind": "integration",
         "id": "notify",
         "integration": "{{notify_integration}}",
-        "action": "notify",
+        "capability": "notify",
         "args": {
           "title": "Scheduled publish is waiting: ${entry.title}",
           "body": "${event.reason}\nFix it here: ${entry.url}"

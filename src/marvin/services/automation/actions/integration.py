@@ -8,6 +8,10 @@ Runs with the workspace's stored integration credentials, so it needs the same p
 a webhook. A provider action that declares `requires_approval` is refused: a workflow runs unattended,
 with nobody to approve it.
 
+A step may name a `capability` instead of an `action` — `notify` sends through whichever integration it names,
+Slack or Apprise alike (services/integrations/alert_routing.py: capability_action), with the standard `title`
+and `body` arguments; the Workflow Library's notification recipes are written that way.
+
 A provider failure is raised as :class:`IntegrationStepError`, carrying the provider's error code and
 its resolved error policy, which the engine applies (`services/integrations/errors.py`): review, retry,
 notify, or carry on.
@@ -28,10 +32,14 @@ def _declared_action(provider, key: str):
 def run_integration_action(session, group_id, action: dict, context: dict, *, user_id=None, authorizer_role=None, dry_run=False) -> dict:
     from ..authz import INTEGRATION_ACTION_MIN_ROLE, ROLE_OWNER, require_role
 
-    slug, key = action.get("integration"), action.get("action")
-    if not slug or not key:
-        raise AutomationActionError("integration action needs `integration` (the integration's slug) and `action` (the provider action key)")
-    require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, INTEGRATION_ACTION_MIN_ROLE, f"integration action '{slug}.{key}'")
+    slug, key, capability = action.get("integration"), action.get("action"), action.get("capability")
+    if not slug or not (key or capability):
+        raise AutomationActionError(
+            "integration action needs `integration` (the integration's slug) and `action` (the provider action key) or `capability`"
+        )
+    require_role(
+        ROLE_OWNER if authorizer_role is None else authorizer_role, INTEGRATION_ACTION_MIN_ROLE, f"integration action '{slug}.{key or capability}'"
+    )
 
     from marvin.services.integrations import INTEGRATIONS_AVAILABLE
 
@@ -52,15 +60,22 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     except KeyError as e:
         raise AutomationActionError(f"provider '{row.provider}' is not installed") from e
 
+    args = interpolate(action.get("args") or {}, context)
+    if not isinstance(args, dict):
+        raise AutomationActionError("integration action `args` must be an object")
+    if not key:  # a capability: this provider's action for it, with the arguments in its terms
+        from marvin.services.integrations.alert_routing import capability_action
+
+        found = capability_action(provider, capability, args)
+        if found is None:
+            raise AutomationActionError(f"'{slug}' ({row.provider}) can't {capability}: it has no action for that")
+        key, args = found
+
     declared = _declared_action(provider, key)
     if declared is None:
         raise AutomationActionError(f"provider '{row.provider}' has no action '{key}'")
     if getattr(declared, "requires_approval", False):
         raise AutomationActionError(f"'{row.provider}.{key}' requires approval and cannot run from a workflow")
-
-    args = interpolate(action.get("args") or {}, context)
-    if not isinstance(args, dict):
-        raise AutomationActionError("integration action `args` must be an object")
     if dry_run:
         return {"dry_run": True, "kind": "integration", "integration": slug, "action": key, "args": args}
     from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets

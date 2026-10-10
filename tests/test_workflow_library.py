@@ -162,7 +162,14 @@ class _Buttondown(IntegrationProvider):
 class _Apprise(IntegrationProvider):
     slug = "apprise"
     name = "Apprise (fake)"
-    actions = (ProviderAction(key="notify", label="Send notification"),)
+    actions = (
+        ProviderAction(
+            key="notify",
+            label="Send notification",
+            capability="notify",
+            input_schema={"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}}, "required": ["body"]},
+        ),
+    )
 
     def __init__(self):
         self.calls: list[dict] = []
