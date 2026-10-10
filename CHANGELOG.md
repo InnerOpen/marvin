@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.250 (2026-10-10)
+
+### Features
+
+- **dev**: Start backups from Admin → Scheduled Tasks on marvin-dev (backup.scheduledTasks.enabled)
+  ([`519c104`](https://github.com/InnerOpen/marvin/commit/519c104dd865430bf22f9d61ba37e8a87bdd5fee))
+
+
 ## v1.0.0-rc.249 (2026-10-10)
 
 ### Bug Fixes
