@@ -173,7 +173,19 @@ def _api(method: str, path: str, expect: int, json=None):
 
 # ── workflows: API contract ──────────────────────────────────────────────────
 
-WORKFLOW_KEYS = {"id", "groupId", "name", "slug", "enabled", "definition", "createdBy", "sourceIntegrationId", "sourceBlueprint"}
+WORKFLOW_KEYS = {
+    "id",
+    "groupId",
+    "name",
+    "slug",
+    "enabled",
+    "definition",
+    "createdBy",
+    "sourceIntegrationId",
+    "sourceBlueprint",
+    "sourceRecipe",
+    "sourceRecipeVersion",
+}
 
 
 @pytest.mark.parametrize("shape", list(TRIGGERS))
