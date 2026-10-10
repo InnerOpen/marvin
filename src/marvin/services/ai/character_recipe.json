@@ -63,11 +63,11 @@
     },
     {
       "id": "run-a",
-      "prompt": "side view facing left, running, left leg forward"
+      "prompt": "side view, running toward the LEFT edge of the image (face and body pointing left, not right), left leg forward"
     },
     {
       "id": "run-b",
-      "prompt": "side view facing left, running, right leg forward"
+      "prompt": "side view, running toward the LEFT edge of the image (face and body pointing left, not right), right leg forward"
     },
     {
       "id": "surprised",
