@@ -3,6 +3,7 @@
 from .api_clients import APIClients
 from .asset_tags import AssetTags
 from .assets import Assets
+from .auth_throttles import AuthThrottleModel
 from .backup_runs import BackupRunModel
 from .character_packs import CharacterPackModel
 from .collection_assets import CollectionAssets
@@ -57,6 +58,7 @@ __all__ = [
     "SiteRebuildRequestModel",
     "StorageKeyAliasModel",
     "SubmissionRateLimits",
+    "AuthThrottleModel",
     "Tags",
     # CODE_GEN_ID: PLATFORM_MODEL_ALL
     # END: PLATFORM_MODEL_ALL

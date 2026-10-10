@@ -4,7 +4,11 @@ Marvin has three credentials: a session for people using the admin, personal API
 
 ## Signing in
 
-`POST /api/auth/token` takes a username/password form, returns `{"access_token": …}` and also sets it as an HttpOnly cookie named by `AUTH_COOKIE_NAME` (default `marvin.access_token`). The admin frontend uses the cookie; `get_current_user` accepts either the cookie or `Authorization: Bearer <jwt>`. A session JWT lives `TOKEN_TIME` hours (default 48) and is signed with the server secret from `DATA_DIR/.secret` (generated on first production start). After `SECURITY_MAX_LOGIN_ATTEMPTS` failures (default 5) the user is locked out for `SECURITY_USER_LOCKOUT_TIME` hours (default 24).
+`POST /api/auth/token` takes a username/password form, returns `{"access_token": …}` and also sets it as an HttpOnly cookie named by `AUTH_COOKIE_NAME` (default `marvin.access_token`). The admin frontend uses the cookie; `get_current_user` accepts either the cookie or `Authorization: Bearer <jwt>`. A session JWT lives `TOKEN_TIME` hours (default 48) and is signed with the server secret from `DATA_DIR/.secret` (generated on first production start). The admin's sign-in page also sends the visitor's address on to the API (Cloudflare's `CF-Connecting-IP`, else the connection's), and after a session expires the next page sends you back to sign in.
+
+**Repeated failures are refused for a while.** After `SECURITY_MAX_LOGIN_ATTEMPTS` failed sign-ins (default 5) an account is refused for `SECURITY_LOGIN_LOCKOUT_MINUTES` (15), and from twice that many on for `SECURITY_LOGIN_LONG_LOCKOUT_MINUTES` (60) each time; it then clears by itself, and a successful sign-in clears the count. One client IP is refused the same way after `SECURITY_LOGIN_IP_MAX_FAILURES` failures (20) across any accounts. Failures are counted over `SECURITY_LOGIN_FAILURE_WINDOW_HOURS` (24), in the database, so a restart doesn't reset them. A refused sign-in answers `429 Too many sign-in attempts. Try again in N minutes.` with `Retry-After`, before any password is checked, and an account that doesn't exist is refused exactly like one that does (an account is counted by its user, so its username and email share one count). When an account starts being refused, the platform event **Repeated Login Failures** (`login_failed_multiple_times`) is sent: Admin → Platform alerts can email or push it. A platform admin can end every refusal at once with `POST /api/admin/users/unlock?force=true`. The client IP is Cloudflare's `CF-Connecting-IP` when present (Cloudflare overwrites it; a caller can't choose it), else the first `X-Forwarded-For` entry. A faked address can only dodge the per-IP count, never the per-account one.
+
+**Password-reset emails are capped:** `SECURITY_PASSWORD_RESET_MAX_PER_HOUR` per address (3) and `SECURITY_PASSWORD_RESET_IP_MAX_PER_HOUR` per client IP (10). Past the cap the request gets the same answer but no email is sent, so the form can't flood someone's inbox.
 
 Two external providers can replace the password check:
 
@@ -73,8 +77,13 @@ Workspace **secrets** (`/api/groups/secrets`) never come back in a list or a rea
 | `SECURITY_TOKEN_PREFIX_CLIENT` | `marvin_sk_` | prefix of API client tokens |
 | `SECURITY_TOKEN_RANDOM_BYTES` | `32` | entropy; 32 bytes is a 43-character base64url body |
 | `SECURITY_BCRYPT_ROUNDS` | `12` | bcrypt cost for passwords, personal tokens and client tokens |
-| `SECURITY_MAX_LOGIN_ATTEMPTS` | `5` | failures before lockout |
-| `SECURITY_USER_LOCKOUT_TIME` | `24` | lockout length in hours |
+| `SECURITY_MAX_LOGIN_ATTEMPTS` | `5` | failed sign-ins before an account is refused |
+| `SECURITY_LOGIN_LOCKOUT_MINUTES` | `15` | how long an account (or IP) is refused |
+| `SECURITY_LOGIN_LONG_LOCKOUT_MINUTES` | `60` | how long from twice the limit on |
+| `SECURITY_LOGIN_IP_MAX_FAILURES` | `20` | failed sign-ins from one IP, across accounts, before it is refused |
+| `SECURITY_LOGIN_FAILURE_WINDOW_HOURS` | `24` | how long failures are counted |
+| `SECURITY_PASSWORD_RESET_MAX_PER_HOUR` | `3` | reset emails per address per hour |
+| `SECURITY_PASSWORD_RESET_IP_MAX_PER_HOUR` | `10` | reset requests per client IP per hour |
 | `TOKEN_TIME` | `48` | session JWT lifetime in hours |
 | `AUTH_COOKIE_NAME` | `marvin.access_token` | session cookie |
 

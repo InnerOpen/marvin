@@ -27,6 +27,7 @@ from marvin.schemas.user import (
 )
 from marvin.schemas.user.auth import UnlockResults  # Schema for unlock operation result
 from marvin.schemas.user.password import ForgotPassword, PasswordResetToken  # Schemas for password reset
+from marvin.services.security.login_throttle import LoginThrottle
 from marvin.services.user.password_reset_service import PasswordResetService  # Service for password reset logic
 from marvin.services.user.user_service import UserService  # Service for user-related business logic
 
@@ -126,6 +127,8 @@ class AdminUserManagementRoutes(BaseAdminController):
         """
         user_service = UserService(self.repos)
         unlocked_count = user_service.reset_locked_users(force=force)
+        if force:  # sign-in throttling's refusals end by themselves; force ends them now
+            unlocked_count += LoginThrottle(self.session).release_accounts()
         return UnlockResults(unlocked=unlocked_count)
 
     @router.get("/{item_id}", response_model=UserRead, summary="Get a Specific User by ID")

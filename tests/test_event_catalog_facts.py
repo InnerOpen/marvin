@@ -89,7 +89,6 @@ def test_every_event_with_a_sender_is_really_sent():
 NEVER_SENT = {
     # security signals with no feature behind them yet (platform scope, always audited: one flag to turn on)
     "api_rate_limit_exceeded",
-    "login_failed_multiple_times",
     "suspicious_activity_detected",
     # one event per successful delivery is noise; the webhook's activity log records each
     "webhook_delivery_succeeded",
@@ -140,7 +139,7 @@ def test_hidden_types_are_not_shown_in_audit_coverage_or_the_admin_catalog():
     # (the admin catalog, /event/types and the connections summary are checked over HTTP in test_events_cleanup.py)
 
 
-def test_security_types_stay_platform_and_locked_while_hidden():
+def test_security_types_stay_platform_and_locked():
     for name in ("api_rate_limit_exceeded", "login_failed_multiple_times", "suspicious_activity_detected"):
         entry = CATALOG_BY_TYPE[name]
         assert entry.scope == "platform" and entry.audit_locked and entry.category == "Security", name
@@ -148,7 +147,7 @@ def test_security_types_stay_platform_and_locked_while_hidden():
 
 def test_newly_sent_types_are_shown():
     sent = {"webhook_created", "webhook_updated", "webhook_deleted", "webhook_delivery_failed"}
-    sent |= {"api_token_created", "api_token_rotated", "api_token_revoked"}
+    sent |= {"api_token_created", "api_token_rotated", "api_token_revoked", "login_failed_multiple_times"}
     assert not sent & HIDDEN_EVENT_TYPES
     assert sent <= _referenced_in_code()
     for name in ("api_token_created", "api_token_rotated", "api_token_revoked"):

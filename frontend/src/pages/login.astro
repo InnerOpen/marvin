@@ -19,6 +19,7 @@ if (await isAuthenticated(Astro.cookies)) {
 }
 
 const error = Astro.url.searchParams.get("error");
+const throttleMinutes = Math.max(1, Number.parseInt(Astro.url.searchParams.get("minutes") ?? "", 10) || 1);
 const returnParam = Astro.url.searchParams.get("return");
 const returnPath = returnParam ? safeReturnPath(returnParam) : null;
 
@@ -74,6 +75,7 @@ if (shouldAutoRedirectToOidc(info, error)) {
             <strong>⚠ Authentication failed</strong>
             <p>{
               error === 'invalid' ? 'Invalid username or password'
+              : error === 'throttled' ? `Too many sign-in attempts. Try again in ${throttleMinutes} minute${throttleMinutes === 1 ? '' : 's'}.`
               : error === 'oidc' ? 'SSO authentication failed. Please try again.'
               : 'An error occurred. Please try again.'
             }</p>

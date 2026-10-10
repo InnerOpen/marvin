@@ -9,13 +9,14 @@ the received token to complete the reset process.
 
 from typing import Annotated  # For type hinting with FastAPI Header
 
-from fastapi import APIRouter, Depends, Header, status  # Core FastAPI components and status codes
+from fastapi import APIRouter, Depends, Header, Request, status  # Core FastAPI components and status codes
 from sqlalchemy.orm.session import Session  # SQLAlchemy session type
 
 # Marvin specific imports
 from marvin.db.db_setup import generate_session  # Database session generator
 from marvin.schemas.response.responses import SuccessResponse  # For a generic success response, if applicable
 from marvin.schemas.user.password import ForgotPassword, ResetPassword  # Pydantic schemas for request bodies
+from marvin.services.security.login_throttle import LoginThrottle, login_client_ip
 from marvin.services.user.password_reset_service import PasswordResetService  # Service for password reset logic
 
 # Public router for password reset functionalities.
@@ -26,6 +27,7 @@ router = APIRouter()
 
 @router.post("/forgot-password", summary="Request Password Reset Email", status_code=status.HTTP_202_ACCEPTED)
 def request_password_reset_email(  # Renamed function for clarity
+    request: Request,
     email_data: ForgotPassword,  # Request body containing the user's email
     session: Session = Depends(generate_session),  # DB session dependency
     accept_language: Annotated[str | None, Header()] = None,  # Optional language preference for the email
@@ -52,11 +54,13 @@ def request_password_reset_email(  # Renamed function for clarity
                          (Actual email sending is handled by the service, which might
                          not immediately confirm success to prevent user enumeration).
     """
-    password_reset_service = PasswordResetService(session)
-    # The service method handles the logic of token generation and email sending.
-    # It's good practice for send_reset_email not to reveal if an email is registered or not
-    # to prevent user enumeration. So, it might always return a success-like response.
-    password_reset_service.send_reset_email(email_data.email, accept_language)
+    # Past the hourly cap per address or per IP the email is dropped, not refused: the answer stays the same, so the
+    # form can't be used to flood someone's inbox or to learn anything (services/security/login_throttle.py).
+    if LoginThrottle(session).allow_reset(email_data.email, login_client_ip(request)):
+        password_reset_service = PasswordResetService(session)
+        # It's good practice for send_reset_email not to reveal if an email is registered or not
+        # to prevent user enumeration. So, it might always return a success-like response.
+        password_reset_service.send_reset_email(email_data.email, accept_language)
 
     # Return a generic success message to avoid disclosing whether the email exists in the system.
     return SuccessResponse(message="If an account with that email address exists, a password reset link has been sent.")

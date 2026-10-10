@@ -423,9 +423,28 @@ class AppSettings(BaseSettings):
     # Security Configuration
 
     SECURITY_MAX_LOGIN_ATTEMPTS: int = 5
+    "failed sign-ins on one account name before it is refused for SECURITY_LOGIN_LOCKOUT_MINUTES (services/security/login_throttle.py)"
+
+    SECURITY_LOGIN_LOCKOUT_MINUTES: int = 15
+    "how long an account name is refused after SECURITY_MAX_LOGIN_ATTEMPTS failures"
+
+    SECURITY_LOGIN_LONG_LOCKOUT_MINUTES: int = 60
+    "how long from twice SECURITY_MAX_LOGIN_ATTEMPTS failures on: the refusal grows while the guessing goes on"
+
+    SECURITY_LOGIN_IP_MAX_FAILURES: int = 20
+    "failed sign-ins from one client IP, across any account names, before that IP is refused the same way"
+
+    SECURITY_LOGIN_FAILURE_WINDOW_HOURS: int = 24
+    "failures are counted over this long; a successful sign-in clears its account's count"
+
+    SECURITY_PASSWORD_RESET_MAX_PER_HOUR: int = 3
+    "password-reset emails one address can be sent per hour (more are dropped silently: no email bombing)"
+
+    SECURITY_PASSWORD_RESET_IP_MAX_PER_HOUR: int = 10
+    "password-reset requests one client IP can make per hour"
 
     SECURITY_USER_LOCKOUT_TIME: int = 24
-    "time in hours"
+    "time in hours; only for a lock set before sign-in throttling (users.locked_at), which nothing sets now"
 
     # Token Security Settings
     SECURITY_TOKEN_PREFIX_USER: str = "marvin_tk_"

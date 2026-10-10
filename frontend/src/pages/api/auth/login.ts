@@ -6,7 +6,7 @@ import type { APIRoute } from "astro";
 import { getCookieName, getCookieSecure, getServerApiBaseUrl } from "@/lib/api/config";
 import { cookieMaxAge, safeReturnPath } from "@/lib/session";
 
-export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
+export const POST: APIRoute = async ({ request, cookies, redirect, url, clientAddress }) => {
   try {
     const formData = await request.formData();
     const username = formData.get("username");
@@ -26,14 +26,25 @@ export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
     // Call backend /api/auth/token endpoint
     const response = await fetch(backendUrl, {
       method: "POST",
+      // Who is signing in, for the backend's per-IP throttling: Cloudflare's CF-Connecting-IP when the request came
+      // through it (a caller can't set it), else the socket's address. Without these every sign-in would look like it
+      // came from this server, and one IP's failures would throttle everyone.
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",
+        ...clientIpHeaders(request, clientAddress),
       },
       body: new URLSearchParams({
         username: username.toString(),
         password: password.toString(),
       }),
     });
+
+    if (response.status === 429) {
+      // Too many failures for this account or IP: say for how long (the backend's Retry-After, in seconds).
+      const minutes = Math.max(1, Math.ceil(Number(response.headers.get("retry-after") || 60) / 60));
+      const back = returnPath !== "/" ? `&return=${encodeURIComponent(returnPath)}` : "";
+      return redirect(`/login?error=throttled&minutes=${minutes}${back}`, 303);
+    }
 
     if (!response.ok) {
       console.error("[auth/login] Backend auth failed:", response.status);
@@ -71,3 +82,19 @@ export const POST: APIRoute = async ({ request, cookies, redirect, url }) => {
     return redirect(loginError, 303);
   }
 };
+
+/** The signing-in client's address for the backend: Cloudflare's header passed on as is, and X-Forwarded-For. */
+function clientIpHeaders(request: Request, clientAddress: string | undefined): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const cf = request.headers.get("cf-connecting-ip");
+  if (cf) headers["CF-Connecting-IP"] = cf;
+  let socket: string | undefined;
+  try {
+    socket = clientAddress;
+  } catch {
+    // Astro throws when the adapter can't tell the address: then only Cloudflare's header (if any) goes.
+  }
+  const forwarded = cf || socket;
+  if (forwarded) headers["X-Forwarded-For"] = forwarded;
+  return headers;
+}

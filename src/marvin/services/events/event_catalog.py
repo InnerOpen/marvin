@@ -1384,12 +1384,14 @@ CATALOG: list[CatalogEntry] = [
     CatalogEntry(
         event_type="login_failed_multiple_times",
         name="Repeated Login Failures",
-        description="Multiple failed login attempts detected for an account.",
+        description="An account is being refused sign-ins after repeated failed attempts (for 15 minutes, then an hour).",
         category="Security",
+        sent_by=["Repeated failed sign-ins on one account (POST /api/auth/token)"],
         variables=COMMON_VARS
         + [
             EventVariable("username", "Account targeted", "jsmith", type="username"),
             EventVariable("attempt_count", "Number of failures", "5", type="count"),
+            EventVariable("ip_address", "Client IP of the failure that started the refusal", "203.0.113.7", type="string"),
         ],
     ),
     CatalogEntry(
@@ -1983,7 +1985,7 @@ _NO_EMITTER: frozenset[str] = frozenset(
         "form_submission_processed",
         # form_submission_received now has an emitter (the publishing submit path — legacy Forms and
         # the submittable entry-type path) — no longer dead.
-        "login_failed_multiple_times",
+        # login_failed_multiple_times has an emitter (sign-in throttling, routes/auth/auth_controller.py).
         "mention_created",
         "scheduled_task_cancelled",
         # site_deployment_* have an emitter (the workflow emit_event step, e.g. from a host's deploy notification);

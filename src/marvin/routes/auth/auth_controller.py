@@ -25,7 +25,7 @@ from starlette.datastructures import URLPath  # For constructing absolute URLs
 from marvin.core import root_logger, security
 from marvin.core.config import get_app_settings
 from marvin.core.dependencies import get_current_user  # Dependency for authenticated user
-from marvin.core.exceptions import MissingClaimException, UserLockedOut  # Custom exceptions
+from marvin.core.exceptions import MissingClaimException  # Custom exceptions
 from marvin.core.security.providers.openid_provider import OpenIDProvider  # OIDC auth provider
 from marvin.core.security.security import get_auth_provider  # General auth provider factory
 from marvin.db.db_setup import generate_session  # DB session generator
@@ -35,12 +35,14 @@ from marvin.routes._base.routers import UserAPIRouter  # Base router for authent
 from marvin.schemas.user import PrivateUser  # Pydantic schema for user data
 from marvin.schemas.user.auth import CredentialsRequestForm  # Schema for form-based login
 from marvin.services.event_bus_service.event_types import (
+    INTERNAL_INTEGRATION_ID,
+    EventLoginFailedData,
     EventTokenRefreshData,  # Data for token refresh event
     EventTypes,  # Enum for event types
 )
 
 # Marvin core components and utilities
-from marvin.services.security.client_info import get_client_ip
+from marvin.services.security.login_throttle import LoginThrottle, Throttled, account_key, login_client_ip
 
 # Routers for public and user-authenticated authentication endpoints
 public_router = APIRouter(tags=["Authentication"])  # Tag for OpenAPI docs
@@ -119,8 +121,9 @@ class PublicAuthenticiationController(BasePublicController):
         Authenticates a user with username and password (form data) and returns an access token.
 
         It sets the access token as an HTTPOnly cookie and also returns it in the response body.
-        Handles potential `UserLockedOut` exceptions and general authentication failures.
-        Client IP address is logged for security purposes.
+        Repeated failures are refused for a while, per account and per client IP, before any password is
+        checked (services/security/login_throttle.py): 429 with Retry-After, the same whether or not the
+        account exists.
 
         Args:
             request (Request): The incoming HTTP request.
@@ -132,30 +135,38 @@ class PublicAuthenticiationController(BasePublicController):
             dict[str, str]: A dictionary containing the `access_token` and `token_type`.
 
         Raises:
-            HTTPException (423 Locked): If the user account is locked.
+            HTTPException (429 Too Many Requests): Too many recent failures for this account or IP.
             HTTPException (401 Unauthorized): If authentication fails (incorrect credentials).
         """
-        # Attempt to get the client's real IP address, considering proxies
-        client_ip = get_client_ip(request)
-
-        self.logger.info(f"Token requested from IP: {client_ip} for user: {data.username}")
-
+        client_ip = login_client_ip(request)
+        auth_provider = get_auth_provider(session, data)
+        user = auth_provider.try_get_user(data.username)
+        account = account_key(data.username, user.id if user else None)
+        throttle = LoginThrottle(session, self.settings)
         try:
-            # Determine and use the appropriate authentication provider
-            auth_provider = get_auth_provider(session, data)
-            auth_result = auth_provider.authenticate()  # Returns (token, duration) or None
-        except UserLockedOut as e:
-            self.logger.warning(f"Login attempt for locked out user '{data.username}' from IP: {client_ip}")
-            raise HTTPException(status_code=status.HTTP_423_LOCKED, detail="User account is locked.") from e
+            throttle.check(account, client_ip)
+        except Throttled as e:
+            self.logger.warning(f"Sign-in refused for '{data.username}' from IP {client_ip}: too many failures")
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Too many sign-in attempts. Try again in {e.minutes} minute{'s' if e.minutes != 1 else ''}.",
+                headers={"Retry-After": str(e.retry_after)},
+            ) from None
+
+        auth_result = auth_provider.authenticate()  # Returns (token, duration) or None
 
         if not auth_result:
             logger.warning(f"Failed login attempt for user '{data.username}' from IP: {client_ip}")
+            refused_after = throttle.failed(account, client_ip)
+            if refused_after:
+                self._announce_refused(data.username, refused_after, client_ip)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Incorrect username or password.",  # User-friendly generic message
                 headers={"WWW-Authenticate": "Bearer"},  # Standard header for token auth
             )
 
+        throttle.succeeded(account)
         access_token, token_duration = auth_result
         expires_seconds = token_duration.total_seconds() if token_duration else None
 
@@ -170,6 +181,21 @@ class PublicAuthenticiationController(BasePublicController):
         )
         # Also return the token in the response body for API clients
         return MarvinAuthToken.respond(access_token)
+
+    def _announce_refused(self, username: str, attempts: int, client_ip: str) -> None:
+        """A platform event (Admin → Platform alerts routes it): an account is being refused after repeated failures."""
+        minutes = (
+            self.settings.SECURITY_LOGIN_LONG_LOCKOUT_MINUTES
+            if attempts > self.settings.SECURITY_MAX_LOGIN_ATTEMPTS
+            else (self.settings.SECURITY_LOGIN_LOCKOUT_MINUTES)
+        )
+        self.event_bus.dispatch(
+            integration_id=INTERNAL_INTEGRATION_ID,
+            group_id=None,
+            event_type=EventTypes.login_failed_multiple_times,
+            document_data=EventLoginFailedData(username=username, attempt_count=attempts, ip_address=client_ip),
+            message=f"{attempts} failed sign-ins for '{username}' — refused for {minutes} minutes"[:1000],
+        )
 
     @public_router.get("/oauth", summary="Initiate OIDC Login")
     async def oauth_login(self, request: Request) -> RedirectResponse:

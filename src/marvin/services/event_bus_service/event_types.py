@@ -613,6 +613,18 @@ class EventTokenRefreshData(EventDocumentDataBase):
     """The username of the user whose token was refreshed."""
 
 
+class EventLoginFailedData(EventDocumentDataBase):
+    """An account is being refused sign-ins after repeated failures (services/security/login_throttle.py)."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.user
+    operation: EventOperationBase = EventOperation.info
+    username: str
+    """The account name typed — which may not be a real account."""
+    attempt_count: int
+    ip_address: str = ""
+    """The client IP of the failure that started the refusal."""
+
+
 class EventUserSignupData(EventDocumentDataBase):
     """
     Data payload for an event indicating a new user has signed up.
