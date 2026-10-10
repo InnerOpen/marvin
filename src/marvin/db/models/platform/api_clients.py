@@ -28,6 +28,8 @@ class APIClients(SqlAlchemyBase, BaseMixins):
     slug: Mapped[str] = mapped_column(sa.String, nullable=False)
     description: Mapped[str | None] = mapped_column(sa.String, nullable=True)
     token_hash: Mapped[str] = mapped_column(sa.String, nullable=False, unique=True, index=True)
+    token_lookup: Mapped[str | None] = mapped_column(sa.String(64), nullable=True, unique=True, index=True)
+    """SHA-256 of the token (core/security/hasher.py: token_lookup); null for an older token until its next use."""
     permissions: Mapped[dict] = mapped_column(sa.JSON, nullable=False)
     enabled: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=True)
     last_used_at: Mapped[datetime | None] = mapped_column(NaiveDateTime, nullable=True)

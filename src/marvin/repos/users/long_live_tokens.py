@@ -9,7 +9,7 @@ from pydantic import UUID4
 from sqlalchemy.orm import Session
 
 from marvin.core.config import get_app_settings
-from marvin.core.security.hasher import get_hasher
+from marvin.core.security.hasher import find_token, get_hasher, token_lookup
 from marvin.db.models.users.users import LongLiveToken
 from marvin.repos.repository_generic import RepositoryGeneric
 from marvin.schemas.user.user import LongLiveTokenRead, LongLiveTokenWithToken
@@ -55,6 +55,7 @@ class LongLiveTokensRepository(RepositoryGeneric[LongLiveTokenRead, LongLiveToke
 
         # Hash the token for storage (never store plaintext)
         data_dict["token_hash"] = get_hasher().hash(plaintext_token)
+        data_dict["token_lookup"] = token_lookup(plaintext_token)
 
         # Set enabled by default
         if "enabled" not in data_dict:
@@ -121,6 +122,7 @@ class LongLiveTokensRepository(RepositoryGeneric[LongLiveTokenRead, LongLiveToke
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API token not found.")
 
         db_token.token_hash = new_hash
+        db_token.token_lookup = token_lookup(plaintext_token)
         self.session.commit()
         self.session.refresh(db_token)
 
@@ -180,15 +182,11 @@ class LongLiveTokensRepository(RepositoryGeneric[LongLiveTokenRead, LongLiveToke
         if user_id:
             query = query.filter(LongLiveToken.user_id == user_id)
 
-        # Check each token's hash (in production, consider caching)
-        for token in query.all():
-            if get_hasher().verify(plaintext_token, token.token_hash):
-                # Update last_used_at
-                token.last_used_at = datetime.now(UTC)
-                self.session.commit()
-                return token
-
-        return None
+        token = find_token(query, LongLiveToken, plaintext_token)
+        if token is not None:
+            token.last_used_at = datetime.now(UTC)
+            self.session.commit()
+        return token
 
     def _generate_token(self) -> str:
         """

@@ -68,6 +68,14 @@ class LongLiveToken(SqlAlchemyBase, BaseMixins):
         unique=True,
         doc="Bcrypt hash of the token. Plaintext token never stored.",
     )
+    token_lookup: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        unique=True,
+        doc="SHA-256 of the token (core/security/hasher.py: token_lookup), to find it without checking every hash. "
+        "Null for a token made before it existed until its next successful use.",
+    )
 
     # Lifecycle management
     enabled: Mapped[bool] = mapped_column(
