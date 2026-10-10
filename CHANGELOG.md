@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.255 (2026-10-10)
+
+### Features
+
+- **ai**: Admin → AI Pricing — your own price per model, the price list, and Backfill (slice 3)
+  ([`d2e66c7`](https://github.com/InnerOpen/marvin/commit/d2e66c73401d258b54cc9f1a4edf4fd31c7e61d9))
+
+
 ## v1.0.0-rc.254 (2026-10-10)
 
 ### Features
