@@ -6,6 +6,22 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.252 (2026-10-10)
+
+### Bug Fixes
+
+- **dev**: The refresh Job drops the backup CronJob's pod affinity and data volume
+  ([`e60b428`](https://github.com/InnerOpen/marvin/commit/e60b428618300ba25c259a04c7d0d82b0f9a0a07))
+
+### Features
+
+- **agents**: Builder — step-by-step set-up help in the editor's own words, drafts on request
+  ([`e62a4c7`](https://github.com/InnerOpen/marvin/commit/e62a4c76a752c2aef5b5c0df1cae8cb39b6a2523))
+
+- **prod**: Start backups from Admin → Scheduled Tasks on production (backup.scheduledTasks.enabled)
+  ([`8eaf5b8`](https://github.com/InnerOpen/marvin/commit/8eaf5b8d799ff15a48020a938f98b526e5cae089))
+
+
 ## v1.0.0-rc.251 (2026-10-10)
 
 ### Features
