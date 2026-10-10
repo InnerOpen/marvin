@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.247 (2026-10-10)
+
+### Features
+
+- **backups**: Per-workspace backup bundles, made daily and copied off-site under bundles/
+  ([`6c7ca48`](https://github.com/InnerOpen/marvin/commit/6c7ca48d231105081816c87d33b453d535263725))
+
+
 ## v1.0.0-rc.246 (2026-10-10)
 
 ### Bug Fixes
