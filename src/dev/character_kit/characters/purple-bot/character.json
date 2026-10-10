@@ -1,0 +1,11 @@
+{
+  "name": "Purple Bot",
+  "description": "a small lilac-purple robot with a rounded boxy head, a dark screen face with cyan terminal-glyph eyes ('>_'), a little ball antenna on top, and a glowing light panel on its chest",
+  "style": "soft glossy chibi",
+  "rules": [
+    "lilac-purple body, glossy",
+    "dark screen face; its cyan eyes match each pose's mood ('>_' neutral, '^ ^' happy, 'x x' only when dizzy)",
+    "a ball antenna on top of the head",
+    "a glowing light panel on the chest"
+  ]
+}

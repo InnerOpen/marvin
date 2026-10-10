@@ -1,0 +1,12 @@
+{
+  "name": "Mossy",
+  "description": "a round grey stone golem with patches of green moss and a tiny sprout on top, a dark screen face with cyan terminal-glyph eyes ('>_'), and chunky stone arms and feet",
+  "style": "soft glossy chibi",
+  "rules": [
+    "round grey stone body with green moss patches",
+    "dark screen face; its cyan eyes match each pose's mood ('>_' neutral, '^ ^' happy, spirals only when dizzy)",
+    "a tiny green sprout on top",
+    "chunky separate stones for arms and feet"
+  ],
+  "height": 96
+}
