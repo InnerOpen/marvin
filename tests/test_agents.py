@@ -253,7 +253,8 @@ def test_marvin_asks_only_for_outward_writes_and_allows_the_rest():
     marvin = SYSTEM_AGENTS["marvin"]
     for cat in ROUTER_ASK_CATEGORIES:
         assert default_policy(marvin, cat) == POLICY_ASK, cat
-    assert ROUTER_ASK_CATEGORIES == ("automation_run", "mcp", "mcp_destructive")
+    # Switching an automation on or off reaches outside the workspace too (a Slack post, an email, a webhook).
+    assert ROUTER_ASK_CATEGORIES == ("automation_run", "automation_manage", "mcp", "mcp_destructive")
     for cat in ("entries_author", "entries_archive", "links", "assets_import", "ai_ops", "other_write"):
         assert default_policy(marvin, cat) == POLICY_ALLOW, cat
     assert resolve_policy(marvin, "compose_entry", "entries_author", ROLE_EDITOR) == (POLICY_ALLOW, "router default")

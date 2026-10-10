@@ -280,15 +280,19 @@ class IntegrationsController(BaseUserController):
     @router.patch("/subscriptions/{sub_id}", response_model=IntegrationEventSubscriptionRead)
     def update_subscription(self, sub_id: UUID4, data: IntegrationEventSubscriptionUpdate):
         """Toggle a connection or change its templated args."""
+        from marvin.services.automation import toggle
+
         require_workspace_admin(self.user, self.group_id)
         row = self.session.get(IntegrationEventSubscriptionModel, sub_id)
         if not row or row.group_id != self.group_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found.")
-        if data.enabled is not None:
-            row.enabled = data.enabled
         if data.args is not None:
             row.args = data.args or None
-        self.session.commit()
+            self.session.commit()
+        if data.enabled is not None:
+            # Through the toggle service, so switching it here is audited like an agent's switch.
+            target = toggle.find(self.session, self.group_id, toggle.INTEGRATION_ACTION, row.id)
+            toggle.set_enabled(self.session, self.group_id, target, data.enabled, actor_id=self.user.id, event_bus=self.event_bus)
         self.session.refresh(row)
         return self._sub_to_read(row)
 

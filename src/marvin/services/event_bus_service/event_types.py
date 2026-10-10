@@ -459,6 +459,10 @@ class EventTypes(EventTypeBase):
     """A Flavor B automation finished running (its pipeline completed) — for chained triggers."""
     automation_failed = auto()
     """A Flavor B automation's pipeline failed a step — for on-error triggers."""
+    automation_enabled = auto()
+    """A workflow was switched on — from its page, the API, or an agent with the admin's approval."""
+    automation_disabled = auto()
+    """A workflow was switched off — from its page, the API, or an agent with the admin's approval."""
     ai_budget_exceeded = auto()
     """Event dispatched when the workspace monthly AI cost limit is reached."""
     ai_provider_quota_exceeded = auto()
@@ -473,6 +477,11 @@ class EventTypes(EventTypeBase):
     integration_attention_resolved = auto()
     """A connection that needed attention is working again (a passing check, a successful action, or
     an admin's Resolve). Goes back through the channels that delivered the alert."""
+    integration_action_enabled = auto()
+    """An integration action (an event → action connection, e.g. Slack send_message on entry_published)
+    was switched on — from the Events page, the API, or an agent with the admin's approval."""
+    integration_action_disabled = auto()
+    """An integration action was switched off."""
 
 
 class EventDocumentTypeBase(Enum):
@@ -1520,6 +1529,33 @@ class EventAutomationData(EventDocumentDataBase):
     """On automation_failed: how the policy handled each failure, e.g. "handled by Square: sent to review"."""
     retry_attempt: int | None = None
     """When the run is a retry of an earlier failed step: which retry it is (1-based)."""
+
+
+class EventAutomationToggledData(EventDocumentDataBase):
+    """Data payload for automation_enabled / automation_disabled and integration_action_enabled /
+    integration_action_disabled: who switched which automation, from where, and whether it will now run."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.integration
+    operation: EventOperationBase = EventOperation.update
+    kind: str
+    """workflow | integration_action"""
+    automation_id: UUID4
+    """The workflow, or the integration action's subscription row."""
+    name: str
+    """The workflow's name, or "<integration> → <action>"."""
+    enabled: bool
+    """The new switch position."""
+    effective: bool
+    """Whether it will now actually run: an integration action also needs its integration switched on."""
+    reacts_to: str | None = None
+    """The event type it reacts to (a workflow with another trigger: its trigger type)."""
+    source_blueprint: str | None = None
+    """The integration blueprint that installed it, if one did."""
+    via: str
+    """agent | ui (the admin pages and the API share the routes, so ui covers both)"""
+    reason: str | None = None
+    """The agent's stated reason, when an agent made the change."""
+    workspace_id: UUID4 | None = None
 
 
 class EventIntegrationAttentionData(EventDocumentDataBase):

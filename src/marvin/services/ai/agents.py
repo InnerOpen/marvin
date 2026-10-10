@@ -479,7 +479,7 @@ ROUTER_SLUG = "marvin"
 HANDOFF_CATEGORY = "agents_run"
 # The router's outward-reaching writes: not undoable from the inbox, so Marvin asks before each one.
 # Its in-workspace writes (authoring, links, AI ops) are already soft-gated by drafts/staging.
-ROUTER_ASK_CATEGORIES = ("automation_run", "mcp", "mcp_destructive")
+ROUTER_ASK_CATEGORIES = ("automation_run", "automation_manage", "mcp", "mcp_destructive")
 
 
 def default_policy(spec: AgentSpec, category_id: str) -> str:

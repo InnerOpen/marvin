@@ -472,10 +472,15 @@ class AutomationsController(BaseUserController):
 
     @router.patch("/{automation_id}", response_model=AutomationRead, summary="Update Automation")
     def update_automation(self, automation_id: UUID4, data: AutomationUpdate) -> AutomationRead:
+        from marvin.services.automation import toggle
+
         _require_admin(self.user, self.group_id)
         row = _get_or_404(self.session, automation_id, self.group_id)
+        was_enabled = row.enabled
         with _as_http():
             row = update_workflow(self.session, self.group_id, row, data)
+        if row.enabled != was_enabled:
+            toggle.record_switch(self.session, self.group_id, toggle.WORKFLOW, row.id, actor_id=self.user.id, event_bus=self.event_bus)
         return AutomationRead.model_validate(row)
 
     @router.delete("/{automation_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete Automation")

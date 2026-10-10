@@ -5,6 +5,7 @@ from . import (
     builtins_archive,  # registers archive_entries (retire an entry, keeping it)  # noqa: F401
     builtins_attachments,  # registers read_attachment (read-only text of an attached document)  # noqa: F401
     builtins_authoring,  # registers authoring tools (compose_entry / revise_entry)  # noqa: F401
+    builtins_automation_toggle,  # registers set_automation_enabled (switch an automation on/off, ask-first)  # noqa: F401
     builtins_docs,  # registers search_docs / read_doc (Marvin's own user manual)  # noqa: F401
     builtins_insights,  # registers insights tools (executions/events/tasks)  # noqa: F401
     builtins_media,  # registers add_embed (staged) / preview_embed (media players)  # noqa: F401

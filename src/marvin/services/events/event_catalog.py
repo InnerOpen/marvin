@@ -1158,6 +1158,44 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("summary", "One line with the detail, for chat channels", "Square (shop) is working again"),
         ],
     ),
+    CatalogEntry(
+        event_type="integration_action_enabled",
+        name="Integration Action Switched On",
+        description="An integration action (an event → action connection) was switched on.",
+        category="Connect",
+        sent_by=["Switching an integration action on (Events page, API)", "An agent, after the admin approved it"],
+        # Who turned outward-facing automation on or off is part of the security record.
+        audit_locked=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("name", "What was switched", "Slack → send_message", type="name"),
+            EventVariable("automation_id", "Its id", "<automation-uuid>"),
+            EventVariable("reacts_to", "The event it reacts to", "entry_published"),
+            EventVariable("effective", "Whether it will now actually run", "true"),
+            EventVariable("source_blueprint", "The integration blueprint that installed it", "announce-published-entries"),
+            EventVariable("via", "Where it was switched: ui (a page or the API) or agent (approved by the admin)", "agent"),
+            EventVariable("reason", "The agent's stated reason", "turn on publish announcements", type="string"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="integration_action_disabled",
+        name="Integration Action Switched Off",
+        description="An integration action (an event → action connection) was switched off.",
+        category="Connect",
+        sent_by=["Switching an integration action off (Events page, API)", "An agent, after the admin approved it"],
+        # Who turned outward-facing automation on or off is part of the security record.
+        audit_locked=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("name", "What was switched", "Slack → send_message", type="name"),
+            EventVariable("automation_id", "Its id", "<automation-uuid>"),
+            EventVariable("reacts_to", "The event it reacts to", "entry_published"),
+            EventVariable("effective", "Whether it will now actually run", "true"),
+            EventVariable("source_blueprint", "The integration blueprint that installed it", "announce-published-entries"),
+            EventVariable("via", "Where it was switched: ui (a page or the API) or agent (approved by the admin)", "agent"),
+            EventVariable("reason", "The agent's stated reason", "turn on publish announcements", type="string"),
+        ],
+    ),
     # ── Connect: Webhooks ─────────────────────────────────────────────────────
     CatalogEntry(
         event_type="incoming_webhook",
@@ -1490,6 +1528,44 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("automation_slug", "The workflow's slug", "tag-new-recipes"),
             EventVariable("execution_id", "The run's id, shared with its automation_started event", "<execution-uuid>"),
             EventVariable("error", "Why it failed (failed runs)", "", type="error"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="automation_enabled",
+        name="Workflow Switched On",
+        description="A workflow was switched on.",
+        category="Automation",
+        sent_by=["Switching a workflow on (Workflows page, API)", "An agent, after the admin approved it"],
+        # Who turned outward-facing automation on or off is part of the security record.
+        audit_locked=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("name", "What was switched", "Slack → send_message", type="name"),
+            EventVariable("automation_id", "Its id", "<automation-uuid>"),
+            EventVariable("reacts_to", "The event it reacts to", "entry_published"),
+            EventVariable("effective", "Whether it will now actually run", "true"),
+            EventVariable("source_blueprint", "The integration blueprint that installed it", "announce-published-entries"),
+            EventVariable("via", "Where it was switched: ui (a page or the API) or agent (approved by the admin)", "agent"),
+            EventVariable("reason", "The agent's stated reason", "turn on publish announcements", type="string"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="automation_disabled",
+        name="Workflow Switched Off",
+        description="A workflow was switched off.",
+        category="Automation",
+        sent_by=["Switching a workflow off (Workflows page, API)", "An agent, after the admin approved it"],
+        # Who turned outward-facing automation on or off is part of the security record.
+        audit_locked=True,
+        variables=COMMON_VARS
+        + [
+            EventVariable("name", "What was switched", "Slack → send_message", type="name"),
+            EventVariable("automation_id", "Its id", "<automation-uuid>"),
+            EventVariable("reacts_to", "The event it reacts to", "entry_published"),
+            EventVariable("effective", "Whether it will now actually run", "true"),
+            EventVariable("source_blueprint", "The integration blueprint that installed it", "announce-published-entries"),
+            EventVariable("via", "Where it was switched: ui (a page or the API) or agent (approved by the admin)", "agent"),
+            EventVariable("reason", "The agent's stated reason", "turn on publish announcements", type="string"),
         ],
     ),
     CatalogEntry(

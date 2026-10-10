@@ -36,6 +36,12 @@ CATEGORIES: tuple[ToolCategory, ...] = (
     ToolCategory("automation_read", "Automation: read", False, "Events, workflows, scheduled tasks and their history; how to write a workflow"),
     ToolCategory("automation_run", "Automation: run", True, "Trigger workflows"),
     ToolCategory(
+        "automation_manage",
+        "Automation: switch on/off",
+        True,
+        "Switch an existing workflow or integration action on or off — always asks first; never edits one",
+    ),
+    ToolCategory(
         "automation_author",
         "Automation: author",
         True,
@@ -98,6 +104,7 @@ CATEGORY_BY_TOOL: dict[str, str] = {
     "workflow_authoring_guide": "automation_read",
     "get_scheduled_task_history": "automation_read",
     "run_workflow": "automation_run",
+    "set_automation_enabled": "automation_manage",
     "draft_workflow": "automation_author",
     "update_workflow_draft": "automation_author",
     "get_ai_execution": "insights",
