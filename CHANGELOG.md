@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.253 (2026-10-10)
+
+### Bug Fixes
+
+- **agents**: Builder looks up the workspace's real entry type and field keys before giving steps
+  ([`4306e94`](https://github.com/InnerOpen/marvin/commit/4306e94b93ed599f5fa00c26c6e6b407dfa6fc96))
+
+### Documentation
+
+- **todo**: AI provider plugins — status as built, plan v2 with Jared's decisions
+  ([`69b6a9e`](https://github.com/InnerOpen/marvin/commit/69b6a9e8501769019a0c46f37f523dd3e524b27b))
+
+
 ## v1.0.0-rc.252 (2026-10-10)
 
 ### Bug Fixes
