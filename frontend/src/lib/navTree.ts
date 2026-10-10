@@ -40,6 +40,7 @@ const NODES: NavNode[] = [
     parent: "admin",
   },
   { id: "admin.storage", label: "Storage", href: "/admin/storage", parent: "admin", title: "Asset Storage" },
+  { id: "admin.ai-pricing", label: "AI Pricing", href: "/admin/ai-pricing", parent: "admin", title: "AI Pricing" },
   { id: "admin.plugins", label: "Plugins", href: "/admin/plugins", parent: "admin" },
   { id: "admin.character-library", label: "Character Library", href: "/admin/character-library", parent: "admin" },
   { id: "admin.system", label: "System", href: "/admin/system", parent: "admin", title: "Platform System" },

@@ -534,7 +534,7 @@ counted and admins are warned (never silently $0, never blocked). Slices, each s
 2. [ ] **Prices live with their provider.** Built-in anthropic/google declare `prices` (current models); core's
        `PRICING` drops the openai/azure rows (the plugin's table is the source) and stays only as the last
        fallback until slice 5 removes it.
-3. [ ] **Admin price overrides.** Admin → AI: per provider/model input/output $/1M tokens, top of the lookup;
+3. [x] **Admin price overrides.** (done 2026-10-10, Admin → AI Pricing) Admin → AI: per provider/model input/output $/1M tokens, top of the lookup;
        "Backfill" recomputes `estimated_cost_usd` for this month's unpriced runs of that model.
 4. [ ] **LiteLLM feed.** Daily system task fetches the price list from a **configurable URL** (Jared 2026-10-10):
        platform setting `AI_PRICE_FEED_URL`, editable in Admin → AI, defaulting to LiteLLM's

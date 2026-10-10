@@ -74,9 +74,13 @@ def estimate_cost(provider_type: str, model_id: str, prompt_tokens: int, complet
     """Estimated USD cost for a completion; None when the model's price isn't known (shown as "—",
     never as a misleading "Free").
 
-    The provider's own price first (self-hosted → 0), then core's fallback table."""
+    An admin's override first (Admin → AI pricing, services/ai/price_overrides.py), then the provider's own price
+    (self-hosted → 0), then core's fallback table."""
+    from .price_overrides import override_for
     from .registry import find_class
 
+    if (mine := override_for(provider_type, model_id)) is not None:
+        return mine.cost(prompt_tokens, completion_tokens)
     cls = find_class(provider_type)
     if cls is not None:
         cost = cls.estimate_cost(model_id, prompt_tokens, completion_tokens)
