@@ -62,6 +62,13 @@ def create_workflow(session, group_id, user_id, data: AutomationCreate, *, agent
 
     payload = data.model_dump()
     payload["slug"] = slug
+    if data.source_recipe:  # made from a Library recipe: which one, and which version of it
+        from . import recipes
+
+        try:
+            payload["source_recipe_version"] = recipes.recipe_version(data.source_recipe)
+        except recipes.UnknownRecipe:
+            payload["source_recipe"] = None  # a name that isn't a recipe records nothing
     row = WorkspaceAutomationModel(session=session, group_id=group_id, created_by=user_id, agent_draft=agent_draft, **payload)
     session.add(row)
     session.commit()

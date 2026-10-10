@@ -46,7 +46,7 @@ Two admin endpoints back them (`routes/automations/automations_controller.py`):
 
 The agent's `draft_workflow(recipe=…)` and `configure` share one path, `recipes.configure_for`, so both refuse and
 fill in a recipe the same way. Picker logic (`lib/workflowLibrary.ts`) is pure and tested (`workflowLibrary.test.mjs`).
-Provenance ("installed from recipe X") is not recorded yet.
+Provenance: a workflow saved from a recipe records `source_recipe` (its id) and `source_recipe_version` (`recipes.recipe_version`: a fingerprint of the recipe document and its variables), from the editor (`sourceRecipe` on `POST /api/automations`) and from `draft_workflow(recipe=…)`; `GET /api/automations/library` lists each recipe's `inUse` workflows, `outdated` when the recipe has changed since.
 
 ## Statuses (exact definitions)
 

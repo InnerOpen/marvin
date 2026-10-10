@@ -144,6 +144,8 @@ A dry run of an event-triggered workflow (Event, Incoming webhook, After another
 
 In the editor, **Start from a recipe…** opens the same recipes. Choose one to read what it does, then set it up: each setting is a picker of this workspace's own names (an entry type and its fields, a connected integration of the right kind, an outgoing webhook, a collection, a status), or a box for a number or text. **Use recipe** fills the builder with the workflow; nothing is saved until you press **Save workflow**, and it saves switched off, so dry-run it before you enable it. A note above the builder names the recipe and lists anything to check, such as a webhook this workspace doesn't have. A recipe the guided builder can't show in full opens in **Edit as JSON**. An event's page (**Subscribe → From the Library**) and a connected integration's card list the recipes for that event or provider.
 
+A workflow saved from a recipe (in the editor, or drafted by the agent with `draft_workflow(recipe=…)`) remembers which recipe and which version of it it came from (`sourceRecipe`, `sourceRecipeVersion` on the workflow). The recipe's card then says **In use:** with a link to each such workflow ("(off)" when it is switched off) and **recipe updated since** when the recipe has been improved after that workflow was made; **Start from a recipe…** shows the same under **Already in use here**, so a second copy is a choice. The notification recipes take any connected integration that can send notifications — Slack or Apprise.
+
 ## API
 
 All routes need workspace ADMIN or OWNER. See [API reference](../api/index.md).

@@ -194,3 +194,41 @@ def test_configure_refuses_what_this_workspace_cannot_use(ws):
         assert res.status_code == 409 and "not runnable" in res.json()["detail"], res.text
     unconnected = client.post(_configure("newsletter-delivery"), json={"vars": {}})
     assert unconnected.status_code == 409 and "buttondown" in unconnected.json()["detail"]
+
+
+# --- provenance: which recipe a workflow was made from -------------------------------------------------------------
+
+
+def _save_from_recipe(ws, recipe_id: str, vars: dict, name: str, source: str | None) -> dict:
+    """Save a configured recipe the way the editor's Save does (the shared write path), as nobody in particular."""
+    from marvin.schemas.group.automation import AutomationCreate, AutomationRead
+    from marvin.services.automation import recipes
+    from marvin.services.automation.workflows import create_workflow
+
+    made = recipes.instantiate(recipe_id, vars)
+    row = create_workflow(ws.session, ws.gid, None, AutomationCreate(name=name, definition=made["definition"], source_recipe=source))
+    return AutomationRead.model_validate(row).model_dump(by_alias=True)
+
+
+def test_a_workflow_saved_from_a_recipe_records_it_and_the_library_shows_it_in_use(ws):
+    _sign_in(ws.gid, WorkspaceRole.ADMIN)
+    saved = _save_from_recipe(ws, "hourly-site-rebuild", {"interval_seconds": 3600}, "Hourly rebuild", "hourly-site-rebuild")
+    assert saved["sourceRecipe"] == "hourly-site-rebuild" and len(saved["sourceRecipeVersion"]) == 16
+    uses = _recipe(_library(), "hourly-site-rebuild")["inUse"]
+    assert [(u["name"], u["enabled"], u["outdated"]) for u in uses] == [("Hourly rebuild", False, False)]
+
+
+def test_the_library_says_when_a_recipe_has_changed_since_a_workflow_was_made_from_it(ws):
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+    _sign_in(ws.gid, WorkspaceRole.ADMIN)
+    saved = _save_from_recipe(ws, "hourly-site-rebuild", {"interval_seconds": 3600}, "Older rebuild", "hourly-site-rebuild")
+    ws.session.query(WorkspaceAutomationModel).filter_by(id=saved["id"]).update({"source_recipe_version": "0000000000000000"})
+    ws.session.commit()
+    assert _recipe(_library(), "hourly-site-rebuild")["inUse"][0]["outdated"] is True
+
+
+def test_a_name_that_is_not_a_recipe_records_nothing(ws):
+    _sign_in(ws.gid, WorkspaceRole.ADMIN)
+    saved = _save_from_recipe(ws, "hourly-site-rebuild", {"interval_seconds": 3600}, "Odd source", "../../etc/passwd")
+    assert saved["sourceRecipe"] is None and saved["sourceRecipeVersion"] is None

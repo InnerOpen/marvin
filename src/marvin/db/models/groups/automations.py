@@ -134,6 +134,10 @@ class WorkspaceAutomationModel(SqlAlchemyBase, BaseMixins, InstalledByMixin):
     # Drafted by an agent and not saved by a person since: the only workflows an agent may revise
     # (update_workflow_draft). A save from the editor or REST makes it the person's work.
     agent_draft: Mapped[bool] = mapped_column(sa.Boolean, default=False, server_default=sa.false(), nullable=False)
+    # Made from a Workflow Library recipe: its id, and which version of it (services/automation/recipes:
+    # recipe_version) — so the Library shows where a recipe is in use, and when the recipe has changed since.
+    source_recipe: Mapped[str | None] = mapped_column(sa.String(128), nullable=True, index=True)
+    source_recipe_version: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)
 
     __table_args__ = (sa.UniqueConstraint("group_id", "slug", name="uq_automations_group_slug"),)
 

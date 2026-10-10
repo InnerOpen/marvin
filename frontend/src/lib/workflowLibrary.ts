@@ -11,6 +11,17 @@ export interface RecipeVariable {
   example?: unknown;
 }
 
+export interface RecipeUse {
+  id: string;
+  name: string;
+  slug: string;
+  enabled: boolean;
+  outdated?: boolean;
+}
+
+/** Where a workflow made from a recipe opens. */
+export const workflowHref = (id: string) => `/automation/workflows?workflow=${encodeURIComponent(id)}`;
+
 export interface Recipe {
   id: string;
   title: string;
@@ -25,6 +36,8 @@ export interface Recipe {
   providers: string[];
   /** What a connected integration must be able to do instead of a named provider (notify: Slack, Apprise…). */
   capabilities?: string[];
+  /** This workspace's workflows made from it; `outdated`: the recipe has changed since. */
+  inUse?: RecipeUse[];
   sideEffects: { kind: string; description: string }[];
   setupVariables: RecipeVariable[];
   supportingObjects: { kind: string; name: string; purpose: string; required: boolean }[];

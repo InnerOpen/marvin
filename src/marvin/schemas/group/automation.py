@@ -18,6 +18,7 @@ class AutomationCreate(_MarvinModel):
     slug: str | None = None  # generated from name when omitted
     enabled: bool = False
     definition: dict = {}  # {trigger, conditions, actions} — validated by the engine
+    source_recipe: str | None = None  # the Workflow Library recipe it was made from (its id); recorded, with its version
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -42,6 +43,10 @@ class AutomationRead(_MarvinModel):
     """Read-only "installed by": the integration whose blueprint created this (null: made by a person)."""
     source_blueprint: str | None = None
     """Read-only: the slug of the blueprint that created this, if one did."""
+    source_recipe: str | None = None
+    """Read-only: the Workflow Library recipe it was made from, if it was."""
+    source_recipe_version: str | None = None
+    """Read-only: that recipe's version when it was made (the Library says when the recipe has changed since)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -304,6 +309,16 @@ class WorkflowRecipeDependency(_MarvinModel):
     why: str = ""
 
 
+class WorkflowRecipeUse(_MarvinModel):
+    """A workflow in this workspace made from a recipe."""
+
+    id: UUID4
+    name: str
+    slug: str
+    enabled: bool
+    outdated: bool = False  # the recipe has changed since this workflow was made from it
+
+
 class WorkflowRecipe(_MarvinModel):
     """One catalogue entry, and whether this workspace can use it: `missing` empty → ready here."""
 
@@ -318,6 +333,7 @@ class WorkflowRecipe(_MarvinModel):
     shape: str  # workflow | configuration | idea
     providers: list[str] = []  # integration providers it needs connected
     capabilities: list[str] = []  # …or what a connected integration must be able to do (notify), whichever provider
+    in_use: list[WorkflowRecipeUse] = []  # this workspace's workflows made from it
     side_effects: list[WorkflowRecipeSideEffect] = []
     setup_variables: list[WorkflowRecipeVariable] = []
     supporting_objects: list[WorkflowRecipeSupportingObject] = []

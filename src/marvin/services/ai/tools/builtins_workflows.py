@@ -254,7 +254,8 @@ def draft_workflow(ctx: ToolContext, args: dict) -> str:
     if refusal:
         return refusal
     # Never enabled from here, whatever was passed: switching it on is the user's call.
-    data = AutomationCreate(name=name, slug=parsed.slug, enabled=False, definition=parsed.definition)
+    recipe = str(args["recipe"]) if args.get("recipe") else None  # made from a Library recipe: recorded on it
+    data = AutomationCreate(name=name, slug=parsed.slug, enabled=False, definition=parsed.definition, source_recipe=recipe)
     try:
         row = create_workflow(ctx.session, ctx.group_id, getattr(ctx.user, "id", None), data, agent_draft=True)
     except SlugConflict as e:

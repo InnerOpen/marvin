@@ -79,7 +79,38 @@ def _get_or_404(session, automation_id: UUID4, group_id: UUID4) -> WorkspaceAuto
     return row
 
 
-def _library_recipe(item: dict, refs) -> WorkflowRecipe:
+def _recipe_uses(session, group_id) -> dict[str, list[dict]]:
+    """{recipe id: the workspace's workflows made from it, each saying whether the recipe has changed since}."""
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.services.automation import recipes
+
+    rows = (
+        session.query(WorkspaceAutomationModel)
+        .filter(WorkspaceAutomationModel.group_id == group_id, WorkspaceAutomationModel.source_recipe.isnot(None))
+        .order_by(WorkspaceAutomationModel.name)
+    )
+    versions: dict[str, str | None] = {}
+    uses: dict[str, list[dict]] = {}
+    for row in rows:
+        if row.source_recipe not in versions:
+            try:
+                versions[row.source_recipe] = recipes.recipe_version(row.source_recipe)
+            except recipes.UnknownRecipe:
+                versions[row.source_recipe] = None  # a recipe since retired: nothing to compare
+        current = versions[row.source_recipe]
+        uses.setdefault(row.source_recipe, []).append(
+            {
+                "id": row.id,
+                "name": row.name,
+                "slug": row.slug,
+                "enabled": bool(row.enabled),
+                "outdated": bool(current and row.source_recipe_version and current != row.source_recipe_version),
+            }
+        )
+    return uses
+
+
+def _library_recipe(item: dict, refs, uses: dict[str, list[dict]] | None = None) -> WorkflowRecipe:
     """A catalogue entry as the Library and the editor's recipe picker show it, with what this workspace lacks."""
     from marvin.services.automation import recipes
 
@@ -92,6 +123,7 @@ def _library_recipe(item: dict, refs) -> WorkflowRecipe:
         supporting_objects=item.get("supporting_objects") or [],
         dependencies=item.get("dependencies") or [],
         missing=recipes.missing_prerequisites(item, refs),
+        in_use=(uses or {}).get(item["id"], []),
     )
 
 
@@ -204,8 +236,9 @@ class AutomationsController(BaseUserController):
         from marvin.services.automation.authoring import workspace_refs
 
         refs = workspace_refs(self.session, self.group_id)
+        uses = _recipe_uses(self.session, self.group_id)
         return WorkflowLibraryRead(
-            recipes=[_library_recipe(item, refs) for item in recipes.entries()],
+            recipes=[_library_recipe(item, refs, uses) for item in recipes.entries()],
             capabilities=recipes.catalogue()["capabilities"],
             refs=WorkflowLibraryRefs(
                 entry_types=refs.entry_types,

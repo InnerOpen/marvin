@@ -83,6 +83,16 @@ def load_vars(recipe_id: str) -> dict[str, dict]:
     return dict(json.loads(path.read_text(encoding="utf-8")).get("variables") or {})
 
 
+def recipe_version(recipe_id: str) -> str:
+    """A short fingerprint of the recipe as it ships now (its workflow and its setup variables): stored on a workflow
+    made from it, so a later change to the recipe shows as "the recipe has changed since"."""
+    import hashlib
+
+    entry(recipe_id)  # a catalogue id, or UnknownRecipe — never a path someone typed
+    doc = {"recipe": load_recipe(recipe_id), "vars": load_vars(recipe_id)}
+    return hashlib.sha256(json.dumps(doc, sort_keys=True).encode()).hexdigest()[:16]
+
+
 def instantiate(recipe_id: str, values: dict[str, Any]) -> dict:
     """The recipe's document with its placeholders substituted (typed, templates untouched) — what a Library
     copy or ``draft_workflow(recipe=…)`` hands to the write path. Raises RecipeConfigError on a bad value."""

@@ -266,6 +266,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const jsonEditor = $("wf-json-editor");
   const statusEl = $("wf-status");
   let editingId: string | null = null; // null = creating
+  let fromRecipe: string | null = null; // the Library recipe a new workflow was started from: recorded when it's saved
   let jsonMode = false;
   let pastedSlug: string | null = null; // a slug from pasted workflow JSON; only a new workflow can use it
 
@@ -893,6 +894,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   function openBuilder(wf: any = null) {
     editingId = wf?.id ?? null;
     pastedSlug = null;
+    fromRecipe = null;
     $("wf-recipe-note").setAttribute("hidden", "");
     $("wf-builder-title").textContent = wf ? `Edit: ${wf.name}` : "New workflow";
     ($("wf-name") as HTMLInputElement).value = wf?.name ?? "";
@@ -1067,7 +1069,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     statusEl.textContent = "Saving…";
     try {
       if (editingId) await updateAutomation(editingId, { name, enabled, definition });
-      else await createAutomation({ name, enabled, definition, ...(pastedSlug ? { slug: pastedSlug } : {}) });
+      else {
+        // Made from a Library recipe: the server records which one (and its version), so the Library shows it in use.
+        const made = { name, enabled, definition, ...(pastedSlug ? { slug: pastedSlug } : {}), ...(fromRecipe ? { sourceRecipe: fromRecipe } : {}) };
+        await createAutomation(made as Parameters<typeof createAutomation>[0]);
+      }
       location.reload();
     } catch (e: any) {
       const { message, issues } = describeSaveError(e);
@@ -1452,6 +1458,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   document.addEventListener("recipe:use", (event) => {
     const { recipe, name, definition, issues } = (event as CustomEvent).detail;
     openBuilder();
+    fromRecipe = recipe?.id ?? null;
     ($("wf-name") as HTMLInputElement).value = name;
     loadDefinition(definition);
     ($("wf-json") as HTMLTextAreaElement).value = JSON.stringify(definition, null, 2);

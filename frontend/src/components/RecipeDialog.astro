@@ -42,6 +42,7 @@
     triggerText,
     type Values,
     type WorkflowLibrary,
+    workflowHref,
   } from "@/lib/workflowLibrary";
 
   const dialog = document.getElementById("recipe-dialog") as HTMLDialogElement;
@@ -109,8 +110,21 @@
       h("p", { class: "rd-when" }, h("strong", {}, "Runs: "), triggerText(recipe.trigger)),
       h("h5", {}, "What it does"),
       effects,
+      ...inUseNote(recipe),
       ready ? setupForm(recipe) : h("div", { class: "rd-missing" }, h("strong", {}, "Not ready here: "), `${recipe.missing.join("; ")}.`),
     );
+  }
+
+  /** "Already in use here: …" — so a second copy is a choice, not an accident. */
+  function inUseNote(recipe: Recipe): HTMLElement[] {
+    const uses = recipe.inUse ?? [];
+    if (!uses.length) return [];
+    const links = uses.flatMap((w, i) => [
+      ...(i ? [", "] : []),
+      h("a", { href: workflowHref(w.id) }, w.name),
+      ...(w.outdated ? [" (made from an earlier version)"] : []),
+    ]);
+    return [h("p", { class: "rd-in-use" }, h("strong", {}, "Already in use here: "), ...links, ".")];
   }
 
   function setupForm(recipe: Recipe): HTMLElement {
@@ -248,6 +262,7 @@
   .recipe-dialog :global(.rd-detail h5) { margin: 16px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
   .recipe-dialog :global(.rd-when) { margin: 6px 0; font-size: 14px; }
   .recipe-dialog :global(.rd-effects) { margin: 0; padding-left: 18px; font-size: 13.5px; line-height: 1.5; }
+  .recipe-dialog :global(.rd-in-use) { margin: 12px 0 0; font-size: 13.5px; }
   .recipe-dialog :global(.rd-missing) { margin-top: 16px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, #d9a441 13%, transparent); font-size: 13.5px; }
   .recipe-dialog :global(.rd-field) { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
   .recipe-dialog :global(.rd-field label) { font-weight: 600; font-size: 13.5px; text-transform: capitalize; }

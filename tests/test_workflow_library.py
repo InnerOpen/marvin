@@ -883,6 +883,7 @@ def test_draft_workflow_instantiates_a_recipe_with_typed_vars(ws):
     row = ws.session.query(WorkspaceAutomationModel).filter_by(group_id=ws.gid, slug=out["workflow"]["slug"]).one()
     assert (row.name, row.enabled) == ("Newsletter delivery", False)
     assert row.definition == _configured(ws, "newsletter-delivery")
+    assert (row.source_recipe, row.source_recipe_version) == ("newsletter-delivery", recipes.recipe_version("newsletter-delivery"))
 
     # A missing or mistyped value is refused with the recipe's variables, and nothing is saved.
     out = _tool(ws, "draft_workflow", {"recipe": "hourly-site-rebuild", "vars": {"interval_seconds": "3600"}})
