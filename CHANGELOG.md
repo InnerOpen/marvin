@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.249 (2026-10-10)
+
+### Bug Fixes
+
+- **backup**: Declare AssetSources with the type statement — clears the engine's 5 mypy errors
+  ([`79cc95e`](https://github.com/InnerOpen/marvin/commit/79cc95efe89f313e60c2acd76b3b34ea4a07b521))
+
+
 ## v1.0.0-rc.248 (2026-10-10)
 
 ### Chores
