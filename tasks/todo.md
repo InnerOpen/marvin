@@ -654,6 +654,38 @@ Full backend suite, frontend tests, Biome and ruff green; `astro check` 50 error
 the base. Browser-checked on SQLite + astro dev (headless Chromium): preview parts for frame / everywhere / drop,
 JSON panels collapsed, collapsed metadata still saved, invalid metadata reopens its panel, no empty Ask chip.
 
+# Workflow Library gaps — recount, then close them (2026-10-11, Jared: "do 2 then 1 then 3")
+
+**Recount (catalogue.json vs the engine today):** `asset-resource-targets` is mostly delivered (`4728152a`: asset /
+resource events bind `${asset.*}` / `${resource.*}`, targets take entity asset|resource) but still listed on 28 recipes.
+Missing from its acceptance: an operation step on an asset gets no image (runner.py builds AI context for entries only)
+and can't write back (`alt_text`); derived-asset lineage belongs to media-adapters. With it counted done, what each gap
+unlocks *on its own*: media-adapters 6, custom-operation 5, workflow-approvals 4, nothing else left: 2
+(alt-text-assistant, attribution-companion). In combination: custom-operation 37, media-adapters 24, create-entry 23,
+workflow-approvals 20.
+
+**A. Finish asset/resource subjects** (unlocks alt-text-assistant + attribution-companion)
+- [x] runner `run_operation_action`: build context for an asset (`with_asset`, + `with_asset_images` for
+      `requires_vision` / `sees_asset_image`) or a resource (`with_resource`), as the interactive route does.
+- [x] `write_back` on an operation step: `true` = the operation's own map (entries, as today), or an object
+      `{output_key: field}` onto the step's subject — asset: alt_text, description, name, tags, metadata.<key>;
+      resource: description, name, tags, metadata.<key>; entries keep `true` only. Same approval policy as everywhere
+      (`may_apply`; else `stage_suggestion`), and an EDITOR+ author (definer's rights) — else `not_permitted`. The
+      generate-alt-text op keeps no map: the asset page's button stays review-then-save.
+- [x] Validator: an object `write_back` on an entry subject, or naming a field not in the list, is an error.
+- [x] Recipes `alt-text-assistant` (asset_uploaded, images only → generate-alt-text → write alt_text) and
+      `attribution-companion` (asset_attached_to_entry → set entry metadata `credit` from the asset's license/credit
+      metadata) as files + vars + execution tests; catalogue: both runnable, `asset-resource-targets` acceptance
+      reworded to what's left (lineage → media-adapters), recount re-rendered (`catalogue.md`).
+- [x] Authoring guide + docs (workflows.md, workflow-library) for `write_back` objects.
+
+Review (A, 2026-10-11): alt-text-assistant + attribution-companion verified-current (execution tests incl. review mode →
+staged). The capability stays open for 3 recipes (checksum query, entries linked to a resource, an entry op seeing its
+images); lineage moved to media-adapters (seasonal-variation, image-prompt-archive, thumbnail-audition gained it).
+Blocked now: 70 of 107. Next (Jared asked about if/else mid-way): **branches** (P0, 5 recipes) before custom-operation.
+
+**B. Custom operation (P0, 37 recipes) — plan for Jared, not built yet.** See "Custom operation" below once written.
+
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
 Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to

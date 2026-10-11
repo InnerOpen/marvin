@@ -119,9 +119,26 @@ Trigger = Annotated[
 
 
 # ── Actions (discriminated on `kind`) — one model per registered executor ──────
+# What an operation step's `write_back` map may write on an asset or resource (beside `metadata.<key>`). Columns only
+# by name: an item's other columns (its storage key, its workspace) are never an AI output's to change.
+ITEM_WRITEBACK_FIELDS: dict[str, frozenset[str]] = {
+    "asset": frozenset({"alt_text", "description", "name", "tags"}),
+    "resource": frozenset({"description", "name", "tags"}),
+}
+
+
+def item_writeback_field_ok(kind: str, field: str) -> bool:
+    """Whether `field` is one an operation step may write on an item of `kind` (asset | resource)."""
+    if field.startswith("metadata.") and len(field) > len("metadata."):
+        return kind in ITEM_WRITEBACK_FIELDS
+    return field in ITEM_WRITEBACK_FIELDS.get(kind, frozenset())
+
+
 class OperationAction(_DefnBase):
     """Runs an AI operation (`op`: its slug) on the entry — or, with `entity_type` asset | resource, on that item (the
-    operation must support it); `write_back` saves the result onto it."""
+    operation must support it); `write_back` saves the result onto it: `true` writes the operation's own fields (an
+    entry's summary, tags…), and on an asset or resource a map `{output key: field}` names what to write (alt_text,
+    description, name, tags, metadata.<key>)."""
 
     kind: Literal["operation"]
     op: str  # AI operation slug
@@ -129,8 +146,22 @@ class OperationAction(_DefnBase):
     entity_type: str = "entry"  # unset: the target's or the triggering item's kind, else entry
     entity_id: str | None = None  # defaults to the run's $event.<entity_type>_id
     entity_slug: str | None = None  # preferred for webhook payloads; resolved at run time
-    write_back: bool = False
+    write_back: bool | dict[str, str] = False
     id: str | None = None  # addressable as $steps.<id>.output.*
+
+    @field_validator("write_back")
+    @classmethod
+    def _write_back_fields(cls, value):
+        if isinstance(value, dict):
+            if not value:
+                raise ValueError("write_back map is empty: name {output key: field}, or use true")
+            unknown = sorted(f for f in value.values() if not any(item_writeback_field_ok(k, f) for k in ITEM_WRITEBACK_FIELDS))
+            if unknown:
+                raise ValueError(
+                    f"write_back can't write {', '.join(unknown)}: an asset takes alt_text, description, name, tags or metadata.<key>; "
+                    "a resource description, name, tags or metadata.<key>"
+                )
+        return value
 
 
 class EntryAction(_DefnBase):

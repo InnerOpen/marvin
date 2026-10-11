@@ -13,6 +13,7 @@ This reuses the already-factored primitives (ContextBuilder, provider factory,
 import time
 from datetime import UTC, datetime
 
+from marvin.schemas.group.automation_definition import ITEM_WRITEBACK_FIELDS, item_writeback_field_ok
 from marvin.services.ai.operations import get_operation
 
 from .actions.base import AutomationActionError  # re-exported for callers importing from runner
@@ -140,6 +141,13 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
     builder = ContextBuilder(session, group_id).with_site_settings().with_variables()
     if entity_type == "entry" and entity_id:
         builder.with_entry(entity_id).with_assets(entity_id).with_resources(entity_id)
+    elif entity_type == "asset" and entity_id:
+        builder.with_asset(entity_id)
+        # As in the interactive route: a vision op needs the image; one that merely benefits sees it if the model can.
+        if operation.requires_vision or (getattr(operation, "sees_asset_image", False) and _model_sees_images(session, group_id, model)):
+            builder.with_asset_images()
+    elif entity_type == "resource" and entity_id:
+        builder.with_resource(entity_id)
     ctx = builder.build()
 
     from marvin.db.models.groups.ai_executions import AIExecutionModel
@@ -198,7 +206,20 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
     # Optional write-back of the operation's own writeback map — gated by the workspace approval mode
     # like every other AI write-back: applied when the mode allows it for this entry, else staged as a
     # suggestion for a person to accept. The step output says which (`_write_back`).
-    if action.get("write_back") and entity_type == "entry" and entity_id and isinstance(parsed, dict):
+    write_back = action.get("write_back")
+    if isinstance(write_back, dict) and write_back and isinstance(parsed, dict):
+        if entity_type not in ITEM_WRITEBACK_FIELDS:
+            raise AutomationActionError("a write_back map writes onto an asset or resource; on an entry use write_back: true")
+        if not entity_id:
+            raise AutomationActionError(f"write_back: no {entity_type} to write onto")
+        proposed = {field: parsed[out] for out, field in write_back.items() if out in parsed}
+        if bad := sorted(f for f in proposed if not item_writeback_field_ok(entity_type, f)):
+            raise AutomationActionError(f"write_back can't write {', '.join(bad)} on an {entity_type}")
+        if proposed:
+            outcome = _write_back_item(session, group_id, entity_type, entity_id, proposed, authorizer_role, slug, execution.id)
+            return {**parsed, "_write_back": outcome}
+        return parsed
+    if write_back and entity_type == "entry" and entity_id and isinstance(parsed, dict):
         writeback = getattr(operation, "writeback", None) or {}
         proposed = {target: parsed[out] for out, target in writeback.items() if out in parsed}
         if proposed:
@@ -222,6 +243,43 @@ def _write_back(session, group_id, entity_id, proposed: dict, user_id, depth: in
         entity_id, {**proposed, "_meta": {"operation": slug, "executionId": str(execution_id), "source": "automation"}}
     )
     return "staged"
+
+
+def _write_back_item(session, group_id, kind: str, item_id, proposed: dict, authorizer_role, slug: str, execution_id) -> str:
+    """An operation's output onto an asset or resource, under the same rules as the interactive route: an EDITOR+
+    author (definer's rights) may change it, and the approval mode decides whether it is applied or staged as a
+    suggestion. Returns "applied" | "staged" | "not_permitted"."""
+    from marvin.db.models.platform import Assets, Resources
+    from marvin.repos.repository_factory import AllRepositories
+    from marvin.services.ai.approval import may_apply, workspace_approval_mode
+
+    from .authz import ROLE_EDITOR, ROLE_OWNER
+
+    if (ROLE_OWNER if authorizer_role is None else authorizer_role) < ROLE_EDITOR:
+        return "not_permitted"
+    model, repos = (
+        (Assets, AllRepositories(session, group_id=group_id).assets)
+        if kind == "asset"
+        else (Resources, AllRepositories(session, group_id=group_id).resources)
+    )
+    item = session.get(model, item_id)
+    if item is None or str(item.group_id) != str(group_id):
+        raise AutomationActionError(f"write_back: no such {kind} in this workspace")
+    fields = {f"metadata_json.{f.split('.', 1)[1]}" if f.startswith("metadata.") else f: v for f, v in proposed.items()}
+    if may_apply(workspace_approval_mode(session, group_id), kind, None):
+        repos.apply_fields(item_id, fields)
+        return "applied"
+    repos.stage_suggestion(item_id, {**fields, "_meta": {"operation": slug, "executionId": str(execution_id), "source": AUTOMATION_SOURCE}})
+    session.commit()
+    return "staged"
+
+
+def _model_sees_images(session, group_id, model: str) -> bool:
+    """False only when the model's `ai_models` row says it has no vision; no row → assume it can (as the route)."""
+    from marvin.db.models.groups.ai_providers import AIModelModel
+
+    row = session.query(AIModelModel).filter_by(group_id=group_id, model_id=model).first()
+    return not (row and not row.supports_vision)
 
 
 def _resolve_entry_id_by_slug(session, group_id, slug: str):

@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-107 recipes: **24** verified-current, **11** supported-after-configuration, **16** needs-adapter, **56** needs-engine-capability.
+107 recipes: **26** verified-current, **11** supported-after-configuration, **16** needs-adapter, **54** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -18,6 +18,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [comment-discussion-starter](../../src/marvin/services/automation/recipes/comment-discussion-starter.json) — Comment discussion starter | verified-current | `entry_published` | outgoing webhook | content mutation, external post |
 | [editorial-task-maker](../../src/marvin/services/automation/recipes/editorial-task-maker.json) — Editorial task maker | verified-current | `entry_published` | n8n integration | content mutation, external post |
 | [utm-librarian](../../src/marvin/services/automation/recipes/utm-librarian.json) — UTM librarian | verified-current | `entry_created` | an entry type with a page URL pattern (so `entry.url` resolves) and two fields for UTM source and medium | content mutation |
+| [alt-text-assistant](../../src/marvin/services/automation/recipes/alt-text-assistant.json) — Alt text assistant | verified-current | `asset_uploaded` | — | content mutation, paid call |
+| [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — Attribution companion | verified-current | `asset_attached_to_entry` | — | content mutation |
 | [client-handoff](../../src/marvin/services/automation/recipes/client-handoff.json) — Client handoff | verified-current | `entry_updated` | outgoing webhook | content mutation, external post |
 | [failure-repair-desk](../../src/marvin/services/automation/recipes/failure-repair-desk.json) — Failure repair desk | verified-current | `on_error` (`automation_failed`) | — | content mutation |
 | [publication-ledger](../../src/marvin/services/automation/recipes/publication-ledger.json) — Publication ledger | verified-current | `entry_published` | — | content mutation |
@@ -51,67 +53,65 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | Recipe | Status | Trigger | Blocked by |
 |---|---|---|---|
 | `translation-desk` — Translation desk | needs-engine-capability | `entry_published` | create-entry, custom-operation, workflow-approvals |
-| `audio-edition` — Audio edition | needs-adapter | `entry_published` | media-adapters, asset-resource-targets |
+| `audio-edition` — Audio edition | needs-adapter | `entry_published` | media-adapters |
 | `series-index-keeper` — Series index keeper | needs-engine-capability | `entry_published` | iterate-aggregate, collection-scope |
 | `weekly-digest` — Weekly digest | needs-engine-capability | `schedule` | iterate-aggregate, relative-dates, create-entry, custom-operation |
 | `broken-link-patrol` — Broken link patrol | needs-engine-capability | `schedule` | fetch, create-entry, iterate-aggregate |
 | `living-resource-collection` — Living resource collection | needs-engine-capability | `resource_updated` | asset-resource-targets, custom-operation, workflow-approvals |
-| `publication-release-gate` — Publication release gate | needs-engine-capability | `entry_updated` | joins, asset-resource-targets |
+| `publication-release-gate` — Publication release gate | needs-engine-capability | `entry_updated` | joins |
 | `featured-collection-curator` — Featured collection curator | needs-engine-capability | `entry_published` | custom-operation, workflow-approvals |
 | `evergreen-resurfacer` — Evergreen resurfacer | needs-engine-capability | `schedule` | relative-dates, custom-operation, create-entry |
 | `one-entry-many-voices` — One entry, many voices | needs-engine-capability | `entry_published` | custom-operation, create-entry |
 | `carousel-storyteller` — Carousel storyteller | needs-adapter | `entry_published` | media-adapters, custom-operation, social-adapters, workflow-approvals |
 | `thread-builder` — Thread builder | needs-engine-capability | `entry_published` | custom-operation, social-adapters |
-| `quote-card-studio` — Quote card studio | needs-adapter | `entry_published` | media-adapters, custom-operation, asset-resource-targets |
+| `quote-card-studio` — Quote card studio | needs-adapter | `entry_published` | media-adapters, custom-operation |
 | `teaser-ladder` — Teaser ladder | needs-engine-capability | `entry_published` | waits, social-adapters, custom-operation |
-| `behind-the-scenes-diary` — Behind the scenes diary | needs-engine-capability | `entry_updated` | custom-operation, create-entry, asset-resource-targets |
+| `behind-the-scenes-diary` — Behind the scenes diary | needs-engine-capability | `entry_updated` | asset-resource-targets, custom-operation, create-entry |
 | `community-question` — Community question | needs-engine-capability | `entry_published` | custom-operation |
 | `poll-companion` — Poll companion | needs-adapter | `entry_published` | social-adapters, custom-operation |
 | `reply-drafting-desk` — Reply drafting desk | needs-engine-capability | `comment_added` | comments, custom-operation, workflow-approvals |
 | `campaign-scoreboard` — Campaign scoreboard | needs-adapter | `schedule` | social-adapters, waits, metrics |
 | `social-experiment-log` — Social experiment log | needs-engine-capability | `manual` | custom-operation, metrics |
-| `platform-preview-checker` — Platform preview checker | needs-engine-capability | `entry_updated` | branches, fetch, asset-resource-targets, social-adapters |
+| `platform-preview-checker` — Platform preview checker | needs-engine-capability | `entry_updated` | branches, fetch, social-adapters |
 | `launch-kit` — Launch kit | needs-engine-capability | `entry_published` | custom-operation, create-entry, joins, workflow-approvals |
 | `milestone-celebration` — Milestone celebration | needs-engine-capability | `entry_updated` | custom-operation, workflow-approvals, create-entry |
 | `event-countdown` — Event countdown | needs-engine-capability | `entry_published` | waits, relative-dates, create-entry |
 | `best-of-month` — Best of month | needs-engine-capability | `schedule` | iterate-aggregate, relative-dates, media-adapters, create-entry |
 | `community-welcome-pack` — Community welcome pack | needs-engine-capability | subscription: `member_added` | member-email, ops-triggers, custom-operation |
-| `alt-text-assistant` — Alt text assistant | needs-engine-capability | `asset_uploaded` | asset-resource-targets |
-| `responsive-image-factory` — Responsive image factory | needs-adapter | `asset_uploaded` | media-adapters, asset-resource-targets |
-| `background-remover` — Background remover | needs-adapter | `manual` | media-adapters, asset-resource-targets |
-| `product-scene-studio` — Product scene studio | needs-engine-capability | `manual` | workflow-approvals, asset-resource-targets, media-adapters |
-| `smart-crop-pack` — Smart crop pack | needs-adapter | `asset_uploaded` | media-adapters, asset-resource-targets, workflow-approvals |
-| `brand-recolor` — Brand recolor | needs-adapter | `manual` | media-adapters, asset-resource-targets |
-| `seasonal-variation` — Seasonal variation | needs-engine-capability | `manual` | workflow-approvals, asset-resource-targets |
-| `thumbnail-audition` — Thumbnail audition | needs-engine-capability | `manual` | workflow-approvals, workflow-approvals, asset-resource-targets |
-| `image-quality-gate` — Image quality gate | needs-engine-capability | `asset_uploaded` | asset-resource-targets, media-adapters, branches |
-| `privacy-crop-desk` — Privacy crop desk | needs-engine-capability | `asset_uploaded` | asset-resource-targets, media-adapters, workflow-approvals |
-| `before-after-slider-kit` — Before/after slider kit | needs-adapter | `manual` | media-adapters, create-entry, asset-resource-targets |
-| `contact-sheet-maker` — Contact sheet maker | needs-adapter | `manual` | asset-resource-targets, iterate-aggregate, media-adapters |
+| `responsive-image-factory` — Responsive image factory | needs-adapter | `asset_uploaded` | media-adapters |
+| `background-remover` — Background remover | needs-adapter | `manual` | media-adapters |
+| `product-scene-studio` — Product scene studio | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
+| `smart-crop-pack` — Smart crop pack | needs-adapter | `asset_uploaded` | media-adapters, workflow-approvals |
+| `brand-recolor` — Brand recolor | needs-adapter | `manual` | media-adapters |
+| `seasonal-variation` — Seasonal variation | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
+| `thumbnail-audition` — Thumbnail audition | needs-engine-capability | `manual` | workflow-approvals, workflow-approvals, media-adapters |
+| `image-quality-gate` — Image quality gate | needs-engine-capability | `asset_uploaded` | media-adapters, branches |
+| `privacy-crop-desk` — Privacy crop desk | needs-engine-capability | `asset_uploaded` | media-adapters, workflow-approvals |
+| `before-after-slider-kit` — Before/after slider kit | needs-adapter | `manual` | media-adapters, create-entry |
+| `contact-sheet-maker` — Contact sheet maker | needs-adapter | `manual` | iterate-aggregate, media-adapters |
 | `ocr-notebook` — OCR notebook | needs-adapter | `asset_uploaded` | media-adapters, create-entry |
-| `document-preview-factory` — Document preview factory | needs-adapter | `asset_uploaded` | media-adapters, asset-resource-targets |
-| `file-format-converter` — File format converter | needs-adapter | `asset_uploaded` | media-adapters, asset-resource-targets |
-| `attribution-companion` — Attribution companion | needs-engine-capability | `asset_attached_to_entry` | asset-resource-targets |
+| `document-preview-factory` — Document preview factory | needs-adapter | `asset_uploaded` | media-adapters |
+| `file-format-converter` — File format converter | needs-adapter | `asset_uploaded` | media-adapters |
 | `duplicate-asset-scout` — Duplicate asset scout | needs-engine-capability | `asset_uploaded` | asset-resource-targets, branches |
-| `image-prompt-archive` — Image prompt archive | needs-engine-capability | `manual` | workflow-approvals, asset-resource-targets |
+| `image-prompt-archive` — Image prompt archive | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
 | `comic-strip-edition` — Comic strip edition | needs-engine-capability | `manual` | custom-operation, workflow-approvals, media-adapters |
 | `marvin-margin-notes` — Marvin margin notes | needs-engine-capability | `manual` | custom-operation |
 | `ada-explains-it` — Ada explains it | needs-engine-capability | `entry_published` | custom-operation, create-entry |
 | `retro-poster-machine` — Retro poster machine | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
-| `trading-card-collection` — Trading card collection | needs-engine-capability | `entry_updated` | custom-operation, media-adapters, asset-resource-targets |
+| `trading-card-collection` — Trading card collection | needs-engine-capability | `entry_updated` | custom-operation, media-adapters |
 | `achievement-cabinet` — Achievement cabinet | needs-engine-capability | `entry_updated` | create-entry, custom-events |
 | `meme-workshop` — Meme workshop | needs-engine-capability | `manual` | custom-operation, workflow-approvals, media-adapters |
 | `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | custom-operation, create-entry, sandbox |
 | `future-newspaper` — Future newspaper | needs-engine-capability | `manual` | custom-operation, media-adapters |
 | `workshop-field-guide` — Workshop field guide | needs-engine-capability | `manual` | iterate-aggregate, custom-operation, media-adapters |
-| `color-moodboard` — Color moodboard | needs-adapter | `manual` | media-adapters, asset-resource-targets, iterate-aggregate |
+| `color-moodboard` — Color moodboard | needs-adapter | `manual` | media-adapters, iterate-aggregate |
 | `soundtrack-brief` — Soundtrack brief | needs-engine-capability | `manual` | custom-operation |
 | `alternate-universe-cover` — Alternate universe cover | needs-engine-capability | `manual` | workflow-approvals, workflow-approvals |
 | `time-capsule` — Time capsule | needs-engine-capability | `entry_updated` | snapshots, waits, create-entry |
 | `surprise-remix-button` — Surprise remix button | needs-engine-capability | `manual` | manual-params, custom-operation, create-entry |
 | `fictional-debate-club` — Fictional debate club | needs-engine-capability | `manual` | custom-operation, create-entry |
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox, branches |
-| `resource-availability-watch` — Resource availability watch | needs-engine-capability | `schedule` | fetch, asset-resource-targets, iterate-aggregate |
+| `resource-availability-watch` — Resource availability watch | needs-engine-capability | `schedule` | fetch, iterate-aggregate |
 | `project-milestone-report` — Project milestone report | needs-engine-capability | `entry_updated` | iterate-aggregate, custom-operation, create-entry |
 | `knowledge-gap-finder` — Knowledge gap finder | needs-engine-capability | `manual` | collection-scope, custom-operation, create-entry |
 | `meeting-notes-to-tasks` — Meeting notes to tasks | needs-engine-capability | `entry_created` | custom-operation, workflow-approvals |
@@ -119,9 +119,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `intake-triage` — Intake triage | needs-engine-capability | `form_submission_received` | form-classification, branches, custom-operation |
 | `archive-packager` — Archive packager | needs-adapter | `manual` | media-adapters, collection-scope, iterate-aggregate |
 | `personal-project-radar` — Personal project radar | needs-engine-capability | `schedule` | relative-dates, custom-operation, create-entry |
-| `resource-attachment-notes` — Resource attachment notes | needs-engine-capability | `entry_resource_attached` | asset-resource-targets, custom-operation |
+| `resource-attachment-notes` — Resource attachment notes | needs-engine-capability | `entry_resource_attached` | custom-operation |
 | `entry-schema-impact-report` — Entry schema impact report | needs-engine-capability | `entry_type_updated` | iterate-aggregate, create-entry |
-| `asset-attachment-social-kit` — Asset attachment social kit | needs-engine-capability | `asset_attached_to_entry` | asset-resource-targets, custom-operation |
+| `asset-attachment-social-kit` — Asset attachment social kit | needs-engine-capability | `asset_attached_to_entry` | custom-operation |
 
 ## By category
 
@@ -152,7 +152,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `create-entry` (a translated draft is a new entry); `custom-operation` (no translation operation exists); `workflow-approvals` (reviewer routing with a decision)
 - `audio-edition` — **Audio edition** · needs-adapter · `entry_published`  
   Publication → narrate article → attach audio → update podcast feed
-  - Blocked by: `media-adapters` (a TTS provider action that returns an audio asset); `asset-resource-targets` (attaching the derived asset with lineage)
+  - Blocked by: `media-adapters` (a TTS provider action that returns an audio asset)
 - `series-index-keeper` — **Series index keeper** · needs-engine-capability · `entry_published`  
   Series member published → refresh ordered index and navigation
   - Possible today (partial): a target query `{collection: <series>}` with `set_metadata` can stamp each member, but no step can read the ordered list to write an index.
@@ -167,11 +167,11 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `fetch` (no step can GET a URL and read the status); `create-entry` (repair notes are entries); `iterate-aggregate` (one note per scan, not per link)
 - `living-resource-collection` — **Living resource collection** · needs-engine-capability · `resource_updated`  
   Resource changes → locate referring entries → propose passage updates
-  - Blocked by: `asset-resource-targets` (resource context and `has_resources`/`resource` target filtering by the triggering resource); `custom-operation` (propose passage updates); `workflow-approvals` (a person accepts the proposal)
+  - Blocked by: `asset-resource-targets` (a target query for the entries linked to the triggering resource (has_resources is only true/false)); `custom-operation` (propose passage updates); `workflow-approvals` (a person accepts the proposal)
 - `publication-release-gate` — **Publication release gate** · needs-engine-capability · `entry_updated`  
   Wait until text, images and downloads pass checks → publish together
   - Possible today (partial): the publish gate already blocks on required fields, required asset roles and resource types (completeness rules); the editorial-approval-gate recipe uses it.
-  - Blocked by: `joins` (wait for several checks); `asset-resource-targets` (image and file checks)
+  - Blocked by: `joins` (wait for several checks)
 - [content-refresh](../../src/marvin/services/automation/recipes/content-refresh.json) — **Content refresh** · verified-current · `entry_updated`  
   Every save of a published entry tells an external copy or search index to re-fetch it, through an outgoing webhook.
   - “Body changes” cannot be detected: changed_fields covers only status, title and slug (services/entries/entry_service.py `_TRACKED_FIELDS`). The recipe fires on every save of a published entry, including the publish itself and metadata writes made by other workflows.
@@ -206,13 +206,13 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `custom-operation` (thread generation); `social-adapters` (draft on the network)
 - `quote-card-studio` — **Quote card studio** · needs-adapter · `entry_published`  
   Extract exact attributed quote → render branded card → attach social draft
-  - Blocked by: `media-adapters` (render the card); `custom-operation` (exact quote extraction with verification); `asset-resource-targets` (attach the derived asset)
+  - Blocked by: `media-adapters` (render the card); `custom-operation` (exact quote extraction with verification)
 - `teaser-ladder` — **Teaser ladder** · needs-engine-capability · `entry_published`  
   Launch → schedule teaser, launch post and follow-up variants
   - Blocked by: `waits` (post at offsets from the launch); `social-adapters` (publish); `custom-operation` (variants)
 - `behind-the-scenes-diary` — **Behind the scenes diary** · needs-engine-capability · `entry_updated`  
   Project update → turn process photos and notes into a workshop post
-  - Blocked by: `custom-operation` (write the post from notes and photos); `create-entry` (the post); `asset-resource-targets` (read the attached photos (vision))
+  - Blocked by: `asset-resource-targets` (an entry operation that sees the entry's attached photos as images (it gets their names only)); `custom-operation` (write the post from notes and photos); `create-entry` (the post)
 - `community-question` — **Community question** · needs-engine-capability · `entry_published`  
   Publication → generate specific discussion question → queue channel post
   - Possible today (partial): the webhook half exists: see publication-announcement; `generate-summary` output can be posted as `${steps.summary.output.summary}`.
@@ -233,7 +233,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `custom-operation` (variants); `metrics` (observations)
 - `platform-preview-checker` — **Platform preview checker** · needs-engine-capability · `entry_updated`  
   Draft → check length, links, image ratio and preview → flag fixes
-  - Blocked by: `branches` (flag only what fails); `fetch` (link checks); `asset-resource-targets` (image ratio); `social-adapters` (per-network limits)
+  - Blocked by: `branches` (flag only what fails); `fetch` (link checks); `social-adapters` (per-network limits)
 - `launch-kit` — **Launch kit** · needs-engine-capability · `entry_published`  
   Product entry → assemble announcement, FAQ, images and newsletter draft
   - Blocked by: `custom-operation` (each piece); `create-entry` (drafts); `joins` (assemble in parallel); `workflow-approvals` (image generation requires approval)
@@ -258,65 +258,64 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 
 ### Images and files
 
-- `alt-text-assistant` — **Alt text assistant** · needs-engine-capability · `asset_uploaded`  
-  Image added → describe visible content → save editable alt text
-  - The operation exists (`generate-alt-text`, asset, requires_vision) and works from the operations API; only the workflow runner lacks the asset path.
-  - Blocked by: `asset-resource-targets` (load the image for `generate-alt-text` and write `alt_text` back)
+- [alt-text-assistant](../../src/marvin/services/automation/recipes/alt-text-assistant.json) — **Alt text assistant** · verified-current · `asset_uploaded`  
+  An uploaded image without alt text gets alt text written by the AI, describing what it shows; people can edit it on the asset.
+  - `write_back: {"alt_text": "alt_text"}` writes onto the asset; in the review-everything approval mode it is staged as a suggestion instead.
+  - Images that already have alt text are skipped (`asset.alt_text` must not exist).
 - `responsive-image-factory` — **Responsive image factory** · needs-adapter · `asset_uploaded`  
   Image added → create requested sizes and formats → link derivatives
   - Marvin's `media_enrich` handler runs an entry type's recipe media derivations for one entry — the nearest existing primitive (entry-scoped, not asset-scoped).
-  - Blocked by: `media-adapters` (resize/convert); `asset-resource-targets` (derivative lineage)
+  - Blocked by: `media-adapters` (resize/convert)
 - `background-remover` — **Background remover** · needs-adapter · `manual`  
   Selected product image → remove background → save transparent derivative
-  - Blocked by: `media-adapters` (a background-removal provider); `asset-resource-targets` (derivative)
+  - Blocked by: `media-adapters` (a background-removal provider)
 - `product-scene-studio` — **Product scene studio** · needs-engine-capability · `manual`  
   Product image → create styled scenes while preserving product details → review
-  - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `asset-resource-targets` (reference image + derivative); `media-adapters` (image editing)
+  - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `media-adapters` (image editing)
 - `smart-crop-pack` — **Smart crop pack** · needs-adapter · `asset_uploaded`  
   Image → focal-point crops for square, portrait and landscape → preview
-  - Blocked by: `media-adapters` (focal-point crop); `asset-resource-targets` (derivatives); `workflow-approvals` (preview before saving)
+  - Blocked by: `media-adapters` (focal-point crop); `workflow-approvals` (preview before saving)
 - `brand-recolor` — **Brand recolor** · needs-adapter · `manual`  
   Selected artwork → apply brand palette → save derivative
-  - Blocked by: `media-adapters` (recolor); `asset-resource-targets` (derivative)
+  - Blocked by: `media-adapters` (recolor)
 - `seasonal-variation` — **Seasonal variation** · needs-engine-capability · `manual`  
   Approved graphic → seasonal variants → retain original and lineage
-  - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `asset-resource-targets` (lineage)
+  - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `media-adapters` (lineage (derived-asset lineage))
 - `thumbnail-audition` — **Thumbnail audition** · needs-engine-capability · `manual`  
   Entry → generate three thumbnail concepts → user selects one
-  - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `workflow-approvals` (a choice among three); `asset-resource-targets` (attach the chosen one)
+  - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `workflow-approvals` (a choice among three); `media-adapters` (attach the chosen one (derived-asset lineage))
 - `image-quality-gate` — **Image quality gate** · needs-engine-capability · `asset_uploaded`  
   Upload → check dimensions, blur and orientation → flag or normalize
-  - Blocked by: `asset-resource-targets` (asset facts in context); `media-adapters` (blur/orientation analysis); `branches` (flag or normalise)
+  - Blocked by: `media-adapters` (blur/orientation analysis); `branches` (flag or normalise)
 - `privacy-crop-desk` — **Privacy crop desk** · needs-engine-capability · `asset_uploaded`  
   Image → propose sensitive-region masking → approve redacted derivative
-  - Blocked by: `asset-resource-targets` (vision on the asset); `media-adapters` (masking); `workflow-approvals` (approve the redaction)
+  - Blocked by: `media-adapters` (masking); `workflow-approvals` (approve the redaction)
 - `before-after-slider-kit` — **Before/after slider kit** · needs-adapter · `manual`  
   Pair original and derivative → generate comparison asset and entry
-  - Blocked by: `media-adapters` (render the comparison); `create-entry` (the entry); `asset-resource-targets` (pairing by lineage)
+  - Blocked by: `media-adapters` (render the comparison); `create-entry` (the entry)
 - `contact-sheet-maker` — **Contact sheet maker** · needs-adapter · `manual`  
   Query related images → label and render contact sheet
-  - Blocked by: `asset-resource-targets` (asset queries); `iterate-aggregate` (many → one sheet); `media-adapters` (render)
+  - Blocked by: `iterate-aggregate` (many → one sheet); `media-adapters` (render)
 - `ocr-notebook` — **OCR notebook** · needs-adapter · `asset_uploaded`  
   Image or PDF → extract text → retain page references → create draft notes
   - Blocked by: `media-adapters` (OCR / PDF text extraction); `create-entry` (notes)
 - `document-preview-factory` — **Document preview factory** · needs-adapter · `asset_uploaded`  
   File upload → render cover and page previews → attach derivatives
-  - Blocked by: `media-adapters` (PDF rendering); `asset-resource-targets` (derivatives)
+  - Blocked by: `media-adapters` (PDF rendering)
 - `file-format-converter` — **File format converter** · needs-adapter · `asset_uploaded`  
   Uploaded file → supported output formats → save download references
-  - Blocked by: `media-adapters` (conversion); `asset-resource-targets` (derivatives)
-- `attribution-companion` — **Attribution companion** · needs-engine-capability · `asset_attached_to_entry`  
-  Asset → read supplied license and credit fields → compose credit block
-  - Possible today (partial): on asset_attached_to_entry a set_metadata step can record `${event.asset_name}` on the entry — but not the asset's own fields.
-  - Blocked by: `asset-resource-targets` (read the asset's license/credit fields in a template)
+  - Blocked by: `media-adapters` (conversion)
+- [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — **Attribution companion** · verified-current · `asset_attached_to_entry`  
+  When an image with credit and licence metadata is attached to an entry, its credit line is recorded on the entry.
+  - Reads the asset through `${asset.metadata.<key>}`: asset events bind the asset as they bind the entry.
 - `duplicate-asset-scout` — **Duplicate asset scout** · needs-engine-capability · `asset_uploaded`  
   Upload → compare hashes or similarity → suggest existing asset
   - Assets already store a `checksum`; a query key for it would make this a one-step recipe.
-  - Blocked by: `asset-resource-targets` (asset queries by checksum); `branches` (only when a match exists)
+  - Blocked by: `asset-resource-targets` (an asset target query by checksum); `branches` (only when a match exists)
 - `image-prompt-archive` — **Image prompt archive** · needs-engine-capability · `manual`  
   Generation → save prompt, model, seed if available and parent references
   - `openai_images.generate` returns `usage` (provider, model, tokens) and images (b64 or URL) but no asset is created from a workflow.
-  - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `asset-resource-targets` (write prompt/model/parent onto the generated asset)
+  - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `media-adapters` (write prompt/model/parent onto the generated asset (derived-asset lineage))
 
 ### Playful experiments
 
@@ -335,7 +334,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `media-adapters` (typography rendering)
 - `trading-card-collection` — **Trading card collection** · needs-engine-capability · `entry_updated`  
   Project milestone → create collectible card with grounded stats
-  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `media-adapters` (render the card); `asset-resource-targets` (attach it)
+  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `media-adapters` (render the card)
 - `achievement-cabinet` — **Achievement cabinet** · needs-engine-capability · `entry_updated`  
   Milestone event → award configured badge → update project collection
   - Possible today (partial): `add_to_collection` on a condition (`entry.data.milestone eq shipped`) works today — the badge itself can't be created.
@@ -354,7 +353,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `iterate-aggregate` (many notes → one guide); `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `media-adapters` (PDF rendering)
 - `color-moodboard` — **Color moodboard** · needs-adapter · `manual`  
   Selected assets → extract palette → produce moodboard and design notes
-  - Blocked by: `media-adapters` (palette extraction + render); `asset-resource-targets` (asset selection); `iterate-aggregate` (many → one)
+  - Blocked by: `media-adapters` (palette extraction + render); `iterate-aggregate` (many → one)
 - `soundtrack-brief` — **Soundtrack brief** · needs-engine-capability · `manual`  
   Story → suggest mood, tempo and instrumentation → save production brief
   - Possible today (partial): once a free-form operation exists, `set_data` can store its output in the type's own fields today.
@@ -386,7 +385,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `fetch` (retrieve the capability document); `sandbox` (schema validation); `branches` (pass/fail routing)
 - `resource-availability-watch` — **Resource availability watch** · needs-engine-capability · `schedule`  
   Schedule → check known resource URLs → flag changed availability
-  - Blocked by: `fetch` (HEAD/GET each URL); `asset-resource-targets` (resources as targets); `iterate-aggregate` (one report)
+  - Blocked by: `fetch` (HEAD/GET each URL); `iterate-aggregate` (one report)
 - `project-milestone-report` — **Project milestone report** · needs-engine-capability · `entry_updated`  
   Completion → assemble linked outcomes → create report draft
   - Blocked by: `iterate-aggregate` (linked outcomes); `custom-operation` (write the report); `create-entry` (the draft)
@@ -485,7 +484,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `resource-attachment-notes` — **Resource attachment notes** · needs-engine-capability · `entry_resource_attached`  
   Draft an entry-specific material/technique/supplier note from linked resource
   - Possible today (partial): `generate-summary` on the entry sees its linked resources (ContextBuilder.with_resources) — a summary, not a note.
-  - Blocked by: `asset-resource-targets` (the attached resource's fields in context (the event carries only resource_name)); `custom-operation` (draft the note)
+  - Blocked by: `custom-operation` (draft the note)
 - `entry-schema-impact-report` — **Entry schema impact report** · needs-engine-capability · `entry_type_updated`  
   Find impacted entries and report validation changes before migration
   - Possible today (partial): a target `{entry_type: "${event.entry_type_slug}"}` + `request_review` flags every entry of the type — a blunt instrument, no report.
@@ -493,7 +492,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `asset-attachment-social-kit` — **Asset attachment social kit** · needs-engine-capability · `asset_attached_to_entry`  
   Draft a caption and crop suggestions for the entry's newly attached image
   - Possible today (partial): `generate-summary` on the entry runs today (text only).
-  - Blocked by: `asset-resource-targets` (vision on the attached asset (`describe-image` gets no image from the runner)); `custom-operation` (caption)
+  - Blocked by: `custom-operation` (caption)
 - `new-member-welcome` — **New member welcome** · supported-after-configuration · subscription: `member_added`  
   Admins (or a fixed address) are emailed when a member joins, with the member's name and role; the token-free payload is all the template sees.
   - The member cannot be addressed: member_added carries no email (recipient_type `event_field` has nothing to resolve). Invited members already receive Marvin's system invitation email.
@@ -534,9 +533,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | Id | Capability | Priority | Recipes blocked | Acceptance |
 |---|---|---|---|---|
 | `custom-operation` | Free-form AI operation | P0 | 38 | An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations. |
-| `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 28 | asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params). |
+| `media-adapters` | Image, file and audio processing adapters | P1 | 27 | SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified. |
 | `create-entry` | Create-entry action | P0 | 26 | An entry step `{"op": "create", "entry_type": …, "title": …, "data": {…}, "status": "draft"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step). |
-| `media-adapters` | Image, file and audio processing adapters | P1 | 24 | SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified. |
 | `workflow-approvals` | Approval step inside a workflow | P1 | 20 | A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step. |
 | `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 12 | A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run. |
 | `branches` | Conditional steps (if/else) | P0 | 6 | A step can declare `when` conditions evaluated against `steps.*` / `previous.*` (same operators as today); a false condition records the step as skipped (not failed) and later templates referencing it resolve to None; the dry run shows which branch would run. |
@@ -545,6 +543,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `collection-scope` | Collection-scoped steps | P1 | 4 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). |
 | `fetch` | HTTP fetch step | P1 | 4 | A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry. |
 | `waits` | Durable waits and delays | P1 | 4 | `{"kind": "wait", "until": "${entry.data.event_date} - 7d"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once. |
+| `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 3 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters. |
 | `ops-triggers` | Operational events as workflow triggers | P2 | 3 | ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel. |
 | `data-change-detection` | Data-field change detection | P1 | 2 | entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works. |
 | `form-classification` | Form-submission classification from workflows | P0 | 2 | The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches. |

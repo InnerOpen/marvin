@@ -15,8 +15,8 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 24,
-    "needs-engine-capability": 56,
+    "verified-current": 26,
+    "needs-engine-capability": 54,
     "needs-adapter": 16,
     "supported-after-configuration": 11
   },
@@ -55,7 +55,7 @@
       "name": "Assets and resources as workflow subjects",
       "priority": "P1",
       "capabilities_md": "Assets and resources",
-      "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params)."
+      "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters."
     },
     "workflow-approvals": {
       "name": "Approval step inside a workflow",
@@ -730,13 +730,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "a TTS provider action that returns an audio asset"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "attaching the derived asset with lineage"
         }
       ],
       "notes": [],
@@ -1005,8 +998,8 @@
           "capability": "asset-resource-targets",
           "name": "Assets and resources as workflow subjects",
           "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "resource context and `has_resources`/`resource` target filtering by the triggering resource"
+          "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters.",
+          "why": "a target query for the entries linked to the triggering resource (has_resources is only true/false)"
         },
         {
           "capability": "custom-operation",
@@ -1077,13 +1070,6 @@
           "priority": "P1",
           "acceptance": "Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics.",
           "why": "wait for several checks"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "image and file checks"
         }
       ],
       "notes": [
@@ -1854,13 +1840,6 @@
           "priority": "P0",
           "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
           "why": "exact quote extraction with verification"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "attach the derived asset"
         }
       ],
       "notes": [],
@@ -1980,6 +1959,13 @@
       "failure_behaviour": null,
       "dependencies": [
         {
+          "capability": "asset-resource-targets",
+          "name": "Assets and resources as workflow subjects",
+          "priority": "P1",
+          "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters.",
+          "why": "an entry operation that sees the entry's attached photos as images (it gets their names only)"
+        },
+        {
           "capability": "custom-operation",
           "name": "Free-form AI operation",
           "priority": "P0",
@@ -1992,13 +1978,6 @@
           "priority": "P0",
           "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
           "why": "the post"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "read the attached photos (vision)"
         }
       ],
       "notes": [],
@@ -2379,13 +2358,6 @@
           "priority": "P1",
           "acceptance": "A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry.",
           "why": "link checks"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "image ratio"
         },
         {
           "capability": "social-adapters",
@@ -2868,7 +2840,7 @@
     {
       "id": "alt-text-assistant",
       "title": "Alt text assistant",
-      "outcome": "Image added → describe visible content → save editable alt text",
+      "outcome": "An uploaded image without alt text gets alt text written by the AI, describing what it shows; people can edit it on the asset.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -2881,37 +2853,62 @@
         "type": "event",
         "event": "asset_uploaded",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "asset_* events are triggerable but hydrate no `asset.*` context; an operation step with entity_type asset gets no image and never writes back (services/automation/runner.py)."
+        "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "alt-text-assistant.json",
+      "vars": "alt-text-assistant.vars.json",
+      "setup_variables": [
         {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "load the image for `generate-alt-text` and write `alt_text` back"
+          "name": "image_context",
+          "type": "text",
+          "description": "Where these images are used, so the alt text fits (sent to the AI with each image).",
+          "example": "Photos of finished artwork on an artist's portfolio site"
         }
       ],
+      "requires": {
+        "trigger": "event:asset_uploaded",
+        "action_kinds": [
+          "operation"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "generate-alt-text"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "starts_with",
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One vision AI call per uploaded image."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Writes the asset's alt text (or stages it as a suggestion, per the workspace's approval mode)."
+        }
+      ],
+      "cost_notes": "One vision call per image, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error (no vision model, budget reached, AI off) fails the step; the run is recorded and the `workflow_failed` alert fires (if enabled). Nothing is written.",
+      "dependencies": [],
       "notes": [
-        "The operation exists (`generate-alt-text`, asset, requires_vision) and works from the operations API; only the workflow runner lacks the asset path."
+        "`write_back: {\"alt_text\": \"alt_text\"}` writes onto the asset; in the review-everything approval mode it is staged as a suggestion instead.",
+        "Images that already have alt text are skipped (`asset.alt_text` must not exist)."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:generate-alt-text"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_alt_text_assistant"
       },
       "brief": {
         "flow": "Image added → describe visible content → save editable alt text",
@@ -2960,13 +2957,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "resize/convert"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "derivative lineage"
         }
       ],
       "notes": [
@@ -3028,13 +3018,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "a background-removal provider"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "derivative"
         }
       ],
       "notes": [],
@@ -3094,13 +3077,6 @@
           "priority": "P1",
           "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
           "why": "`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "reference image + derivative"
         },
         {
           "capability": "media-adapters",
@@ -3165,13 +3141,6 @@
           "why": "focal-point crop"
         },
         {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "derivatives"
-        },
-        {
           "capability": "workflow-approvals",
           "name": "Approval step inside a workflow",
           "priority": "P1",
@@ -3229,13 +3198,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "recolor"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "derivative"
         }
       ],
       "notes": [],
@@ -3296,11 +3258,11 @@
           "why": "`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)"
         },
         {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
+          "capability": "media-adapters",
+          "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "lineage"
+          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "why": "lineage (derived-asset lineage)"
         }
       ],
       "notes": [],
@@ -3370,11 +3332,11 @@
           "why": "a choice among three"
         },
         {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
+          "capability": "media-adapters",
+          "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "attach the chosen one"
+          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "why": "attach the chosen one (derived-asset lineage)"
         }
       ],
       "notes": [],
@@ -3424,13 +3386,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "asset facts in context"
-        },
         {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
@@ -3493,13 +3448,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "vision on the asset"
-        },
         {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
@@ -3573,13 +3521,6 @@
           "priority": "P0",
           "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
           "why": "the entry"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "pairing by lineage"
         }
       ],
       "notes": [],
@@ -3627,13 +3568,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "asset queries"
-        },
         {
           "capability": "iterate-aggregate",
           "name": "Iterate / aggregate over a target set",
@@ -3765,13 +3699,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "PDF rendering"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "derivatives"
         }
       ],
       "notes": [],
@@ -3827,13 +3754,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "conversion"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "derivatives"
         }
       ],
       "notes": [],
@@ -3854,7 +3774,7 @@
     {
       "id": "attribution-companion",
       "title": "Attribution companion",
-      "outcome": "Asset → read supplied license and credit fields → compose credit block",
+      "outcome": "When an image with credit and licence metadata is attached to an entry, its credit line is recorded on the entry.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3866,37 +3786,66 @@
         "type": "event",
         "event": "asset_attached_to_entry",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "Triggerable, and it hydrates the ENTRY (entity_type entry); the asset is only `$event.asset_id` / `asset_name`."
+        "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "attribution-companion.json",
+      "vars": "attribution-companion.vars.json",
+      "setup_variables": [
         {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "read the asset's license/credit fields in a template"
+          "name": "credit_key",
+          "type": "text",
+          "description": "The asset metadata key holding who made it (photographer, artist).",
+          "example": "credit"
+        },
+        {
+          "name": "license_key",
+          "type": "text",
+          "description": "The asset metadata key holding its licence.",
+          "example": "license"
+        },
+        {
+          "name": "credit_metadata_key",
+          "type": "text",
+          "description": "The entry metadata key the credit line is written to.",
+          "example": "image_credit"
         }
       ],
+      "requires": {
+        "trigger": "event:asset_attached_to_entry",
+        "action_kinds": [
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Writes the credit line into the entry's metadata."
+        }
+      ],
+      "cost_notes": "No AI.",
+      "failure_behaviour": "A missing entry fails the step; the run is recorded and the `workflow_failed` alert fires (if enabled).",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): on asset_attached_to_entry a set_metadata step can record `${event.asset_name}` on the entry — but not the asset's own fields."
+        "Reads the asset through `${asset.metadata.<key>}`: asset events bind the asset as they bind the entry."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null
+        "test": "tests/test_workflow_library.py::TestExecution::test_attribution_companion"
       },
       "brief": {
         "flow": "Asset → read supplied license and credit fields → compose credit block",
@@ -3943,8 +3892,8 @@
           "capability": "asset-resource-targets",
           "name": "Assets and resources as workflow subjects",
           "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "asset queries by checksum"
+          "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters.",
+          "why": "an asset target query by checksum"
         },
         {
           "capability": "branches",
@@ -4010,11 +3959,11 @@
           "why": "`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)"
         },
         {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
+          "capability": "media-adapters",
+          "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "write prompt/model/parent onto the generated asset"
+          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "why": "write prompt/model/parent onto the generated asset (derived-asset lineage)"
         }
       ],
       "notes": [
@@ -4328,13 +4277,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "render the card"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "attach it"
         }
       ],
       "notes": [],
@@ -4716,13 +4658,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "palette extraction + render"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "asset selection"
         },
         {
           "capability": "iterate-aggregate",
@@ -5302,13 +5237,6 @@
           "priority": "P1",
           "acceptance": "A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry.",
           "why": "HEAD/GET each URL"
-        },
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "resources as targets"
         },
         {
           "capability": "iterate-aggregate",
@@ -7609,13 +7537,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "the attached resource's fields in context (the event carries only resource_name)"
-        },
-        {
           "capability": "custom-operation",
           "name": "Free-form AI operation",
           "priority": "P0",
@@ -7736,13 +7657,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "asset_*/resource_* events hydrate `asset.*` / `resource.*` in the match context; an operation step with entity_type asset loads the image for vision ops and writes back `alt_text`; the target selector accepts entity asset|resource; derived assets record lineage (parent, operation, params).",
-          "why": "vision on the attached asset (`describe-image` gets no image from the runner)"
-        },
         {
           "capability": "custom-operation",
           "name": "Free-form AI operation",

@@ -298,6 +298,10 @@ def ws(db_session, monkeypatch):
         "interval_seconds": 3600,
         "incoming_webhook": "any",
         "upload_webhook_id": webhooks["uploads"],
+        "image_context": "Photos of finished artwork",
+        "credit_key": "credit",
+        "license_key": "license",
+        "credit_metadata_key": "image_credit",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -780,6 +784,71 @@ class TestExecution:
         assert (method, url) == ("POST", "https://chat.example/hooks/uploads")
         assert body == {"text": f"New image uploaded: harbour (image/jpeg) https://cdn.example/{photo.slug}"}
         assert [r.status for r in _runs(ws, "asset-upload-announcement")] == ["success"]
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    def test_alt_text_assistant(self, ws, monkeypatch):
+        from marvin.db.models.platform import Assets
+
+        _install(ws, "alt-text-assistant")
+        photo = _asset(ws, "harbour", mime="image/jpeg")
+        described = _asset(ws, "pier", mime="image/jpeg", alt_text="A pier at dusk")
+        manual = _asset(ws, "manual", asset_type="document", mime="application/pdf")
+        ws.session.commit()
+        monkeypatch.setattr(
+            "marvin.services.storage.provider_factory.provider_for",
+            lambda name: SimpleNamespace(get=lambda key: __import__("io").BytesIO(b"\xff\xd8jpeg")),
+        )
+        ws.ai.reply_text(json.dumps({"alt_text": "Fishing boats moored in a harbour", "description": "Boats at rest."}))
+
+        for asset in (photo, described, manual):
+            _fire(ws, "asset_uploaded", {"asset_id": str(asset.id)}, entity=asset.id, entity_type="asset")
+
+        (request,) = ws.ai.requests  # only the image without alt text costs a call
+        assert "image" in json.dumps(request, default=str).lower() and "Photos of finished artwork" in json.dumps(request, default=str)
+        assert ws.session.get(Assets, photo.id).alt_text == "Fishing boats moored in a harbour"  # draft-update mode: applied
+        assert ws.session.get(Assets, described.id).alt_text == "A pier at dusk"
+        (run,) = _runs(ws, "alt-text-assistant")
+        assert run.status == "success" and run.actions[0].output_snapshot["_write_back"] == "applied"
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    def test_alt_text_assistant_stages_in_review_mode(self, ws, monkeypatch):
+        from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+        from marvin.db.models.platform import Assets
+
+        ws.session.query(WorkspaceAISettingsModel).filter_by(group_id=ws.gid).update({"approval_mode": "require-approval"})
+        _install(ws, "alt-text-assistant")
+        photo = _asset(ws, "harbour", mime="image/jpeg")
+        ws.session.commit()
+        monkeypatch.setattr(
+            "marvin.services.storage.provider_factory.provider_for",
+            lambda name: SimpleNamespace(get=lambda key: __import__("io").BytesIO(b"\xff\xd8jpeg")),
+        )
+        ws.ai.reply_text(json.dumps({"alt_text": "Fishing boats"}))
+
+        _fire(ws, "asset_uploaded", {"asset_id": str(photo.id)}, entity=photo.id, entity_type="asset")
+
+        row = ws.session.get(Assets, photo.id)
+        assert row.alt_text is None and row.suggestion_json["alt_text"] == "Fishing boats"  # a person accepts it
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    def test_attribution_companion(self, ws):
+        from marvin.db.models.platform import Assets
+
+        _install(ws, "attribution-companion")
+        article = _entry(ws, "article", "Harbour at dawn", data={"body": "x"})
+        credited = _asset(ws, "harbour", mime="image/jpeg", metadata_json={"credit": "Ada Lovelace", "license": "CC BY 4.0"})
+        anonymous = _asset(ws, "pier", mime="image/jpeg")
+        ws.session.commit()
+
+        _fire(ws, "asset_attached_to_entry", _entry_doc(article, asset_id=str(anonymous.id)), entity=article.id, entity_type="entry")
+        assert "image_credit" not in (_reload(ws, article).metadata_json or {})  # no credit to record
+        _fire(ws, "asset_attached_to_entry", _entry_doc(article, asset_id=str(credited.id)), entity=article.id, entity_type="entry")
+
+        assert _reload(ws, article).metadata_json["image_credit"] == "Ada Lovelace (CC BY 4.0)"
+        assert [r.status for r in _runs(ws, "attribution-companion")] == ["success"]
         ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
         ws.session.commit()
 

@@ -1,0 +1,20 @@
+{
+  "recipe": "attribution-companion",
+  "variables": {
+    "credit_key": {
+      "type": "text",
+      "description": "The asset metadata key holding who made it (photographer, artist).",
+      "example": "credit"
+    },
+    "license_key": {
+      "type": "text",
+      "description": "The asset metadata key holding its licence.",
+      "example": "license"
+    },
+    "credit_metadata_key": {
+      "type": "text",
+      "description": "The entry metadata key the credit line is written to.",
+      "example": "image_credit"
+    }
+  }
+}

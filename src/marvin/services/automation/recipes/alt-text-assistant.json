@@ -1,0 +1,35 @@
+{
+  "name": "Alt text assistant",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_uploaded"
+    },
+    "conditions": [
+      {
+        "field": "asset.mime_type",
+        "op": "starts_with",
+        "value": "image/"
+      },
+      {
+        "field": "asset.alt_text",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "alt",
+        "op": "generate-alt-text",
+        "entity_type": "asset",
+        "input": {
+          "context": "{{image_context}}"
+        },
+        "write_back": {
+          "alt_text": "alt_text"
+        }
+      }
+    ]
+  }
+}
