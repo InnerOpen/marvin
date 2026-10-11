@@ -47,9 +47,15 @@ class AIModelsController(BaseUserController):
         return getattr(get_app_settings(), "OLLAMA_BASE_URL", None) or DEFAULT_OLLAMA_BASE_URL
 
     def _ollama_provider(self):
-        from marvin.services.ai.providers.ollama import OllamaProvider
+        """Ollama from its plugin (marvin-ai-ollama); a 503 says so when it isn't installed."""
+        from marvin.services.ai import registry
+        from marvin.services.ai.base import AIConfigError
 
-        return OllamaProvider(base_url=self._ollama_base_url())
+        try:
+            cls = registry.provider_class("ollama")
+        except AIConfigError as e:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e)) from e
+        return cls(base_url=self._ollama_base_url())
 
     @router.get("/installed-models", response_model=InstalledModels, summary="List installed Ollama models")
     def installed_models(self) -> InstalledModels:

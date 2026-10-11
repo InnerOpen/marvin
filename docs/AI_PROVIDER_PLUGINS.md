@@ -43,13 +43,13 @@ The SDK README has a full example.
 
 `services/ai/registry.py` holds what this platform has:
 
-1. **Core's built-ins**: `anthropic`, `google`, `ollama`. OpenAI and Azure OpenAI (`openai`, `azure`)
-   left core on 2026-10-08: they are the `marvin-ai-openai` plugin, baked into the image with the other
-   site-wide plugins (the `plugins` group in `pyproject.toml`). For local development,
-   `uv pip install -e ../MarvinAIOpenAI` (re-run after `uv sync`, like the integration plugins).
+1. **No built-ins.** Core ships no AI provider (since 2026-10-11): every vendor is a plugin, one package per
+   vendor — `marvin-ai-openai` (`openai`, `azure`; left core 2026-10-08), `marvin-ai-anthropic`, `marvin-ai-google`
+   (on `google-genai`) and `marvin-ai-ollama` — all baked into the image with the other site-wide plugins (the
+   `plugins` group in `pyproject.toml`), with the slugs core used, so saved settings carry over. For local
+   development, `uv sync --group plugins`, or `uv pip install -e ../MarvinAIAnthropic` (re-run after `uv sync`).
 2. **Installed plugins**, from the `marvin.ai_providers` entry points (the shared plugin loader,
-   `services/plugin_loader.py`). A plugin whose slug matches a built-in **replaces** it: the startup log
-   says, for example, `AI provider plugin 'ollama' replaces core's built-in 'ollama'`. Two plugins can't share a
+   `services/plugin_loader.py`). Two plugins can't share a
    slug (the first one stays; the other is reported as failed). A plugin that fails to import is
    logged and listed on **Admin → Plugins** as failed, and never stops startup.
 3. **Unknown slugs are refused**, naming what is installed. Startup stops when `AI_DEFAULT_PROVIDER`
@@ -73,10 +73,10 @@ so on the first call, and **Test connection** reports it.
 
 ## Prices
 
-`estimate_cost` asks the provider first (its `prices`, or 0 when `self_hosted`). Core's `pricing.py`
-table (OpenAI and Azure included) is the fallback for a model the provider has no price for.
-A model with no price anywhere is shown as "—" (unpriced), never as free. Still to come (the plan's
-Pricing section): admin overrides, a daily price feed, and reconciling with what the vendor billed.
+`estimate_cost` takes the first price it finds: an admin's own price (Admin → AI Pricing), the provider's
+`prices` (0 when `self_hosted`), then the daily price feed (LiteLLM's list, URL configurable). Core keeps no
+table. A model with no price anywhere is shown as "—" and counted as unpriced (the usage card and the hourly
+`ai_model_unpriced` warning), never as free. Still to come: reconciling with what the vendor billed.
 
 ## Testing a provider
 
@@ -107,5 +107,5 @@ image doesn't have fails the install (the rollout stops, old pods keep serving) 
 Marvin's own.
 
 **Admin → Plugins** lists the package with kind *AI provider*, its capabilities and how many
-workspaces use it; `GET /api/ai/provider-types` (what AI Settings reads) lists every provider, built in
-or installed, with its source, version, credentials and suggested models.
+workspaces use it; `GET /api/ai/provider-types` (what AI Settings reads) lists every installed provider
+with its package, version, credentials and suggested models.

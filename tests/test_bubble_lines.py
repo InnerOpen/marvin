@@ -115,12 +115,16 @@ def test_generate_with_valid_reply_stores_generated_lines(db_session, workspace,
     assert row.bubble_lines_source == bl.SOURCE_GENERATED and row.bubble_lines_updated_at and row.bubble_lines_warning is None
 
 
-def test_generate_records_a_normal_ai_execution_with_its_cost(db_session, workspace, provider):
+def test_generate_records_a_normal_ai_execution_with_its_cost(db_session, workspace, provider, monkeypatch):
+    from marvin_integration_sdk.ai import ModelPrice
+
+    # Core keeps no price table (every provider's plugin ships its own); give the stubbed model a price.
+    monkeypatch.setattr("marvin.services.ai.price_overrides.override_for", lambda p, m: ModelPrice(0.2, 1.2) if m == "gpt-5.6-luna" else None)
     bl.generate(db_session, workspace)
 
     [run] = _executions(db_session, workspace)
     assert (run.operation_slug, run.status, run.trigger_type, run.total_tokens) == ("generate-bubble-lines", "completed", "settings", 1200)
-    assert run.estimated_cost_usd is not None
+    assert run.estimated_cost_usd == pytest.approx(900 / 1e6 * 0.2 + 300 / 1e6 * 1.2)
 
 
 def test_generate_prompt_carries_the_persona_and_name_and_uses_marvin_only_as_format(db_session, workspace, provider):

@@ -17,7 +17,7 @@ class AIPriceRow(_MarvinModel):
     provider: str
     model: str
     source: str
-    """Where the price comes from: override | provider | self_hosted | feed | core | none."""
+    """Where the price comes from: override | provider | self_hosted | feed | none."""
     input_per_1m: float | None = None
     output_per_1m: float | None = None
     overridden: bool = False

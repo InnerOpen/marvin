@@ -1,5 +1,5 @@
-"""AI providers as plugins (services/ai/registry.py): core's built-ins, installed `marvin.ai_providers`
-plugins replacing them by slug, unknown slugs refused, and everything that reads the registry — the
+"""AI providers as plugins (services/ai/registry.py): core ships none (slice 5, 2026-10-11) — every vendor is an
+installed `marvin.ai_providers` plugin (marvin-ai-openai, -anthropic, -google, -ollama), unknown slugs refused, and everything that reads the registry — the
 factory's credential modes, prices, embedding and model defaults, the provider-types list, the admin
 Plugins page and the startup check. The fake provider is the SDK's (`marvin_integration_sdk.ai.fake`):
 no vendor, no network."""
@@ -15,7 +15,6 @@ from marvin_integration_sdk.ai.fake import FakeAIProvider, ScriptedTransport
 
 from marvin.core.config import get_app_settings
 from marvin.services.ai import factory, registry
-from marvin.services.ai.providers.ollama import OllamaProvider
 
 
 class PluginOpenAI(FakeAIProvider):
@@ -52,14 +51,51 @@ class Mistralish(FakeAIProvider):
 
 
 class PluginOllama(FakeAIProvider):
-    """A plugin taking over a built-in's slug."""
+    """Stands in for marvin-ai-ollama: self-hosted, pulls models, a base URL instead of a key."""
 
     provider_type = "ollama"
     display_name = "Ollama (plugin)"
+    credentials = (BASE_URL,)
+    self_hosted = True
+    supports_model_pull = True
+    default_embedding_model = None
+
+    def __init__(self, transport=None, api_key=None, base_url="http://localhost:11434"):
+        super().__init__(transport, api_key)
+        self._base_url = base_url
+
+    @classmethod
+    def from_credentials(cls, values):
+        return cls(base_url=values.get("base_url") or "http://localhost:11434")
+
+
+class PluginAnthropic(FakeAIProvider):
+    """Stands in for marvin-ai-anthropic."""
+
+    provider_type = "anthropic"
+    display_name = "Anthropic"
+    supports_embeddings = False
+    default_model = "claude-sonnet-5"
+    default_embedding_model = None
+    prices = {"claude-sonnet-5": ModelPrice(input_per_1m=2.0, output_per_1m=10.0)}
+    suggested_models = ("claude-sonnet-5",)
+
+
+class PluginGoogle(FakeAIProvider):
+    """Stands in for marvin-ai-google."""
+
+    provider_type = "google"
+    display_name = "Google Gemini"
 
 
 OPENAI_PLUGIN = AIProviderPlugin(slug="openai", name="OpenAI (plugin)", provider=PluginOpenAI)
 OLLAMA_PLUGIN = AIProviderPlugin(slug="ollama", name="Ollama (plugin)", provider=PluginOllama)
+# What the image bakes in besides marvin-ai-openai (which tests add when they need it).
+VENDORS = [
+    ("anthropic", AIProviderPlugin(slug="anthropic", name="Anthropic", provider=PluginAnthropic), "marvin-ai-anthropic"),
+    ("google", AIProviderPlugin(slug="google", name="Google Gemini", provider=PluginGoogle), "marvin-ai-google"),
+    ("ollama", OLLAMA_PLUGIN, "marvin-ai-ollama"),
+]
 MISTRALISH = AIProviderPlugin(slug="mistralish", name="Mistralish", provider=Mistralish)
 
 
@@ -76,10 +112,11 @@ class _EP:
 
 @pytest.fixture
 def entry_points(monkeypatch):
-    """Stand-in `marvin.ai_providers` entry points (none unless a test adds some, even when a real AI
-    plugin is installed in the venv); the registry reloads around the test."""
+    """Stand-in `marvin.ai_providers` entry points: the anthropic / google / ollama plugins (stand-ins for the
+    marvin-ai-* packages the image bakes in), plus whatever a test adds — never the real ones in the venv. A
+    test clears the list for an install with no AI plugin. The registry reloads around the test."""
     real = importlib.metadata.entry_points
-    installed: list[_EP] = []
+    installed: list[_EP] = [_EP(slug, plugin, dist=dist) for slug, plugin, dist in VENDORS]
 
     def fake(group=None, **kw):
         return list(installed) if group == "marvin.ai_providers" else real(group=group, **kw)
@@ -97,32 +134,27 @@ def _settings(**update):
 # ── the registry ─────────────────────────────────────────────────────────────
 
 
-def test_core_providers_are_built_in(entry_points):
-    """OpenAI and Azure OpenAI are the marvin-ai-openai plugin: without it core has neither."""
+def test_core_ships_no_ai_provider(entry_points):
+    """Every vendor is a plugin: with none installed there is no provider at all."""
+    entry_points.clear()
+    registry.reset()
+    assert registry.plugins() == {} and list(registry._builtins()) == []
+    assert registry.find_class("anthropic") is None and registry.find_class("openai") is None
+
+
+def test_the_vendor_plugins_are_plugins_with_their_package(entry_points):
+    reports = {r.name: r for r in registry.load_plugins()}
+
     assert sorted(registry.plugins()) == ["anthropic", "google", "ollama"]
-    assert registry.plugins()["ollama"].provider is OllamaProvider
-    assert registry.source_of("ollama") == registry.CORE
-    assert registry.load_plugins() == []  # built-ins are not installed packages
-    assert registry.report_for("ollama") is None
-    assert registry.find_class("openai") is None and registry.find_class("azure") is None
-
-
-def test_a_plugin_replaces_the_built_in_with_its_slug(entry_points):
-    entry_points.append(_EP("ollama", OLLAMA_PLUGIN, dist="marvin-ai-ollama", version="0.1.0"))
-
-    [report] = registry.load_plugins()
-
-    assert report.ok and report.slugs == ["ollama"]
+    assert all(reports[s].ok for s in ("anthropic", "google", "ollama"))
     assert registry.plugins()["ollama"].provider is PluginOllama
-    assert registry.source_of("ollama") == "ollama"
-    assert registry.report_for("ollama").distribution == "marvin-ai-ollama"
-    assert registry.plugins()["anthropic"].provider.__name__ == "AnthropicProvider"  # the rest stay built in
+    assert registry.source_of("ollama") == "ollama" and registry.report_for("ollama").distribution == "marvin-ai-ollama"
 
 
 def test_the_openai_plugin_adds_openai(entry_points):
     entry_points.append(_EP("openai", OPENAI_PLUGIN, dist="marvin-ai-openai", version="0.1.0"))
 
-    [report] = registry.load_plugins()
+    report = next(r for r in registry.load_plugins() if r.name == "openai")
 
     assert report.ok and registry.provider_class("openai") is PluginOpenAI
     assert registry.source_of("openai") == "openai"
@@ -177,7 +209,7 @@ def test_get_ai_provider_fills_declared_credentials(entry_points):
     assert factory.get_ai_provider("mistralish", "test-key").region == "eu"  # the declared default
 
 
-def test_built_ins_build_as_they_did(entry_points):
+def test_a_plugin_provider_builds_from_its_credentials(entry_points):
     assert factory.get_ai_provider("ollama")._base_url == "http://localhost:11434"
 
 
@@ -242,16 +274,18 @@ def test_the_plugin_answers_through_the_factory(entry_points):
 # ── prices, models, embeddings ───────────────────────────────────────────────
 
 
-def test_prices_come_from_the_provider_then_cores_table(entry_points):
+def test_prices_come_from_the_provider_and_core_keeps_no_table(entry_points):
+    from marvin.services.ai import pricing
     from marvin.services.ai.pricing import estimate_cost
 
-    assert estimate_cost("openai", "gpt-4o", 1_000_000, 1_000_000) == 12.5  # no plugin: core's table
+    assert not hasattr(pricing, "PRICING")  # every provider ships its own prices
+    assert estimate_cost("openai", "gpt-4o", 1_000_000, 1_000_000) is None  # no plugin, no price (feed empty here)
     entry_points.append(_EP("openai", OPENAI_PLUGIN))
     registry.reset()
     assert estimate_cost("openai", "gpt-4o", 1_000_000, 1_000_000) == 2.0  # the plugin's own price
-    assert estimate_cost("openai", "o3", 1_000_000, 1_000_000) == 50.0  # not in the plugin: core's fallback
-    assert estimate_cost("openai", "gpt-9", 10, 10) is None
-    assert OllamaProvider.self_hosted and estimate_cost("ollama", "llama3", 10, 10) == 0.0
+    assert estimate_cost("openai", "o3", 1_000_000, 1_000_000) is None  # not in the plugin: unpriced
+    assert estimate_cost("anthropic", "claude-sonnet-5", 1_000_000, 1_000_000) == 12.0
+    assert PluginOllama.self_hosted and estimate_cost("ollama", "llama3", 10, 10) == 0.0
 
 
 def test_a_new_vendor_without_a_price_is_unpriced_not_free(entry_points):
@@ -286,7 +320,7 @@ def test_embedding_model_setting_then_the_providers_default(entry_points):
 # ── what reads the registry: provider types, validation, admin, startup ─────
 
 
-def test_provider_types_list_built_ins_and_plugins(entry_points):
+def test_provider_types_list_the_installed_plugins(entry_points):
     from marvin.routes.ai.provider_types_controller import provider_types
 
     entry_points.append(_EP("openai", OPENAI_PLUGIN, dist="marvin-ai-openai", version="0.1.0"))
@@ -296,7 +330,7 @@ def test_provider_types_list_built_ins_and_plugins(entry_points):
     assert (types["openai"].source, types["openai"].package, types["openai"].version) == ("plugin", "marvin-ai-openai", "0.1.0")
     assert types["openai"].default_model == "gpt-plugin"
     assert [c.key for c in types["openai"].credentials] == ["api_key", "base_url"] and types["openai"].credentials[0].secret
-    assert types["anthropic"].source == "builtin" and "tool_calls" in types["anthropic"].capabilities
+    assert types["anthropic"].source == "plugin" and "tool_calls" in types["anthropic"].capabilities
     assert types["ollama"].self_hosted and "model_pull" in types["ollama"].capabilities
     assert "claude-sonnet-5" in types["anthropic"].suggested_models
 
@@ -330,7 +364,7 @@ def test_admin_plugins_list_ai_provider_plugins(entry_points, monkeypatch):
     entry_points.append(_EP("openai", OPENAI_PLUGIN, dist="marvin-ai-openai", version="0.1.0"))
     monkeypatch.setattr(plugins, "ai_provider_workspaces", lambda session: {"openai": 3})
 
-    [(report, found)] = plugins._ai_sources()
+    report, found = next((r, f) for r, f in plugins._ai_sources() if r.distribution == "marvin-ai-openai")
     read = plugins._ai_provider_read(found[0], {"openai": 3})
 
     assert (report.distribution, report.version) == ("marvin-ai-openai", "0.1.0")
@@ -346,7 +380,7 @@ def test_startup_refuses_an_unknown_default_provider(entry_points):
     entry_points.append(_EP("broken", ImportError("nope")))
     registry.reset()
     lines = factory.validate_ai_config(_settings(AI_DEFAULT_PROVIDER="openai"))
-    assert "openai (marvin-ai-openai 0.1.0)" in lines and "anthropic (built in)" in lines
+    assert "openai (marvin-ai-openai 0.1.0)" in lines and "anthropic (marvin-ai-anthropic 0.1.0)" in lines
     assert "plugin 'broken' failed to load: nope" in lines
 
 
@@ -355,7 +389,7 @@ def test_an_unset_default_is_the_preferred_installed_provider(entry_points, capl
     plugin provides it, else the next of anthropic, google, azure, ollama that is installed."""
     unset = SimpleNamespace(AI_DEFAULT_PROVIDER="", model_fields_set=set())
 
-    assert registry.default_provider(unset) == "anthropic"  # built-ins only: no openai here
+    assert registry.default_provider(unset) == "anthropic"  # no openai plugin here
     assert "default provider: anthropic (AI_DEFAULT_PROVIDER unset)" in factory.validate_ai_config(unset)
 
     entry_points.append(_EP("openai", OPENAI_PLUGIN, dist="marvin-ai-openai"))

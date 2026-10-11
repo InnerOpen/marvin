@@ -28,12 +28,9 @@ _reports: list[PluginLoadReport] | None = None
 
 
 def _builtins() -> Iterator[AIProviderPlugin]:
-    from .providers.anthropic import AnthropicProvider
-    from .providers.google import GoogleProvider
-    from .providers.ollama import OllamaProvider
-
-    for cls in (AnthropicProvider, GoogleProvider, OllamaProvider):
-        yield AIProviderPlugin(slug=cls.provider_type, name=cls.display_name, provider=cls)
+    """Core ships no AI provider (slice 5, 2026-10-11): OpenAI/Azure, Anthropic, Google and Ollama are the
+    marvin-ai-* plugins, baked into the image. Kept as the seam a built-in would plug into."""
+    yield from ()
 
 
 def register(plugin: AIProviderPlugin, source: str) -> None:

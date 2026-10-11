@@ -164,7 +164,7 @@ def backfill(session, provider_type: str, model_id: str) -> int:
 
 def price_list(session, now: datetime | None = None) -> list[dict]:
     """Every model Marvin knows a price for or has seen run lately, per provider: its effective price and
-    where it comes from (override | provider | self_hosted | feed | core | none), with the last RECENT_DAYS of runs
+    where it comes from (override | provider | self_hosted | feed | none), with the last RECENT_DAYS of runs
     and how many of those have no cost."""
     from datetime import timedelta
 
@@ -172,7 +172,7 @@ def price_list(session, now: datetime | None = None) -> list[dict]:
 
     from marvin.db.models.groups.ai_executions import AIExecutionModel as Run
 
-    from . import pricing, registry
+    from . import registry
 
     since = (now or datetime.now(UTC)) - timedelta(days=RECENT_DAYS)
     unpriced = case((Run.estimated_cost_usd.is_(None) & (Run.total_tokens > 0) & (Run.status == "completed"), 1), else_=0)
@@ -190,7 +190,6 @@ def price_list(session, now: datetime | None = None) -> list[dict]:
     for slug in registry.plugins():
         cls = registry.find_class(slug)
         models |= {(slug, m) for m in (getattr(cls, "prices", None) or {})}
-        models |= {(slug, m) for m in pricing.PRICING.get(slug, {})}
 
     out = []
     for provider, model in sorted(models):
@@ -225,6 +224,4 @@ def _effective(provider: str, model: str, mine) -> tuple[ModelPrice | None, str]
 
     if (price := feed_price_for(provider, model)) is not None:
         return price, "feed"
-    if (price := pricing._pricing_for(provider, model)) is not None:
-        return price, "core"
     return None, "none"

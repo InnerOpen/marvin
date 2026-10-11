@@ -48,19 +48,6 @@ dependencies = [
     "uvicorn>=0.34.2",
 ]
 
-[project.optional-dependencies]
-# AI provider SDKs — install only the providers you use, e.g. `uv sync --extra anthropic`
-# or `pip install 'marvin[anthropic]'`. OpenAI and Azure OpenAI are the marvin-ai-openai plugin, not an extra. Providers lazy-import these, so an undeclared SDK only
-# fails when that provider is actually selected. See docs/AI-ARCHITECTURE-PLAN.md §6.
-anthropic = ["anthropic>=0.40.0"]
-google = ["google-generativeai>=0.8.0"]
-ollama = ["httpx>=0.27.0"]
-all-ai = [
-    "anthropic>=0.40.0",
-    "google-generativeai>=0.8.0",
-    "httpx>=0.27.0",
-]
-
 [project.scripts]
 marvin-server = "marvin.app:main"
 #healthz = "marvin.scripts.healthcheck"
@@ -111,8 +98,11 @@ plugins = [
     "marvin-integration-buttondown @ git+https://github.com/InnerOpen/marvin-integration-buttondown@main",
     "marvin-integration-n8n @ git+https://github.com/InnerOpen/marvin-integration-n8n@main",
     "marvin-storage-s3 @ git+https://github.com/InnerOpen/marvin-storage-s3@main",
-    # Replaces the built-in openai and azure AI providers (same slugs, so saved provider settings carry over).
+    # The AI providers: core ships none (slice 5). Same slugs as the old built-ins, so saved settings carry over.
     "marvin-ai-openai @ git+https://github.com/InnerOpen/marvin-ai-openai@main",
+    "marvin-ai-anthropic @ git+https://github.com/InnerOpen/marvin-ai-anthropic@main",
+    "marvin-ai-google @ git+https://github.com/InnerOpen/marvin-ai-google@main",
+    "marvin-ai-ollama @ git+https://github.com/InnerOpen/marvin-ai-ollama@main",
 ]
 # Optional HashiCorp Vault secret backend (SECRET_BACKEND=vault). Opt in with `uv sync --group vault`.
 vault = ["hvac>=2.0"]

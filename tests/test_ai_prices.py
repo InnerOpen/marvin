@@ -65,11 +65,20 @@ def test_an_override_prices_a_model_nothing_else_does_and_its_dated_snapshots(db
     assert pricing.estimate_cost("openai", f"{NEW_MODEL}-2026-10-01", 1_000_000, 0) == pytest.approx(2.0)
 
 
-def test_an_override_wins_over_the_providers_own_price(db_session):
-    priced = next(iter(pricing.PRICING["anthropic"]))
-    before = pricing.estimate_cost("anthropic", priced, 1_000_000, 0)
-    _set(db_session, ("anthropic", priced, 0.5, 0.5))
-    assert before != 0.5 and pricing.estimate_cost("anthropic", priced, 1_000_000, 0) == pytest.approx(0.5)
+def test_an_override_wins_over_the_providers_own_price(db_session, monkeypatch):
+    from types import SimpleNamespace
+
+    from marvin_integration_sdk.ai import ModelPrice
+
+    from marvin.services.ai import registry
+
+    own = ModelPrice(3.0, 15.0)
+    vendor = SimpleNamespace(estimate_cost=lambda model, p, c: own.cost(p, c), self_hosted=False, prices={"claude-x": own})
+    monkeypatch.setattr(registry, "find_class", lambda slug: vendor if slug == "anthropic" else None)
+
+    assert pricing.estimate_cost("anthropic", "claude-x", 1_000_000, 0) == pytest.approx(3.0)
+    _set(db_session, ("anthropic", "claude-x", 0.5, 0.5))
+    assert pricing.estimate_cost("anthropic", "claude-x", 1_000_000, 0) == pytest.approx(0.5)
 
 
 @pytest.mark.parametrize(

@@ -531,7 +531,7 @@ counted and admins are warned (never silently $0, never blocked). Slices, each s
        budget page say "N runs this month have no price (model …)"; one admin alert per newly-seen unpriced
        provider/model (platform alert route, like backup alerts). Fix `AI_DEFAULT_PROVIDER` defaulting to `openai`
        (no longer in core): default empty = the first installed provider.
-2. [ ] **Prices live with their provider.** Built-in anthropic/google declare `prices` (current models); core's
+2. [x] **Prices live with their provider.** (done with slice 5) Built-in anthropic/google declare `prices` (current models); core's
        `PRICING` drops the openai/azure rows (the plugin's table is the source) and stays only as the last
        fallback until slice 5 removes it.
 3. [x] **Admin price overrides.** (done 2026-10-10, Admin → AI Pricing) Admin → AI: per provider/model input/output $/1M tokens, top of the lookup;
@@ -542,7 +542,7 @@ counted and admins are warned (never silently $0, never blocked). Slices, each s
        keys), so a mirror or a self-hosted copy works. Stores the rows for installed providers; lookup = override >
        provider table > feed. Source URL and age shown on the price list; a failed fetch keeps the last good copy
        and alerts admins.
-5. [ ] **One package per vendor:** `marvin-ai-anthropic`, `marvin-ai-google` (google-genai), `marvin-ai-ollama`,
+5. [x] **One package per vendor:** (2026-10-11) `marvin-ai-anthropic`, `marvin-ai-google` (google-genai), `marvin-ai-ollama`,
        each with the conformance kit; baked into the image (plugins group) so installs see no change; core ships
        no providers and drops `PRICING`.
 6. [ ] (optional, needs admin keys) **Billed-cost reconciliation:** OpenAI Costs API / Anthropic cost report vs

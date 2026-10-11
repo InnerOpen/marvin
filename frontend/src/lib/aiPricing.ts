@@ -2,7 +2,7 @@
 export interface AIPriceRow {
   provider: string;
   model: string;
-  source: "override" | "provider" | "core" | "self_hosted" | "none" | string;
+  source: "override" | "provider" | "self_hosted" | "feed" | "none" | string;
   inputPer1m: number | null;
   outputPer1m: number | null;
   overridden: boolean;
@@ -21,7 +21,6 @@ export interface AIPriceOverride {
 export const SOURCE_LABELS: Record<string, string> = {
   override: "Your price",
   provider: "Provider's table",
-  core: "Marvin's table",
   self_hosted: "Self-hosted (free)",
   feed: "Price feed",
   none: "No price",
