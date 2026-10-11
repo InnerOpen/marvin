@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.256 (2026-10-11)
+
+### Features
+
+- **ai**: Daily AI price feed from a configurable URL (LiteLLM format) — slice 4
+  ([`071785e`](https://github.com/InnerOpen/marvin/commit/071785e8b02b1891a8f268a1c5a2e4b15f63f2ee))
+
+
 ## v1.0.0-rc.255 (2026-10-10)
 
 ### Features
