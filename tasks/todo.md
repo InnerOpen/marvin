@@ -677,7 +677,7 @@ a connected Slack, and `search_docs` finds it.
       (no published URL; `source` says which plugin).
 - [x] **Slack 0.4.0:** recipe `announce-entry-type` (published entries of one type → channel, title + link) + `guide.md`
       (webhook token, one channel per connection, mrkdwn, what it can't do); `IntegrationContract` test; tag; core pin.
-- [ ] Tests (core: a stand-in plugin with a good and a bad recipe + guide), docs (whats-new/integrations,
+- [x] Tests (core: a stand-in plugin with a good and a bad recipe + guide), docs (whats-new/integrations,
       INTEGRATIONS_PLUGIN_ARCHITECTURE, workflow-library README), SDK TS types (`source`), push → Promote, verify on prod.
 
 ### Review (2026-10-11)
@@ -687,6 +687,9 @@ a connected Slack, and `search_docs` finds it.
   `plugins/<provider>.md` with `source` instead of `url`; with no manual bundled the docs tools still report the
   manual unavailable (guides only add to it). Full suite green except that docs test, fixed; `astro check` no new
   errors; SDK types `source` on main + develop (`153c31a`).
+- Live on prod 2026-10-11 (`develop-aef3868`): slack recipe offered in the 5 workspaces with Slack, guide found by search.
+- Follow-up same day: n8n `v0.2.0` (guide + *Hand published entries to n8n*, the send half of its report-back round
+  trip) and the integration template (sample guide + recipe, `IntegrationContract` in CI).
 
 # CLI 3.1 — catch up with the API (plan, 2026-10-05)
 

@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.12.*"
 
 [manifest]
@@ -1163,7 +1163,7 @@ plugins = [
     { name = "marvin-integration-buttondown", git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=v0.6.0" },
     { name = "marvin-integration-cloudflare-pages", git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=v0.1.0" },
     { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.3.0" },
-    { name = "marvin-integration-n8n", git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.1.0" },
+    { name = "marvin-integration-n8n", git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.2.0" },
     { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.2.0" },
     { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.4.0" },
     { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.3.0" },
@@ -1243,8 +1243,8 @@ dependencies = [
 
 [[package]]
 name = "marvin-integration-n8n"
-version = "0.1.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.1.0#d094d2d5bf729332046e6c6765f091ed42b8ea7b" }
+version = "0.2.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.2.0#ac74fef2580333bf558f8e8fc89a84df49d63628" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]

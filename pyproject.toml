@@ -96,7 +96,7 @@ plugins = [
     "marvin-integration-square @ git+https://github.com/InnerOpen/marvin-integration-square@v0.3.0",
     "marvin-integration-cloudflare-pages @ git+https://github.com/InnerOpen/marvin-integration-cloudflare-pages@v0.1.0",
     "marvin-integration-buttondown @ git+https://github.com/InnerOpen/marvin-integration-buttondown@v0.6.0",
-    "marvin-integration-n8n @ git+https://github.com/InnerOpen/marvin-integration-n8n@v0.1.0",
+    "marvin-integration-n8n @ git+https://github.com/InnerOpen/marvin-integration-n8n@v0.2.0",
     "marvin-storage-s3 @ git+https://github.com/InnerOpen/marvin-storage-s3@v0.1.0",
     # The AI providers: core ships none (slice 5). Same slugs as the old built-ins, so saved settings carry over.
     "marvin-ai-openai @ git+https://github.com/InnerOpen/marvin-ai-openai@v0.1.0",
