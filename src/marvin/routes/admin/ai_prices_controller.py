@@ -8,8 +8,15 @@ usage card says so). An override prices it now; Backfill gives its past runs tha
 from fastapi import APIRouter, HTTPException, status
 
 from marvin.routes._base import BaseAdminController, controller
-from marvin.schemas.admin.ai_prices import AIPriceBackfill, AIPriceBackfillResult, AIPriceList, AIPriceOverridesUpdate
-from marvin.services.ai import price_overrides
+from marvin.schemas.admin.ai_prices import (
+    AIPriceBackfill,
+    AIPriceBackfillResult,
+    AIPriceFeedStatus,
+    AIPriceFeedUpdate,
+    AIPriceList,
+    AIPriceOverridesUpdate,
+)
+from marvin.services.ai import price_feed, price_overrides
 from marvin.services.event_bus_service.event_types import EventOperation, EventPlatformSettingsChangedData, EventTypes
 
 router = APIRouter(prefix="/ai-prices")
@@ -43,12 +50,39 @@ class AdminAIPricesController(BaseAdminController):
         self.logger.info(f"AI pricing: backfilled {updated} run(s) of {data.provider} {data.model}")
         return AIPriceBackfillResult(provider=data.provider, model=data.model, updated=updated)
 
+    @router.put("/feed", response_model=AIPriceFeedStatus, summary="Set the AI price feed URL")
+    def set_feed(self, data: AIPriceFeedUpdate) -> AIPriceFeedStatus:
+        """Where the daily price feed is fetched from (LiteLLM's format, https): null = the default
+        (AI_PRICE_FEED_URL), "" = off. Takes effect at the next refresh."""
+        before = price_feed.effective_url(self.session)
+        try:
+            price_feed.set_url(self.session, data.url)
+        except price_feed.FeedError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from e
+        after = price_feed.effective_url(self.session)
+        if after != before:
+            self._announce([f"price feed URL: {after or 'off'} (was {before or 'off'})"], setting=price_feed.SETTINGS_KEY)
+        return AIPriceFeedStatus.model_validate(price_feed.status(self.session))
+
+    @router.post("/feed/refresh", response_model=AIPriceFeedStatus, summary="Refresh the AI price feed now")
+    def refresh_feed(self) -> AIPriceFeedStatus:
+        """Fetch the price feed now. A failure keeps the last good prices; the error is in the status."""
+        try:
+            price_feed.refresh(self.session)
+        except price_feed.FeedError as e:
+            self.logger.warning(f"AI price feed refresh failed: {e}")
+        return AIPriceFeedStatus.model_validate(price_feed.status(self.session))
+
     def _read(self) -> AIPriceList:
         return AIPriceList.model_validate(
-            {"prices": price_overrides.price_list(self.session), "overrides": price_overrides.list_overrides(self.session)}
+            {
+                "prices": price_overrides.price_list(self.session),
+                "overrides": price_overrides.list_overrides(self.session),
+                "feed": price_feed.status(self.session),
+            }
         )
 
-    def _announce(self, changes: list[str]) -> None:
+    def _announce(self, changes: list[str], setting: str = price_overrides.SETTINGS_KEY) -> None:
         """platform_settings_changed (platform scope, always audited)."""
         name = getattr(self.user, "full_name", None) or self.user.username
         self.logger.info(f"AI price overrides changed by {name}: {'; '.join(changes)}")
@@ -56,10 +90,8 @@ class AdminAIPricesController(BaseAdminController):
             integration_id="platform_settings",
             group_id=None,
             event_type=EventTypes.platform_settings_changed,
-            document_data=EventPlatformSettingsChangedData(
-                operation=EventOperation.update, setting=price_overrides.SETTINGS_KEY, changes=changes, changed_by_name=name
-            ),
-            message=("AI price overrides: " + "; ".join(changes))[:1000],
+            document_data=EventPlatformSettingsChangedData(operation=EventOperation.update, setting=setting, changes=changes, changed_by_name=name),
+            message=("AI pricing: " + "; ".join(changes))[:1000],
             user_id=self.user.id,
             entity_type="platform_settings",
         )

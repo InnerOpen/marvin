@@ -23,8 +23,29 @@ export const SOURCE_LABELS: Record<string, string> = {
   provider: "Provider's table",
   core: "Marvin's table",
   self_hosted: "Self-hosted (free)",
+  feed: "Price feed",
   none: "No price",
 };
+
+export interface AIPriceFeedStatus {
+  url: string;
+  customUrl: string | null;
+  defaultUrl: string;
+  fetchedFrom: string | null;
+  fetchedAt: string | null;
+  models: number;
+  error: string | null;
+  errorAt: string | null;
+}
+
+/** One line about the feed: off, never fetched, or when and how many models it priced. */
+export function feedSummary(feed: AIPriceFeedStatus | null | undefined): string {
+  if (!feed) return "";
+  if (!feed.url) return "The price feed is off.";
+  if (!feed.fetchedAt) return "Not fetched yet — Refresh now, or it runs daily (Scheduled Tasks → Refresh AI Price Feed).";
+  const when = new Date(feed.fetchedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return `${feed.models.toLocaleString()} models priced, fetched ${when}.`;
+}
 
 export function groupByProvider(rows: AIPriceRow[]): { provider: string; rows: AIPriceRow[] }[] {
   const groups = new Map<string, AIPriceRow[]>();

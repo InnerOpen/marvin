@@ -17,7 +17,7 @@ class AIPriceRow(_MarvinModel):
     provider: str
     model: str
     source: str
-    """Where the price comes from: override | provider | core | self_hosted | none."""
+    """Where the price comes from: override | provider | self_hosted | feed | core | none."""
     input_per_1m: float | None = None
     output_per_1m: float | None = None
     overridden: bool = False
@@ -27,9 +27,29 @@ class AIPriceRow(_MarvinModel):
     """Of those, completed runs that used tokens and have no cost."""
 
 
+class AIPriceFeedStatus(_MarvinModel):
+    url: str
+    """The URL fetched: the admin's (custom_url) or the default; "" = the feed is off."""
+    custom_url: str | None = None
+    """The admin's URL; None = the default (AI_PRICE_FEED_URL)."""
+    default_url: str
+    fetched_from: str | None = None
+    fetched_at: str | None = None
+    models: int = 0
+    error: str | None = None
+    """The last refresh's error (the last good prices stay)."""
+    error_at: str | None = None
+
+
+class AIPriceFeedUpdate(_MarvinModel):
+    url: str | None = None
+    """https URL in LiteLLM's format; None = back to the default; "" = switch the feed off."""
+
+
 class AIPriceList(_MarvinModel):
     prices: list[AIPriceRow] = []
     overrides: list[AIPriceOverride] = []
+    feed: AIPriceFeedStatus | None = None
 
 
 class AIPriceOverridesUpdate(_MarvinModel):

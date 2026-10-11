@@ -991,6 +991,9 @@ class AppSettings(BaseSettings):
     """Provider used by workspaces in platform credential mode, by slug (openai, anthropic, google, azure, ollama or
     a plugin's). Empty: the first installed of openai, anthropic, google, azure, ollama (services/ai/registry.py
     default_provider). Set to a provider nothing provides, startup refuses."""
+    AI_PRICE_FEED_URL: str = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+    """The daily AI price feed's default URL (LiteLLM's format; services/ai/price_feed.py). Admin → AI Pricing can
+    point it elsewhere or switch it off; https only."""
     AI_ALLOW_WORKSPACE_CREDENTIALS: bool = True
     """Whether workspaces may use their own AI credentials (credential_mode='workspace').
     When false, only platform-provided credentials are allowed and the workspace option is

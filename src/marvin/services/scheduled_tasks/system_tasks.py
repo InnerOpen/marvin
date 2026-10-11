@@ -109,6 +109,17 @@ SYSTEM_SCHEDULED_TASKS: list[SystemTaskDefinition] = [
         task_config={"keep": 2},
     ),
     SystemTaskDefinition(
+        slug="refresh_ai_price_feed",
+        name="Refresh AI Price Feed",
+        task_type="refresh_ai_price_feed",
+        description=(
+            "Fetch the AI price list (LiteLLM's format; URL in Admin → AI Pricing, empty = off): the last source a model's "
+            "price comes from, after an admin's own price and the provider's table. Admin-only; runs daily."
+        ),
+        schedule_type="interval",
+        schedule_config={"interval_seconds": _DAILY_SECONDS},
+    ),
+    SystemTaskDefinition(
         slug="optimize_database",
         name="Optimize Database",
         task_type="optimize_database",

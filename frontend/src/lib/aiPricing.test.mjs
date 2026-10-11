@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { groupByProvider, priceText, withOverride, withoutOverride } from "./aiPricing.ts";
+import { feedSummary, groupByProvider, priceText, withOverride, withoutOverride } from "./aiPricing.ts";
 
 test("rows group by provider in order", () => {
   const rows = [{ provider: "anthropic", model: "a" }, { provider: "openai", model: "b" }, { provider: "anthropic", model: "c" }];
@@ -22,4 +22,10 @@ test("setting a price replaces that model's override; removing drops only it", (
   assert.deepEqual(set.find((o) => o.model === "x"), { provider: "openai", model: "x", inputPer1m: 5, outputPer1m: 6 });
   assert.equal(set.length, 2);
   assert.deepEqual(withoutOverride(list, "openai", "x").map((o) => o.model), ["y"]);
+});
+
+test("the feed line says off, not yet, or how many models when", () => {
+  assert.equal(feedSummary({ url: "" }), "The price feed is off.");
+  assert.match(feedSummary({ url: "https://x", fetchedAt: null }), /^Not fetched yet/);
+  assert.match(feedSummary({ url: "https://x", fetchedAt: "2026-10-10T23:00:00+00:00", models: 709 }), /^709 models priced, fetched /);
 });

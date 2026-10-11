@@ -75,7 +75,7 @@ def estimate_cost(provider_type: str, model_id: str, prompt_tokens: int, complet
     never as a misleading "Free").
 
     An admin's override first (Admin → AI pricing, services/ai/price_overrides.py), then the provider's own price
-    (self-hosted → 0), then core's fallback table."""
+    (self-hosted → 0), then the daily price feed (services/ai/price_feed.py), then core's old fallback table."""
     from .price_overrides import override_for
     from .registry import find_class
 
@@ -86,7 +86,11 @@ def estimate_cost(provider_type: str, model_id: str, prompt_tokens: int, complet
         cost = cls.estimate_cost(model_id, prompt_tokens, completion_tokens)
         if cost is not None:
             return cost
-    if provider_type in _SELF_HOSTED:
+    if provider_type in _SELF_HOSTED or (cls is not None and getattr(cls, "self_hosted", False)):
         return 0.0
+    from .price_feed import feed_price_for
+
+    if (feed := feed_price_for(provider_type, model_id)) is not None:
+        return feed.cost(prompt_tokens, completion_tokens)
     pricing = _pricing_for(provider_type, model_id)
     return pricing.cost(prompt_tokens, completion_tokens) if pricing else None

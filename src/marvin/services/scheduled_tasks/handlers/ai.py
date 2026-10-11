@@ -73,4 +73,30 @@ class ReindexEmbeddingsHandler(ScheduledTaskHandler):
         return summary
 
 
+class RefreshAIPriceFeedHandler(ScheduledTaskHandler):
+    """
+    Fetch the AI price feed (services/ai/price_feed.py) — the last source a model's price can come from, after
+    an admin's override and the provider's own table. Admin-only. A failed fetch keeps the last good prices and
+    fails the run, so the scheduled-task failure alerts fire.
+    """
+
+    name = "Refresh AI Price Feed"
+    description = "Fetch the AI price list (LiteLLM format, URL set in Admin → AI Pricing) (admin only)"
+    admin_only = True
+
+    def execute(self, task: ScheduledTaskModel, event_bus: EventBusService) -> str | None:
+        if task.group_id:
+            return "Skipped: refresh_ai_price_feed is admin-only and cannot run in a workspace context"
+        from marvin.services.ai import price_feed
+
+        with session_context() as session:
+            if not price_feed.effective_url(session):
+                return None  # switched off: nothing to do, nothing to log
+            state = price_feed.refresh(session)  # raises FeedError: the run fails, the last prices stay
+        summary = f"Priced {state['models']} models from {state['fetched_from']}"
+        logger.info("AI price feed: %s", summary)
+        return summary
+
+
 TaskHandlerRegistry.register("ai_reindex_embeddings", ReindexEmbeddingsHandler)
+TaskHandlerRegistry.register("refresh_ai_price_feed", RefreshAIPriceFeedHandler)

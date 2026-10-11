@@ -164,7 +164,7 @@ def backfill(session, provider_type: str, model_id: str) -> int:
 
 def price_list(session, now: datetime | None = None) -> list[dict]:
     """Every model Marvin knows a price for or has seen run lately, per provider: its effective price and
-    where it comes from (override | provider | core | self_hosted | none), with the last RECENT_DAYS of runs
+    where it comes from (override | provider | self_hosted | feed | core | none), with the last RECENT_DAYS of runs
     and how many of those have no cost."""
     from datetime import timedelta
 
@@ -221,6 +221,10 @@ def _effective(provider: str, model: str, mine) -> tuple[ModelPrice | None, str]
         return price, "provider"
     if (cls is not None and getattr(cls, "self_hosted", False)) or provider in pricing._SELF_HOSTED:
         return ModelPrice(0.0, 0.0), "self_hosted"
+    from .price_feed import feed_price_for
+
+    if (price := feed_price_for(provider, model)) is not None:
+        return price, "feed"
     if (price := pricing._pricing_for(provider, model)) is not None:
         return price, "core"
     return None, "none"

@@ -7,18 +7,20 @@
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
-import { type AIPriceRow, groupByProvider, priceText, SOURCE_LABELS } from "@/lib/aiPricing";
+import { type AIPriceFeedStatus, type AIPriceRow, feedSummary, groupByProvider, priceText, SOURCE_LABELS } from "@/lib/aiPricing";
 
 await requireAdmin(Astro.cookies, Astro.redirect, Astro.url.pathname);
 const authToken = getAuthToken(Astro.cookies);
 
 let prices: AIPriceRow[] = [];
 let overrides: any[] = [];
+let feed: AIPriceFeedStatus | null = null;
 let error: string | null = null;
 try {
-  const list = await fetchApi<{ prices: AIPriceRow[]; overrides: any[] }>("/api/admin/ai-prices", {}, authToken);
+  const list = await fetchApi<{ prices: AIPriceRow[]; overrides: any[]; feed: AIPriceFeedStatus }>("/api/admin/ai-prices", {}, authToken);
   prices = list.prices;
   overrides = list.overrides;
+  feed = list.feed;
 } catch (e) {
   error = e instanceof Error ? e.message : String(e);
 }
@@ -47,6 +49,24 @@ const unpricedTotal = prices.reduce((n, p) => n + (p.source === "none" ? p.unpri
   )}
 
   <div class="page-container" id="pricing" data-overrides={JSON.stringify(overrides)}>
+    {feed && (
+      <section class="settings-section" id="feed">
+        <h3>Price feed</h3>
+        <p class="hint">
+          A public price list fetched daily, used for a model when neither your price nor the provider's own table has one.
+          It must be in LiteLLM's format (<code>model_prices_and_context_window.json</code>); point it at a mirror or your own
+          copy, or leave it empty to switch it off.
+        </p>
+        <form id="feed-form" class="feed-form">
+          <input class="input" name="url" type="url" value={feed.url} placeholder="https://… (empty = off)" />
+          <button class="button" type="submit">Save</button>
+          {feed.customUrl !== null && <button class="button secondary" type="button" id="feed-default" title={feed.defaultUrl}>Use default</button>}
+          <button class="button secondary" type="button" id="feed-refresh" disabled={!feed.url}>Refresh now</button>
+        </form>
+        <p class="hint" id="feed-status">{feedSummary(feed)}</p>
+        {feed.error && <div class="alert error">Last refresh failed ({feed.errorAt}): {feed.error}. The last good prices are still used.</div>}
+      </section>
+    )}
     {groups.map(({ provider, rows }) => (
       <section class="settings-section">
         <h3>{provider}</h3>
@@ -145,6 +165,30 @@ const unpricedTotal = prices.reduce((n, p) => n + (p.source === "none" ? p.unpri
     }
   }));
 
+  async function setFeed(url: string | null) {
+    try {
+      await fetchApi('/api/admin/ai-prices/feed', { method: 'PUT', body: JSON.stringify({ url }) });
+      location.reload();
+    } catch (e) {
+      alert('Could not save: ' + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+  document.getElementById('feed-form')?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    setFeed(String(new FormData(e.target as HTMLFormElement).get('url') || '').trim());
+  });
+  document.getElementById('feed-default')?.addEventListener('click', () => setFeed(null));
+  document.getElementById('feed-refresh')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget as HTMLButtonElement;
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    try {
+      await fetchApi('/api/admin/ai-prices/feed/refresh', { method: 'POST' });
+    } finally {
+      location.reload();
+    }
+  });
+
   document.getElementById('add-price')?.addEventListener('submit', (e) => {
     e.preventDefault();
     const f = new FormData(e.target as HTMLFormElement);
@@ -157,7 +201,8 @@ const unpricedTotal = prices.reduce((n, p) => n + (p.source === "none" ? p.unpri
   .table th, .table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--line); }
   tr.unpriced td { background: color-mix(in srgb, var(--color-warning, #d97706) 8%, transparent); }
   .actions { display: flex; gap: 6px; justify-content: flex-end; }
-  .add-price { display: flex; flex-wrap: wrap; gap: 8px; }
+  .add-price, .feed-form { display: flex; flex-wrap: wrap; gap: 8px; }
+  .feed-form .input { flex: 1 1 360px; }
   .add-price .input { flex: 1 1 140px; }
   .alert.warning { padding: 10px 14px; border-left: 3px solid var(--color-warning, #d97706); background: var(--panel-2); margin-bottom: 16px; }
 </style>

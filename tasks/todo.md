@@ -536,7 +536,7 @@ counted and admins are warned (never silently $0, never blocked). Slices, each s
        fallback until slice 5 removes it.
 3. [x] **Admin price overrides.** (done 2026-10-10, Admin → AI Pricing) Admin → AI: per provider/model input/output $/1M tokens, top of the lookup;
        "Backfill" recomputes `estimated_cost_usd` for this month's unpriced runs of that model.
-4. [ ] **LiteLLM feed.** Daily system task fetches the price list from a **configurable URL** (Jared 2026-10-10):
+4. [x] **LiteLLM feed.** (done 2026-10-10) Daily system task fetches the price list from a **configurable URL** (Jared 2026-10-10):
        platform setting `AI_PRICE_FEED_URL`, editable in Admin → AI, defaulting to LiteLLM's
        `model_prices_and_context_window.json` on GitHub raw (MIT); empty = feed off. Same format required (LiteLLM's
        keys), so a mirror or a self-hosted copy works. Stores the rows for installed providers; lookup = override >
