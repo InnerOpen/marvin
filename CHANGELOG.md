@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.257 (2026-10-11)
+
+### Features
+
+- **ai**: Core ships no AI provider — Anthropic, Google and Ollama are plugins (slice 5, folds in 2)
+  ([`ba180bc`](https://github.com/InnerOpen/marvin/commit/ba180bca4c366ade1ceaf60fc59f3f12674a2d83))
+
+
 ## v1.0.0-rc.256 (2026-10-11)
 
 ### Features
