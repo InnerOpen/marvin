@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.260 (2026-10-11)
+
+### Features
+
+- **workflows**: Conditional steps — a step's `when` makes if/else
+  ([`0962daf`](https://github.com/InnerOpen/marvin/commit/0962dafaa7abf01136a58f0896f7bfcc98a9a814))
+
+
 ## v1.0.0-rc.259 (2026-10-11)
 
 ### Build System
