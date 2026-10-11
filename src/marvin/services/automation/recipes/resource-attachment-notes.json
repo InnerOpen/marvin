@@ -1,0 +1,44 @@
+{
+  "name": "Resource attachment notes",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_resource_attached"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "note",
+        "op": "custom",
+        "see": [
+          "item",
+          "attachments"
+        ],
+        "prompt": "“${event.resource_name}” was just linked to this entry. Write a short note (two or three sentences) on how it relates to this entry — the material, technique or supplier it brings — for someone reading the entry.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "note": {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 600
+            }
+          },
+          "required": [
+            "note"
+          ]
+        },
+        "write_back": {
+          "note": "metadata.{{note_key}}"
+        }
+      }
+    ]
+  }
+}

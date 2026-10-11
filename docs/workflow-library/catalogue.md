@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-107 recipes: **26** verified-current, **11** supported-after-configuration, **16** needs-adapter, **54** needs-engine-capability.
+107 recipes: **31** verified-current, **11** supported-after-configuration, **16** needs-adapter, **49** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -17,9 +17,12 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [content-refresh](../../src/marvin/services/automation/recipes/content-refresh.json) — Content refresh | verified-current | `entry_updated` | outgoing webhook | external post |
 | [comment-discussion-starter](../../src/marvin/services/automation/recipes/comment-discussion-starter.json) — Comment discussion starter | verified-current | `entry_published` | outgoing webhook | content mutation, external post |
 | [editorial-task-maker](../../src/marvin/services/automation/recipes/editorial-task-maker.json) — Editorial task maker | verified-current | `entry_published` | n8n integration | content mutation, external post |
+| [community-question](../../src/marvin/services/automation/recipes/community-question.json) — Community question | verified-current | `entry_published` | — | content mutation, external post, paid call |
 | [utm-librarian](../../src/marvin/services/automation/recipes/utm-librarian.json) — UTM librarian | verified-current | `entry_created` | an entry type with a page URL pattern (so `entry.url` resolves) and two fields for UTM source and medium | content mutation |
 | [alt-text-assistant](../../src/marvin/services/automation/recipes/alt-text-assistant.json) — Alt text assistant | verified-current | `asset_uploaded` | — | content mutation, paid call |
 | [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — Attribution companion | verified-current | `asset_attached_to_entry` | — | content mutation |
+| [marvin-margin-notes](../../src/marvin/services/automation/recipes/marvin-margin-notes.json) — Marvin margin notes | verified-current | `manual` | — | content mutation, paid call |
+| [soundtrack-brief](../../src/marvin/services/automation/recipes/soundtrack-brief.json) — Soundtrack brief | verified-current | `manual` | — | content mutation, paid call |
 | [client-handoff](../../src/marvin/services/automation/recipes/client-handoff.json) — Client handoff | verified-current | `entry_updated` | outgoing webhook | content mutation, external post |
 | [failure-repair-desk](../../src/marvin/services/automation/recipes/failure-repair-desk.json) — Failure repair desk | verified-current | `on_error` (`automation_failed`) | — | content mutation |
 | [publication-ledger](../../src/marvin/services/automation/recipes/publication-ledger.json) — Publication ledger | verified-current | `entry_published` | — | content mutation |
@@ -38,6 +41,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `ai-quota-recovery-desk` — AI quota recovery desk | supported-after-configuration | subscription: `ai_provider_quota_exceeded` | SMTP; email event subscription | email |
 | `agent-approval-inbox` — Agent approval inbox | supported-after-configuration | subscription: `approval_requested` | VAPID web push configured; approvers have the app installed with notifications on; native | notification |
 | [collection-welcome-mat](../../src/marvin/services/automation/recipes/collection-welcome-mat.json) — Collection welcome mat | verified-current | `entry_added_to_collection` | AI enabled with the `automation` source allowed | content mutation, paid call ⚠ |
+| [resource-attachment-notes](../../src/marvin/services/automation/recipes/resource-attachment-notes.json) — Resource attachment notes | verified-current | `entry_resource_attached` | — | content mutation, paid call |
+| [asset-attachment-social-kit](../../src/marvin/services/automation/recipes/asset-attachment-social-kit.json) — Asset attachment social kit | verified-current | `asset_attached_to_entry` | — | content mutation, paid call |
 | `new-member-welcome` — New member welcome | supported-after-configuration | subscription: `member_added` | SMTP; email event subscription | email |
 | `api-token-rotation-notice` — API token rotation notice | supported-after-configuration | subscription: `api_client_token_rotated` | SMTP; email event subscription | email |
 | [unpublish-entries-with-images](../../src/marvin/services/automation/recipes/unpublish-entries-with-images.json) — Move every entry with an image back to draft | verified-current | `manual` | — | content mutation |
@@ -52,32 +57,31 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 
 | Recipe | Status | Trigger | Blocked by |
 |---|---|---|---|
-| `translation-desk` — Translation desk | needs-engine-capability | `entry_published` | create-entry, custom-operation, workflow-approvals |
+| `translation-desk` — Translation desk | needs-engine-capability | `entry_published` | create-entry, workflow-approvals |
 | `audio-edition` — Audio edition | needs-adapter | `entry_published` | media-adapters |
 | `series-index-keeper` — Series index keeper | needs-engine-capability | `entry_published` | iterate-aggregate, collection-scope |
-| `weekly-digest` — Weekly digest | needs-engine-capability | `schedule` | iterate-aggregate, relative-dates, create-entry, custom-operation |
+| `weekly-digest` — Weekly digest | needs-engine-capability | `schedule` | iterate-aggregate, relative-dates, create-entry |
 | `broken-link-patrol` — Broken link patrol | needs-engine-capability | `schedule` | fetch, create-entry, iterate-aggregate |
-| `living-resource-collection` — Living resource collection | needs-engine-capability | `resource_updated` | asset-resource-targets, custom-operation, workflow-approvals |
+| `living-resource-collection` — Living resource collection | needs-engine-capability | `resource_updated` | asset-resource-targets, workflow-approvals |
 | `publication-release-gate` — Publication release gate | needs-engine-capability | `entry_updated` | joins |
-| `featured-collection-curator` — Featured collection curator | needs-engine-capability | `entry_published` | custom-operation, workflow-approvals |
-| `evergreen-resurfacer` — Evergreen resurfacer | needs-engine-capability | `schedule` | relative-dates, custom-operation, create-entry |
-| `one-entry-many-voices` — One entry, many voices | needs-engine-capability | `entry_published` | custom-operation, create-entry |
-| `carousel-storyteller` — Carousel storyteller | needs-adapter | `entry_published` | media-adapters, custom-operation, social-adapters, workflow-approvals |
-| `thread-builder` — Thread builder | needs-engine-capability | `entry_published` | custom-operation, social-adapters |
-| `quote-card-studio` — Quote card studio | needs-adapter | `entry_published` | media-adapters, custom-operation |
-| `teaser-ladder` — Teaser ladder | needs-engine-capability | `entry_published` | waits, social-adapters, custom-operation |
-| `behind-the-scenes-diary` — Behind the scenes diary | needs-engine-capability | `entry_updated` | asset-resource-targets, custom-operation, create-entry |
-| `community-question` — Community question | needs-engine-capability | `entry_published` | custom-operation |
-| `poll-companion` — Poll companion | needs-adapter | `entry_published` | social-adapters, custom-operation |
-| `reply-drafting-desk` — Reply drafting desk | needs-engine-capability | `comment_added` | comments, custom-operation, workflow-approvals |
+| `featured-collection-curator` — Featured collection curator | needs-engine-capability | `entry_published` | workflow-approvals |
+| `evergreen-resurfacer` — Evergreen resurfacer | needs-engine-capability | `schedule` | relative-dates, create-entry |
+| `one-entry-many-voices` — One entry, many voices | needs-engine-capability | `entry_published` | create-entry |
+| `carousel-storyteller` — Carousel storyteller | needs-adapter | `entry_published` | media-adapters, social-adapters, workflow-approvals |
+| `thread-builder` — Thread builder | needs-engine-capability | `entry_published` | social-adapters |
+| `quote-card-studio` — Quote card studio | needs-adapter | `entry_published` | media-adapters |
+| `teaser-ladder` — Teaser ladder | needs-engine-capability | `entry_published` | waits, social-adapters |
+| `behind-the-scenes-diary` — Behind the scenes diary | needs-engine-capability | `entry_updated` | create-entry |
+| `poll-companion` — Poll companion | needs-adapter | `entry_published` | social-adapters |
+| `reply-drafting-desk` — Reply drafting desk | needs-engine-capability | `comment_added` | comments, workflow-approvals |
 | `campaign-scoreboard` — Campaign scoreboard | needs-adapter | `schedule` | social-adapters, waits, metrics |
-| `social-experiment-log` — Social experiment log | needs-engine-capability | `manual` | custom-operation, metrics |
+| `social-experiment-log` — Social experiment log | needs-engine-capability | `manual` | metrics |
 | `platform-preview-checker` — Platform preview checker | needs-engine-capability | `entry_updated` | fetch, social-adapters |
-| `launch-kit` — Launch kit | needs-engine-capability | `entry_published` | custom-operation, create-entry, joins, workflow-approvals |
-| `milestone-celebration` — Milestone celebration | needs-engine-capability | `entry_updated` | custom-operation, workflow-approvals, create-entry |
+| `launch-kit` — Launch kit | needs-engine-capability | `entry_published` | create-entry, joins, workflow-approvals |
+| `milestone-celebration` — Milestone celebration | needs-engine-capability | `entry_updated` | workflow-approvals, create-entry |
 | `event-countdown` — Event countdown | needs-engine-capability | `entry_published` | waits, relative-dates, create-entry |
 | `best-of-month` — Best of month | needs-engine-capability | `schedule` | iterate-aggregate, relative-dates, media-adapters, create-entry |
-| `community-welcome-pack` — Community welcome pack | needs-engine-capability | subscription: `member_added` | member-email, ops-triggers, custom-operation |
+| `community-welcome-pack` — Community welcome pack | needs-engine-capability | subscription: `member_added` | member-email, ops-triggers |
 | `responsive-image-factory` — Responsive image factory | needs-adapter | `asset_uploaded` | media-adapters |
 | `background-remover` — Background remover | needs-adapter | `manual` | media-adapters |
 | `product-scene-studio` — Product scene studio | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
@@ -94,34 +98,30 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `file-format-converter` — File format converter | needs-adapter | `asset_uploaded` | media-adapters |
 | `duplicate-asset-scout` — Duplicate asset scout | needs-engine-capability | `asset_uploaded` | asset-resource-targets |
 | `image-prompt-archive` — Image prompt archive | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
-| `comic-strip-edition` — Comic strip edition | needs-engine-capability | `manual` | custom-operation, workflow-approvals, media-adapters |
-| `marvin-margin-notes` — Marvin margin notes | needs-engine-capability | `manual` | custom-operation |
-| `ada-explains-it` — Ada explains it | needs-engine-capability | `entry_published` | custom-operation, create-entry |
+| `comic-strip-edition` — Comic strip edition | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
+| `ada-explains-it` — Ada explains it | needs-engine-capability | `entry_published` | create-entry |
 | `retro-poster-machine` — Retro poster machine | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
-| `trading-card-collection` — Trading card collection | needs-engine-capability | `entry_updated` | custom-operation, media-adapters |
+| `trading-card-collection` — Trading card collection | needs-engine-capability | `entry_updated` | media-adapters |
 | `achievement-cabinet` — Achievement cabinet | needs-engine-capability | `entry_updated` | create-entry, custom-events |
-| `meme-workshop` — Meme workshop | needs-engine-capability | `manual` | custom-operation, workflow-approvals, media-adapters |
-| `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | custom-operation, create-entry, sandbox |
-| `future-newspaper` — Future newspaper | needs-engine-capability | `manual` | custom-operation, media-adapters |
-| `workshop-field-guide` — Workshop field guide | needs-engine-capability | `manual` | iterate-aggregate, custom-operation, media-adapters |
+| `meme-workshop` — Meme workshop | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
+| `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | create-entry, sandbox |
+| `future-newspaper` — Future newspaper | needs-engine-capability | `manual` | media-adapters |
+| `workshop-field-guide` — Workshop field guide | needs-engine-capability | `manual` | iterate-aggregate, media-adapters |
 | `color-moodboard` — Color moodboard | needs-adapter | `manual` | media-adapters, iterate-aggregate |
-| `soundtrack-brief` — Soundtrack brief | needs-engine-capability | `manual` | custom-operation |
 | `alternate-universe-cover` — Alternate universe cover | needs-engine-capability | `manual` | workflow-approvals, workflow-approvals |
 | `time-capsule` — Time capsule | needs-engine-capability | `entry_updated` | snapshots, waits, create-entry |
-| `surprise-remix-button` — Surprise remix button | needs-engine-capability | `manual` | manual-params, custom-operation, create-entry |
-| `fictional-debate-club` — Fictional debate club | needs-engine-capability | `manual` | custom-operation, create-entry |
+| `surprise-remix-button` — Surprise remix button | needs-engine-capability | `manual` | manual-params, create-entry |
+| `fictional-debate-club` — Fictional debate club | needs-engine-capability | `manual` | create-entry |
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox |
 | `resource-availability-watch` — Resource availability watch | needs-engine-capability | `schedule` | fetch, iterate-aggregate |
-| `project-milestone-report` — Project milestone report | needs-engine-capability | `entry_updated` | iterate-aggregate, custom-operation, create-entry |
-| `knowledge-gap-finder` — Knowledge gap finder | needs-engine-capability | `manual` | collection-scope, custom-operation, create-entry |
-| `meeting-notes-to-tasks` — Meeting notes to tasks | needs-engine-capability | `entry_created` | custom-operation, workflow-approvals |
-| `release-notes-compiler` — Release notes compiler | needs-engine-capability | `manual` | iterate-aggregate, relative-dates, custom-operation, create-entry |
-| `intake-triage` — Intake triage | needs-engine-capability | `form_submission_received` | form-classification, custom-operation |
+| `project-milestone-report` — Project milestone report | needs-engine-capability | `entry_updated` | iterate-aggregate, create-entry |
+| `knowledge-gap-finder` — Knowledge gap finder | needs-engine-capability | `manual` | collection-scope, create-entry |
+| `meeting-notes-to-tasks` — Meeting notes to tasks | needs-engine-capability | `entry_created` | workflow-approvals |
+| `release-notes-compiler` — Release notes compiler | needs-engine-capability | `manual` | iterate-aggregate, relative-dates, create-entry |
+| `intake-triage` — Intake triage | needs-engine-capability | `form_submission_received` | form-classification |
 | `archive-packager` — Archive packager | needs-adapter | `manual` | media-adapters, collection-scope, iterate-aggregate |
-| `personal-project-radar` — Personal project radar | needs-engine-capability | `schedule` | relative-dates, custom-operation, create-entry |
-| `resource-attachment-notes` — Resource attachment notes | needs-engine-capability | `entry_resource_attached` | custom-operation |
+| `personal-project-radar` — Personal project radar | needs-engine-capability | `schedule` | relative-dates, create-entry |
 | `entry-schema-impact-report` — Entry schema impact report | needs-engine-capability | `entry_type_updated` | iterate-aggregate, create-entry |
-| `asset-attachment-social-kit` — Asset attachment social kit | needs-engine-capability | `asset_attached_to_entry` | custom-operation |
 
 ## By category
 
@@ -149,7 +149,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `translation-desk` — **Translation desk** · needs-engine-capability · `entry_published`  
   Publication → generate linked translated drafts → route to reviewers
   - Linking translations needs a relationship field or metadata convention (`translation_of`) — set_metadata can record it once the draft exists.
-  - Blocked by: `create-entry` (a translated draft is a new entry); `custom-operation` (no translation operation exists); `workflow-approvals` (reviewer routing with a decision)
+  - Blocked by: `create-entry` (a translated draft is a new entry); `workflow-approvals` (reviewer routing with a decision)
 - `audio-edition` — **Audio edition** · needs-adapter · `entry_published`  
   Publication → narrate article → attach audio → update podcast feed
   - Blocked by: `media-adapters` (a TTS provider action that returns an audio asset)
@@ -160,14 +160,14 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `weekly-digest` — **Weekly digest** · needs-engine-capability · `schedule`  
   Weekly schedule → aggregate eligible entries → generate newsletter draft
   - Possible today (partial): a schedule (interval 604800 s) + target `{status: published}` runs steps per entry — but each row runs alone, so no digest.
-  - Blocked by: `iterate-aggregate` (reduce the week's entries into one input); `relative-dates` (`published_after: -7d` and a weekly cron); `create-entry` (the draft issue); `custom-operation` (write the digest)
+  - Blocked by: `iterate-aggregate` (reduce the week's entries into one input); `relative-dates` (`published_after: -7d` and a weekly cron); `create-entry` (the draft issue)
 - `broken-link-patrol` — **Broken link patrol** · needs-engine-capability · `schedule`  
   Scheduled scan → check links → create repair notes
   - Possible today (partial): a schedule + target `{status: published}` + `request_review` could flag every published entry — but blindly, without checking links.
   - Blocked by: `fetch` (no step can GET a URL and read the status); `create-entry` (repair notes are entries); `iterate-aggregate` (one note per scan, not per link)
 - `living-resource-collection` — **Living resource collection** · needs-engine-capability · `resource_updated`  
   Resource changes → locate referring entries → propose passage updates
-  - Blocked by: `asset-resource-targets` (a target query for the entries linked to the triggering resource (has_resources is only true/false)); `custom-operation` (propose passage updates); `workflow-approvals` (a person accepts the proposal)
+  - Blocked by: `asset-resource-targets` (a target query for the entries linked to the triggering resource (has_resources is only true/false)); `workflow-approvals` (a person accepts the proposal)
 - `publication-release-gate` — **Publication release gate** · needs-engine-capability · `entry_updated`  
   Wait until text, images and downloads pass checks → publish together
   - Possible today (partial): the publish gate already blocks on required fields, required asset roles and resource types (completeness rules); the editorial-approval-gate recipe uses it.
@@ -180,7 +180,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `featured-collection-curator` — **Featured collection curator** · needs-engine-capability · `entry_published`  
   Publication → suggest topic collections → update approved collections
   - Possible today (partial): a fixed rule is possible today: entry_published + conditions on `entry.data.<topic>` + `add_to_collection`.
-  - Blocked by: `custom-operation` (suggest collections from the entry and the collection list); `workflow-approvals` (a person approves before add_to_collection)
+  - Blocked by: `workflow-approvals` (a person approves before add_to_collection)
 - [comment-discussion-starter](../../src/marvin/services/automation/recipes/comment-discussion-starter.json) — **Comment discussion starter** · verified-current · `entry_published`  
   A published entry opens a discussion topic in a forum through an outgoing webhook; the topic URL from the response is recorded on the entry.
   - The response field holding the topic URL is a setup variable (`discussion_url_path`) spliced into the `${steps.discussion.output.body.<path>}` template.
@@ -190,57 +190,56 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `evergreen-resurfacer` — **Evergreen resurfacer** · needs-engine-capability · `schedule`  
   Schedule → find older relevant content → propose refreshed drafts
   - Possible today (partial): a schedule + target `{status: published, published_before: "2025-01-01"}` (an absolute date) + `generate-summary` works today but the date must be re-typed.
-  - Blocked by: `relative-dates` (`published_before: -365d` in the target); `custom-operation` (propose a refresh); `create-entry` (a refreshed draft beside the original)
+  - Blocked by: `relative-dates` (`published_before: -365d` in the target); `create-entry` (a refreshed draft beside the original)
 
 ### Social and community
 
 - `one-entry-many-voices` — **One entry, many voices** · needs-engine-capability · `entry_published`  
   Publication → draft LinkedIn, short-post and community versions preserving meaning
   - Possible today (partial): `improve-writing` proposes one rewrite of one field (no write-back); its output can be stored with set_metadata.
-  - Blocked by: `custom-operation` (per-channel rewrites with a persona); `create-entry` (drafts as entries (or a `social_drafts` metadata convention))
+  - Blocked by: `create-entry` (drafts as entries (or a `social_drafts` metadata convention))
 - `carousel-storyteller` — **Carousel storyteller** · needs-adapter · `entry_published`  
   Article → outline slides → render branded carousel → queue draft
-  - Blocked by: `media-adapters` (render slides); `custom-operation` (outline); `social-adapters` (queue a draft); `workflow-approvals` (openai_images.generate requires approval)
+  - Blocked by: `media-adapters` (render slides); `social-adapters` (queue a draft); `workflow-approvals` (openai_images.generate requires approval)
 - `thread-builder` — **Thread builder** · needs-engine-capability · `entry_published`  
   Article → ordered thread with links → save draft sequence
-  - Blocked by: `custom-operation` (thread generation); `social-adapters` (draft on the network)
+  - Blocked by: `social-adapters` (draft on the network)
 - `quote-card-studio` — **Quote card studio** · needs-adapter · `entry_published`  
   Extract exact attributed quote → render branded card → attach social draft
-  - Blocked by: `media-adapters` (render the card); `custom-operation` (exact quote extraction with verification)
+  - Blocked by: `media-adapters` (render the card)
 - `teaser-ladder` — **Teaser ladder** · needs-engine-capability · `entry_published`  
   Launch → schedule teaser, launch post and follow-up variants
-  - Blocked by: `waits` (post at offsets from the launch); `social-adapters` (publish); `custom-operation` (variants)
+  - Blocked by: `waits` (post at offsets from the launch); `social-adapters` (publish)
 - `behind-the-scenes-diary` — **Behind the scenes diary** · needs-engine-capability · `entry_updated`  
   Project update → turn process photos and notes into a workshop post
-  - Blocked by: `asset-resource-targets` (an entry operation that sees the entry's attached photos as images (it gets their names only)); `custom-operation` (write the post from notes and photos); `create-entry` (the post)
-- `community-question` — **Community question** · needs-engine-capability · `entry_published`  
-  Publication → generate specific discussion question → queue channel post
-  - Possible today (partial): the webhook half exists: see publication-announcement; `generate-summary` output can be posted as `${steps.summary.output.summary}`.
-  - Blocked by: `custom-operation` (generate the question)
+  - Blocked by: `create-entry` (the post)
+- [community-question](../../src/marvin/services/automation/recipes/community-question.json) — **Community question** · verified-current · `entry_published`  
+  A published entry gets one specific discussion question written for it, posted to your community channel through an outgoing webhook and kept in its metadata.
+  - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - `poll-companion` — **Poll companion** · needs-adapter · `entry_published`  
   Article → propose poll options → create poll draft
-  - Blocked by: `social-adapters` (a poll-capable provider); `custom-operation` (options)
+  - Blocked by: `social-adapters` (a poll-capable provider)
 - `reply-drafting-desk` — **Reply drafting desk** · needs-engine-capability · `comment_added`  
   New comment → classify intent → suggest reply → wait for approval
   - Instagram comments: the Instagram plugin's `auto_reply` runs from a scheduled task with its own rules; its reply actions are requires_approval and cannot run from a workflow.
-  - Blocked by: `comments` (no comment events are ever sent); `custom-operation` (classify and draft); `workflow-approvals` (wait for approval)
+  - Blocked by: `comments` (no comment events are ever sent); `workflow-approvals` (wait for approval)
 - `campaign-scoreboard` — **Campaign scoreboard** · needs-adapter · `schedule`  
   After campaign → collect supported metrics → compare against baseline
   - Blocked by: `social-adapters` (metrics actions); `waits` (after the campaign); `metrics` (baseline comparison)
 - `social-experiment-log` — **Social experiment log** · needs-engine-capability · `manual`  
   Create two draft variants → assign experiment IDs → report observed results
   - Possible today (partial): set_metadata can stamp an experiment id (`${event.correlation_id}`) on an entry today.
-  - Blocked by: `custom-operation` (variants); `metrics` (observations)
+  - Blocked by: `metrics` (observations)
 - `platform-preview-checker` — **Platform preview checker** · needs-engine-capability · `entry_updated`  
   Draft → check length, links, image ratio and preview → flag fixes
   - Blocked by: `fetch` (link checks); `social-adapters` (per-network limits)
 - `launch-kit` — **Launch kit** · needs-engine-capability · `entry_published`  
   Product entry → assemble announcement, FAQ, images and newsletter draft
-  - Blocked by: `custom-operation` (each piece); `create-entry` (drafts); `joins` (assemble in parallel); `workflow-approvals` (image generation requires approval)
+  - Blocked by: `create-entry` (drafts); `joins` (assemble in parallel); `workflow-approvals` (image generation requires approval)
 - `milestone-celebration` — **Milestone celebration** · needs-engine-capability · `entry_updated`  
   Project complete → generate grounded achievement post and visual
   - Possible today (partial): `entry.data.<status> changed_to complete` is not detectable (changed_fields covers status/title/slug only); `entry.data.status eq complete` on entry_updated fires on every save while complete.
-  - Blocked by: `custom-operation` (the post); `workflow-approvals` (openai_images.generate requires approval); `create-entry` (the post as a draft)
+  - Blocked by: `workflow-approvals` (openai_images.generate requires approval); `create-entry` (the post as a draft)
 - `event-countdown` — **Event countdown** · needs-engine-capability · `entry_published`  
   Event entry → create reminder drafts relative to event date
   - Blocked by: `waits` (fire at date offsets); `relative-dates` (date arithmetic in templates); `create-entry` (reminder drafts)
@@ -254,7 +253,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `community-welcome-pack` — **Community welcome pack** · needs-engine-capability · subscription: `member_added`  
   Opt-in member event → assemble relevant reading links → draft welcome
   - Possible today (partial): see new-member-welcome for the admin-facing notification that works today.
-  - Blocked by: `member-email` (address the member); `ops-triggers` (member events as triggers); `custom-operation` (assemble the pack)
+  - Blocked by: `member-email` (address the member); `ops-triggers` (member events as triggers)
 
 ### Images and files
 
@@ -321,43 +320,41 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 
 - `comic-strip-edition` — **Comic strip edition** · needs-engine-capability · `manual`  
   Article → four-panel fictional adaptation → generate panels → review
-  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `media-adapters` (layout)
-- `marvin-margin-notes` — **Marvin margin notes** · needs-engine-capability · `manual`  
-  Entry → draft dry pessimistic commentary in a configurable persona
-  - Possible today (partial): `improve-writing` with `input.tone` proposes a rewrite in a tone, stored via set_metadata — a tone, not a persona.
-  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts)
+  - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `media-adapters` (layout)
+- [marvin-margin-notes](../../src/marvin/services/automation/recipes/marvin-margin-notes.json) — **Marvin margin notes** · verified-current · `manual`  
+  Run it on your drafts of one type: each gets a short, dry, faintly pessimistic margin note in a voice you describe, kept in its metadata.
+  - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - `ada-explains-it` — **Ada explains it** · needs-engine-capability · `entry_published`  
   Technical article → warm folksy explanation as a clearly marked adaptation
-  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `create-entry` (the adaptation as its own draft)
+  - Blocked by: `create-entry` (the adaptation as its own draft)
 - `retro-poster-machine` — **Retro poster machine** · needs-engine-capability · `manual`  
   Project → fictional vintage poster with accurate project title
   - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `media-adapters` (typography rendering)
 - `trading-card-collection` — **Trading card collection** · needs-engine-capability · `entry_updated`  
   Project milestone → create collectible card with grounded stats
-  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `media-adapters` (render the card)
+  - Blocked by: `media-adapters` (render the card)
 - `achievement-cabinet` — **Achievement cabinet** · needs-engine-capability · `entry_updated`  
   Milestone event → award configured badge → update project collection
   - Possible today (partial): `add_to_collection` on a condition (`entry.data.milestone eq shipped`) works today — the badge itself can't be created.
   - Blocked by: `create-entry` (a badge entry); `custom-events` (a `milestone` event)
 - `meme-workshop` — **Meme workshop** · needs-engine-capability · `manual`  
   Entry → propose caption concepts → render selected approved template
-  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `workflow-approvals` (select a caption); `media-adapters` (render onto a template asset)
+  - Blocked by: `workflow-approvals` (select a caption); `media-adapters` (render onto a template asset)
 - `choose-your-own-adventure` — **Choose your own adventure** · needs-engine-capability · `manual`  
   Story entry → generate branching draft and check reachable endings
-  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `create-entry` (one entry per branch); `sandbox` (graph reachability check)
+  - Blocked by: `create-entry` (one entry per branch); `sandbox` (graph reachability check)
 - `future-newspaper` — **Future newspaper** · needs-engine-capability · `manual`  
   Project notes → clearly labeled speculative future front page
-  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `media-adapters` (document rendering)
+  - Blocked by: `media-adapters` (document rendering)
 - `workshop-field-guide` — **Workshop field guide** · needs-engine-capability · `manual`  
   Process notes → illustrated tools and steps → printable guide
-  - Blocked by: `iterate-aggregate` (many notes → one guide); `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `media-adapters` (PDF rendering)
+  - Blocked by: `iterate-aggregate` (many notes → one guide); `media-adapters` (PDF rendering)
 - `color-moodboard` — **Color moodboard** · needs-adapter · `manual`  
   Selected assets → extract palette → produce moodboard and design notes
   - Blocked by: `media-adapters` (palette extraction + render); `iterate-aggregate` (many → one)
-- `soundtrack-brief` — **Soundtrack brief** · needs-engine-capability · `manual`  
-  Story → suggest mood, tempo and instrumentation → save production brief
-  - Possible today (partial): once a free-form operation exists, `set_data` can store its output in the type's own fields today.
-  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts)
+- [soundtrack-brief](../../src/marvin/services/automation/recipes/soundtrack-brief.json) — **Soundtrack brief** · verified-current · `manual`  
+  Run it on stories of one type: each gets a soundtrack suggestion — mood, tempo, instruments and a short composer's brief — kept in its metadata.
+  - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - `alternate-universe-cover` — **Alternate universe cover** · needs-engine-capability · `manual`  
   Entry → sci-fi, noir or botanical cover variations → review
   - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `workflow-approvals` (review and pick)
@@ -367,10 +364,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `surprise-remix-button` — **Surprise remix button** · needs-engine-capability · `manual`  
   Manual run → choose allowed transformation → save new draft
   - A manual run has no entry; today a target query selects the set, and every row runs the same steps.
-  - Blocked by: `manual-params` (pick the entry and the transformation at run time); `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `create-entry` (the remix as a new draft)
+  - Blocked by: `manual-params` (pick the entry and the transformation at run time); `create-entry` (the remix as a new draft)
 - `fictional-debate-club` — **Fictional debate club** · needs-engine-capability · `manual`  
   Entry → draft clearly fictional dialogue between configured viewpoints
-  - Blocked by: `custom-operation` (a free-form prompt with a persona resource; built-in operations have fixed prompts); `create-entry` (the dialogue as a draft)
+  - Blocked by: `create-entry` (the dialogue as a draft)
 
 ### Operations and knowledge
 
@@ -388,22 +385,22 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `fetch` (HEAD/GET each URL); `iterate-aggregate` (one report)
 - `project-milestone-report` — **Project milestone report** · needs-engine-capability · `entry_updated`  
   Completion → assemble linked outcomes → create report draft
-  - Blocked by: `iterate-aggregate` (linked outcomes); `custom-operation` (write the report); `create-entry` (the draft)
+  - Blocked by: `iterate-aggregate` (linked outcomes); `create-entry` (the draft)
 - `knowledge-gap-finder` — **Knowledge gap finder** · needs-engine-capability · `manual`  
   Collection → find missing coverage → propose article backlog
   - Possible today (partial): `answer-workspace-question` (retrieval) can answer “what topics are missing?” as one step output today — nothing can turn the answer into entries.
-  - Blocked by: `collection-scope` (read the collection); `custom-operation` (find gaps); `create-entry` (backlog items)
+  - Blocked by: `collection-scope` (read the collection); `create-entry` (backlog items)
 - `meeting-notes-to-tasks` — **Meeting notes to tasks** · needs-engine-capability · `entry_created`  
   Notes entry → extract commitments with evidence → draft tasks
   - Possible today (partial): the task half exists: editorial-task-maker shows n8n `trigger_workflow` creating tasks from templated data.
-  - Blocked by: `custom-operation` (extract commitments as structured output); `workflow-approvals` (approve before creating)
+  - Blocked by: `workflow-approvals` (approve before creating)
 - `release-notes-compiler` — **Release notes compiler** · needs-engine-capability · `manual`  
   Query changes → group and summarize → create release draft
-  - Blocked by: `iterate-aggregate` (the change set as one input); `relative-dates` (since the last release); `custom-operation` (summarise); `create-entry` (the draft)
+  - Blocked by: `iterate-aggregate` (the change set as one input); `relative-dates` (since the last release); `create-entry` (the draft)
 - `intake-triage` — **Intake triage** · needs-engine-capability · `form_submission_received`  
   New request → classify → assign queue → draft clarifying questions
   - Possible today (partial): form-intake-desk records, reviews and notifies; routing by a classification needs branches (or a second workflow keyed on metadata written by the first).
-  - Blocked by: `form-classification` (`classify-form-submission` gets no submission context from the workflow runner); `custom-operation` (clarifying questions)
+  - Blocked by: `form-classification` (`classify-form-submission` gets no submission context from the workflow runner)
 - [failure-repair-desk](../../src/marvin/services/automation/recipes/failure-repair-desk.json) — **Failure repair desk** · verified-current · `on_error` (`automation_failed`)  
   When any workflow run fails on an entry and the integration's error policy did not handle it, the entry is sent to Needs review with the workflow name and error as the reason.
   - The on_error trigger listens to `automation_failed`; the failed run names its entry as `event.trigger_entity_type/id`, which the entry step targets explicitly (`entity_id`).
@@ -419,7 +416,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `personal-project-radar` — **Personal project radar** · needs-engine-capability · `schedule`  
   Schedule → identify stalled projects → draft small next actions
   - Possible today (partial): a schedule + target `{entry_type: project, status: draft, updated_before: "<absolute date>"}` + `request_review` flags stalled projects today, with the date re-typed.
-  - Blocked by: `relative-dates` (`updated_before: -14d`); `custom-operation` (next actions); `create-entry` (or set_data onto the project)
+  - Blocked by: `relative-dates` (`updated_before: -14d`); `create-entry` (or set_data onto the project)
 
 ### Event-driven extensions
 
@@ -481,18 +478,16 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - A narrower reading of the brief: the entry's summary is refreshed, not the collection's (a collection has no summary field and no step can read a collection's entries). A themed roundup needs collection-scope + create-entry.
   - The event carries `collection_name` (not the slug), so the condition compares the name.
   - Blocked by: `collection-scope` (a summary of the collection itself); `create-entry` (a roundup draft)
-- `resource-attachment-notes` — **Resource attachment notes** · needs-engine-capability · `entry_resource_attached`  
-  Draft an entry-specific material/technique/supplier note from linked resource
-  - Possible today (partial): `generate-summary` on the entry sees its linked resources (ContextBuilder.with_resources) — a summary, not a note.
-  - Blocked by: `custom-operation` (draft the note)
+- [resource-attachment-notes](../../src/marvin/services/automation/recipes/resource-attachment-notes.json) — **Resource attachment notes** · verified-current · `entry_resource_attached`  
+  When a resource is linked to an entry, the AI writes a short note on what it brings to that entry (material, technique, supplier), kept in the entry's metadata.
+  - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - `entry-schema-impact-report` — **Entry schema impact report** · needs-engine-capability · `entry_type_updated`  
   Find impacted entries and report validation changes before migration
   - Possible today (partial): a target `{entry_type: "${event.entry_type_slug}"}` + `request_review` flags every entry of the type — a blunt instrument, no report.
   - Blocked by: `iterate-aggregate` (one report over the type's entries); `create-entry` (the report)
-- `asset-attachment-social-kit` — **Asset attachment social kit** · needs-engine-capability · `asset_attached_to_entry`  
-  Draft a caption and crop suggestions for the entry's newly attached image
-  - Possible today (partial): `generate-summary` on the entry runs today (text only).
-  - Blocked by: `custom-operation` (caption)
+- [asset-attachment-social-kit](../../src/marvin/services/automation/recipes/asset-attachment-social-kit.json) — **Asset attachment social kit** · verified-current · `asset_attached_to_entry`  
+  When an image is attached to an entry, the AI looks at it and drafts a social caption plus square and story crop suggestions, kept in the entry's metadata.
+  - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - `new-member-welcome` — **New member welcome** · supported-after-configuration · subscription: `member_added`  
   Admins (or a fixed address) are emailed when a member joins, with the member's name and role; the token-free payload is all the template sees.
   - The member cannot be addressed: member_added carries no email (recipient_type `event_field` has nothing to resolve). Invited members already receive Marvin's system invitation email.
@@ -532,7 +527,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 
 | Id | Capability | Priority | Recipes blocked | Acceptance |
 |---|---|---|---|---|
-| `custom-operation` | Free-form AI operation | P0 | 38 | An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations. |
 | `media-adapters` | Image, file and audio processing adapters | P1 | 27 | SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified. |
 | `create-entry` | Create-entry action | P0 | 26 | An entry step `{"op": "create", "entry_type": …, "title": …, "data": {…}, "status": "draft"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step). |
 | `workflow-approvals` | Approval step inside a workflow | P1 | 20 | A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step. |
@@ -542,8 +536,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `collection-scope` | Collection-scoped steps | P1 | 4 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). |
 | `fetch` | HTTP fetch step | P1 | 4 | A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry. |
 | `waits` | Durable waits and delays | P1 | 4 | `{"kind": "wait", "until": "${entry.data.event_date} - 7d"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once. |
-| `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 3 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters. |
 | `ops-triggers` | Operational events as workflow triggers | P2 | 3 | ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel. |
+| `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 2 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset. Derived-asset lineage is part of media-adapters. |
 | `data-change-detection` | Data-field change detection | P1 | 2 | entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works. |
 | `form-classification` | Form-submission classification from workflows | P0 | 2 | The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches. |
 | `idempotency` | Per-step idempotency keys | P0 | 2 | A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once. |
@@ -553,6 +547,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `sandbox` | Schema validation / sandbox handler | P2 | 2 | A step validates a fetched JSON document against a JSON schema and reports violations as output. |
 | `comments` | Comment events | P2 | 1 | comment_added/updated/deleted have an emitter that carries entry_id and the comment text, are triggerable, and hydrate `entry.*`. |
 | `custom-events` | Custom emit_event names | P2 | 1 | A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies. |
+| `custom-operation` | Free-form AI operation | P0 | 1 | Delivered 2026-10-11: an operation step `op: "custom"` carries its own prompt (${…} templates) and output_schema (a JSON Schema object); `see` adds the item, its attachments, images, the workspace persona; the answer is checked (one retry) and is the step output; write_back maps it onto the entry (summary, tags, metadata.<key>), asset or resource; budget, approval mode and min_role apply as for built-in operations. Named, reusable workspace operations are a later phase. |
 | `manual-params` | Manual / MCP run parameters | P1 | 1 | A manual or mcp trigger declares typed inputs; the Run dialog and the MCP tool collect them; steps read `${input.*}`; the run records them. |
 | `snapshots` | Entity snapshots and restore | P2 | 1 | A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable. |
 | `branches` | Conditional steps (if/else) | P0 | 0 | Delivered 2026-10-11: any step takes `when` conditions evaluated against steps.* / previous.* (same operators); false records it as skipped (not failed), later references read None, and the dry run shows the verdicts. |

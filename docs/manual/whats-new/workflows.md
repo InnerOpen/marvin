@@ -109,7 +109,36 @@ Two steps with opposite `when`s make an if/else:
 ```
 
 A dry run shows each skipped step with the verdict of its conditions. The editor warns when a `when` reads a step
-that hasn't run by then. The guided editor keeps `when` on a step but doesn't edit it yet: use **JSON**.
+that hasn't run by then. In the guided editor, open **Only run this step when…** under a step: the same condition rows
+as the workflow's own (a grouped condition, `any` or `not`, is edited as JSON there).
+
+### Your own AI instructions (custom AI step)
+
+An **AI operation** step can run **Custom prompt** instead of a built-in operation: your instructions, and the answer
+fields you want back. In JSON it is `"op": "custom"` with:
+
+| Key | What it is |
+| --- | --- |
+| `prompt` | The instructions (up to 8,000 characters). `${entry.title}` and other templates are filled in when it runs. |
+| `output_schema` | The answer as a JSON Schema object, for example `{"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}` (1–20 properties). The guided editor builds it from **Answer fields**: a name, a kind (text, number, whole number, yes/no, list of text) and what it's for. |
+| `see` | What the AI gets besides the instructions: `item` (the entry, asset or resource it runs on; the default), `attachments` (an entry's attached assets and linked resources), `images` (the pictures: an image asset, or an entry's attached images; needs a model that can see images), `persona` (the workspace persona and tone). |
+| `write_back` | Optional, a map from answer field to where it goes: on an entry `summary`, `tags` or `metadata.<key>`; on an asset `alt_text`, `description`, `name`, `tags`, `metadata.<key>`; on a resource `description`, `name`, `tags`, `metadata.<key>`. It follows the approval mode (applied, or staged as a suggestion). An entry's title, status and typed fields are never written this way; to fill a field, add a **Set fields** step reading `${steps.<id>.output.<name>}`. |
+
+The answer is checked against the answer fields. If it doesn't match, the AI is told what was wrong and asked once
+more (both calls count against the AI budget); a second miss fails the step. Give the step an `id` and later steps read
+the answer as `${steps.<id>.output.<name>}`, including in a `when`. The material the AI is given is marked as data: text
+in an entry that reads like instructions is not followed. A dry run shows the instructions with their templates filled
+in, and calls nothing.
+
+```json
+{"kind": "operation", "id": "ask", "op": "custom",
+ "prompt": "Write one open question readers of “${entry.title}” could discuss.",
+ "output_schema": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]},
+ "write_back": {"question": "metadata.discussion_question"}}
+```
+
+Workflow Library recipes that use it: **Community question**, **Marvin margin notes**, **Soundtrack brief**,
+**Resource attachment notes** and **Asset attachment social kit**.
 
 ### When a step fails
 
@@ -203,7 +232,7 @@ A workflow is `enabled: false` when created. A disabled workflow does not run fr
 
 ## Since
 
-`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else) and an operation step's `write_back` field map on assets and resources: unreleased (2026-10-11).
+`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, and custom AI steps (`op: "custom"`): unreleased (2026-10-11).
 
 ## Related
 

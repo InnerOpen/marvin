@@ -302,6 +302,9 @@ def ws(db_session, monkeypatch):
         "credit_key": "credit",
         "license_key": "license",
         "credit_metadata_key": "image_credit",
+        "voice": "a weary robot",
+        "note_key": "resource_note",
+        "caption_style": "warm and plain",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -849,6 +852,85 @@ class TestExecution:
 
         assert _reload(ws, article).metadata_json["image_credit"] == "Ada Lovelace (CC BY 4.0)"
         assert [r.status for r in _runs(ws, "attribution-companion")] == ["success"]
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    # ── custom AI steps (op: "custom") ──
+    def test_community_question(self, ws, monkeypatch):
+        calls = _http(monkeypatch)
+        _install(ws, "community-question")
+        article = _entry(ws, "article", "Engraving brass", status="published", data={"body": "Brass, step by step."})
+        ws.ai.reply_text(json.dumps({"question": "Which tool would you try first on brass?"}))
+
+        _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+
+        [(method, url, body)] = calls
+        assert url == "https://community.example/hooks/new-post" and body["text"] == "Which tool would you try first on brass?"
+        assert "Engraving brass" in ws.ai.last_request()
+        # Published: the question waits as a suggestion on the entry (approval mode allow-draft-update).
+        assert _reload(ws, article).suggestion_json["metadata_json.discussion_question"] == "Which tool would you try first on brass?"
+        assert [r.status for r in _runs(ws, "community-question")] == ["success"]
+
+    def test_marvin_margin_notes(self, ws):
+        row = _install(ws, "marvin-margin-notes")
+        draft = _entry(ws, "article", "Half-finished thoughts", data={"body": "Things."})
+        _entry(ws, "article", "Already out", status="published", data={"body": "Done."})  # not a draft: left alone
+        ws.ai.reply_text(json.dumps({"note": "It is a beginning. Most things are, until they aren't."}))
+
+        result = run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))
+
+        assert result["ran"] == 1 and len(ws.ai.requests) == 1
+        assert "a weary robot" in ws.ai.last_request()
+        assert _reload(ws, draft).metadata_json["margin_note"].startswith("It is a beginning.")
+
+    def test_soundtrack_brief(self, ws):
+        row = _install(ws, "soundtrack-brief")
+        story = _entry(ws, "article", "The lighthouse keeper", data={"body": "Storm, alone, a light."})
+        ws.ai.reply_text(json.dumps({"mood": "brooding", "tempo_bpm": 400, "instrumentation": ["cello"], "brief": "x"}))  # misses twice over
+        ws.ai.reply_text(
+            json.dumps(
+                {"mood": "brooding", "tempo_bpm": 64, "instrumentation": ["cello", "foghorn"], "brief": "Slow strings under a storm; one light."}
+            )
+        )
+
+        run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))
+
+        meta = _reload(ws, story).metadata_json
+        assert (meta["soundtrack_mood"], meta["soundtrack_tempo_bpm"], meta["soundtrack_instruments"]) == ("brooding", 64, ["cello", "foghorn"])
+        assert len(ws.ai.requests) == 2  # the first answer was checked and sent back once
+
+    def test_resource_attachment_notes(self, ws):
+        _install(ws, "resource-attachment-notes")
+        article = _entry(ws, "article", "A waxed bag", data={"body": "Sewing a bag."})
+        _fire(ws, "entry_resource_attached", _entry_doc(article, resource_name="Waxed Canvas"), entity=article.id, entity_type="entry")
+        assert "resource_note" not in (_reload(ws, article).metadata_json or {})  # nothing queued: an empty answer fails, nothing written
+
+        ws.ai.reply_text(json.dumps({"note": "Waxed canvas sheds rain and softens with use, which suits a bag carried every day."}))
+        _fire(ws, "entry_resource_attached", _entry_doc(article, resource_name="Waxed Canvas"), entity=article.id, entity_type="entry")
+
+        assert "Waxed Canvas" in ws.ai.last_request()
+        assert _reload(ws, article).metadata_json["resource_note"].startswith("Waxed canvas sheds rain")
+        assert [r.status for r in _runs(ws, "resource-attachment-notes")] == ["failed", "success"]
+
+    def test_asset_attachment_social_kit(self, ws, monkeypatch):
+        from marvin.db.models.platform import Assets
+
+        _install(ws, "asset-attachment-social-kit")
+        article = _entry(ws, "article", "Harbour at dawn", data={"body": "x"})
+        photo = _asset(ws, "harbour", mime="image/jpeg")
+        ws.session.commit()
+        monkeypatch.setattr(
+            "marvin.services.storage.provider_factory.provider_for",
+            lambda name: SimpleNamespace(get=lambda key: __import__("io").BytesIO(b"\xff\xd8jpeg")),
+        )
+        ws.ai.reply_text(json.dumps({"caption": "Boats waking up in the harbour.", "square_crop": "the red boat", "story_crop": "mast to water"}))
+
+        _fire(ws, "asset_attached_to_entry", _entry_doc(article, asset_id=str(photo.id)), entity=article.id, entity_type="entry")
+
+        assert "image" in ws.ai.last_request().lower()  # it looked at the picture
+        meta = _reload(ws, article).metadata_json
+        assert meta["social_caption"] == "Boats waking up in the harbour."
+        assert meta["social_crops"] == {"square": "the red boat", "story": "mast to water", "asset_id": str(photo.id)}
         ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
         ws.session.commit()
 

@@ -104,7 +104,10 @@ def automation_operations(session, group_id) -> list | None:
     policy = settings.invocation_sources
     if isinstance(policy, dict) and policy.get(AUTOMATION_SOURCE, True) is False:
         return None
-    return [op for op in list_operations() if AUTOMATION_SOURCE in op.invocation_sources]
+    from marvin.services.ai.operations.custom import CUSTOM
+
+    # Plus the step's own prompt (`op: "custom"`): not a registered operation, but a workflow may run one.
+    return [op for op in list_operations() if AUTOMATION_SOURCE in op.invocation_sources] + [CUSTOM]
 
 
 def _integration_actions(provider_slug: str) -> list[dict] | None:
@@ -317,6 +320,12 @@ def _conditions(detail: bool) -> dict:
     return out
 
 
+def _first_sentence(text: str) -> str:
+    """Up to the first ". " — a step kind's line in the guide's overview."""
+    head, sep, _ = (text or "").partition(". ")
+    return head + "." if sep else text
+
+
 def _actions(detail: bool) -> dict:
     from marvin.schemas.group.automation_definition import ACTION_MODELS
 
@@ -324,8 +333,11 @@ def _actions(detail: bool) -> dict:
     from .engine import MAX_ACTIONS
 
     kinds = {kind: {"description": _doc(model), **_fields(model, skip=("kind",))} for kind, model in ACTION_MODELS.items()}
-    if not detail:  # names only; section="actions" has the types
-        kinds = {k: {"description": v["description"], "required": list(v["required"]), "optional": list(v["optional"])} for k, v in kinds.items()}
+    if not detail:  # the first sentence and the field names; section="actions" has the rest and the types
+        kinds = {
+            k: {"description": _first_sentence(v["description"]), "required": list(v["required"]), "optional": list(v["optional"])}
+            for k, v in kinds.items()
+        }
     entry_ops: dict[str, Any] = {}
     for op, sends in OP_SENDS.items():
         status = ENTRY_OPS.get(op) or (REVIEW_STATUS if op == "request_review" else None)

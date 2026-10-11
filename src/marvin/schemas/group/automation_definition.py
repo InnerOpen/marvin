@@ -127,24 +127,28 @@ class _StepBase(_DefnBase):
     when: list[Condition] | Condition | None = None
 
 
-# What an operation step's `write_back` map may write on an asset or resource (beside `metadata.<key>`). Columns only
-# by name: an item's other columns (its storage key, its workspace) are never an AI output's to change.
-ITEM_WRITEBACK_FIELDS: dict[str, frozenset[str]] = {
+# What an operation step's `write_back` map may write (beside `metadata.<key>`). Named fields only: an item's other
+# columns (its storage key, its workspace) are never an AI output's to change, and an entry's title or status would
+# move its page or publish it — its typed fields go through a `set_data` step reading the output.
+WRITEBACK_FIELDS: dict[str, frozenset[str]] = {
+    "entry": frozenset({"summary", "tags"}),
     "asset": frozenset({"alt_text", "description", "name", "tags"}),
     "resource": frozenset({"description", "name", "tags"}),
 }
 
 
-def item_writeback_field_ok(kind: str, field: str) -> bool:
-    """Whether `field` is one an operation step may write on an item of `kind` (asset | resource)."""
+def writeback_field_ok(kind: str, field: str) -> bool:
+    """Whether `field` is one an operation step's `write_back` map may write on a `kind` (entry | asset | resource)."""
     if field.startswith("metadata.") and len(field) > len("metadata."):
-        return kind in ITEM_WRITEBACK_FIELDS
-    return field in ITEM_WRITEBACK_FIELDS.get(kind, frozenset())
+        return kind in WRITEBACK_FIELDS
+    return field in WRITEBACK_FIELDS.get(kind, frozenset())
 
 
 class OperationAction(_StepBase):
-    """Runs an AI operation (`op`: its slug) on the entry, or (`entity_type`) an asset | resource; `write_back`: true
-    saves the op's own fields on an entry, a map {output key: field} on an item (alt_text, description, name, tags,
+    """Runs an AI operation (`op`: its slug) on the entry, or (`entity_type`) an asset | resource. `op: "custom"` takes
+    your own `prompt` (with ${…} templates) and `output_schema` (a JSON Schema object); `see` adds context: item,
+    attachments, images, persona. `write_back`: true saves a built-in op's own fields on an entry; a map {output key:
+    field} names them (entry summary/tags, asset alt_text/description/name/tags, resource description/name/tags,
     metadata.<key>)."""
 
     kind: Literal["operation"]
@@ -154,6 +158,9 @@ class OperationAction(_StepBase):
     entity_id: str | None = None  # defaults to the run's $event.<entity_type>_id
     entity_slug: str | None = None  # preferred for webhook payloads; resolved at run time
     write_back: bool | dict[str, str] = False
+    prompt: str | None = None  # op "custom" only: the instructions (≤ 8000 characters)
+    output_schema: dict[str, Any] | None = None  # op "custom" only: the answer's JSON Schema (an object)
+    see: list[Literal["item", "attachments", "images", "persona"]] | None = None  # op "custom" only; default ["item"]
     id: str | None = None  # addressable as $steps.<id>.output.*
 
     @field_validator("write_back")
@@ -162,13 +169,31 @@ class OperationAction(_StepBase):
         if isinstance(value, dict):
             if not value:
                 raise ValueError("write_back map is empty: name {output key: field}, or use true")
-            unknown = sorted(f for f in value.values() if not any(item_writeback_field_ok(k, f) for k in ITEM_WRITEBACK_FIELDS))
+            unknown = sorted(f for f in value.values() if not any(writeback_field_ok(k, f) for k in WRITEBACK_FIELDS))
             if unknown:
                 raise ValueError(
-                    f"write_back can't write {', '.join(unknown)}: an asset takes alt_text, description, name, tags or metadata.<key>; "
-                    "a resource description, name, tags or metadata.<key>"
+                    f"write_back can't write {', '.join(unknown)}: an entry takes summary, tags or metadata.<key>; an asset "
+                    "alt_text, description, name, tags or metadata.<key>; a resource description, name, tags or metadata.<key>"
                 )
         return value
+
+    @model_validator(mode="after")
+    def _custom_prompt(self):
+        from marvin.services.ai.operations.custom import CUSTOM_OP, MAX_PROMPT_CHARS, schema_problems
+
+        if self.op != CUSTOM_OP:
+            if self.prompt is not None or self.output_schema is not None or self.see is not None:
+                raise ValueError('prompt, output_schema and see go with op "custom" only')
+            return self
+        if not (self.prompt or "").strip():
+            raise ValueError('op "custom" needs a prompt: the instructions for the AI')
+        if len(self.prompt or "") > MAX_PROMPT_CHARS:
+            raise ValueError(f"prompt is longer than {MAX_PROMPT_CHARS} characters")
+        if problems := schema_problems(self.output_schema):
+            raise ValueError("; ".join(problems))
+        if self.write_back is True:
+            raise ValueError("a custom prompt has no fields of its own to write: give write_back a map {output key: field}")
+        return self
 
 
 class EntryAction(_StepBase):

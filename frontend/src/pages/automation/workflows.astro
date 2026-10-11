@@ -249,6 +249,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { installLogoFallback, markHtml } from "@/lib/integrationLogo";
   import { getArg, hintedInputs, optionsHint, setArg } from "@/lib/integrationOptions";
   import { optionPicker } from "@/lib/integrationOptionPicker";
+  import { ANSWER_KINDS, type AnswerField, fieldsFromSchema, SEE_LABELS, schemaFromFields } from "@/lib/customStep";
   import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
   import { describeSaveError } from "@/lib/saveError";
   import { definitionDifferences, freeSlug, parseWorkflowJson, workflowDocument } from "@/lib/workflowJson";
@@ -412,6 +413,45 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     return row;
   }
 
+  // ── A step's `when`: condition rows like the workflow's own, or JSON for a grouped one ({any}, {not}…) ──
+  function isLeaf(c: any): boolean {
+    return !!c && typeof c === "object" && typeof c.field === "string" && !("all" in c || "any" in c || "not" in c);
+  }
+  function whenEditor(when: any): HTMLElement {
+    const wrap = document.createElement("div");
+    const list = when == null ? [] : Array.isArray(when) ? when : [when];
+    if (!list.every(isLeaf)) {
+      wrap.innerHTML = `<textarea class="input mono a-when-json" rows="4" spellcheck="false">${esc(JSON.stringify(when, null, 2))}</textarea>`;
+      return wrap;
+    }
+    const rows = document.createElement("div");
+    rows.className = "rows a-when-rows";
+    list.forEach((c) => rows.appendChild(conditionRow(c)));
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "linkish"; add.textContent = "+ Add condition";
+    add.addEventListener("click", () => rows.appendChild(conditionRow()));
+    wrap.append(rows, add);
+    return wrap;
+  }
+  function withWhen(step: any, row: Element | undefined): any {
+    const json = row?.querySelector(".a-when-json") as HTMLTextAreaElement | null;
+    if (json) {
+      const text = json.value.trim();
+      if (!text) delete step.when;
+      else {
+        try { step.when = JSON.parse(text); } catch (e: any) { throw new Error(`A step's “Only run when”: ${e.message}`); }
+      }
+      return step;
+    }
+    const conds = [...(row?.querySelectorAll(".a-when-rows .cond-row") ?? [])].map((r) => {
+      const field = (r.querySelector(".c-field") as HTMLInputElement).value.trim();
+      return field ? { field, op: (r.querySelector(".c-op") as HTMLSelectElement).value, value: (r.querySelector(".c-value") as HTMLInputElement).value } : null;
+    }).filter(Boolean);
+    if (conds.length) step.when = conds.length === 1 ? conds[0] : conds;
+    else delete step.when;
+    return step;
+  }
+
   // ── Key/value list editor (entry metadata to set, target metadata filter) ─
   function kvRow(key = "", value: unknown = "") {
     const row = document.createElement("div");
@@ -439,6 +479,36 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     wrap.append(rows, add);
     return wrap;
   }
+  // A custom AI step's answer fields: name, kind, what it's for — one row each (customStep.ts builds the schema).
+  function answerFieldsEditor(fields: AnswerField[]): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "af-editor";
+    const rows = document.createElement("div");
+    const row = (f: AnswerField = { name: "", kind: "text", description: "" }) => {
+      const r = document.createElement("div");
+      r.className = "af-row";
+      r.innerHTML = `<input class="input af-name" placeholder="name, e.g. caption" value="${esc(f.name)}" />
+        <select class="input af-kind">${ANSWER_KINDS.map((k) => `<option ${k === f.kind ? "selected" : ""}>${k}</option>`).join("")}</select>
+        <input class="input af-desc" placeholder="what it's for (optional)" value="${esc(f.description)}" />
+        <button type="button" class="linkish af-remove" title="Remove">✕</button>`;
+      r.querySelector(".af-remove")!.addEventListener("click", () => r.remove());
+      return r;
+    };
+    fields.forEach((f) => rows.appendChild(row(f)));
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "linkish"; add.textContent = "+ Add answer field";
+    add.addEventListener("click", () => rows.appendChild(row()));
+    wrap.append(rows, add);
+    return wrap;
+  }
+  function readAnswerFields(editor: Element | null): AnswerField[] {
+    return [...(editor?.querySelectorAll(".af-row") ?? [])].map((r) => ({
+      name: (r.querySelector(".af-name") as HTMLInputElement).value,
+      kind: (r.querySelector(".af-kind") as HTMLSelectElement).value as AnswerField["kind"],
+      description: (r.querySelector(".af-desc") as HTMLInputElement).value,
+    }));
+  }
+
   function readKv(editor: Element | null): Record<string, unknown> {
     const out: Record<string, unknown> = {};
     editor?.querySelectorAll(".kv-row").forEach((r) => {
@@ -484,7 +554,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <select class="input a-kind">${kinds}</select>
         <button type="button" class="icon-btn" title="Remove step">✕</button>
       </div>
-      <div class="a-fields"></div>`;
+      <div class="a-fields"></div>
+      <details class="a-when" ${a.when ? "open" : ""}>
+        <summary class="small">Only run this step when…${a.when ? " (set)" : ""}</summary>
+        <div class="a-when-body"></div>
+        <span class="hint small">Same as the workflow's conditions, and it can read earlier steps' answers, e.g. <code>steps.check.output.is_spam</code>. When it isn't met the step is skipped (not failed) and the run goes on. Two steps with opposite conditions make an if/else.</span>
+      </details>`;
+    row.querySelector(".a-when-body")!.appendChild(whenEditor(a.when));
     const kindSel = row.querySelector(".a-kind") as HTMLSelectElement;
     const fields = row.querySelector(".a-fields") as HTMLElement;
     const render = () => { fields.innerHTML = ""; fields.appendChild(kindFields(kindSel.value, a)); };
@@ -593,11 +669,40 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return wrap;
       }
       const optList = ops.map((o: any) => `<option value="${esc(o.op)}" ${a.op === o.op ? "selected" : ""}>${esc(o.name)}</option>`).join("");
+      const isCustom = a.op === "custom";
+      // A write-back map (an asset's alt_text, a custom step's answer fields) is edited as rows; `true` stays a checkbox.
+      const wbMap = a.write_back && typeof a.write_back === "object" ? a.write_back : null;
+      const answerFields = fieldsFromSchema(a.output_schema);
+      const see = new Set<string>(a.see ?? ["item"]);
       wrap.innerHTML = `
         <select class="input a-op">${optList}</select>
         <input class="input a-entity-slug" placeholder="Target entry by slug — e.g. $event.payload.entry_slug" value="${esc(a.entity_slug ?? "")}" />
         <span class="hint small">Which entry to run on. Leave blank to use the triggering entry; for a webhook, point at one by slug (e.g. <code>$event.payload.entry_slug</code>).</span>
-        <label class="check small"><input type="checkbox" class="a-writeback" ${a.write_back ? "checked" : ""}/> Write the result back to the entry</label>`;
+        <div class="a-custom" ${isCustom ? "" : "hidden"}>
+          <label class="tf"><span>Instructions for the AI <span class="muted">(templates such as \${entry.title} are filled in when it runs)</span></span>
+            <textarea class="input a-prompt" rows="5" placeholder="e.g. Write one open question readers of \${entry.title} could discuss.">${esc(a.prompt ?? "")}</textarea></label>
+          <div class="tf"><span>Answer fields <span class="muted">(what the AI must return — later steps read them as \${steps.&lt;step id&gt;.output.&lt;name&gt;}; give this step an id)</span></span>
+            <div class="a-answer-fields"></div>
+            <textarea class="input mono a-schema" rows="6" spellcheck="false" ${answerFields ? "hidden" : ""}>${answerFields ? "" : esc(JSON.stringify(a.output_schema ?? {}, null, 2))}</textarea>
+          </div>
+          <div class="tf"><span>Let the AI see</span>
+            ${Object.entries(SEE_LABELS).map(([k, label]) => `<label class="check small"><input type="checkbox" class="a-see" value="${k}" ${see.has(k) ? "checked" : ""}/> ${esc(label)}</label>`).join("")}
+          </div>
+        </div>
+        <label class="check small a-writeback-wrap" ${isCustom || wbMap ? "hidden" : ""}><input type="checkbox" class="a-writeback" ${a.write_back === true ? "checked" : ""}/> Write the result back to the entry</label>
+        <div class="tf a-wbmap-wrap" ${isCustom || wbMap ? "" : "hidden"}><span>Write back <span class="muted">(answer field → on an entry summary, tags or metadata.&lt;key&gt;; on an asset alt_text, description, name, tags; follows the approval mode)</span></span></div>`;
+      wrap.querySelector(".a-wbmap-wrap")!.appendChild(kvEditor(wbMap ?? undefined, "+ Add a field to write"));
+      if (answerFields) wrap.querySelector(".a-answer-fields")!.appendChild(answerFieldsEditor(answerFields));
+      const opSel = wrap.querySelector(".a-op") as HTMLSelectElement;
+      opSel.addEventListener("change", () => {
+        const custom = opSel.value === "custom";
+        wrap.querySelector(".a-custom")!.toggleAttribute("hidden", !custom);
+        wrap.querySelector(".a-writeback-wrap")!.toggleAttribute("hidden", custom || !!wbMap);
+        wrap.querySelector(".a-wbmap-wrap")!.toggleAttribute("hidden", !(custom || wbMap));
+        if (custom && !wrap.querySelector(".a-answer-fields .af-row") && (wrap.querySelector(".a-schema") as HTMLElement).hidden) {
+          wrap.querySelector(".a-answer-fields")!.replaceChildren(answerFieldsEditor([{ name: "", kind: "text", description: "" }]));
+        }
+      });
     } else if (kind === "entry") {
       const opList = Object.entries(ENTRY_OP_LABELS)
         .map(([op, label]) => `<option value="${esc(op)}" ${a.op === op ? "selected" : ""}>${esc(label)}</option>`).join("");
@@ -692,7 +797,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
 
   // ── Build / read the definition ───────────────────────────────────────────
   function readDefinition() {
-    const conditions = [...document.querySelectorAll(".cond-row")].map((r) => {
+    const conditions = [...$("wf-conditions").querySelectorAll(".cond-row")].map((r) => {
       const field = (r.querySelector(".c-field") as HTMLInputElement).value.trim();
       const op = (r.querySelector(".c-op") as HTMLSelectElement).value;
       const value = (r.querySelector(".c-value") as HTMLInputElement).value;
@@ -712,7 +817,29 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         if (!op) return null;
         step.op = op;
         setOrDrop("entity_slug", field(".a-entity-slug")?.value.trim());
-        step.write_back = (field(".a-writeback") as HTMLInputElement | null)?.checked || false;
+        const custom = op === "custom";
+        const wbMapWrap = r.querySelector(".a-wbmap-wrap") as HTMLElement | null;
+        if (wbMapWrap && !wbMapWrap.hidden) {
+          const map = readKv(wbMapWrap);
+          step.write_back = Object.keys(map).length ? map : false;
+        } else {
+          step.write_back = (field(".a-writeback") as HTMLInputElement | null)?.checked || false;
+        }
+        if (custom) {
+          step.prompt = field(".a-prompt")?.value ?? "";
+          const schemaBox = field(".a-schema") as HTMLTextAreaElement | null;
+          try {
+            step.output_schema = schemaBox && !schemaBox.hidden
+              ? parseJsonObject(schemaBox.value, "answer schema")
+              : schemaFromFields(readAnswerFields(r.querySelector(".a-answer-fields")));
+          } catch (e: any) {
+            throw new Error(`Step ${i + 1}: ${e.message}`);
+          }
+          const seen = [...r.querySelectorAll<HTMLInputElement>(".a-see:checked")].map((c) => c.value);
+          setOrDrop("see", seen.length && !(seen.length === 1 && seen[0] === "item") ? seen : null);
+        } else {
+          delete step.prompt; delete step.output_schema; delete step.see;
+        }
         return step;
       }
       if (kind === "entry") {
@@ -765,7 +892,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return step.url || step.webhook_id ? step : null;  // read-only raw-url step, or nothing to pick
       }
       return null;
-    }).filter(Boolean);
+    }).map((step, i) => (step ? withWhen(step, document.querySelectorAll(".action-row")[i]) : step)).filter(Boolean);
 
     const ttype = ($("wf-trigger-type") as HTMLSelectElement).value;
     let trigger: any;
@@ -1564,6 +1691,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.status-partial) { color: #d9a441; }
   .workflows-page :global(.status-running) { color: var(--muted); }
   .workflows-page :global(.status-skipped) { color: var(--muted); }
+  .workflows-page :global(.a-when) { margin-top: 6px; }
+  .workflows-page :global(.a-when summary) { cursor: pointer; color: var(--muted); }
+  .workflows-page :global(.af-row) { display: grid; grid-template-columns: 1fr 140px 2fr auto; gap: 6px; margin-bottom: 6px; }
+  @media (max-width: 640px) { .workflows-page :global(.af-row) { grid-template-columns: 1fr 1fr; } }
   .workflows-page :global(.run-meta) { font-size: 11.5px; }
   .workflows-page :global(.run-detail) { margin: 0 0 6px 18px; display: flex; flex-direction: column; gap: 2px; }
   .workflows-page :global(.run-detail[hidden]) { display: none; }

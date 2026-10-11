@@ -1,0 +1,15 @@
+{
+  "recipe": "marvin-margin-notes",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Which drafts get a margin note when you run it.",
+      "example": "article"
+    },
+    "voice": {
+      "type": "text",
+      "description": "Who is writing the note (added to the workspace persona).",
+      "example": "a weary robot who has read every draft ever written"
+    }
+  }
+}

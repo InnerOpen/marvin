@@ -10,11 +10,14 @@ This reuses the already-factored primitives (ContextBuilder, provider factory,
 (same debt as the scheduled-agent tool-builder extraction).
 """
 
+import json
 import time
 from datetime import UTC, datetime
 
-from marvin.schemas.group.automation_definition import ITEM_WRITEBACK_FIELDS, item_writeback_field_ok
+from marvin.schemas.group.automation_definition import writeback_field_ok
+from marvin.services.ai.base import Message
 from marvin.services.ai.operations import get_operation
+from marvin.services.ai.operations.custom import CUSTOM_OP, CustomOperation, output_problems, workspace_voice
 
 from .actions.base import AutomationActionError  # re-exported for callers importing from runner
 from .matcher import interpolate
@@ -69,17 +72,14 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
     engine logs and moves on; automations never break event dispatch.
     """
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
-    from marvin.services.ai.context import ContextBuilder, resolve_prompt_messages
+    from marvin.services.ai.context import resolve_prompt_messages
     from marvin.services.ai.factory import AIDisabledError, get_workspace_ai_provider
 
     slug = action.get("op")
     if not slug:
         raise AutomationActionError("action is missing 'op'")
-    try:
-        operation = get_operation(slug)
-    except KeyError as e:
-        raise AutomationActionError(f"unknown operation '{slug}'") from e
-
+    operation = _operation_for(session, group_id, action, context)
+    custom = getattr(operation, "slug", None) == CUSTOM_OP
     _gate_source(session, group_id, operation)
     # Definer's rights: the op runs under the automation author's authority, so enforce the op's own
     # min_role against the author's *current* role (fail-closed if they were demoted/removed). None =
@@ -117,6 +117,7 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
             "entity_type": entity_type,
             "entity_id": str(entity_id) if entity_id else None,
             "input": op_input,
+            **({"prompt": operation.prompt[:2000], "see": list(operation.see)} if custom else {}),
             "would_write_back": bool(action.get("write_back")),
         }
 
@@ -138,17 +139,7 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
     if not model:
         raise AutomationActionError("no default model configured for this workspace")
 
-    builder = ContextBuilder(session, group_id).with_site_settings().with_variables()
-    if entity_type == "entry" and entity_id:
-        builder.with_entry(entity_id).with_assets(entity_id).with_resources(entity_id)
-    elif entity_type == "asset" and entity_id:
-        builder.with_asset(entity_id)
-        # As in the interactive route: a vision op needs the image; one that merely benefits sees it if the model can.
-        if operation.requires_vision or (getattr(operation, "sees_asset_image", False) and _model_sees_images(session, group_id, model)):
-            builder.with_asset_images()
-    elif entity_type == "resource" and entity_id:
-        builder.with_resource(entity_id)
-    ctx = builder.build()
+    ctx = _operation_context(session, group_id, operation, entity_type, entity_id, model)
 
     from marvin.db.models.groups.ai_executions import AIExecutionModel
 
@@ -181,7 +172,7 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
         )
         messages = operation.build_prompt(op_input, ctx)
         messages = resolve_prompt_messages(messages, group_id, ctx.variables)
-        parsed, completion = provider.execute_operation(messages, model, operation.output_schema, opts)
+        parsed, usage = _complete(provider, operation, messages, model, opts, check=custom)
 
         from marvin.services.ai.pricing import estimate_cost
 
@@ -189,10 +180,12 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
         execution.completed_at = datetime.now(UTC)
         execution.duration_ms = int((time.monotonic() - start) * 1000)
         execution.output_json = parsed
-        execution.prompt_tokens = completion.prompt_tokens
-        execution.completion_tokens = completion.completion_tokens
-        execution.total_tokens = completion.total_tokens
-        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, completion.prompt_tokens, completion.completion_tokens)
+        prompt_tokens = sum(c.prompt_tokens or 0 for c in usage)  # a retried custom answer costs both calls
+        completion_tokens = sum(c.completion_tokens or 0 for c in usage)
+        execution.prompt_tokens = prompt_tokens
+        execution.completion_tokens = completion_tokens
+        execution.total_tokens = sum(c.total_tokens or 0 for c in usage)
+        execution.estimated_cost_usd = estimate_cost(provider.provider_type, model, prompt_tokens, completion_tokens)
         session.commit()
     except Exception as e:
         execution.status = "failed"
@@ -203,30 +196,95 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
     if crossing := budget.crossing_after(session, group_id, execution.estimated_cost_usd):
         budget.emit_crossing(group_id, crossing, user_id=user_id, source=AUTOMATION_SOURCE)
 
-    # Optional write-back of the operation's own writeback map — gated by the workspace approval mode
-    # like every other AI write-back: applied when the mode allows it for this entry, else staged as a
-    # suggestion for a person to accept. The step output says which (`_write_back`).
+    return _apply_write_back(session, group_id, action, operation, parsed, entity_type, entity_id, context, user_id, authorizer_role, execution.id)
+
+
+def _operation_for(session, group_id, action: dict, context: dict):
+    """The step's operation: a registered one by slug, or (`op: "custom"`) one built from the step's own prompt (its
+    ${…} templates filled in now), output schema and `see` — the schema was checked when the workflow was saved."""
+    slug = action["op"]
+    if slug == CUSTOM_OP:
+        see = tuple(action.get("see") or ())
+        return CustomOperation(
+            prompt=str(interpolate(action.get("prompt") or "", context) or ""),
+            output_schema=action.get("output_schema") or {},
+            see=see,
+            voice=workspace_voice(session, group_id) if "persona" in see else "",
+        )
+    try:
+        return get_operation(slug)
+    except KeyError as e:
+        raise AutomationActionError(f"unknown operation '{slug}'") from e
+
+
+def _operation_context(session, group_id, operation, entity_type: str, entity_id, model: str):
+    """What the operation's prompt is built from: the site, the variables, and the item the step runs on — with its
+    pictures when the operation looks at images (a vision op, a custom step that asks to `see` them)."""
+    from marvin.services.ai.context import ContextBuilder
+
+    if operation.requires_vision and not _model_sees_images(session, group_id, model):
+        raise AutomationActionError(f"operation '{operation.slug}' needs a model that can see images; {model} can't")
+    builder = ContextBuilder(session, group_id).with_site_settings().with_variables()
+    if entity_type == "entry" and entity_id:
+        builder.with_entry(entity_id).with_assets(entity_id).with_resources(entity_id)
+        if operation.requires_vision:  # the entry's attached pictures
+            builder.with_asset_images()
+    elif entity_type == "asset" and entity_id:
+        builder.with_asset(entity_id)
+        # As in the interactive route: a vision op needs the image; one that merely benefits sees it if the model can.
+        if operation.requires_vision or (getattr(operation, "sees_asset_image", False) and _model_sees_images(session, group_id, model)):
+            builder.with_asset_images()
+    elif entity_type == "resource" and entity_id:
+        builder.with_resource(entity_id)
+    return builder.build()
+
+
+def _complete(provider, operation, messages: list, model: str, opts, *, check: bool) -> tuple[dict, list]:
+    """The provider's structured answer and the usage of every call. With `check` (a custom step) the answer must match
+    the output schema: one more try, told what was wrong, then a ValueError (the step fails, logged as failed)."""
+    parsed, completion = provider.execute_operation(messages, model, operation.output_schema, opts)
+    usage = [completion]
+    if check and (problems := output_problems(operation.output_schema, parsed)):
+        retry = [
+            *messages,
+            Message(role="assistant", content=json.dumps(parsed)[:4000]),
+            Message(role="user", content=f"That answer doesn't match the schema: {'; '.join(problems)}. Answer again with only the JSON object."),
+        ]
+        parsed, completion = provider.execute_operation(retry, model, operation.output_schema, opts)
+        usage.append(completion)
+        if problems := output_problems(operation.output_schema, parsed):
+            raise ValueError(f"the answer doesn't match output_schema: {'; '.join(problems)}")
+    return parsed, usage
+
+
+def _apply_write_back(session, group_id, action, operation, parsed, entity_type, entity_id, context, user_id, authorizer_role, execution_id) -> dict:
+    """The step's output, after its optional write-back — gated by the workspace approval mode like every other AI
+    write-back (applied, or staged as a suggestion for a person to accept); `_write_back` in the output says which.
+    `write_back: true` writes a built-in op's own fields on an entry; a map {output key: field} names them."""
+    if not isinstance(parsed, dict):
+        return {}
     write_back = action.get("write_back")
-    if isinstance(write_back, dict) and write_back and isinstance(parsed, dict):
-        if entity_type not in ITEM_WRITEBACK_FIELDS:
-            raise AutomationActionError("a write_back map writes onto an asset or resource; on an entry use write_back: true")
+    depth = int(context.get("depth", 0))
+    if isinstance(write_back, dict) and write_back:
         if not entity_id:
             raise AutomationActionError(f"write_back: no {entity_type} to write onto")
         proposed = {field: parsed[out] for out, field in write_back.items() if out in parsed}
-        if bad := sorted(f for f in proposed if not item_writeback_field_ok(entity_type, f)):
+        if bad := sorted(f for f in proposed if not writeback_field_ok(entity_type, f)):
             raise AutomationActionError(f"write_back can't write {', '.join(bad)} on an {entity_type}")
+        if not proposed:
+            return parsed
+        if entity_type == "entry":
+            fields = {f"metadata_json.{f.split('.', 1)[1]}" if f.startswith("metadata.") else f: v for f, v in proposed.items()}
+            outcome = _write_back(session, group_id, entity_id, fields, user_id, depth, operation.slug, execution_id)
+        else:
+            outcome = _write_back_item(session, group_id, entity_type, entity_id, proposed, authorizer_role, operation.slug, execution_id)
+        return {**parsed, "_write_back": outcome}
+    if write_back and entity_type == "entry" and entity_id:
+        proposed = {target: parsed[out] for out, target in (getattr(operation, "writeback", None) or {}).items() if out in parsed}
         if proposed:
-            outcome = _write_back_item(session, group_id, entity_type, entity_id, proposed, authorizer_role, slug, execution.id)
+            outcome = _write_back(session, group_id, entity_id, proposed, user_id, depth, operation.slug, execution_id)
             return {**parsed, "_write_back": outcome}
-        return parsed
-    if write_back and entity_type == "entry" and entity_id and isinstance(parsed, dict):
-        writeback = getattr(operation, "writeback", None) or {}
-        proposed = {target: parsed[out] for out, target in writeback.items() if out in parsed}
-        if proposed:
-            outcome = _write_back(session, group_id, entity_id, proposed, user_id, int(context.get("depth", 0)), slug, execution.id)
-            return {**parsed, "_write_back": outcome}
-
-    return parsed if isinstance(parsed, dict) else {}
+    return parsed
 
 
 def _write_back(session, group_id, entity_id, proposed: dict, user_id, depth: int, slug: str, execution_id) -> str:

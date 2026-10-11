@@ -15,8 +15,8 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 26,
-    "needs-engine-capability": 54,
+    "verified-current": 31,
+    "needs-engine-capability": 49,
     "needs-adapter": 16,
     "supported-after-configuration": 11
   },
@@ -31,7 +31,7 @@
       "name": "Free-form AI operation",
       "priority": "P0",
       "capabilities_md": "Typed output contracts / Provider adapters",
-      "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations."
+      "acceptance": "Delivered 2026-10-11: an operation step `op: \"custom\"` carries its own prompt (${…} templates) and output_schema (a JSON Schema object); `see` adds the item, its attachments, images, the workspace persona; the answer is checked (one retry) and is the step output; write_back maps it onto the entry (summary, tags, metadata.<key>), asset or resource; budget, approval mode and min_role apply as for built-in operations. Named, reusable workspace operations are a later phase."
     },
     "branches": {
       "name": "Conditional steps (if/else)",
@@ -55,7 +55,7 @@
       "name": "Assets and resources as workflow subjects",
       "priority": "P1",
       "capabilities_md": "Assets and resources",
-      "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters."
+      "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset. Derived-asset lineage is part of media-adapters."
     },
     "workflow-approvals": {
       "name": "Approval step inside a workflow",
@@ -589,7 +589,7 @@
           "capability": "custom-operation",
           "name": "Free-form AI operation",
           "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
+          "acceptance": "Delivered 2026-10-11: an operation step `op: \"custom\"` carries its own prompt (${…} templates) and output_schema (a JSON Schema object); `see` adds the item, its attachments, images, the workspace persona; the answer is checked (one retry) and is the step output; write_back maps it onto the entry (summary, tags, metadata.<key>), asset or resource; budget, approval mode and min_role apply as for built-in operations. Named, reusable workspace operations are a later phase.",
           "why": "to generate a title"
         }
       ],
@@ -652,13 +652,6 @@
           "priority": "P0",
           "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
           "why": "a translated draft is a new entry"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "no translation operation exists"
         },
         {
           "capability": "workflow-approvals",
@@ -864,13 +857,6 @@
           "priority": "P0",
           "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
           "why": "the draft issue"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "write the digest"
         }
       ],
       "notes": [
@@ -998,15 +984,8 @@
           "capability": "asset-resource-targets",
           "name": "Assets and resources as workflow subjects",
           "priority": "P1",
-          "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters.",
+          "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset. Derived-asset lineage is part of media-adapters.",
           "why": "a target query for the entries linked to the triggering resource (has_resources is only true/false)"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "propose passage updates"
         },
         {
           "capability": "workflow-approvals",
@@ -1245,13 +1224,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "suggest collections from the entry and the collection list"
-        },
         {
           "capability": "workflow-approvals",
           "name": "Approval step inside a workflow",
@@ -1562,13 +1534,6 @@
           "why": "`published_before: -365d` in the target"
         },
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "propose a refresh"
-        },
-        {
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
@@ -1626,13 +1591,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "per-channel rewrites with a persona"
-        },
         {
           "capability": "create-entry",
           "name": "Create-entry action",
@@ -1697,13 +1655,6 @@
           "why": "render slides"
         },
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "outline"
-        },
-        {
           "capability": "social-adapters",
           "name": "Social publishing adapters",
           "priority": "P1",
@@ -1766,13 +1717,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "thread generation"
-        },
-        {
           "capability": "social-adapters",
           "name": "Social publishing adapters",
           "priority": "P1",
@@ -1833,13 +1777,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "render the card"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "exact quote extraction with verification"
         }
       ],
       "notes": [],
@@ -1902,13 +1839,6 @@
           "priority": "P1",
           "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
           "why": "publish"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "variants"
         }
       ],
       "notes": [],
@@ -1959,20 +1889,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters.",
-          "why": "an entry operation that sees the entry's attached photos as images (it gets their names only)"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "write the post from notes and photos"
-        },
-        {
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
@@ -1999,7 +1915,7 @@
     {
       "id": "community-question",
       "title": "Community question",
-      "outcome": "Publication → generate specific discussion question → queue channel post",
+      "outcome": "A published entry gets one specific discussion question written for it, posted to your community channel through an outgoing webhook and kept in its metadata.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
@@ -2014,34 +1930,69 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "community-question.json",
+      "vars": "community-question.vars.json",
+      "setup_variables": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "generate the question"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which entries get a discussion question when they are published.",
+          "example": "article"
+        },
+        {
+          "name": "announcement_webhook_id",
+          "type": "webhook_id",
+          "description": "The outgoing webhook that posts to your community channel (it receives text, title, url, entry_id).",
+          "example": "<webhook id>"
         }
       ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "webhook"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per published entry."
+        },
+        {
+          "kind": "external_post",
+          "description": "Posts the question to the channel webhook."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Writes metadata.discussion_question (or stages it, per the approval mode)."
+        }
+      ],
+      "cost_notes": "One AI call per run (two if the first answer doesn't match its fields), from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error, or two answers that don't match the output fields, fails the step; the run is recorded and the `workflow_failed` alert fires (if enabled). Nothing is written.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): the webhook half exists: see publication-announcement; `generate-summary` output can be posted as `${steps.summary.output.summary}`."
+        "A custom AI step (`op: \"custom\"`): its own prompt and output fields; the answer is checked against them."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_community_question"
       },
       "brief": {
         "flow": "Publication → generate specific discussion question → queue channel post",
@@ -2089,13 +2040,6 @@
           "priority": "P1",
           "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
           "why": "a poll-capable provider"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "options"
         }
       ],
       "notes": [],
@@ -2151,13 +2095,6 @@
           "priority": "P2",
           "acceptance": "comment_added/updated/deleted have an emitter that carries entry_id and the comment text, are triggerable, and hydrate `entry.*`.",
           "why": "no comment events are ever sent"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "classify and draft"
         },
         {
           "capability": "workflow-approvals",
@@ -2283,13 +2220,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "variants"
-        },
-        {
           "capability": "metrics",
           "name": "Metrics windows and experiments",
           "priority": "P2",
@@ -2407,13 +2337,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "each piece"
-        },
-        {
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
@@ -2481,13 +2404,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "the post"
-        },
         {
           "capability": "workflow-approvals",
           "name": "Approval step inside a workflow",
@@ -2802,13 +2718,6 @@
           "priority": "P2",
           "acceptance": "ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel.",
           "why": "member events as triggers"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "assemble the pack"
         }
       ],
       "notes": [
@@ -3878,7 +3787,7 @@
           "capability": "asset-resource-targets",
           "name": "Assets and resources as workflow subjects",
           "priority": "P1",
-          "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters.",
+          "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset. Derived-asset lineage is part of media-adapters.",
           "why": "an asset target query by checksum"
         }
       ],
@@ -3999,13 +3908,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
-        },
-        {
           "capability": "workflow-approvals",
           "name": "Approval step inside a workflow",
           "priority": "P1",
@@ -4040,7 +3942,7 @@
     {
       "id": "marvin-margin-notes",
       "title": "Marvin margin notes",
-      "outcome": "Entry → draft dry pessimistic commentary in a configurable persona",
+      "outcome": "Run it on your drafts of one type: each gets a short, dry, faintly pessimistic margin note in a voice you describe, kept in its metadata.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -4053,34 +3955,62 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "marvin-margin-notes.json",
+      "vars": "marvin-margin-notes.vars.json",
+      "setup_variables": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which drafts get a margin note when you run it.",
+          "example": "article"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "Who is writing the note (added to the workspace persona).",
+          "example": "a weary robot who has read every draft ever written"
         }
       ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per draft."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Writes metadata.margin_note."
+        }
+      ],
+      "cost_notes": "One AI call per run (two if the first answer doesn't match its fields), from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error, or two answers that don't match the output fields, fails the step; the run is recorded and the `workflow_failed` alert fires (if enabled). Nothing is written.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): `improve-writing` with `input.tone` proposes a rewrite in a tone, stored via set_metadata — a tone, not a persona."
+        "A custom AI step (`op: \"custom\"`): its own prompt and output fields; the answer is checked against them."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_marvin_margin_notes"
       },
       "brief": {
         "flow": "Entry → draft dry pessimistic commentary in a configurable persona",
@@ -4123,13 +4053,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
-        },
         {
           "capability": "create-entry",
           "name": "Create-entry action",
@@ -4243,13 +4166,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
-        },
         {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
@@ -4368,13 +4284,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
-        },
-        {
           "capability": "workflow-approvals",
           "name": "Approval step inside a workflow",
           "priority": "P1",
@@ -4437,13 +4346,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
-        },
-        {
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
@@ -4504,13 +4406,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
-        },
-        {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
@@ -4569,13 +4464,6 @@
           "priority": "P1",
           "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
           "why": "many notes → one guide"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
         },
         {
           "capability": "media-adapters",
@@ -4665,7 +4553,7 @@
     {
       "id": "soundtrack-brief",
       "title": "Soundtrack brief",
-      "outcome": "Story → suggest mood, tempo and instrumentation → save production brief",
+      "outcome": "Run it on stories of one type: each gets a soundtrack suggestion — mood, tempo, instruments and a short composer's brief — kept in its metadata.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -4678,34 +4566,56 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "soundtrack-brief.json",
+      "vars": "soundtrack-brief.vars.json",
+      "setup_variables": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which stories get a soundtrack brief when you run it.",
+          "example": "article"
         }
       ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per story."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Writes metadata.soundtrack_* (mood, tempo_bpm, instruments, brief)."
+        }
+      ],
+      "cost_notes": "One AI call per run (two if the first answer doesn't match its fields), from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error, or two answers that don't match the output fields, fails the step; the run is recorded and the `workflow_failed` alert fires (if enabled). Nothing is written.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): once a free-form operation exists, `set_data` can store its output in the type's own fields today."
+        "A custom AI step (`op: \"custom\"`): its own prompt and output fields; the answer is checked against them."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_soundtrack_brief"
       },
       "brief": {
         "flow": "Story → suggest mood, tempo and instrumentation → save production brief",
@@ -4882,13 +4792,6 @@
           "why": "pick the entry and the transformation at run time"
         },
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
-        },
-        {
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
@@ -4944,13 +4847,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "a free-form prompt with a persona resource; built-in operations have fixed prompts"
-        },
         {
           "capability": "create-entry",
           "name": "Create-entry action",
@@ -5274,13 +5170,6 @@
           "why": "linked outcomes"
         },
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "write the report"
-        },
-        {
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
@@ -5342,13 +5231,6 @@
           "why": "read the collection"
         },
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "find gaps"
-        },
-        {
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
@@ -5406,13 +5288,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "extract commitments as structured output"
-        },
         {
           "capability": "workflow-approvals",
           "name": "Approval step inside a workflow",
@@ -5484,13 +5359,6 @@
           "why": "since the last release"
         },
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "summarise"
-        },
-        {
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
@@ -5551,13 +5419,6 @@
           "priority": "P0",
           "acceptance": "The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches.",
           "why": "`classify-form-submission` gets no submission context from the workflow runner"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "clarifying questions"
         }
       ],
       "notes": [
@@ -5827,13 +5688,6 @@
           "priority": "P1",
           "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
           "why": "`updated_before: -14d`"
-        },
-        {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "next actions"
         },
         {
           "capability": "create-entry",
@@ -7466,7 +7320,7 @@
     {
       "id": "resource-attachment-notes",
       "title": "Resource attachment notes",
-      "outcome": "Draft an entry-specific material/technique/supplier note from linked resource",
+      "outcome": "When a resource is linked to an entry, the AI writes a short note on what it brings to that entry (material, technique, supplier), kept in the entry's metadata.",
       "category": "Event-driven extensions",
       "category_slug": "events",
       "tags": [
@@ -7479,36 +7333,66 @@
         "event": "entry_resource_attached",
         "builtin_event": true,
         "custom_event": false,
-        "note": "Triggerable; hydrates the entry but the payload has no resource id."
+        "note": "The event names the resource (`${event.resource_name}`); the step sees every linked resource (`see: attachments`)."
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "resource-attachment-notes.json",
+      "vars": "resource-attachment-notes.vars.json",
+      "setup_variables": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "draft the note"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which entries get a note when a resource is linked to them.",
+          "example": "article"
+        },
+        {
+          "name": "note_key",
+          "type": "text",
+          "description": "The entry metadata key the note is written to.",
+          "example": "resource_note"
         }
       ],
+      "requires": {
+        "trigger": "event:entry_resource_attached",
+        "action_kinds": [
+          "operation"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per linked resource."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Writes the note into the entry's metadata."
+        }
+      ],
+      "cost_notes": "One AI call per run (two if the first answer doesn't match its fields), from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error, or two answers that don't match the output fields, fails the step; the run is recorded and the `workflow_failed` alert fires (if enabled). Nothing is written.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): `generate-summary` on the entry sees its linked resources (ContextBuilder.with_resources) — a summary, not a note."
+        "A custom AI step (`op: \"custom\"`): its own prompt and output fields; the answer is checked against them."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_resource_attachment_notes"
       },
       "brief": {
         "flow": "Draft an entry-specific material/technique/supplier note from linked resource",
@@ -7587,7 +7471,7 @@
     {
       "id": "asset-attachment-social-kit",
       "title": "Asset attachment social kit",
-      "outcome": "Draft a caption and crop suggestions for the entry's newly attached image",
+      "outcome": "When an image is attached to an entry, the AI looks at it and drafts a social caption plus square and story crop suggestions, kept in the entry's metadata.",
       "category": "Event-driven extensions",
       "category_slug": "events",
       "tags": [
@@ -7602,34 +7486,68 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "asset-attachment-social-kit.json",
+      "vars": "asset-attachment-social-kit.vars.json",
+      "setup_variables": [
         {
-          "capability": "custom-operation",
-          "name": "Free-form AI operation",
-          "priority": "P0",
-          "acceptance": "An operation step can carry its own prompt and JSON output schema (or name a workspace-defined operation with a persona resource); the parsed, schema-validated output is the step output; budget, approval mode and min_role apply exactly as for built-in operations.",
-          "why": "caption"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which entries get a social kit when an image is attached to them.",
+          "example": "article"
+        },
+        {
+          "name": "caption_style",
+          "type": "text",
+          "description": "How captions should sound.",
+          "example": "warm, plain words, one emoji at most"
         }
       ],
+      "requires": {
+        "trigger": "event:asset_attached_to_entry",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "starts_with"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One vision AI call per attached image."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Writes metadata.social_caption and metadata.social_crops on the entry."
+        }
+      ],
+      "cost_notes": "One AI call per run (two if the first answer doesn't match its fields), from the workspace's monthly AI budget. Needs a model that can see images.",
+      "failure_behaviour": "An AI error, or two answers that don't match the output fields, fails the step; the run is recorded and the `workflow_failed` alert fires (if enabled). Nothing is written.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): `generate-summary` on the entry runs today (text only)."
+        "A custom AI step (`op: \"custom\"`): its own prompt and output fields; the answer is checked against them."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_asset_attachment_social_kit"
       },
       "brief": {
         "flow": "Draft a caption and crop suggestions for the entry’s newly attached image",

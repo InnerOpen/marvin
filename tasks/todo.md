@@ -689,31 +689,36 @@ Blocked now: 70 of 107. Next (Jared asked about if/else mid-way): **branches** (
 dry run shows the verdicts; validator warns on a `when` reading a step not yet run; run view marks skipped `–`; guided
 editor keeps `when` (edit in JSON). No recipe flips on its own (the 5 also need other gaps). Parallel joins stay open.
 
-**B. Custom operation (P0, 37 recipes; 5 alone) — PLAN, waiting for Jared's go.**
+**B. Custom operation (P0, 37 recipes; 5 alone) — DONE 2026-10-11** (Jared: "Go" — inline first, entry write-back summary/tags/metadata only).
 Today an operation step can only run a built-in operation (generate-summary, generate-tags…). 37 recipes need "draft X
 from this entry" with their own instructions and output shape (a discussion question, a margin note, a soundtrack
 brief, a social caption…).
 
 Proposal (phase 1, inline — what recipes need, self-contained):
-- [ ] Step `{"kind": "operation", "op": "custom", "prompt": "…${entry.title}…", "output_schema": {…}, "see": ["entry",
+- [x] Step `{"kind": "operation", "op": "custom", "prompt": "…${entry.title}…", "output_schema": {…}, "see": ["entry",
       "images"], "write_back": {…}}`. `prompt` ≤ 8 000 chars with run-time templates; `output_schema` a JSON Schema object
       (type object, ≤ 8 KB, ≤ 20 properties); `see` picks what the AI gets beside the prompt (the entry with its fields,
       its linked assets/resources, image bytes for a vision model, the workspace persona/tone). Same engine path as
       built-ins: budget, AI-on, Workflows invocation source, execution log, cost.
-- [ ] The answer is validated against `output_schema` (one retry with the validation error, then the step fails); the
+- [x] The answer is validated against `output_schema` (one retry with the validation error, then the step fails); the
       parsed object is the step output (`${steps.<id>.output.*}`, usable by `when`).
-- [ ] `write_back` map for entries too: `summary`, `tags`, `metadata.<key>` (not `data` — that stays `set_data`), under
+- [x] `write_back` map for entries too: `summary`, `tags`, `metadata.<key>` (not `data` — that stays `set_data`), under
       the approval mode like everything else.
-- [ ] Guardrails: only workspace ADMINs edit workflows already; the prompt is the author's, entry text is data (system
+- [x] Guardrails: only workspace ADMINs edit workflows already; the prompt is the author's, entry text is data (system
       prompt says so); output never runs anything by itself — it only flows into later steps the author wrote.
-- [ ] Editor: guided form for prompt + output fields (name/type/description → JSON Schema), dry run shows the resolved
+- [x] Editor: guided form for prompt + output fields (name/type/description → JSON Schema), dry run shows the resolved
       prompt; authoring guide + `draft_workflow` know it; the 5 recipes that need only this become runnable (+ tests with
       the fake AI), the other 32 lose one dependency.
 
 Phase 2 (later, if wanted): named **workspace operations** (Settings → AI → Operations) — the same prompt + schema saved
 once and reused by workflows, agents, MCP and the operations API.
 
-Open for Jared: (1) inline first, named later — or named only? (2) entry `write_back` limited to summary/tags/metadata?
+Review (B): `services/ai/operations/custom.py` (CustomOperation built per step, schema checks, answer check + one retry,
+both calls' tokens counted), runner split into `_operation_for` / `_operation_context` / `_complete` / `_apply_write_back`,
+`see: images` also gives an entry op its attached pictures (closed that asset gap for behind-the-scenes-diary). 5 recipes
+verified-current (31 now); 32 others lose the dependency; blocked 49+16 = 65 of 107. Editor: Custom prompt form (answer
+fields ↔ JSON Schema, `frontend/src/lib/customStep.ts`), write-back maps kept as rows (was flattened to a checkbox), and
+**Only run this step when…** on every step. Matcher: `exists` with `"false"` typed as text now means must-not-exist.
 
 
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")

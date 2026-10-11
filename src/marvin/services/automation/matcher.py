@@ -134,8 +134,10 @@ def _match_one(cond: dict, context: dict) -> bool:
         return actual == expected
 
     if op == "exists":
-        # `value: false` inverts to "must not exist".
-        want = expected if isinstance(expected, bool) else True
+        # `value: false` inverts to "must not exist" — also typed as text ("false"), as the editor's condition rows save it.
+        want = (
+            expected if isinstance(expected, bool) else (as_bool(expected) if isinstance(expected, str) and as_bool(expected) is not None else True)
+        )
         return (actual is not None) == want
     if op == "eq":
         return actual == _like(actual, expected)

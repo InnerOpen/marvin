@@ -81,3 +81,12 @@ def test_a_when_that_reads_a_step_not_yet_run_is_flagged():
     assert [(i["where"], i["index"]) for i in issues] == [("actions", 0), ("actions", 1)]  # on_failure may read any main step
     assert "steps.later" in issues[1]["message"]
     assert any("steps.later" in i["message"] for i in validate_definition({"trigger": {"type": "manual"}, "actions": steps}))
+
+
+def test_exists_false_typed_as_text_still_means_must_not_exist():
+    from marvin.services.automation.matcher import matches
+
+    context = {"steps": {"a": {"output": {"ok": True}}}}
+    assert matches({"field": "steps.a.output.missing", "op": "exists", "value": "false"}, context)
+    assert not matches({"field": "steps.a.output.ok", "op": "exists", "value": "false"}, context)
+    assert matches({"field": "steps.a.output.ok", "op": "exists", "value": ""}, context)  # blank: must exist, as before

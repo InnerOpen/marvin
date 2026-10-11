@@ -1,0 +1,51 @@
+{
+  "name": "Community question",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "ask",
+        "op": "custom",
+        "prompt": "Write one specific, open question that readers of “${entry.title}” could discuss with each other. It should come from what the piece actually says, not be generic, and fit in one sentence.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "minLength": 10,
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "question"
+          ]
+        },
+        "write_back": {
+          "question": "metadata.discussion_question"
+        }
+      },
+      {
+        "kind": "webhook",
+        "id": "post",
+        "webhook_id": "{{announcement_webhook_id}}",
+        "body": {
+          "text": "${steps.ask.output.question}",
+          "title": "${entry.title}",
+          "url": "${entry.url}",
+          "entry_id": "${entry.id}"
+        }
+      }
+    ]
+  }
+}
