@@ -41,3 +41,12 @@ def load_providers(force: bool = False) -> list[ProviderLoadReport]:
 
     logos.prime(INTEGRATION_REGISTRY.values())
     return _reports
+
+
+def source_of(provider_slug: str) -> dict | None:
+    """``{"package", "version"}`` of the plugin distribution that registered this provider, or None (not loaded from
+    an entry point — a test's stand-in, say)."""
+    for report in load_providers():
+        if report.ok and provider_slug in report.slugs and report.distribution:
+            return {"package": report.distribution, "version": report.version}
+    return None

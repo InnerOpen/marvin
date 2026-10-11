@@ -654,6 +654,40 @@ Full backend suite, frontend tests, Biome and ruff green; `astro check` 50 error
 the base. Browser-checked on SQLite + astro dev (headless Chromium): preview parts for frame / everywhere / drop,
 JSON panels collapsed, collapsed metadata still saved, invalid metadata reopens its panel, no empty Ask chip.
 
+# Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
+
+Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to
+text (`search_docs` reads only Marvin's manual). Outcome: install Slack 0.4.0 and the Library shows its recipe tagged
+"from the Slack plugin 0.4.0" (offered once Slack is connected), the Builder's authoring guide carries Slack's how-to for
+a connected Slack, and `search_docs` finds it.
+
+- [x] **SDK 0.9.0** (`marvin_integration_sdk.recipes`): `WorkflowRecipe(id, title, outcome, definition, variables,
+      category, tags, side_effects)`; `IntegrationProvider.recipes` + `guide` (a package-data path, like `logo`;
+      `load_guide`, ≤ 16 KB, starts with `# `); `info()` lists both; `check_recipe` (kebab id, placeholders ↔ variables
+      exactly, every variable typed + example, integration steps only use this provider's actions);
+      `marvin_integration_sdk.testing.IntegrationContract` (the integration conformance kit). Tag v0.9.0.
+- [x] **Core — Library:** plugin recipes join `recipes.entries()` as `<provider>.<id>`, catalogue-shaped, status
+      supported-after-configuration, prerequisite = that provider connected, `source` {provider, package, version}.
+      Accepted only if `check_recipe` passes and the definition filled with each variable's example has no
+      structural issues; otherwise skipped with a warning (never breaks the Library). `load_recipe` / `load_vars` /
+      `recipe_version` / `configure_for` / `draft_workflow(recipe=…)` work unchanged on them. Schema
+      `WorkflowRecipe.source`; Library card shows "From the Slack plugin 0.4.0"; integration cards list them already.
+- [x] **Core — guides:** authoring guide `workspace` rows: `has_guide` (overview), the guide text (section=workspace)
+      for connected integrations; `search_docs` / `read_doc` index installed guides as pages `plugins/<slug>.md`
+      (no published URL; `source` says which plugin).
+- [x] **Slack 0.4.0:** recipe `announce-entry-type` (published entries of one type → channel, title + link) + `guide.md`
+      (webhook token, one channel per connection, mrkdwn, what it can't do); `IntegrationContract` test; tag; core pin.
+- [ ] Tests (core: a stand-in plugin with a good and a bad recipe + guide), docs (whats-new/integrations,
+      INTEGRATIONS_PLUGIN_ARCHITECTURE, workflow-library README), SDK TS types (`source`), push → Promote, verify on prod.
+
+### Review (2026-10-11)
+- SDK `v0.9.0` (`3f21c56`), Slack `v0.4.0` (`62c7919`, CI green), core pins both. Recipe ids `<provider>.<id>`; the
+  check on load is `check_recipe` + every workspace-independent gate of `draft_issues` on the definition filled with
+  its examples. Guides: authoring guide `workspace` (connected + enabled only), manual search pages
+  `plugins/<provider>.md` with `source` instead of `url`; with no manual bundled the docs tools still report the
+  manual unavailable (guides only add to it). Full suite green except that docs test, fixed; `astro check` no new
+  errors; SDK types `source` on main + develop (`153c31a`).
+
 # CLI 3.1 — catch up with the API (plan, 2026-10-05)
 
 **Goal:** make `@inneropen/marvin-cli` safe to script again and cover the two most-used new areas — workflows and

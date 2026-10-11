@@ -319,6 +319,15 @@ class WorkflowRecipeUse(_MarvinModel):
     outdated: bool = False  # the recipe has changed since this workflow was made from it
 
 
+class WorkflowRecipeSource(_MarvinModel):
+    """Where a recipe came from when an installed integration ships it (absent for Marvin's own)."""
+
+    provider: str
+    name: str
+    package: str | None = None
+    version: str | None = None
+
+
 class WorkflowRecipe(_MarvinModel):
     """One catalogue entry, and whether this workspace can use it: `missing` empty → ready here."""
 
@@ -339,6 +348,7 @@ class WorkflowRecipe(_MarvinModel):
     supporting_objects: list[WorkflowRecipeSupportingObject] = []
     dependencies: list[WorkflowRecipeDependency] = []
     missing: list[str] = []
+    source: WorkflowRecipeSource | None = None  # an integration's recipe: which plugin ships it
 
 
 class WorkflowCapability(_MarvinModel):

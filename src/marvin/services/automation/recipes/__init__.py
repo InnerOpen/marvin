@@ -11,11 +11,18 @@ Every file here ships with the package (hatchling includes package data), so the
 
 docs/workflow-library/ explains the library and renders ``catalogue.md`` from the catalogue
 (scripts/render_workflow_library.py); tests/test_workflow_library.py holds every recipe to its status.
+
+Installed integrations add their own (SDK 0.9.0 ``IntegrationProvider.recipes``): each joins the Library as
+``<provider>.<id>``, catalogue-shaped, with a ``source`` naming the plugin, offered once that provider is connected.
+One is taken only if the SDK's ``check_recipe`` passes and its definition, filled with each variable's example, has
+no structural issue; anything else is skipped with a warning, never shown and never breaking the Library.
 """
 
 from __future__ import annotations
 
+import copy
 import json
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,6 +33,7 @@ if TYPE_CHECKING:
     from ..authoring import WorkspaceRefs
 
 DIR = Path(__file__).parent
+logger = logging.getLogger(__name__)
 
 # Statuses a recipe may be offered under (the guide's examples, a Library copy): it validates and runs today.
 RUNNABLE_STATUSES = frozenset({"verified-current", "supported-after-configuration"})
@@ -51,14 +59,16 @@ def catalogue() -> dict:
 
 
 def entries() -> list[dict]:
-    """Every catalogue entry, in catalogue order."""
-    return list(catalogue()["recipes"])
+    """Every recipe: the catalogue's, in catalogue order, then the installed integrations'."""
+    return [*catalogue()["recipes"], *(p["entry"] for p in plugin_recipes().values())]
 
 
 def entry(recipe_id: str) -> dict:
     for item in catalogue()["recipes"]:
         if item["id"] == recipe_id:
             return item
+    if recipe_id in (plugins := plugin_recipes()):
+        return plugins[recipe_id]["entry"]
     raise UnknownRecipe(recipe_id)
 
 
@@ -69,6 +79,8 @@ def workflow_recipe_ids() -> list[str]:
 
 def load_recipe(recipe_id: str) -> dict:
     """The recipe's whole workflow document ``{name, definition}``, placeholders included."""
+    if recipe_id in (plugins := plugin_recipes()):
+        return copy.deepcopy(plugins[recipe_id]["document"])
     path = DIR / f"{recipe_id}.json"
     if not path.exists():
         raise UnknownRecipe(recipe_id)
@@ -77,6 +89,8 @@ def load_recipe(recipe_id: str) -> dict:
 
 def load_vars(recipe_id: str) -> dict[str, dict]:
     """The recipe's setup variables ``{name: {type, description, example?}}`` (empty when it has none)."""
+    if recipe_id in (plugins := plugin_recipes()):
+        return copy.deepcopy(plugins[recipe_id]["variables"])
     path = DIR / f"{recipe_id}.vars.json"
     if not path.exists():
         raise UnknownRecipe(recipe_id)
@@ -128,7 +142,7 @@ def missing_prerequisites(item: dict, refs: WorkspaceRefs) -> list[str]:
 
 def offered(refs: WorkspaceRefs) -> list[dict]:
     """The workflow recipes this workspace can draft today: runnable status, and every prerequisite met."""
-    return [r for r in catalogue()["recipes"] if r["shape"] == "workflow" and r["status"] in RUNNABLE_STATUSES and not missing_prerequisites(r, refs)]
+    return [r for r in entries() if r["shape"] == "workflow" and r["status"] in RUNNABLE_STATUSES and not missing_prerequisites(r, refs)]
 
 
 def unavailable_reasons(item: dict, refs: WorkspaceRefs) -> list[str]:
@@ -166,4 +180,85 @@ def example(item: dict) -> dict:
         "definition": doc["definition"],
         "setup_variables": load_vars(item["id"]),
         "draft": f'draft_workflow(recipe="{item["id"]}", vars={{…}}) fills the {{{{placeholders}}}} and saves it switched off.',
+    }
+
+
+# ── recipes from installed integrations ──────────────────────────────────────
+
+
+def plugin_recipes() -> dict[str, dict]:
+    """``{"<provider>.<id>": {"entry", "document", "variables"}}`` for every installed provider's valid recipes. Built
+    once per set of installed providers (a test that registers a stand-in gets a fresh read)."""
+    from marvin_integration_sdk import INTEGRATION_REGISTRY
+
+    return _plugin_recipes(tuple(sorted((slug, id(p)) for slug, p in INTEGRATION_REGISTRY.items())))
+
+
+@lru_cache(maxsize=4)
+def _plugin_recipes(_installed: tuple) -> dict[str, dict]:
+    from marvin_integration_sdk import INTEGRATION_REGISTRY
+
+    found: dict[str, dict] = {}
+    for slug in sorted(INTEGRATION_REGISTRY):
+        provider = INTEGRATION_REGISTRY[slug]
+        for recipe in getattr(provider, "recipes", ()) or ():
+            rid = f"{slug}.{getattr(recipe, 'id', '?')}"
+            problems = _recipe_problems(recipe, provider)
+            if problems:
+                logger.warning(f"Skipping workflow recipe {rid} from the {slug} integration: {'; '.join(problems)}")
+                continue
+            found[rid] = {
+                "entry": _plugin_entry(rid, recipe, provider),
+                "document": {"name": recipe.title, "definition": copy.deepcopy(recipe.definition)},
+                "variables": copy.deepcopy(dict(recipe.variables)),
+            }
+    return found
+
+
+def _recipe_problems(recipe, provider) -> list[str]:
+    """The SDK's shape check, then Marvin's own: the definition filled with every variable's example must pass every
+    check of an agent's draft that doesn't depend on the workspace (authoring.draft_issues)."""
+    from marvin_integration_sdk import check_recipe
+
+    from ..validation import item_target_issues, query_issues, structural_issues, unknown_key_issues
+
+    try:
+        problems = check_recipe(recipe, provider)
+        if problems:
+            return problems
+        examples = {name: spec["example"] for name, spec in recipe.variables.items()}
+        definition = configure(copy.deepcopy(recipe.definition), examples, dict(recipe.variables))
+    except RecipeConfigError as e:
+        return [f"its examples don't fit its variables ({e})"]
+    except Exception as e:  # noqa: BLE001 — a plugin's odd object must never break the Library
+        return [f"unreadable ({type(e).__name__}: {e})"]
+    issues = structural_issues(definition) or query_issues(definition) + item_target_issues(definition) + unknown_key_issues(definition)
+    return [f"{i.get('path') or i.get('where') or 'definition'}: {i['message']}" for i in issues]
+
+
+def _plugin_entry(rid: str, recipe, provider) -> dict:
+    """A plugin recipe in the catalogue's shape (what the Library, the guide and configure_for read)."""
+    from marvin.services.integrations.loader import source_of
+
+    trigger = recipe.definition.get("trigger") or {}
+    category = recipe.category or provider.name
+    return {
+        "id": rid,
+        "title": recipe.title,
+        "outcome": recipe.outcome,
+        "category": category,
+        "category_slug": "-".join("".join(c if c.isalnum() else " " for c in category.lower()).split()),
+        "tags": [*recipe.tags, provider.slug],
+        "trigger": {"type": trigger.get("type") or "manual", "event": trigger.get("event")},
+        "status": "supported-after-configuration",
+        "shape": "workflow",
+        "runnable": True,
+        "setup_variables": [{"name": name, **spec} for name, spec in recipe.variables.items()],
+        "prerequisites": {"integrations": [{"provider": provider.slug}]},
+        "side_effects": [dict(e) for e in recipe.side_effects],
+        "supporting_objects": [
+            {"kind": "integration_connection", "name": provider.name, "required": True, "purpose": f"The {provider.name} connection it runs through."}
+        ],
+        "dependencies": [],
+        "source": {"provider": provider.slug, "name": provider.name, **(source_of(provider.slug) or {"package": None, "version": None})},
     }

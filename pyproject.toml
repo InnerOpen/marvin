@@ -20,7 +20,7 @@ dependencies = [
     "mangum>=0.19.0",
     # The plugin contract (integrations, storage, AI providers): pinned to a commit, since it isn't on PyPI. A
     # direct reference, so no installer ever looks the name up on an index. Bump it with the SDK.
-    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.8.0",
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.9.0",
     "mcp[cli]>=1.28.1",
     "numpy>=2.2.6",
     "pillow>=11.1.0",
@@ -90,7 +90,7 @@ postgres = ["psycopg2-binary>=2.9"]
 # The chart's plugins.packages can still add one at start-up (a hot fix) without a build.
 plugins = [
     "marvin-integration-apprise @ git+https://github.com/InnerOpen/marvin-integration-apprise@v0.2.0",
-    "marvin-integration-slack @ git+https://github.com/InnerOpen/marvin-integration-slack@v0.3.0",
+    "marvin-integration-slack @ git+https://github.com/InnerOpen/marvin-integration-slack@v0.4.0",
     "marvin-integration-openai-images @ git+https://github.com/InnerOpen/marvin-integration-openai-images@v0.2.0",
     "marvin-integration-instagram @ git+https://github.com/InnerOpen/marvin-integration-instagram@v0.3.0",
     "marvin-integration-square @ git+https://github.com/InnerOpen/marvin-integration-square@v0.3.0",
@@ -113,7 +113,7 @@ bitwarden = ["bitwarden-sdk>=1.0.0"]
 # Every plugin builds against the one SDK commit Marvin pins above: their own pyproject points the SDK at a
 # sibling checkout (or another commit) for local development, which uv would otherwise follow.
 override-dependencies = [
-    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.8.0",
+    "marvin-integration-sdk @ git+https://github.com/InnerOpen/marvin-integration-sdk@v0.9.0",
 ]
 
 [tool.pytest.ini_options]

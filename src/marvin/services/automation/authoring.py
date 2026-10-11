@@ -154,6 +154,18 @@ def _integration_capabilities(provider_slug: str) -> list[str] | None:
         return None
 
 
+def _integration_guide(provider_slug: str) -> str | None:
+    """The how-to the provider's plugin ships (services/integrations/guides.py), or None."""
+    from marvin.services.integrations import INTEGRATIONS_AVAILABLE
+
+    if not INTEGRATIONS_AVAILABLE:
+        return None
+    from marvin.services.integrations.guides import guide_for
+
+    guide = guide_for(provider_slug)
+    return guide.markdown if guide else None
+
+
 def workspace_refs(session, group_id) -> WorkspaceRefs:
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
     from marvin.db.models.groups.incoming_webhooks import WorkspaceIncomingWebhookModel
@@ -184,6 +196,7 @@ def workspace_refs(session, group_id) -> WorkspaceRefs:
                 "enabled": bool(row.enabled),
                 "actions": _integration_actions(row.provider),
                 "capabilities": _integration_capabilities(row.provider),
+                "has_guide": _integration_guide(row.provider) is not None,
             }
         )
     # Ids and names only: an outgoing webhook's URL can carry a credential.
@@ -372,7 +385,17 @@ def _workspace(refs: WorkspaceRefs, detail: bool) -> dict:
         if not detail and actions is not None:
             actions = [a["action"] for a in actions]
         integrations.append({**i, "actions": actions if actions is not None else "provider not installed"})
+    # A connected integration's own how-to (its plugin's guide): in full on request, flagged in the overview.
+    with_guide = sorted({i["provider"] for i in refs.integrations if i.get("enabled") and i.get("has_guide")})
+    guides: dict[str, Any] = {}
+    if with_guide:
+        guides = (
+            {"integration_guides": {p: _integration_guide(p) for p in with_guide}}
+            if detail
+            else {"integration_guides": f"{', '.join(with_guide)} ship a how-to guide: section='workspace' includes it."}
+        )
     return {
+        **guides,
         "collections": [c["slug"] for c in refs.collections] if not detail else refs.collections,
         "entry_types": refs.entry_types if detail else {t["slug"]: t["fields"] for t in refs.entry_types},
         "integrations": integrations,

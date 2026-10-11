@@ -124,6 +124,7 @@ def _library_recipe(item: dict, refs, uses: dict[str, list[dict]] | None = None)
         dependencies=item.get("dependencies") or [],
         missing=recipes.missing_prerequisites(item, refs),
         in_use=(uses or {}).get(item["id"], []),
+        source=item.get("source"),
     )
 
 

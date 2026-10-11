@@ -27,7 +27,8 @@ def _unavailable() -> str:
     name="search_docs",
     description=(
         "Search Marvin's own user manual — how Marvin works: settings, workflows, agents, integrations, collections, "
-        "webhooks, scheduled tasks, the admin screens and their labels. Returns the best-matching sections, each with "
+        "webhooks, scheduled tasks, the admin screens and their labels — plus the how-to guide each installed integration "
+        "ships (pages plugins/<provider>.md, with a `source` instead of a url). Returns the best-matching sections, each with "
         "its page, heading, anchor, a snippet and the published `url`. Use it for how-to questions about Marvin itself "
         "('how do I…', 'what does … do'), then read_doc for the full section; cite the url. It does not search this "
         "workspace's content (use search_content for that)."
@@ -57,7 +58,8 @@ def search_docs(_ctx: ToolContext, args: dict) -> str:
         return json.dumps({"error": "query is required"})
     results = docs.search(query, clamp_limit(args.get("limit", DEFAULT_SEARCH_LIMIT)))
     note = (
-        "Read a section in full with read_doc(path=page, section=anchor) before giving steps; cite its url."
+        "Read a section in full with read_doc(path=page, section=anchor) before giving steps; "
+        "cite its url (an integration guide has a source instead)."
         if results
         else "No section of the manual matches. Try other words, or say the manual does not cover it — do not guess."
     )

@@ -163,6 +163,7 @@ class DocPage:
     title: str
     markdown: str
     sections: tuple[DocSection, ...]
+    source: str | None = None  # an integration's guide: "the Slack plugin 0.4.0" (not on the published site)
 
     def section(self, ref: str) -> DocSection | None:
         """A section by anchor (`run-on-a-query-of-entries`, `#…`) or by heading text, case-insensitively."""
@@ -398,7 +399,7 @@ class DocsIndex:
                 "heading": s.heading,
                 "headingPath": list(s.heading_path),
                 "anchor": s.anchor or None,
-                "url": section_url(base, s),
+                **self._link(base, s.page, s),
                 "snippet": snippet(s, query),
                 "score": round(score, 2),
             }
@@ -418,7 +419,7 @@ class DocsIndex:
         section = section or normalize_page_path(ref)[1]
         outline = [{"heading": s.heading, "anchor": s.anchor, "level": s.level} for s in page.sections if s.level < LEAD_IN_LEVEL]
         if not section:
-            return {"page": page.path, "title": page.title, "url": page_url(base, page.path), "markdown": page.markdown, "sections": outline}
+            return {"page": page.path, "title": page.title, **self._link(base, page.path), "markdown": page.markdown, "sections": outline}
         found = page.section(section)
         if found is None:
             return {"page": page.path, "title": page.title, "error": f"No section '{section}' on {page.path}.", "sections": outline}
@@ -428,9 +429,16 @@ class DocsIndex:
             "heading": found.heading,
             "headingPath": list(found.heading_path),
             "anchor": found.anchor or None,
-            "url": section_url(base, found),
+            **self._link(base, page.path, found),
             "markdown": page.section_markdown(found),
         }
+
+    def _link(self, base: str, page: str, section: DocSection | None = None) -> dict:
+        """The published link — or, for an integration's guide (on no published site), which plugin it came from."""
+        source = self.pages[page].source
+        if source:
+            return {"url": None, "source": source}
+        return {"url": section_url(base, section) if section else page_url(base, page)}
 
 
 def clamp_limit(limit: object) -> int:
@@ -506,8 +514,32 @@ def load_docs(root: Path | None) -> DocsIndex:
     return DocsIndex(pages)
 
 
+GUIDES_DIR = "plugins"  # integration guides appear as plugins/<provider>.md
+
+
 def get_docs() -> DocsIndex:
-    return load_docs(find_docs_dir())
+    """Marvin's manual plus the guides installed integrations ship (services/integrations/guides.py)."""
+    from marvin.services.integrations import INTEGRATIONS_AVAILABLE
+
+    guides: tuple = ()
+    if INTEGRATIONS_AVAILABLE:
+        from marvin.services.integrations.guides import installed_guides
+
+        guides = tuple((g.provider, g.source, g.markdown) for g in installed_guides())
+    return _with_guides(find_docs_dir(), guides)
+
+
+@lru_cache(maxsize=4)
+def _with_guides(root: Path | None, guides: tuple[tuple[str, str, str], ...]) -> DocsIndex:
+    manual = load_docs(root)
+    if not guides or not manual.available:  # guides add to the manual; without it the tools say it's missing
+        return manual
+    pages = dict(manual.pages)
+    for provider, source, markdown in guides:
+        rel = f"{GUIDES_DIR}/{provider}{PAGE_SUFFIX}"
+        title, sections = _split_sections(rel, markdown)
+        pages[rel] = DocPage(path=rel, title=title, markdown=markdown, sections=tuple(sections), source=source)
+    return DocsIndex(pages)
 
 
 # ── published links ──────────────────────────────────────────────────────────

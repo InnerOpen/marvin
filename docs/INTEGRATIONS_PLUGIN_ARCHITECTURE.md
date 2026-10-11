@@ -345,6 +345,16 @@ Built 2026-10-04. Official marks instead of emoji, for every provider.
 
 ---
 
+## What a plugin teaches Marvin (SDK 0.9.0)
+
+Besides actions, events, blueprints and capabilities, a provider can declare **recipes** (`WorkflowRecipe`: a workflow
+definition with typed `{{setup}}` placeholders) and a **guide** (`guide = "guide.md"`, package data, ≤ 16 KB).
+Core merges recipes into the Workflow Library (`services/automation/recipes`, ids `<provider>.<id>`, validated on
+load, offered once the provider is connected) and gives guides to the workflow authoring guide (connected
+integrations) and to the manual search (`services/docs.py`, pages `plugins/<provider>.md`;
+`services/integrations/guides.py`). The SDK's `marvin_integration_sdk.testing.IntegrationContract` checks both
+without Marvin. Slack 0.4.0 is the worked example.
+
 ## Decisions
 
 Resolved:

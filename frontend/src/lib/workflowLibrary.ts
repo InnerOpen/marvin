@@ -19,6 +19,19 @@ export interface RecipeUse {
   outdated?: boolean;
 }
 
+export interface RecipeSource {
+  provider: string;
+  name: string;
+  package?: string | null;
+  version?: string | null;
+}
+
+/** "From the Slack plugin 0.4.0" for an integration's recipe; null for Marvin's own. */
+export const sourceText = (recipe: Pick<Recipe, "source">): string | null =>
+  recipe.source
+    ? `From the ${recipe.source.name} plugin${recipe.source.version ? ` ${recipe.source.version}` : ""}`
+    : null;
+
 /** Where a workflow made from a recipe opens. */
 export const workflowHref = (id: string) => `/automation/workflows?workflow=${encodeURIComponent(id)}`;
 
@@ -38,6 +51,8 @@ export interface Recipe {
   capabilities?: string[];
   /** This workspace's workflows made from it; `outdated`: the recipe has changed since. */
   inUse?: RecipeUse[];
+  /** An installed integration's recipe: which plugin ships it (absent for Marvin's own). */
+  source?: RecipeSource | null;
   sideEffects: { kind: string; description: string }[];
   setupVariables: RecipeVariable[];
   supportingObjects: { kind: string; name: string; purpose: string; required: boolean }[];

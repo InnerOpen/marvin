@@ -18,6 +18,7 @@ import {
   recipeHref,
   SIDE_EFFECT_LABEL,
   setupPage,
+  sourceText,
   triggerText,
   type WorkflowLibrary,
   workflowHref,
@@ -98,6 +99,7 @@ const libraryJson = JSON.stringify(library.recipes).replace(/</g, "\\u003c");
                       </div>
                       <p class="cat-desc">{recipe.outcome}</p>
                       <p class="when"><strong>Runs:</strong> {triggerText(recipe.trigger)}</p>
+                      {sourceText(recipe) && <p class="from">{sourceText(recipe)}</p>}
                       {recipe.sideEffects.length > 0 && (
                         <ul class="effects">
                           {[...new Set(recipe.sideEffects.map((e) => e.kind))].map((kind) => (
@@ -240,6 +242,7 @@ const libraryJson = JSON.stringify(library.recipes).replace(/</g, "\\u003c");
   .cat-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
   .cat-head strong { font-size: 15px; }
   .cat-desc { margin: 0; font-size: 13px; color: var(--muted); flex: 1; line-height: 1.45; }
+  .from { margin: 0; font-size: 12px; color: var(--muted); font-style: italic; }
   .when, .needs, .waits { margin: 0; font-size: 13px; line-height: 1.45; }
   .needs { color: #9a7b00; }
   .in-use { margin: 0; font-size: 13px; line-height: 1.45; }

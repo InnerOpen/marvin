@@ -83,6 +83,15 @@ Only the first two are `runnable`; only they ship recipe files or configuration;
    (`TestExecution::test_<id with underscores>`), or give it `supported-after-configuration`.
 4. `uv run python scripts/render_workflow_library.py` to refresh `catalogue.md`.
 
+### A recipe from an integration
+
+An installed integration can ship its own recipes (`IntegrationProvider.recipes`, `marvin-integration-sdk` 0.9.0;
+the SDK's README shows one). They join the store in memory as `<provider>.<id>`, catalogue-shaped, with status
+`supported-after-configuration`, the provider as their prerequisite and a `source` naming the plugin (the Library
+shows "From the … plugin"). Nothing is written to `catalogue.json` or `catalogue.md`. A recipe is taken only if the
+SDK's `check_recipe` passes and its definition, filled with each variable's example, passes every workspace-independent
+check of `draft_issues`; one that fails is logged and skipped. Tests: `tests/test_integration_teaches.py`.
+
 ## How CI validates
 
 `tests/test_workflow_library.py` fails when: a recipe file isn't catalogued (or vice versa); a runnable recipe

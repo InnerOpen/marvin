@@ -3,7 +3,7 @@ revision = 3
 requires-python = "==3.12.*"
 
 [manifest]
-overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.8.0" }]
+overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.9.0" }]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -1107,7 +1107,7 @@ requires-dist = [
     { name = "isodate", specifier = ">=0.7.2" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "mangum", specifier = ">=0.19.0" },
-    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.8.0" },
+    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.9.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.28.1" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pillow", specifier = ">=11.1.0" },
@@ -1165,7 +1165,7 @@ plugins = [
     { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.3.0" },
     { name = "marvin-integration-n8n", git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.1.0" },
     { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.2.0" },
-    { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.3.0" },
+    { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.4.0" },
     { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.3.0" },
     { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.1.0" },
 ]
@@ -1259,13 +1259,13 @@ dependencies = [
 
 [[package]]
 name = "marvin-integration-sdk"
-version = "0.8.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.8.0#39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60" }
+version = "0.9.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.9.0#3f21c5659e3b442747a109b5ce257b0fd8fb2af3" }
 
 [[package]]
 name = "marvin-integration-slack"
-version = "0.3.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.3.0#dd1fd6ac8fbee9bf4133416f094d4789ccc0af42" }
+version = "0.4.0"
+source = { git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.4.0#62c79197f28aaf445dcc032541f6e229f777be04" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]

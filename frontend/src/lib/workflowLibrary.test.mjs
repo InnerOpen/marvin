@@ -13,6 +13,7 @@ import {
   recipeHref,
   recipeVars,
   setupPage,
+  sourceText,
   triggerText,
 } from "./workflowLibrary.ts";
 
@@ -246,5 +247,20 @@ describe("words and links", () => {
 
   test("the editor's deep link", () => {
     assert.equal(recipeHref("utm-librarian"), "/automation/workflows?recipe=utm-librarian");
+  });
+});
+
+describe("sourceText", () => {
+  test("names the plugin an integration's recipe comes from, and nothing for Marvin's own", () => {
+    assert.equal(
+      sourceText({ source: { provider: "slack", name: "Slack", version: "0.4.0" } }),
+      "From the Slack plugin 0.4.0",
+    );
+    assert.equal(
+      sourceText({ source: { provider: "chatter", name: "Chatter", version: null } }),
+      "From the Chatter plugin",
+    );
+    assert.equal(sourceText({ source: null }), null);
+    assert.equal(sourceText({}), null);
   });
 });
