@@ -142,6 +142,10 @@ that dogfood the contract. Core ships with **no** integrations bundled; it can l
 recommended/default installs (via an optional dependency group) so a fresh install isn't empty, but
 they're still separate, uninstallable packages. Core stays truly slim.
 
+**Versions:** Marvin pins the SDK and each plugin it bakes in to a release tag (`@vX.Y.Z`), never a
+branch; a plugin change ships by bumping its version, tagging it and moving the pin — see "Releasing one"
+in [AI_PROVIDER_PLUGINS.md](AI_PROVIDER_PLUGINS.md).
+
 ---
 
 ## Discovery & lifecycle (core side)

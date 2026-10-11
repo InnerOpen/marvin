@@ -547,8 +547,9 @@ counted and admins are warned (never silently $0, never blocked). Slices, each s
        no providers and drops `PRICING`.
 6. [ ] (optional, needs admin keys) **Billed-cost reconciliation:** OpenAI Costs API / Anthropic cost report vs
        our estimates, monthly.
-7. [ ] **Housekeeping:** tag SDK and plugin releases and pin tags instead of `rev=main`; remove merged branches
-       and leftover worktrees (`feat/ai-provider-*`).
+7. [x] **Housekeeping:** (2026-10-11) signed tags `v<version>` on the SDK + all 13 plugins at the commits
+       uv.lock already pinned (same SHAs, no code change); pyproject pins `@vX.Y.Z`; "Releasing one" in
+       `docs/AI_PROVIDER_PLUGINS.md`. Worktree/branch cleanup: script for Jared (auto mode blocks force-removal).
 
 Why: one new model (gpt-6.1-sol) needed three core releases in a day (max_tokens renamed, tools refused while
 reasoning, no price). The Responses API switch removed the per-model rules; what is left is vendor churn

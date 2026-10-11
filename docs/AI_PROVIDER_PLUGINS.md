@@ -90,13 +90,26 @@ the request) and subclass `AIProviderContract`. With an httpx-based vendor SDK t
 Marvin's own tests use the SDK's `FakeAIProvider` + `ScriptedTransport`
 (`marvin_integration_sdk.ai.fake`): every answer scripted, every request recorded.
 
+## Releasing one
+
+Marvin's image bakes in the SDK and every plugin it ships with (the `plugins` group in `pyproject.toml`),
+each pinned to a **release tag** (`@v0.1.0`), never a branch — a push to a plugin's `main` changes nothing
+in Marvin until the pin moves. To ship a plugin change:
+
+1. Bump `version` in the plugin's `pyproject.toml` and merge to `main` (CI green).
+2. Tag that commit `v<version>` (annotated, signed: `git tag -a v0.2.0 -m v0.2.0`) and push the tag.
+3. In Marvin, change the pin to the new tag and `uv lock`; the next release carries it.
+
+The same goes for the SDK and for integration and storage plugins (2026-10-11: all tagged at the commits
+Marvin already ran, so the switch from `@main` changed no code).
+
 ## Installing one
 
 ```yaml
 plugins:
   packages:
-    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
-    - https://github.com/InnerOpen/marvin-ai-openai/archive/refs/heads/main.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/tags/v0.8.0.tar.gz
+    - https://github.com/InnerOpen/marvin-ai-openai/archive/refs/tags/v0.1.0.tar.gz
 ```
 
 The init container installs the plugin into `/plugins`, which goes on `PYTHONPATH` **ahead of** the

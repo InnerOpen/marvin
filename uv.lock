@@ -1,9 +1,9 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = "==3.12.*"
 
 [manifest]
-overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60" }]
+overrides = [{ name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.8.0" }]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -1107,7 +1107,7 @@ requires-dist = [
     { name = "isodate", specifier = ">=0.7.2" },
     { name = "jinja2", specifier = ">=3.1.6" },
     { name = "mangum", specifier = ">=0.19.0" },
-    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60" },
+    { name = "marvin-integration-sdk", git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.8.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.28.1" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pillow", specifier = ">=11.1.0" },
@@ -1155,19 +1155,19 @@ dev = [
 ]
 ldap = [{ name = "python-ldap", specifier = ">=3.4.5" }]
 plugins = [
-    { name = "marvin-ai-anthropic", git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=main" },
-    { name = "marvin-ai-google", git = "https://github.com/InnerOpen/marvin-ai-google?rev=main" },
-    { name = "marvin-ai-ollama", git = "https://github.com/InnerOpen/marvin-ai-ollama?rev=main" },
-    { name = "marvin-ai-openai", git = "https://github.com/InnerOpen/marvin-ai-openai?rev=main" },
-    { name = "marvin-integration-apprise", git = "https://github.com/InnerOpen/marvin-integration-apprise?rev=main" },
-    { name = "marvin-integration-buttondown", git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=main" },
-    { name = "marvin-integration-cloudflare-pages", git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=main" },
-    { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=main" },
-    { name = "marvin-integration-n8n", git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=main" },
-    { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=main" },
-    { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=main" },
-    { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=main" },
-    { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=main" },
+    { name = "marvin-ai-anthropic", git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.1.0" },
+    { name = "marvin-ai-google", git = "https://github.com/InnerOpen/marvin-ai-google?rev=v0.1.0" },
+    { name = "marvin-ai-ollama", git = "https://github.com/InnerOpen/marvin-ai-ollama?rev=v0.1.0" },
+    { name = "marvin-ai-openai", git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.1.0" },
+    { name = "marvin-integration-apprise", git = "https://github.com/InnerOpen/marvin-integration-apprise?rev=v0.2.0" },
+    { name = "marvin-integration-buttondown", git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=v0.6.0" },
+    { name = "marvin-integration-cloudflare-pages", git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=v0.1.0" },
+    { name = "marvin-integration-instagram", git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.3.0" },
+    { name = "marvin-integration-n8n", git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.1.0" },
+    { name = "marvin-integration-openai-images", git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.2.0" },
+    { name = "marvin-integration-slack", git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.3.0" },
+    { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.3.0" },
+    { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.1.0" },
 ]
 postgres = [{ name = "psycopg2-binary", specifier = ">=2.9" }]
 vault = [{ name = "hvac", specifier = ">=2.0" }]
@@ -1175,7 +1175,7 @@ vault = [{ name = "hvac", specifier = ">=2.0" }]
 [[package]]
 name = "marvin-ai-anthropic"
 version = "0.1.0"
-source = { git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=main#0883253f6e76ebf54a23ad2f334394682ffbc417" }
+source = { git = "https://github.com/InnerOpen/marvin-ai-anthropic?rev=v0.1.0#0883253f6e76ebf54a23ad2f334394682ffbc417" }
 dependencies = [
     { name = "anthropic" },
     { name = "marvin-integration-sdk" },
@@ -1184,7 +1184,7 @@ dependencies = [
 [[package]]
 name = "marvin-ai-google"
 version = "0.1.0"
-source = { git = "https://github.com/InnerOpen/marvin-ai-google?rev=main#fc15144ebb99780af5eb2b7fb0a57b1351fb644a" }
+source = { git = "https://github.com/InnerOpen/marvin-ai-google?rev=v0.1.0#fc15144ebb99780af5eb2b7fb0a57b1351fb644a" }
 dependencies = [
     { name = "google-genai" },
     { name = "marvin-integration-sdk" },
@@ -1193,7 +1193,7 @@ dependencies = [
 [[package]]
 name = "marvin-ai-ollama"
 version = "0.1.0"
-source = { git = "https://github.com/InnerOpen/marvin-ai-ollama?rev=main#9fc0391bb638883dd76b197b5b5ed97ea1f5cbc7" }
+source = { git = "https://github.com/InnerOpen/marvin-ai-ollama?rev=v0.1.0#9fc0391bb638883dd76b197b5b5ed97ea1f5cbc7" }
 dependencies = [
     { name = "httpx" },
     { name = "marvin-integration-sdk" },
@@ -1202,7 +1202,7 @@ dependencies = [
 [[package]]
 name = "marvin-ai-openai"
 version = "0.1.0"
-source = { git = "https://github.com/InnerOpen/marvin-ai-openai?rev=main#82432989902df1e20d93bcfa615db168a389b97c" }
+source = { git = "https://github.com/InnerOpen/marvin-ai-openai?rev=v0.1.0#82432989902df1e20d93bcfa615db168a389b97c" }
 dependencies = [
     { name = "marvin-integration-sdk" },
     { name = "openai" },
@@ -1211,7 +1211,7 @@ dependencies = [
 [[package]]
 name = "marvin-integration-apprise"
 version = "0.2.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-apprise?rev=main#57585178e35a6874eb360c96a4d2eff388fe6d4f" }
+source = { git = "https://github.com/InnerOpen/marvin-integration-apprise?rev=v0.2.0#57585178e35a6874eb360c96a4d2eff388fe6d4f" }
 dependencies = [
     { name = "apprise" },
     { name = "marvin-integration-sdk" },
@@ -1220,7 +1220,7 @@ dependencies = [
 [[package]]
 name = "marvin-integration-buttondown"
 version = "0.6.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=main#2dbf1aaf9476e97dabe65c4646ef96fbbaab9a73" }
+source = { git = "https://github.com/InnerOpen/marvin-integration-buttondown?rev=v0.6.0#2dbf1aaf9476e97dabe65c4646ef96fbbaab9a73" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
@@ -1228,7 +1228,7 @@ dependencies = [
 [[package]]
 name = "marvin-integration-cloudflare-pages"
 version = "0.1.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=main#a7f4d0d275f289635db9241bf0f7aa1a466c826b" }
+source = { git = "https://github.com/InnerOpen/marvin-integration-cloudflare-pages?rev=v0.1.0#a7f4d0d275f289635db9241bf0f7aa1a466c826b" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
@@ -1236,7 +1236,7 @@ dependencies = [
 [[package]]
 name = "marvin-integration-instagram"
 version = "0.3.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=main#7eacc06d7b3a50aafcfc1d98787d6cb8308fbd4a" }
+source = { git = "https://github.com/InnerOpen/marvin-integration-instagram?rev=v0.3.0#7eacc06d7b3a50aafcfc1d98787d6cb8308fbd4a" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
@@ -1244,7 +1244,7 @@ dependencies = [
 [[package]]
 name = "marvin-integration-n8n"
 version = "0.1.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=main#d094d2d5bf729332046e6c6765f091ed42b8ea7b" }
+source = { git = "https://github.com/InnerOpen/marvin-integration-n8n?rev=v0.1.0#d094d2d5bf729332046e6c6765f091ed42b8ea7b" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
@@ -1252,7 +1252,7 @@ dependencies = [
 [[package]]
 name = "marvin-integration-openai-images"
 version = "0.2.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=main#2e80b4c97a33825dbebd39c81fe87e896faf9401" }
+source = { git = "https://github.com/InnerOpen/marvin-integration-openai-images?rev=v0.2.0#2e80b4c97a33825dbebd39c81fe87e896faf9401" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
@@ -1260,12 +1260,12 @@ dependencies = [
 [[package]]
 name = "marvin-integration-sdk"
 version = "0.8.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60#39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60" }
+source = { git = "https://github.com/InnerOpen/marvin-integration-sdk?rev=v0.8.0#39c49208defe5feaa1a9c59a7aa9b0d9fd2c0a60" }
 
 [[package]]
 name = "marvin-integration-slack"
 version = "0.3.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-slack?rev=main#dd1fd6ac8fbee9bf4133416f094d4789ccc0af42" }
+source = { git = "https://github.com/InnerOpen/marvin-integration-slack?rev=v0.3.0#dd1fd6ac8fbee9bf4133416f094d4789ccc0af42" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
@@ -1273,7 +1273,7 @@ dependencies = [
 [[package]]
 name = "marvin-integration-square"
 version = "0.3.0"
-source = { git = "https://github.com/InnerOpen/marvin-integration-square?rev=main#9ae825e8f9ed7ff6030cfdbc547bdab08a1d116c" }
+source = { git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.3.0#9ae825e8f9ed7ff6030cfdbc547bdab08a1d116c" }
 dependencies = [
     { name = "marvin-integration-sdk" },
 ]
@@ -1281,7 +1281,7 @@ dependencies = [
 [[package]]
 name = "marvin-storage-s3"
 version = "0.1.0"
-source = { git = "https://github.com/InnerOpen/marvin-storage-s3?rev=main#ac078df2888869eb21f3bc50e680960e6db7323b" }
+source = { git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.1.0#ac078df2888869eb21f3bc50e680960e6db7323b" }
 dependencies = [
     { name = "boto3" },
     { name = "marvin-integration-sdk" },

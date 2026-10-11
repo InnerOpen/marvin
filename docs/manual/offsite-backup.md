@@ -40,8 +40,8 @@ Workspace bundles have their own count, `retention.bundles` (`BACKUP_KEEP_BUNDLE
 ```yaml
 plugins:
   packages:                                   # the s3 target comes from a plugin
-    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/heads/develop.tar.gz
-    - https://github.com/InnerOpen/marvin-storage-s3/archive/refs/heads/main.tar.gz
+    - https://github.com/InnerOpen/marvin-integration-sdk/archive/refs/tags/v0.8.0.tar.gz
+    - https://github.com/InnerOpen/marvin-storage-s3/archive/refs/tags/v0.1.0.tar.gz
 backup:
   targets:
     - name: r2                                # CronJob marvin-backup-r2
