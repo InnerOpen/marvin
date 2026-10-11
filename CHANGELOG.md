@@ -6,6 +6,21 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.261 (2026-10-11)
+
+### Build System
+
+- Buttondown 0.7.0, Apprise 0.3.0, Square 0.4.0, Instagram 0.4.0 — each ships its guide (and a
+  recipe)
+  ([`9675bd7`](https://github.com/InnerOpen/marvin/commit/9675bd7bf798d07918f7d8cf7db4e3b4d640cba5))
+
+### Features
+
+- **workflows**: Custom AI steps — your own instructions and answer fields, checked; five recipes
+  run
+  ([`a3f1058`](https://github.com/InnerOpen/marvin/commit/a3f1058d05eeb8925a74fcdf4b32f60bd3538dca))
+
+
 ## v1.0.0-rc.260 (2026-10-11)
 
 ### Features
