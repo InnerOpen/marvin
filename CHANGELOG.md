@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.258 (2026-10-11)
+
+### Build System
+
+- Pin the SDK and every baked-in plugin to a release tag, not main (AI plugins slice 7)
+  ([`694b240`](https://github.com/InnerOpen/marvin/commit/694b240f045adea25b561ac9a8c34c56be898694))
+
+### Features
+
+- **integrations**: An integration teaches Marvin about itself — its recipes in the Workflow
+  Library, its guide for the agents and search_docs
+  ([`aef3868`](https://github.com/InnerOpen/marvin/commit/aef3868adfea983f83bc867f8815cc709d4689d9))
+
+
 ## v1.0.0-rc.257 (2026-10-11)
 
 ### Features
