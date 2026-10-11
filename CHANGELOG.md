@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.259 (2026-10-11)
+
+### Build System
+
+- N8n 0.2.0 — its guide and the Hand published entries to n8n recipe
+  ([`189322f`](https://github.com/InnerOpen/marvin/commit/189322f9e6e7c1e317015f83760ddf132e0bc4dc))
+
+### Features
+
+- **workflows**: An AI step on an asset sees the image and writes back — the Alt text assistant and
+  Attribution companion recipes run
+  ([`f62a137`](https://github.com/InnerOpen/marvin/commit/f62a137ec82f2f8a1b8f2888ee85a7b8ff8965a5))
+
+
 ## v1.0.0-rc.258 (2026-10-11)
 
 ### Build System
