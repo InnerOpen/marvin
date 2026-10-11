@@ -689,7 +689,32 @@ Blocked now: 70 of 107. Next (Jared asked about if/else mid-way): **branches** (
 dry run shows the verdicts; validator warns on a `when` reading a step not yet run; run view marks skipped `–`; guided
 editor keeps `when` (edit in JSON). No recipe flips on its own (the 5 also need other gaps). Parallel joins stay open.
 
-**B. Custom operation (P0, 37 recipes) — plan for Jared, not built yet.** See "Custom operation" below once written.
+**B. Custom operation (P0, 37 recipes; 5 alone) — PLAN, waiting for Jared's go.**
+Today an operation step can only run a built-in operation (generate-summary, generate-tags…). 37 recipes need "draft X
+from this entry" with their own instructions and output shape (a discussion question, a margin note, a soundtrack
+brief, a social caption…).
+
+Proposal (phase 1, inline — what recipes need, self-contained):
+- [ ] Step `{"kind": "operation", "op": "custom", "prompt": "…${entry.title}…", "output_schema": {…}, "see": ["entry",
+      "images"], "write_back": {…}}`. `prompt` ≤ 8 000 chars with run-time templates; `output_schema` a JSON Schema object
+      (type object, ≤ 8 KB, ≤ 20 properties); `see` picks what the AI gets beside the prompt (the entry with its fields,
+      its linked assets/resources, image bytes for a vision model, the workspace persona/tone). Same engine path as
+      built-ins: budget, AI-on, Workflows invocation source, execution log, cost.
+- [ ] The answer is validated against `output_schema` (one retry with the validation error, then the step fails); the
+      parsed object is the step output (`${steps.<id>.output.*}`, usable by `when`).
+- [ ] `write_back` map for entries too: `summary`, `tags`, `metadata.<key>` (not `data` — that stays `set_data`), under
+      the approval mode like everything else.
+- [ ] Guardrails: only workspace ADMINs edit workflows already; the prompt is the author's, entry text is data (system
+      prompt says so); output never runs anything by itself — it only flows into later steps the author wrote.
+- [ ] Editor: guided form for prompt + output fields (name/type/description → JSON Schema), dry run shows the resolved
+      prompt; authoring guide + `draft_workflow` know it; the 5 recipes that need only this become runnable (+ tests with
+      the fake AI), the other 32 lose one dependency.
+
+Phase 2 (later, if wanted): named **workspace operations** (Settings → AI → Operations) — the same prompt + schema saved
+once and reused by workflows, agents, MCP and the operations API.
+
+Open for Jared: (1) inline first, named later — or named only? (2) entry `write_back` limited to summary/tags/metadata?
+
 
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
@@ -725,6 +750,9 @@ a connected Slack, and `search_docs` finds it.
   manual unavailable (guides only add to it). Full suite green except that docs test, fixed; `astro check` no new
   errors; SDK types `source` on main + develop (`153c31a`).
 - Live on prod 2026-10-11 (`develop-aef3868`): slack recipe offered in the 5 workspaces with Slack, guide found by search.
+- Then (Jared: "do 2 then 1 then 3"): Buttondown `v0.7.0` (opt-in recipe, `integration_errors: fail` so a refusal never
+  sends a contact message to review), Apprise `v0.3.0` (record-delivery recipe, uses `when`), Square `v0.4.0` (re-list
+  recipe = the go-live reset), Instagram `v0.4.0` (guide only). Built by 4 subagents, reviewed + committed by me.
 - Follow-up same day: n8n `v0.2.0` (guide + *Hand published entries to n8n*, the send half of its report-back round
   trip) and the integration template (sample guide + recipe, `IntegrationContract` in CI).
 

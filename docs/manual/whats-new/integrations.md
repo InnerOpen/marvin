@@ -121,9 +121,18 @@ An integration can teach Marvin about itself (`marvin-integration-sdk` 0.9.0):
   (`workflow_authoring_guide`, section `workspace`), and the manual search finds it as a page `plugins/<provider>.md`
   (`search_docs`, `read_doc`) with a `source` naming the plugin instead of a link.
 
-Slack 0.4.0 is the first: its guide, and the **Announce published entries** recipe (each published entry of one type
-posted to the channel with its title and link). How to add them to an integration: the SDK's README,
-"Teach Marvin about it".
+Integrations that ship them (2026-10-11):
+
+| Integration | Guide | Recipe |
+| --- | --- | --- |
+| Slack 0.4.0 | yes | **Announce published entries**: each published entry of one type, posted with its title and link |
+| n8n 0.2.0 | yes | **Hand published entries to n8n**: triggers an n8n workflow and marks the entry *in flight* until n8n reports back |
+| Buttondown 0.7.0 | yes | **Subscribe form submitters who opt in**: a contact or event form's opt-in checkbox subscribes the sender |
+| Apprise 0.3.0 | yes | **Announce published entries and record delivery**: records `apprise_delivery: sent` or `failed` on the entry (Apprise reports a refused message without failing the step) |
+| Square 0.4.0 | yes | **Re-list every item for sale on Square**: a manual run lists every published, unsold item again (for the switch from sandbox to production) |
+| Instagram 0.4.0 | yes | none: its reply actions need approval and can't run from a workflow |
+
+How to add them to an integration: the SDK's README, "Teach Marvin about it"; the integration template has an example.
 
 ### Wire an action to an event
 
@@ -232,7 +241,7 @@ No setting switches integrations on; presence of an installed provider does. Cre
 
 ## Since
 
-Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145. **Admin → Extensions → Plugins** and `GET /api/admin/plugins`: rc.158. HTTP `patch`: rc.182. Core's own Apprise notifier removed in favour of the Apprise integration: rc.189. Integration-owned error handling (error policies, retries, alerts, **How errors are handled**, **Integration alerts**): rc.197; the alert routing moved to Settings → Automation → Notifications and the catalog was grouped by category with migration `cfbbd1cc67e4` (unreleased), migration `c9e2f4a6b8d1`; providers declare policies from `marvin-integration-sdk` 0.5.0. Option pickers for action inputs (`x-marvin-options`, `POST /{integration_id}/options`) and provider logos (`GET /providers/{slug}/logo`, from `marvin-integration-sdk` 0.6.0): rc.197. Integration routes admin-only: rc.197. **Alerts & health** page, its routes and `integrations.last_success_at`: migration `d5b1e8a3c7f2` (unreleased). The n8n provider is a separate package (SDK 0.5); its workflow picker needs rc.197. The Buttondown provider is a separate package; it relies on `${site.url}` (rc.177), `${entry.url}` and `if_none: skip` (rc.179). Recipes and guides from integrations: `marvin-integration-sdk` 0.9.0, Slack 0.4.0 (unreleased).
+Integrations: 1.0.0-rc.97 (commits 4f8d30e3, 847631de, 3e1603b4, bfad4311, 2c581d2c, 2b71a0c8, 53f896fb, 2026-09-24/25). Workflow integration step and HTTP `put`/`delete`: rc.111. Integration-contributed signature schemes: rc.113. Applying parameterised content from the card, action results and `{{SECRET}}` credentials: rc.114. Editing a connected integration: rc.115. Named User-Agent: rc.119. `INTEGRATION_HTTP_MAX_BYTES`: rc.123. Token-mode signature schemes from integrations: rc.144. `{{SECRET}}` references in action arguments: rc.145. **Admin → Extensions → Plugins** and `GET /api/admin/plugins`: rc.158. HTTP `patch`: rc.182. Core's own Apprise notifier removed in favour of the Apprise integration: rc.189. Integration-owned error handling (error policies, retries, alerts, **How errors are handled**, **Integration alerts**): rc.197; the alert routing moved to Settings → Automation → Notifications and the catalog was grouped by category with migration `cfbbd1cc67e4` (unreleased), migration `c9e2f4a6b8d1`; providers declare policies from `marvin-integration-sdk` 0.5.0. Option pickers for action inputs (`x-marvin-options`, `POST /{integration_id}/options`) and provider logos (`GET /providers/{slug}/logo`, from `marvin-integration-sdk` 0.6.0): rc.197. Integration routes admin-only: rc.197. **Alerts & health** page, its routes and `integrations.last_success_at`: migration `d5b1e8a3c7f2` (unreleased). The n8n provider is a separate package (SDK 0.5); its workflow picker needs rc.197. The Buttondown provider is a separate package; it relies on `${site.url}` (rc.177), `${entry.url}` and `if_none: skip` (rc.179). Recipes and guides from integrations: `marvin-integration-sdk` 0.9.0 with Slack 0.4.0, n8n 0.2.0, Buttondown 0.7.0, Apprise 0.3.0, Square 0.4.0 and Instagram 0.4.0 (2026-10-11).
 
 Note: `docs/INTEGRATIONS_DESIGN.md` and the plugin architecture doc predate the implementation and describe polling that nothing calls; the SDK package is the contract.
 

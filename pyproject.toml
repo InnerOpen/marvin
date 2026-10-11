@@ -89,13 +89,13 @@ postgres = ["psycopg2-binary>=2.9"]
 # every plugin. Update one: `uv lock --upgrade-package marvin-integration-slack`, commit, let CI build it.
 # The chart's plugins.packages can still add one at start-up (a hot fix) without a build.
 plugins = [
-    "marvin-integration-apprise @ git+https://github.com/InnerOpen/marvin-integration-apprise@v0.2.0",
+    "marvin-integration-apprise @ git+https://github.com/InnerOpen/marvin-integration-apprise@v0.3.0",
     "marvin-integration-slack @ git+https://github.com/InnerOpen/marvin-integration-slack@v0.4.0",
     "marvin-integration-openai-images @ git+https://github.com/InnerOpen/marvin-integration-openai-images@v0.2.0",
-    "marvin-integration-instagram @ git+https://github.com/InnerOpen/marvin-integration-instagram@v0.3.0",
-    "marvin-integration-square @ git+https://github.com/InnerOpen/marvin-integration-square@v0.3.0",
+    "marvin-integration-instagram @ git+https://github.com/InnerOpen/marvin-integration-instagram@v0.4.0",
+    "marvin-integration-square @ git+https://github.com/InnerOpen/marvin-integration-square@v0.4.0",
     "marvin-integration-cloudflare-pages @ git+https://github.com/InnerOpen/marvin-integration-cloudflare-pages@v0.1.0",
-    "marvin-integration-buttondown @ git+https://github.com/InnerOpen/marvin-integration-buttondown@v0.6.0",
+    "marvin-integration-buttondown @ git+https://github.com/InnerOpen/marvin-integration-buttondown@v0.7.0",
     "marvin-integration-n8n @ git+https://github.com/InnerOpen/marvin-integration-n8n@v0.2.0",
     "marvin-storage-s3 @ git+https://github.com/InnerOpen/marvin-storage-s3@v0.1.0",
     # The AI providers: core ships none (slice 5). Same slugs as the old built-ins, so saved settings carry over.
