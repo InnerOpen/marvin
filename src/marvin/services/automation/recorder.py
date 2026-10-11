@@ -110,7 +110,7 @@ class CollectingRecorder:
                 "kind": action.get("kind"),
                 "label": _step_label(action, on_failure),
                 "on_failure": on_failure,
-                "status": status,  # "success" = would run; "failed" = a gate/resolve error
+                "status": status,  # "success" = would run; "failed" = a gate/resolve error; "skipped" = its `when` is false
                 "resolved": output,  # the executor's dry-run preview (or None on a gate failure)
                 "error": error,
             }

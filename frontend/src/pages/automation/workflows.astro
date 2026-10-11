@@ -1144,13 +1144,17 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       </div>
       <div class="run-detail" hidden></div>`;
   }
+  // ✓ ran, – skipped (its `when` was false), ✗ failed.
+  function stepMark(status: string): string {
+    return status === "success" ? "✓" : status === "skipped" ? "–" : "✗";
+  }
   function execActionRow(a: any): string {
     const ent = a.targetEntityId ? ` <span class="muted">→ ${esc(String(a.targetEntityId).slice(0, 8))}</span>` : "";
     const err = a.error ? ` <span class="run-err">${esc(a.error)}</span>` : "";
     const dur = a.durationMs != null ? ` <span class="muted">${a.durationMs}ms</span>` : "";
     const handling = a.handling?.summary ? `<div class="act-handling">↳ ${esc(a.handling.summary)}</div>` : "";
     return `<div class="act-row">
-      <span class="status-${esc(a.status)}">${a.status === "success" ? "✓" : "✗"}</span>
+      <span class="status-${esc(a.status)}">${stepMark(a.status)}</span>
       <span>${esc(a.kind)}${a.label ? ` · ${esc(a.label)}` : ""}</span>${ent}${err}${dur}
     </div>${handling}`;
   }
@@ -1204,7 +1208,6 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
 
   // ── Dry run (preview the plan, execute nothing) ──────────────────────────────
   function planStepRow(s: any): string {
-    const ok = s.status === "success";
     const label = s.label ? ` · ${esc(s.label)}` : "";
     const tgt = s.resolved?.entity_id ? ` <span class="muted">→ ${esc(String(s.resolved.entity_id).slice(0, 8))}</span>` : "";
     const err = s.error ? ` <span class="run-err">${esc(s.error)}</span>` : "";
@@ -1213,7 +1216,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     ["dry_run", "kind", "entity_id"].forEach((k) => delete preview[k]);
     const body = Object.keys(preview).length ? `<pre class="plan-json">${esc(JSON.stringify(preview, null, 2))}</pre>` : "";
     return `<div class="act-row">
-      <span class="status-${esc(s.status)}">${ok ? "✓" : "✗"}</span>
+      <span class="status-${esc(s.status)}">${stepMark(s.status)}</span>
       <span>${esc(s.kind)}${label}</span>${tgt}${err}
     </div>${body}`;
   }
@@ -1560,6 +1563,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.status-failed) { color: var(--color-error); }
   .workflows-page :global(.status-partial) { color: #d9a441; }
   .workflows-page :global(.status-running) { color: var(--muted); }
+  .workflows-page :global(.status-skipped) { color: var(--muted); }
   .workflows-page :global(.run-meta) { font-size: 11.5px; }
   .workflows-page :global(.run-detail) { margin: 0 0 6px 18px; display: flex; flex-direction: column; gap: 2px; }
   .workflows-page :global(.run-detail[hidden]) { display: none; }

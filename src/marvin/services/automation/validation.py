@@ -205,6 +205,42 @@ def validate_definition(definition: dict | None) -> list[dict]:
     # advisory here, where hand-written JSON is kept lenient; an agent's draft gets the same as errors.
     issues.extend({**issue, "level": "warning"} for issue in query_issues(definition) + item_target_issues(definition))
     issues.extend(unattended_trash_issues(definition))
+    issues.extend(when_issues(definition))
+    return issues
+
+
+def _condition_fields(cond) -> list[str]:
+    """Every leaf `field` in a condition or condition list (groups nest)."""
+    if isinstance(cond, list):
+        return [f for c in cond for f in _condition_fields(c)]
+    if not isinstance(cond, dict):
+        return []
+    if cond.get("field"):
+        return [str(cond["field"])]
+    return _condition_fields(cond.get("all") or []) + _condition_fields(cond.get("any") or []) + _condition_fields(cond.get("not") or {})
+
+
+def when_issues(definition: dict | None) -> list[dict]:
+    """A step's `when` that reads a step which hasn't run by then (a later one, an unknown id, `previous` on the first
+    step): it is never true the way it reads — that step is always skipped. Warnings."""
+    issues: list[dict] = []
+    main = [a for a in (definition or {}).get("actions") or [] if isinstance(a, dict)]
+    for where in ("actions", "on_failure"):
+        # on_failure steps run after the main ones stopped: any of those may have run (its output, or None).
+        seen: set[str] = set() if where == "actions" else {str(i) for i in range(len(main))} | {str(a["id"]) for a in main if a.get("id")}
+        for i, step in enumerate((definition or {}).get(where) or []):
+            if not isinstance(step, dict):
+                continue
+            for field in _condition_fields(step.get("when")):
+                parts = field.split(".")
+                if parts[0] == "steps" and (len(parts) < 2 or parts[1] not in seen):
+                    name = parts[1] if len(parts) > 1 else "?"
+                    issues.append(_issue("warning", f"Its `when` reads steps.{name}, which hasn't run by step {i + 1}.", where, i))
+                elif parts[0] == "previous" and i == 0 and where == "actions":
+                    issues.append(_issue("warning", "The first step's `when` reads `previous`, which is empty then.", where, i))
+            seen.add(str(i))
+            if step.get("id"):
+                seen.add(str(step["id"]))
     return issues
 
 

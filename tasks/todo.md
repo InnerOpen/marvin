@@ -684,6 +684,11 @@ staged). The capability stays open for 3 recipes (checksum query, entries linked
 images); lineage moved to media-adapters (seasonal-variation, image-prompt-archive, thumbnail-audition gained it).
 Blocked now: 70 of 107. Next (Jared asked about if/else mid-way): **branches** (P0, 5 recipes) before custom-operation.
 
+**Branches (P0) — done 2026-10-11** (Jared asked "do we have if else… or branching"): any step takes `when`
+(conditions, same ops) against steps.* / previous.*; false → recorded `skipped`, run goes on, later references read None;
+dry run shows the verdicts; validator warns on a `when` reading a step not yet run; run view marks skipped `–`; guided
+editor keeps `when` (edit in JSON). No recipe flips on its own (the 5 also need other gaps). Parallel joins stay open.
+
 **B. Custom operation (P0, 37 recipes) — plan for Jared, not built yet.** See "Custom operation" below once written.
 
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")

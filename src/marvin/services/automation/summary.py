@@ -47,12 +47,16 @@ def _target(session, action: dict) -> str | None:
     return None
 
 
-def step_summary(session, action: dict, *, output: Any = None, error: str | None = None, on_failure: bool = False, handling=None) -> dict:
+def step_summary(
+    session, action: dict, *, output: Any = None, error: str | None = None, on_failure: bool = False, handling=None, skipped: bool = False
+) -> dict:
     """One step's line: its kind, what it acted on, and how it went (an HTTP status when it made a call).
     An on_failure step (run because an earlier one failed) says so; a failure the integration's error
-    policy took in hand carries ``handling`` (its summary) and ``handled``."""
+    policy took in hand carries ``handling`` (its summary) and ``handled``; a step whose ``when`` was false is "skipped"."""
     if error is not None:
         outcome = "failed"
+    elif skipped:
+        outcome = "skipped"  # its `when` was false
     elif handling is not None and handling.succeed:
         outcome = "ignored"
     else:

@@ -72,7 +72,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `reply-drafting-desk` — Reply drafting desk | needs-engine-capability | `comment_added` | comments, custom-operation, workflow-approvals |
 | `campaign-scoreboard` — Campaign scoreboard | needs-adapter | `schedule` | social-adapters, waits, metrics |
 | `social-experiment-log` — Social experiment log | needs-engine-capability | `manual` | custom-operation, metrics |
-| `platform-preview-checker` — Platform preview checker | needs-engine-capability | `entry_updated` | branches, fetch, social-adapters |
+| `platform-preview-checker` — Platform preview checker | needs-engine-capability | `entry_updated` | fetch, social-adapters |
 | `launch-kit` — Launch kit | needs-engine-capability | `entry_published` | custom-operation, create-entry, joins, workflow-approvals |
 | `milestone-celebration` — Milestone celebration | needs-engine-capability | `entry_updated` | custom-operation, workflow-approvals, create-entry |
 | `event-countdown` — Event countdown | needs-engine-capability | `entry_published` | waits, relative-dates, create-entry |
@@ -85,14 +85,14 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `brand-recolor` — Brand recolor | needs-adapter | `manual` | media-adapters |
 | `seasonal-variation` — Seasonal variation | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
 | `thumbnail-audition` — Thumbnail audition | needs-engine-capability | `manual` | workflow-approvals, workflow-approvals, media-adapters |
-| `image-quality-gate` — Image quality gate | needs-engine-capability | `asset_uploaded` | media-adapters, branches |
+| `image-quality-gate` — Image quality gate | needs-engine-capability | `asset_uploaded` | media-adapters |
 | `privacy-crop-desk` — Privacy crop desk | needs-engine-capability | `asset_uploaded` | media-adapters, workflow-approvals |
 | `before-after-slider-kit` — Before/after slider kit | needs-adapter | `manual` | media-adapters, create-entry |
 | `contact-sheet-maker` — Contact sheet maker | needs-adapter | `manual` | iterate-aggregate, media-adapters |
 | `ocr-notebook` — OCR notebook | needs-adapter | `asset_uploaded` | media-adapters, create-entry |
 | `document-preview-factory` — Document preview factory | needs-adapter | `asset_uploaded` | media-adapters |
 | `file-format-converter` — File format converter | needs-adapter | `asset_uploaded` | media-adapters |
-| `duplicate-asset-scout` — Duplicate asset scout | needs-engine-capability | `asset_uploaded` | asset-resource-targets, branches |
+| `duplicate-asset-scout` — Duplicate asset scout | needs-engine-capability | `asset_uploaded` | asset-resource-targets |
 | `image-prompt-archive` — Image prompt archive | needs-engine-capability | `manual` | workflow-approvals, media-adapters |
 | `comic-strip-edition` — Comic strip edition | needs-engine-capability | `manual` | custom-operation, workflow-approvals, media-adapters |
 | `marvin-margin-notes` — Marvin margin notes | needs-engine-capability | `manual` | custom-operation |
@@ -110,13 +110,13 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `time-capsule` — Time capsule | needs-engine-capability | `entry_updated` | snapshots, waits, create-entry |
 | `surprise-remix-button` — Surprise remix button | needs-engine-capability | `manual` | manual-params, custom-operation, create-entry |
 | `fictional-debate-club` — Fictional debate club | needs-engine-capability | `manual` | custom-operation, create-entry |
-| `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox, branches |
+| `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox |
 | `resource-availability-watch` — Resource availability watch | needs-engine-capability | `schedule` | fetch, iterate-aggregate |
 | `project-milestone-report` — Project milestone report | needs-engine-capability | `entry_updated` | iterate-aggregate, custom-operation, create-entry |
 | `knowledge-gap-finder` — Knowledge gap finder | needs-engine-capability | `manual` | collection-scope, custom-operation, create-entry |
 | `meeting-notes-to-tasks` — Meeting notes to tasks | needs-engine-capability | `entry_created` | custom-operation, workflow-approvals |
 | `release-notes-compiler` — Release notes compiler | needs-engine-capability | `manual` | iterate-aggregate, relative-dates, custom-operation, create-entry |
-| `intake-triage` — Intake triage | needs-engine-capability | `form_submission_received` | form-classification, branches, custom-operation |
+| `intake-triage` — Intake triage | needs-engine-capability | `form_submission_received` | form-classification, custom-operation |
 | `archive-packager` — Archive packager | needs-adapter | `manual` | media-adapters, collection-scope, iterate-aggregate |
 | `personal-project-radar` — Personal project radar | needs-engine-capability | `schedule` | relative-dates, custom-operation, create-entry |
 | `resource-attachment-notes` — Resource attachment notes | needs-engine-capability | `entry_resource_attached` | custom-operation |
@@ -233,7 +233,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `custom-operation` (variants); `metrics` (observations)
 - `platform-preview-checker` — **Platform preview checker** · needs-engine-capability · `entry_updated`  
   Draft → check length, links, image ratio and preview → flag fixes
-  - Blocked by: `branches` (flag only what fails); `fetch` (link checks); `social-adapters` (per-network limits)
+  - Blocked by: `fetch` (link checks); `social-adapters` (per-network limits)
 - `launch-kit` — **Launch kit** · needs-engine-capability · `entry_published`  
   Product entry → assemble announcement, FAQ, images and newsletter draft
   - Blocked by: `custom-operation` (each piece); `create-entry` (drafts); `joins` (assemble in parallel); `workflow-approvals` (image generation requires approval)
@@ -286,7 +286,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `workflow-approvals` (`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)); `workflow-approvals` (a choice among three); `media-adapters` (attach the chosen one (derived-asset lineage))
 - `image-quality-gate` — **Image quality gate** · needs-engine-capability · `asset_uploaded`  
   Upload → check dimensions, blur and orientation → flag or normalize
-  - Blocked by: `media-adapters` (blur/orientation analysis); `branches` (flag or normalise)
+  - Blocked by: `media-adapters` (blur/orientation analysis)
 - `privacy-crop-desk` — **Privacy crop desk** · needs-engine-capability · `asset_uploaded`  
   Image → propose sensitive-region masking → approve redacted derivative
   - Blocked by: `media-adapters` (masking); `workflow-approvals` (approve the redaction)
@@ -311,7 +311,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `duplicate-asset-scout` — **Duplicate asset scout** · needs-engine-capability · `asset_uploaded`  
   Upload → compare hashes or similarity → suggest existing asset
   - Assets already store a `checksum`; a query key for it would make this a one-step recipe.
-  - Blocked by: `asset-resource-targets` (an asset target query by checksum); `branches` (only when a match exists)
+  - Blocked by: `asset-resource-targets` (an asset target query by checksum)
 - `image-prompt-archive` — **Image prompt archive** · needs-engine-capability · `manual`  
   Generation → save prompt, model, seed if available and parent references
   - `openai_images.generate` returns `usage` (provider, model, tokens) and images (b64 or URL) but no asset is created from a workflow.
@@ -382,7 +382,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `agent-directory-intake` — **Agent directory intake** · needs-engine-capability · `form_submission_received`  
   Agent submission → validate capability document → sandbox checks → review
   - Possible today (partial): form-intake-desk covers the intake half (record, review, notify).
-  - Blocked by: `fetch` (retrieve the capability document); `sandbox` (schema validation); `branches` (pass/fail routing)
+  - Blocked by: `fetch` (retrieve the capability document); `sandbox` (schema validation)
 - `resource-availability-watch` — **Resource availability watch** · needs-engine-capability · `schedule`  
   Schedule → check known resource URLs → flag changed availability
   - Blocked by: `fetch` (HEAD/GET each URL); `iterate-aggregate` (one report)
@@ -403,7 +403,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `intake-triage` — **Intake triage** · needs-engine-capability · `form_submission_received`  
   New request → classify → assign queue → draft clarifying questions
   - Possible today (partial): form-intake-desk records, reviews and notifies; routing by a classification needs branches (or a second workflow keyed on metadata written by the first).
-  - Blocked by: `form-classification` (`classify-form-submission` gets no submission context from the workflow runner); `branches` (route by category / is_spam); `custom-operation` (clarifying questions)
+  - Blocked by: `form-classification` (`classify-form-submission` gets no submission context from the workflow runner); `custom-operation` (clarifying questions)
 - [failure-repair-desk](../../src/marvin/services/automation/recipes/failure-repair-desk.json) — **Failure repair desk** · verified-current · `on_error` (`automation_failed`)  
   When any workflow run fails on an entry and the integration's error policy did not handle it, the entry is sent to Needs review with the workflow name and error as the reason.
   - The on_error trigger listens to `automation_failed`; the failed run names its entry as `event.trigger_entity_type/id`, which the entry step targets explicitly (`entity_id`).
@@ -433,7 +433,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - The brief's “classify” step is not possible yet: `classify-form-submission` receives no submission context from the workflow runner (it reads the legacy FormSubmissions table). See intake-triage.
   - Marvin already creates the entry (status inbox, or needs_review when protection flagged it) and pushes form_submission_received to people with the app.
   - Legacy Forms (the Forms table) also send this event, but with no entry — the `entry.entry_type` condition keeps the recipe to submittable entry types.
-  - Blocked by: `form-classification` (to classify before routing); `branches` (to route spam to the Trash and the rest to a queue)
+  - Blocked by: `form-classification` (to classify before routing)
 - [submission-surge-alert](../../src/marvin/services/automation/recipes/submission-surge-alert.json) — **Submission surge alert** · verified-current · `submission_surge_detected`  
   When one form receives an unusual burst of submissions, the form owner is notified with the counts; nothing is deleted.
   - The event has no entry (entity_type entry_type); entry steps would fail here. The counts come straight from `$event.submission_count / threshold / window_minutes`.
@@ -537,7 +537,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `create-entry` | Create-entry action | P0 | 26 | An entry step `{"op": "create", "entry_type": …, "title": …, "data": {…}, "status": "draft"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step). |
 | `workflow-approvals` | Approval step inside a workflow | P1 | 20 | A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step. |
 | `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 12 | A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run. |
-| `branches` | Conditional steps (if/else) | P0 | 6 | A step can declare `when` conditions evaluated against `steps.*` / `previous.*` (same operators as today); a false condition records the step as skipped (not failed) and later templates referencing it resolve to None; the dry run shows which branch would run. |
 | `relative-dates` | Relative dates and cron schedules | P1 | 6 | `updated_before: "-30d"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick. |
 | `social-adapters` | Social publishing adapters | P1 | 6 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
 | `collection-scope` | Collection-scoped steps | P1 | 4 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). |
@@ -556,3 +555,4 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `custom-events` | Custom emit_event names | P2 | 1 | A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies. |
 | `manual-params` | Manual / MCP run parameters | P1 | 1 | A manual or mcp trigger declares typed inputs; the Run dialog and the MCP tool collect them; steps read `${input.*}`; the run records them. |
 | `snapshots` | Entity snapshots and restore | P2 | 1 | A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable. |
+| `branches` | Conditional steps (if/else) | P0 | 0 | Delivered 2026-10-11: any step takes `when` conditions evaluated against steps.* / previous.* (same operators); false records it as skipped (not failed), later references read None, and the dry run shows the verdicts. |

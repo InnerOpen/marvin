@@ -37,7 +37,7 @@
       "name": "Conditional steps (if/else)",
       "priority": "P0",
       "capabilities_md": "Branches",
-      "acceptance": "A step can declare `when` conditions evaluated against `steps.*` / `previous.*` (same operators as today); a false condition records the step as skipped (not failed) and later templates referencing it resolve to None; the dry run shows which branch would run."
+      "acceptance": "Delivered 2026-10-11: any step takes `when` conditions evaluated against steps.* / previous.* (same operators); false records it as skipped (not failed), later references read None, and the dry run shows the verdicts."
     },
     "iterate-aggregate": {
       "name": "Iterate / aggregate over a target set",
@@ -2346,13 +2346,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "branches",
-          "name": "Conditional steps (if/else)",
-          "priority": "P0",
-          "acceptance": "A step can declare `when` conditions evaluated against `steps.*` / `previous.*` (same operators as today); a false condition records the step as skipped (not failed) and later templates referencing it resolve to None; the dry run shows which branch would run.",
-          "why": "flag only what fails"
-        },
-        {
           "capability": "fetch",
           "name": "HTTP fetch step",
           "priority": "P1",
@@ -3392,13 +3385,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "blur/orientation analysis"
-        },
-        {
-          "capability": "branches",
-          "name": "Conditional steps (if/else)",
-          "priority": "P0",
-          "acceptance": "A step can declare `when` conditions evaluated against `steps.*` / `previous.*` (same operators as today); a false condition records the step as skipped (not failed) and later templates referencing it resolve to None; the dry run shows which branch would run.",
-          "why": "flag or normalise"
         }
       ],
       "notes": [],
@@ -3894,13 +3880,6 @@
           "priority": "P1",
           "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset; an entry operation that sees its attached images. Derived-asset lineage is part of media-adapters.",
           "why": "an asset target query by checksum"
-        },
-        {
-          "capability": "branches",
-          "name": "Conditional steps (if/else)",
-          "priority": "P0",
-          "acceptance": "A step can declare `when` conditions evaluated against `steps.*` / `previous.*` (same operators as today); a false condition records the step as skipped (not failed) and later templates referencing it resolve to None; the dry run shows which branch would run.",
-          "why": "only when a match exists"
         }
       ],
       "notes": [
@@ -5172,13 +5151,6 @@
           "priority": "P2",
           "acceptance": "A step validates a fetched JSON document against a JSON schema and reports violations as output.",
           "why": "schema validation"
-        },
-        {
-          "capability": "branches",
-          "name": "Conditional steps (if/else)",
-          "priority": "P0",
-          "acceptance": "A step can declare `when` conditions evaluated against `steps.*` / `previous.*` (same operators as today); a false condition records the step as skipped (not failed) and later templates referencing it resolve to None; the dry run shows which branch would run.",
-          "why": "pass/fail routing"
         }
       ],
       "notes": [
@@ -5579,13 +5551,6 @@
           "priority": "P0",
           "acceptance": "The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches.",
           "why": "`classify-form-submission` gets no submission context from the workflow runner"
-        },
-        {
-          "capability": "branches",
-          "name": "Conditional steps (if/else)",
-          "priority": "P0",
-          "acceptance": "A step can declare `when` conditions evaluated against `steps.*` / `previous.*` (same operators as today); a false condition records the step as skipped (not failed) and later templates referencing it resolve to None; the dry run shows which branch would run.",
-          "why": "route by category / is_spam"
         },
         {
           "capability": "custom-operation",
@@ -6105,13 +6070,6 @@
           "priority": "P0",
           "acceptance": "The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches.",
           "why": "to classify before routing"
-        },
-        {
-          "capability": "branches",
-          "name": "Conditional steps (if/else)",
-          "priority": "P0",
-          "acceptance": "A step can declare `when` conditions evaluated against `steps.*` / `previous.*` (same operators as today); a false condition records the step as skipped (not failed) and later templates referencing it resolve to None; the dry run shows which branch would run.",
-          "why": "to route spam to the Trash and the rest to a queue"
         }
       ],
       "notes": [

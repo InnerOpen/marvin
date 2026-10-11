@@ -341,7 +341,15 @@ def _actions(detail: bool) -> dict:
         "asset_resource_ops": _item_ops(detail),
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}.",
+        **({"when": WHEN_NOTE} if detail else {}),
     }
+
+
+WHEN_NOTE = (
+    "Any step may carry `when` (conditions, same shape and ops as `conditions`): it runs only if they hold at that point, "
+    "reading ${steps.<id>.output.*} / previous.* too; false records it as skipped, not failed, and its output reads as None. "
+    'Two steps with opposite `when`s (one wrapped in {"not": …}) are an if/else.'
+)
 
 
 def _item_ops(detail: bool) -> dict | str:

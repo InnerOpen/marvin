@@ -82,7 +82,7 @@ class AutomationExecutionModel(SqlAlchemyBase, BaseMixins):
 
 
 class AutomationActionExecutionModel(SqlAlchemyBase, BaseMixins):
-    """One action step attempted for one target within a run. `status`: success | failed."""
+    """One action step attempted for one target within a run. `status`: success | failed | skipped (its `when` was false)."""
 
     __tablename__ = "automation_action_executions"
 

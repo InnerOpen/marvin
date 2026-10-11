@@ -119,6 +119,14 @@ Trigger = Annotated[
 
 
 # ── Actions (discriminated on `kind`) — one model per registered executor ──────
+class _StepBase(_DefnBase):
+    """What every step shares: `when` runs it only if its conditions hold at that point of the run (they can read
+    `steps.<id>.output.*` and `previous.*` as well as the event and the item) — false records the step as skipped
+    and the run goes on, so two steps with opposite `when`s are an if/else."""
+
+    when: list[Condition] | Condition | None = None
+
+
 # What an operation step's `write_back` map may write on an asset or resource (beside `metadata.<key>`). Columns only
 # by name: an item's other columns (its storage key, its workspace) are never an AI output's to change.
 ITEM_WRITEBACK_FIELDS: dict[str, frozenset[str]] = {
@@ -134,11 +142,10 @@ def item_writeback_field_ok(kind: str, field: str) -> bool:
     return field in ITEM_WRITEBACK_FIELDS.get(kind, frozenset())
 
 
-class OperationAction(_DefnBase):
-    """Runs an AI operation (`op`: its slug) on the entry — or, with `entity_type` asset | resource, on that item (the
-    operation must support it); `write_back` saves the result onto it: `true` writes the operation's own fields (an
-    entry's summary, tags…), and on an asset or resource a map `{output key: field}` names what to write (alt_text,
-    description, name, tags, metadata.<key>)."""
+class OperationAction(_StepBase):
+    """Runs an AI operation (`op`: its slug) on the entry, or (`entity_type`) an asset | resource; `write_back`: true
+    saves the op's own fields on an entry, a map {output key: field} on an item (alt_text, description, name, tags,
+    metadata.<key>)."""
 
     kind: Literal["operation"]
     op: str  # AI operation slug
@@ -164,7 +171,7 @@ class OperationAction(_DefnBase):
         return value
 
 
-class EntryAction(_DefnBase):
+class EntryAction(_StepBase):
     """Changes an entry without AI: a status op, collection membership, a metadata/data write or a review
     request. `trash` / `restore` also act on an asset or a resource (`entity_type`; unset, the kind of the
     target's or the triggering item): `entity_slug` / `entity_id`, else the current one — never `entity_query`."""
@@ -216,7 +223,7 @@ class EntryAction(_DefnBase):
         return value
 
 
-class EmitEventAction(_DefnBase):
+class EmitEventAction(_StepBase):
     """Sends a Marvin event (`event`: an emittable event name) for other workflows and subscribers."""
 
     kind: Literal["emit_event"]
@@ -225,7 +232,7 @@ class EmitEventAction(_DefnBase):
     id: str | None = None
 
 
-class HandlerAction(_DefnBase):
+class HandlerAction(_StepBase):
     """Runs an allowlisted internal job (`task`), e.g. request_site_rebuild."""
 
     kind: Literal["handler"]
@@ -234,7 +241,7 @@ class HandlerAction(_DefnBase):
     id: str | None = None
 
 
-class WebhookAction(_DefnBase):
+class WebhookAction(_StepBase):
     """Calls one of the workspace's outgoing webhooks (`webhook_id`), or a raw `url`, with a JSON `body`."""
 
     kind: Literal["webhook"]
@@ -247,7 +254,7 @@ class WebhookAction(_DefnBase):
     id: str | None = None
 
 
-class IntegrationAction(_DefnBase):
+class IntegrationAction(_StepBase):
     """Runs a connected integration's action (`integration`: its slug, `action`: the action key) with `args` — or,
     with `capability` instead of `action`, whichever of its actions offers that (`notify`: `title`, `body`)."""
 
@@ -332,6 +339,8 @@ class AutomationDefinition(_DefnBase):
 
 
 Condition.model_rebuild()
+for _step_model in ACTION_MODELS.values():
+    _step_model.model_rebuild()
 
 
 def definition_json_schema() -> dict:

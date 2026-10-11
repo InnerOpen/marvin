@@ -569,6 +569,9 @@ class _StepRunner:
         record = {"target_index": self.target_index, "target_ref": self.target_ref, "action_index": action_index, "action": action}
         if on_failure:
             record["on_failure"] = True
+        when = action.get("when")
+        if when and not matches(when, self.context):
+            return self._skipped(action, record, when, started, on_failure)
         resume = self._resume(action_index, on_failure)
         if resume:
             self.context["_resume"] = resume
@@ -619,6 +622,15 @@ class _StepRunner:
         self.context["steps"][str(action_index)] = step_entry
         if action.get("id"):
             self.context["steps"][str(action["id"])] = step_entry  # $steps.<id>.output.*
+        return None
+
+    def _skipped(self, action: dict, record: dict, when, started: datetime, on_failure: bool) -> None:
+        """A step whose `when` is false: recorded as skipped (not failed), and nothing joins `steps` or `previous`, so a
+        later step reading its output gets None. The verdicts say why (the dry run's "which branch")."""
+        out = {"skipped": True, "when": explain(when, self.context)}
+        self.recorder.action(self.exec_id, **record, status="skipped", output=out, duration_ms=_ms_since(started))
+        if self.step_log is not None:
+            self.step_log.append(step_summary(self.session, action, output=out, on_failure=on_failure, skipped=True))
         return None
 
     def _resume(self, action_index: int, on_failure: bool) -> dict | None:
