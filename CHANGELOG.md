@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.278 (2026-10-12)
+
+### Bug Fixes
+
+- **workflows**: Dry runs preview steps fed by an AI answer; unchanged saves save nothing; a step id
+  and result key in the editor
+  ([`cea1ce5`](https://github.com/InnerOpen/marvin/commit/cea1ce57f6e53b1501575075cb8812f59fec3180))
+
+
 ## v1.0.0-rc.277 (2026-10-12)
 
 ### Features
