@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 69,
-    "needs-adapter": 8,
-    "needs-engine-capability": 19,
+    "verified-current": 72,
+    "needs-adapter": 6,
+    "needs-engine-capability": 18,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -79,7 +79,7 @@
       "name": "Image, file and audio processing adapters",
       "priority": "P1",
       "capabilities_md": "Provider adapters",
-      "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate."
+      "acceptance": "Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: TTS, zip, PDF output, and provider-side image edits (background removal, scenes, variants)."
     },
     "fetch": {
       "name": "HTTP fetch step",
@@ -3882,7 +3882,7 @@
     {
       "id": "privacy-crop-desk",
       "title": "Privacy crop desk",
-      "outcome": "Image → propose sensitive-region masking → approve redacted derivative",
+      "outcome": "When a picture is uploaded, the AI model looks for faces, number plates and personal details; an editor approves, and a blurred copy is saved beside it.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3897,32 +3897,65 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "privacy-crop-desk.json",
+      "vars": "privacy-crop-desk.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
-          "why": "masking"
+          "name": "find",
+          "type": "list",
+          "description": "What to look for: face, plate, text (personal details such as names and addresses).",
+          "example": [
+            "face",
+            "plate",
+            "text"
+          ]
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:asset_uploaded",
+        "action_kinds": [
+          "media",
+          "approval"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "in",
+          "gt",
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One vision call per uploaded picture."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves a pixelated copy (tagged blurred) once approved; the original is kept as it was."
+        }
+      ],
+      "cost_notes": "One vision AI call per uploaded picture, from the workspace's monthly AI budget.",
+      "failure_behaviour": "No vision model fails the run (the picture is untouched); a denied or expired approval makes nothing.",
+      "dependencies": [],
+      "notes": [
+        "The original stays; publish the blurred copy instead (it's a version of the original in the library).",
+        "Pixelated in blocks, then softened: nothing readable survives."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:vision",
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_privacy_crop_desk"
       },
       "brief": {
         "flow": "Image → propose sensitive-region masking → approve redacted derivative",
@@ -4089,7 +4122,7 @@
     {
       "id": "ocr-notebook",
       "title": "OCR notebook",
-      "outcome": "Image or PDF → extract text → retain page references → create draft notes",
+      "outcome": "When a PDF is uploaded, its text is read page by page (scanned pages by the AI model) and an AI drafts study notes with page references.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -4104,32 +4137,70 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "ocr-notebook.json",
+      "vars": "ocr-notebook.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
-          "why": "OCR / PDF text extraction"
+          "name": "notes_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the notes are drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "notes_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:asset_uploaded",
+        "action_kinds": [
+          "media",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "neq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call for the notes; plus one per scanned page (up to 20) read by the vision model."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry of notes (metadata.source_document)."
+        }
+      ],
+      "cost_notes": "One AI call per PDF for the notes, plus one per scanned page; a PDF's own text is read free.",
+      "failure_behaviour": "A damaged or password-protected PDF fails the run; a PDF with no text skips the notes.",
+      "dependencies": [],
+      "notes": [
+        "PDFs only, so every uploaded photo doesn't cost an AI call; a media step reads a picture's text too (extract_text)."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_ocr_notebook"
       },
       "brief": {
         "flow": "Image or PDF → extract text → retain page references → create draft notes",
@@ -4144,7 +4215,7 @@
     {
       "id": "document-preview-factory",
       "title": "Document preview factory",
-      "outcome": "File upload → render cover and page previews → attach derivatives",
+      "outcome": "When a PDF is attached to an entry as its download, its first three pages become pictures attached as previews, and page one as the cover.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -4158,32 +4229,64 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "document-preview-factory.json",
+      "vars": "document-preview-factory.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
-          "why": "PDF rendering"
+          "name": "document_role",
+          "type": "text",
+          "description": "The role a PDF is attached to an entry in (its download).",
+          "example": "download"
+        },
+        {
+          "name": "preview_role",
+          "type": "text",
+          "description": "The role its first three pages are attached in, as pictures.",
+          "example": "preview"
+        },
+        {
+          "name": "cover_role",
+          "type": "text",
+          "description": "The role its first page is attached in, as the cover.",
+          "example": "cover"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:asset_attached_to_entry",
+        "action_kinds": [
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves page pictures as versions of the PDF (made once per page and size) and attaches them."
+        }
+      ],
+      "cost_notes": "Free: PDF pages are rendered locally (PDFium).",
+      "failure_behaviour": "A damaged PDF fails the run; a shorter PDF gives the pages it has.",
+      "dependencies": [],
+      "notes": [
+        "The cover is page one at 1600 px — its own picture, as an entry links each asset once."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_document_preview_factory"
       },
       "brief": {
         "flow": "File upload → render cover and page previews → attach derivatives",

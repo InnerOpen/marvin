@@ -10,6 +10,10 @@ export const MEDIA_OPS: { op: string; label: string; makesImage: boolean }[] = [
   { op: "inspect", label: "Inspect (size, sharpness…)", makesImage: false },
   { op: "palette", label: "Find its main colours", makesImage: false },
   { op: "render", label: "Render a template (card, poster, quote…)", makesImage: true },
+  { op: "extract_text", label: "Read its text (a PDF, a scan or a photo)", makesImage: false },
+  { op: "pages", label: "Save PDF pages as pictures", makesImage: true },
+  { op: "find_sensitive", label: "Find faces, plates and personal details", makesImage: false },
+  { op: "redact", label: "Blur faces, plates and personal details", makesImage: true },
 ];
 
 /** What each op takes besides the picture and Attach as (automation_definition.py: MEDIA_OP_ARGS). */
@@ -21,6 +25,10 @@ export const OP_FIELDS: Record<string, string[]> = {
   inspect: [],
   palette: ["colors"],
   render: ["template", "html", "width", "height", "format", "quality"],
+  extract_text: ["ocr"],
+  pages: ["page", "count", "width", "format", "quality"],
+  find_sensitive: ["find"],
+  redact: ["boxes", "find", "format", "quality"],
 };
 
 export const MEDIA_FIELDS = [
@@ -35,7 +43,14 @@ export const MEDIA_FIELDS = [
   "colors",
   "template",
   "html",
+  "ocr",
+  "page",
+  "count",
+  "find",
+  "boxes",
 ];
+/** What find_sensitive / redact can look for (capability.SENSITIVE_KINDS). */
+export const SENSITIVE_KINDS = ["face", "plate", "text"];
 /** The largest side a render may have (services/ai/media/render.py MAX_SIDE). */
 export const MAX_RENDER_SIDE = 4000;
 export const ASPECTS = ["1:1", "4:5", "3:2", "16:9", "9:16"];
@@ -57,6 +72,8 @@ const RANGES: Record<string, [number, number]> = {
   height: [1, 10000],
   quality: [1, 100],
   colors: [1, 16],
+  page: [1, 10000],
+  count: [1, 10],
 };
 
 /** A stored `source` as the form shows it: which kind of source, and its one value (a step id, a role, an asset). */
@@ -90,10 +107,10 @@ export function sourceFromChoice(mode: SourceMode, value: string): string | null
  * The op's fields from the form's text values: numbers as numbers, blanks dropped, the op's rules checked (the same
  * ones the server applies). Throws an Error saying what to fix.
  */
-export function mediaFields(op: string, values: Record<string, string | undefined>): Record<string, string | number> {
+export function mediaFields(op: string, values: Record<string, string | undefined>): Record<string, unknown> {
   const takes = OP_FIELDS[op];
   if (!takes) throw new Error(`unknown image op “${op}”`);
-  const out: Record<string, string | number> = {};
+  const out: Record<string, unknown> = {};
   for (const key of takes) {
     const raw = (values[key] ?? "").trim();
     if (!raw) continue;
@@ -103,10 +120,22 @@ export function mediaFields(op: string, values: Record<string, string | undefine
       if (!Number.isInteger(n) || n < lo || n > hi)
         throw new Error(`${key} must be a whole number from ${lo} to ${hi}`);
       out[key] = n;
+    } else if (key === "boxes" && raw.startsWith("[")) {
+      try {
+        out.boxes = JSON.parse(raw);
+      } catch {
+        throw new Error("what to blur is a list of boxes, e.g. [[0.1, 0.2, 0.3, 0.3]], or a ${steps.<id>.output.regions}");
+      }
+    } else if (key === "find") {
+      const kinds = raw.split(",").map((k) => k.trim().toLowerCase()).filter(Boolean);
+      const wrong = kinds.filter((k) => !SENSITIVE_KINDS.includes(k));
+      if (wrong.length) throw new Error(`look for ${SENSITIVE_KINDS.join(", ")} — not ${wrong.join(", ")}`);
+      if (kinds.length < SENSITIVE_KINDS.length) out.find = kinds; // all of them is the default
     } else {
       out[key] = raw;
     }
   }
+  if (op === "extract_text" && out.ocr === "auto") delete out.ocr; // the default
   if (op === "resize" && !(out.width || out.height)) throw new Error("resize needs a width or a height");
   if (op === "resize" && out.fit === "cover" && !(out.width && out.height))
     throw new Error("“fill the box” needs both a width and a height");

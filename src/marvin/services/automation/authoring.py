@@ -415,7 +415,11 @@ MEDIA_NOTE = (
     "own HTML/CSS with {{ fields.<name> }} / {{ images.<name> }} — with fields (text) and images (name → an asset, as source "
     "takes), at width × height (the template's own size by default), and saves the screenshot as a new asset; no network or "
     "script runs in it. An integration action with an image.* capability (openai_images.generate) "
-    "keeps its pictures the same way — output images: [{asset}] — and takes attach_as and tags too."
+    "keeps its pictures the same way — output images: [{asset}] — and takes attach_as and tags too. Documents and privacy: "
+    "extract_text (a PDF or a picture → text with [page N] marks, pages [{page, text, method}]; a PDF's own text is free, a "
+    "scanned page or a picture is read by the vision model, ocr: never skips that), pages (a PDF's pages as pictures: page, "
+    "count ≤ 10, width → asset, assets), find_sensitive (vision: regions [{kind face|plate|text, box}], count; find limits "
+    "the kinds) and redact (a pixelated copy — boxes: ${steps.<id>.output.regions}, or it asks the model; count 0 makes nothing)."
 )
 CREATE_NOTE = (
     " create makes a new entry: entry_type (slug), title, optional data (the type's fields) and metadata, status draft|inbox "

@@ -1,0 +1,42 @@
+{
+  "name": "Document preview factory",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_attached_to_entry"
+    },
+    "conditions": [
+      {
+        "field": "event.role",
+        "op": "eq",
+        "value": "{{document_role}}"
+      },
+      {
+        "field": "asset.mime_type",
+        "op": "eq",
+        "value": "application/pdf"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "media",
+        "id": "previews",
+        "op": "pages",
+        "count": 3,
+        "width": 1200,
+        "attach_as": "{{preview_role}}",
+        "tags": [
+          "document-preview"
+        ]
+      },
+      {
+        "kind": "media",
+        "id": "cover",
+        "op": "pages",
+        "count": 1,
+        "width": 1600,
+        "attach_as": "{{cover_role}}"
+      }
+    ]
+  }
+}

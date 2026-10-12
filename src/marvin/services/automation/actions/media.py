@@ -35,7 +35,8 @@ from .base import AutomationActionError, register_action
 DERIVE_OPS = ("resize", "crop", "convert", "grade")
 READ_OPS = ("inspect", "palette")
 RENDER = "render"  # a template filled with fields and pictures, screenshotted (services/ai/media/render.py)
-OPS = (*DERIVE_OPS, *READ_OPS, RENDER)
+DOC_OPS = ("extract_text", "pages", "find_sensitive", "redact")  # PDFs, OCR and privacy blur (media_documents.py)
+OPS = (*DERIVE_OPS, *READ_OPS, RENDER, *DOC_OPS)
 # What each op takes beside source / attach_as / id / when: format and quality re-encode anything an op makes.
 OP_ARGS = MEDIA_OP_ARGS
 DEFAULT_SOURCE = "${asset.id}"
@@ -68,6 +69,10 @@ def run_media_action(session, group_id, action: dict, context: dict, *, user_id=
     require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, ENTRY_ACTION_MIN_ROLE, f"media step '{op}'")
     if op == RENDER:
         return _render(session, group_id, action, context, user_id=user_id, dry_run=dry_run)
+    if op in DOC_OPS:
+        from .media_documents import run_document_op
+
+        return run_document_op(session, group_id, op, action, context, user_id=user_id, dry_run=dry_run)
     src = resolve_source(session, group_id, action.get("source"), context)
     if not transforms.can_transform(src.mime_type):
         raise AutomationActionError(f"“{src.name}” ({src.mime_type or 'unknown type'}) is not an image Marvin can process (jpeg, png or webp)")
@@ -692,11 +697,20 @@ def _store_render(session, group_id, template, source_html, fields, pictures, si
 
 # ── Subject focus (a vision model, or an integration that detects subjects) ──
 def _subject_detector(session, group_id):
-    """The handler that finds a picture's main subject, or (None, why not) — then a subject crop centres instead. A
-    vision model is used only where the workspace lets workflows use AI, within its budget."""
+    """The handler that finds a picture's main subject, or (None, why not) — then a subject crop centres instead."""
     from marvin.services.ai.media import capability
 
-    handlers = capability._integrations_providing(capability.KIND_DETECT_SUBJECT, group_id)
+    handler, why_not = vision_handler(session, group_id, capability.KIND_DETECT_SUBJECT)
+    return handler, None if handler else f"{why_not}; cropped from the centre"
+
+
+def vision_handler(session, group_id, kind: str):
+    """The handler for an image-in capability (`kind`: detect a subject, read text, find what to blur) — an integration
+    that offers it, else the workspace's vision model — or (None, why not). A vision model is used only where the
+    workspace lets workflows use AI, within its budget."""
+    from marvin.services.ai.media import capability
+
+    handlers = capability._integrations_providing(kind, group_id)
     if handlers:
         return handlers[0], None
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
@@ -708,33 +722,34 @@ def _subject_detector(session, group_id):
     settings = session.query(WorkspaceAISettingsModel).filter_by(group_id=group_id).first()
     policy = settings.invocation_sources if settings else None
     if not (settings and settings.enabled) or (isinstance(policy, dict) and policy.get(AUTOMATION_SOURCE, True) is False):
-        return None, "AI is off for workflows here; cropped from the centre"
+        return None, "AI is off for workflows here"
     if reason := budget.blocked_reason(session, group_id):
-        return None, f"AI budget: {reason}; cropped from the centre"
+        return None, f"AI budget: {reason}"
     model = _resolve_model(session, group_id, settings)
     try:
         provider = get_workspace_ai_provider(session, group_id)
     except Exception:  # noqa: BLE001 — no provider is the same as no vision model
         provider = None
     if not (provider and model and _model_sees_images(session, group_id, model)):
-        return None, "no AI model that can see images; cropped from the centre"
-    handler = capability.resolve_capability(capability.KIND_DETECT_SUBJECT, session=session, group_id=group_id, provider=provider, model=model)
-    return (handler, None) if handler else (None, "no AI model that can see images; cropped from the centre")
+        return None, "no AI model that can see images"
+    handler = capability.resolve_capability(kind, session=session, group_id=group_id, provider=provider, model=model)
+    return (handler, None) if handler else (None, "no AI model that can see images")
 
 
 def _detect_subject(session, group_id, handler, src, data: bytes, *, user_id) -> list | None:
     """The subject's normalized box [x, y, w, h], or None. A vision model's call is logged and costed like any
     workflow AI call (AI usage, the monthly budget)."""
-    started = _now()
+    started = now()
     result = handler.invoke({"asset_id": src.id, "image_bytes": data, "image_b64": base64.b64encode(data).decode("ascii")}) or {}
     box = result.get("box")
     usage = getattr(handler, "last_usage", None)
     if usage is not None:
-        _log_vision_call(session, group_id, handler, src, box, usage, started, user_id=user_id)
+        log_vision_call(session, group_id, handler, src, {"box": box}, usage, started, user_id=user_id)
     return list(box) if box else None
 
 
-def _log_vision_call(session, group_id, handler, src, box, usage, started, *, user_id) -> None:
+def log_vision_call(session, group_id, handler, src, output: dict, usage, started, *, user_id, operation: str = DETECT_OPERATION) -> None:
+    """A media step's vision call in AI Executions, costed against the monthly budget like any workflow AI call."""
     from marvin.db.models.groups.ai_executions import AIExecutionModel
     from marvin.services.ai import budget
     from marvin.services.ai.pricing import estimate_cost
@@ -746,7 +761,7 @@ def _log_vision_call(session, group_id, handler, src, box, usage, started, *, us
     row = AIExecutionModel(
         session=session,
         group_id=group_id,
-        operation_slug=DETECT_OPERATION,
+        operation_slug=operation,
         provider_type=provider_type,
         model_id=handler.model,
         status="completed",
@@ -755,9 +770,9 @@ def _log_vision_call(session, group_id, handler, src, box, usage, started, *, us
         entity_type="asset",
         entity_id=src.id,
         input_json={},
-        output_json={"box": box},
+        output_json=output,
         started_at=started,
-        completed_at=_now(),
+        completed_at=now(),
         prompt_tokens=prompt,
         completion_tokens=completion,
         total_tokens=usage.total_tokens or prompt + completion,
@@ -769,7 +784,7 @@ def _log_vision_call(session, group_id, handler, src, box, usage, started, *, us
         budget.emit_crossing(group_id, crossing, user_id=user_id, source=AUTOMATION_SOURCE)
 
 
-def _now():
+def now():
     from datetime import UTC, datetime
 
     return datetime.now(UTC)

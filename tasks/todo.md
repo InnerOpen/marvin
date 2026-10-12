@@ -887,6 +887,25 @@ every recipe; `section='examples'` lists them). Condition `contains` is case-sen
 hence `find`. Broken-link patrol records a count and notifies instead of request_review (which would unpublish). The
 guarded client resolves the host twice (check, then connect) — a DNS-rebinding window that predates this step.
 
+**K. After J (2026-10-12, Jared: "do 3 then 1, then 2 then onto slice 3")**
+- [x] 3 — guarded client pinned to the checked address (DNS rebinding); import_asset through it. `62d93fbb`
+- [x] 1 — living-resource-collection, duplicate-asset-scout (`checksum`/`exclude` keys, `asset.checksum`),
+      entry-schema-impact-report (collect `only_invalid`). `0bc6b56d`
+- [x] 2 — run inputs (`trigger.inputs`, `${input.*}`, Run form, API body, run_workflow, SDK `run(id, inputs)`),
+      surprise-remix-button; editor schedule gains cron (it re-saved cron as daily). `5c42d5cc`, SDK `e3b499f`
+
+**L. Media slice 3 (Jared: pypdfium2 for PDF rendering)**
+- [x] pypdfium2 dependency; media ops on PDFs as well as rasters.
+- [x] `extract_text`: a PDF's text layer per page (pypdf); an image, or a PDF page with no text, read by the vision
+      model (`image.read_text`, one AI call each, AI gates + AIExecution like subject detection) → text + pages[].
+- [x] `pages`: render PDF page(s) to images (pypdfium2) → derived assets with lineage (`attach_as`).
+- [x] `find_sensitive` + `redact`: vision model finds faces / plates / personal text (`image.detect_sensitive`) →
+      pixelated copy; the recipe asks an editor first.
+- [ ] Render to PDF (Chromium --print-to-pdf) and a `zip` op (collect rows → files + manifest.json).
+- [x] Recipes: ocr-notebook, document-preview-factory, privacy-crop-desk (72 verified, 24 blocked).
+- [ ] Recipes: workshop-field-guide, archive-packager.
+- [ ] Then the OpenAI Images plugin's `edit` action → background-remover, product-scene-studio, seasonal-variation.
+
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
 Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to

@@ -373,20 +373,30 @@ MEDIA_OP_ARGS: dict[str, tuple[str, ...]] = {
     "inspect": (),
     "palette": ("colors",),
     "render": ("template", "html", "width", "height", "fields", "images", "format", "quality"),
+    "extract_text": ("ocr",),
+    "pages": ("page", "count", "width", "format", "quality"),
+    "find_sensitive": ("find",),
+    "redact": ("boxes", "find", "format", "quality"),
 }
+MEDIA_ARG_FIELDS = (
+    *("width", "height", "fit", "aspect", "focus", "format", "quality", "preset", "colors", "template", "html", "fields", "images"),
+    *("ocr", "page", "count", "find", "boxes"),
+)
 MEDIA_ASPECT_PATTERN = r"^\s*[1-9]\d{0,2}\s*[:x/]\s*[1-9]\d{0,2}\s*$"
 
 
 class MediaAction(_StepBase):
-    """Makes an image from an image, or reads one — no AI, no provider. `resize`, `crop`, `convert` and `grade` save a
+    """Makes an image from an image or a PDF page, or reads one (facts, colours, text). `resize`, `crop`, `convert` and `grade` save a
     NEW asset (the original is never changed) with its lineage and return `asset` {id, slug, url, width, height}; the
     same op on the same picture reuses it. `inspect` returns width, height, orientation, aspect, sharpness; `palette`
     returns colors. `render` fills a template (`template`: a built-in one, or the step's own `html`) with `fields` and
     `images` and screenshots it into a new asset. `source`: an asset id or slug (default ${asset.id}), ${steps.<id>.output.asset.id}, or role:<role>
-    (the entry's asset in that role). `attach_as` links the new asset to the run's entry in that role."""
+    (the entry's asset in that role). `attach_as` links the new asset to the run's entry in that role. `extract_text`
+    reads a PDF's text page by page (a scanned page, or a picture, by the vision model: `ocr`); `pages` saves PDF pages
+    as pictures; `find_sensitive` lists faces, plates and personal text (vision); `redact` blurs them (or `boxes`)."""
 
     kind: Literal["media"]
-    op: Literal["resize", "crop", "convert", "grade", "inspect", "palette", "render"]
+    op: Literal["resize", "crop", "convert", "grade", "inspect", "palette", "render", "extract_text", "pages", "find_sensitive", "redact"]
     source: str | None = None  # default ${asset.id}
     width: int | None = Field(default=None, ge=1, le=10_000)  # resize: at most this wide (never upscales)
     height: int | None = Field(default=None, ge=1, le=10_000)  # resize: at most this tall
@@ -403,6 +413,11 @@ class MediaAction(_StepBase):
     # render: picture name → an asset (id, slug, URL, ${steps.<id>.output.asset.id}, role:<role>) — or a list of them, or a
     # collect step's ${steps.<id>.output.rows} (the grid and moodboard templates)
     images: dict[str, str | list[str]] | None = None
+    ocr: Literal["auto", "never"] | None = None  # extract_text: read a scanned page or a picture with the vision model (auto)
+    page: int | None = Field(default=None, ge=1, le=10_000)  # pages: the first page to save (default 1)
+    count: int | None = Field(default=None, ge=1, le=10)  # pages: how many from `page` (default 1)
+    find: list[Literal["face", "plate", "text"]] | None = None  # find_sensitive / redact: what to look for (default all)
+    boxes: list[Any] | str | None = None  # redact: regions [{box: [x, y, w, h]}] or boxes (0..1), e.g. ${steps.x.output.regions}
     attach_as: str | None = None  # link the new asset to the run's entry in this role
     tags: list[str] | None = None  # tag the new asset (e.g. web-sizes), so the library and smart collections can find them
     id: str | None = None
@@ -410,11 +425,7 @@ class MediaAction(_StepBase):
     @model_validator(mode="after")
     def _op_shape(self):
         takes = MEDIA_OP_ARGS[self.op]
-        stray = [
-            k
-            for k in ("width", "height", "fit", "aspect", "focus", "format", "quality", "preset", "colors", "template", "html", "fields", "images")
-            if getattr(self, k) is not None and k not in takes
-        ]
+        stray = [k for k in MEDIA_ARG_FIELDS if getattr(self, k) is not None and k not in takes]
         if stray:
             raise ValueError(
                 f"{', '.join(stray)} {'goes' if len(stray) == 1 else 'go'} with another op: {self.op} takes {', '.join(takes) or 'nothing'}"

@@ -1,0 +1,70 @@
+{
+  "name": "OCR notebook",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_uploaded"
+    },
+    "conditions": [
+      {
+        "field": "asset.mime_type",
+        "op": "eq",
+        "value": "application/pdf"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "media",
+        "id": "read",
+        "op": "extract_text"
+      },
+      {
+        "kind": "operation",
+        "id": "notes",
+        "op": "custom",
+        "see": [],
+        "prompt": "Make clear study notes from the document “${asset.name}”: the main points and anything worth looking up again, each with its page in brackets, e.g. (p. 3). Use only what the document says.\n\n${steps.read.output.text}",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 40
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        },
+        "when": {
+          "field": "steps.read.output.text",
+          "op": "neq",
+          "value": ""
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{notes_entry_type}}",
+        "title": "${steps.notes.output.title}",
+        "data": {
+          "{{notes_body_field}}": "${steps.notes.output.body}"
+        },
+        "metadata": {
+          "source_document": "${asset.slug}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.read.output.text",
+          "op": "neq",
+          "value": ""
+        }
+      }
+    ]
+  }
+}

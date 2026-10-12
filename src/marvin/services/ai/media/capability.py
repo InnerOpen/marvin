@@ -39,11 +39,14 @@ KIND_SEARCH = "image.search"
 KIND_UPSCALE = "image.upscale"
 # Internal kinds (not user-facing integrations vocabulary, but routed the same way):
 KIND_DETECT_SUBJECT = "image.detect_subject"
+KIND_READ_TEXT = "image.read_text"  # the text in a picture or a scanned page (OCR)
+KIND_DETECT_SENSITIVE = "image.detect_sensitive"  # faces, number plates, readable personal details (privacy blur)
 KIND_GRADE = "image.grade"
 KIND_CROP = "image.crop"
 
 # Kinds that feed an image IN and get text/structured data OUT — servable by a vision model.
-_VISION_IN_KINDS = frozenset({KIND_DESCRIBE, KIND_DETECT_SUBJECT})
+_VISION_IN_KINDS = frozenset({KIND_DESCRIBE, KIND_DETECT_SUBJECT, KIND_READ_TEXT, KIND_DETECT_SENSITIVE})
+SENSITIVE_KINDS = ("face", "plate", "text")
 # Kinds that are pure, local, deterministic pixel transforms — servable by Pillow.
 _PIXEL_KINDS = frozenset({KIND_GRADE, KIND_CROP})
 
@@ -62,6 +65,79 @@ _DETECT_SUBJECT_SCHEMA: dict = {
         },
     },
     "required": ["box"],
+}
+_READ_TEXT_SCHEMA: dict = {
+    "type": "object",
+    "properties": {"text": {"type": "string", "description": "All the readable text, in reading order; empty if none."}},
+    "required": ["text"],
+}
+_DETECT_SENSITIVE_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "regions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": list(SENSITIVE_KINDS)},
+                    "box": {"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4},
+                },
+                "required": ["kind", "box"],
+            },
+        }
+    },
+    "required": ["regions"],
+}
+
+
+def _subject(parsed: dict) -> dict:
+    box = _normalize_box((parsed or {}).get("box"))
+    return {"box": box} if box else {}
+
+
+def _text(parsed: dict) -> dict:
+    return {"text": str((parsed or {}).get("text") or "").strip()}
+
+
+def _regions(parsed: dict) -> dict:
+    out = []
+    for region in (parsed or {}).get("regions") or []:
+        box = _normalize_box((region or {}).get("box")) if isinstance(region, dict) else None
+        if box and region.get("kind") in SENSITIVE_KINDS:
+            out.append({"kind": region["kind"], "box": box})
+    return {"regions": out}
+
+
+# Image-in kinds served by one structured vision call: (system, instruction, schema, max_tokens, read the answer).
+_VISION_SPECS: dict = {
+    KIND_DETECT_SUBJECT: (
+        "You are a vision assistant that locates the main subject of an image.",
+        "Locate the single main subject of this image. Return its bounding box as normalized coordinates in [0, 1]: "
+        "[x, y, w, h] where (x, y) is the top-left corner and (w, h) the width and height as fractions of the image."
+        '\n\nReturn JSON: {"box": [x, y, w, h]}',
+        _DETECT_SUBJECT_SCHEMA,
+        200,
+        _subject,
+    ),
+    KIND_READ_TEXT: (
+        "You are an OCR assistant: you transcribe the text in an image exactly, inventing nothing.",
+        "Transcribe all the readable text in this image, in reading order, keeping its line breaks and headings. "
+        "Don't describe the image and don't add anything that isn't written there. "
+        'Return JSON: {"text": "…"} — an empty string when there is no text.',
+        _READ_TEXT_SCHEMA,
+        4000,
+        _text,
+    ),
+    KIND_DETECT_SENSITIVE: (
+        "You are a privacy assistant that finds personal details in images so they can be blurred.",
+        "Find every region a person would want blurred before publishing: faces (kind face), vehicle number plates "
+        "(kind plate) and readable personal details such as names, addresses, phone numbers, email addresses or "
+        "document numbers (kind text). Give each as a normalized box [x, y, w, h] in [0, 1] (x, y the top-left "
+        'corner). Return JSON: {"regions": [{"kind": "face", "box": [x, y, w, h]}]} — an empty list when there are none.',
+        _DETECT_SENSITIVE_SCHEMA,
+        600,
+        _regions,
+    ),
 }
 
 
@@ -161,11 +237,21 @@ class VisionModelHandler:
     def invoke(self, inputs: dict) -> dict:
         if not (self.provider and getattr(self.provider, "supports_vision", False) and self.model):
             return {}
+        if self.kind in _VISION_SPECS and inputs.get("image_bytes") and not inputs.get("asset_id"):
+            # An image that isn't an asset (a rendered PDF page): the bytes as given.
+            import base64
+
+            image = base64.b64encode(inputs["image_bytes"]).decode("ascii"), inputs.get("mime_type") or "image/png"
+            try:
+                return self._ask(image)
+            except Exception as e:  # noqa: BLE001 — best-effort, as below
+                logger.warning("media: vision %s failed: %s", self.kind, e)
+                return {}
         asset_id = inputs.get("asset_id")
         if not asset_id:
             return {}
 
-        from marvin.services.ai.base import CompletionOptions, ImagePart, Message
+        from marvin.services.ai.base import CompletionOptions
         from marvin.services.ai.context import ContextBuilder, resolve_prompt_messages
 
         try:
@@ -182,31 +268,24 @@ class VisionModelHandler:
                 parsed, _ = self.provider.execute_operation(messages, self.model, op.output_schema, opts)
                 return parsed or {}
 
-            if self.kind == KIND_DETECT_SUBJECT:
+            if self.kind in _VISION_SPECS:
                 asset = ctx.assets[0]
-                instruction = (
-                    "Locate the single main subject of this image. Return its bounding box as "
-                    "normalized coordinates in [0, 1]: [x, y, w, h] where (x, y) is the top-left "
-                    "corner and (w, h) the width and height as fractions of the image.\n\n"
-                    'Return JSON: {"box": [x, y, w, h]}'
-                )
-                messages = [
-                    Message(role="system", content="You are a vision assistant that locates the main subject of an image."),
-                    Message(
-                        role="user",
-                        content=[
-                            instruction,
-                            ImagePart(data=asset["image_data"], mime_type=asset.get("mime_type") or "image/png"),
-                        ],
-                    ),
-                ]
-                opts = CompletionOptions(max_tokens=200)
-                parsed, self.last_usage = self.provider.execute_operation(messages, self.model, _DETECT_SUBJECT_SCHEMA, opts)
-                box = _normalize_box((parsed or {}).get("box"))
-                return {"box": box} if box else {}
+                return self._ask((asset["image_data"], asset.get("mime_type") or "image/png"))
         except Exception as e:  # noqa: BLE001 — best-effort; a vision failure just yields no result
             logger.warning("media: vision %s failed: %s", self.kind, e)
         return {}
+
+    def _ask(self, image: tuple[str, str]) -> dict:
+        """One structured vision call for this kind on (base64 data, mime type); its token usage kept in last_usage."""
+        from marvin.services.ai.base import CompletionOptions, ImagePart, Message
+
+        system, instruction, schema, max_tokens, read = _VISION_SPECS[self.kind]
+        messages = [
+            Message(role="system", content=system),
+            Message(role="user", content=[instruction, ImagePart(data=image[0], mime_type=image[1])]),
+        ]
+        parsed, self.last_usage = self.provider.execute_operation(messages, self.model, schema, CompletionOptions(max_tokens=max_tokens))
+        return read(parsed)
 
 
 def _normalize_box(box) -> list[float] | None:

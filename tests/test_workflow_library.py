@@ -41,6 +41,7 @@ from marvin.services.automation.library import RecipeConfigError, configure, pla
 from marvin.services.automation.recorder import ExecutionRecorder  # noqa: E402
 from tests.test_workflow_fetch import _web  # noqa: E402
 from tests.test_workflow_item_targets import _asset, _resource  # noqa: E402
+from tests.test_workflow_media_documents import _Vision, pdf  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 LIBRARY = ROOT / "docs" / "workflow-library"
@@ -374,6 +375,10 @@ def ws(db_session, monkeypatch):
         "unavailable_text": "sold out",
         "notes_body_field": "body",
         "remixes": ["a haiku", "a limerick"],
+        "document_role": "download",
+        "preview_role": "preview",
+        "cover_role": "cover",
+        "find": ["face", "plate"],
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1357,6 +1362,57 @@ class TestExecution:
         (call,) = ws.providers["openai_images"].calls
         assert call["prompt"] == "A bright, hand-drawn poster: a glowing brass lantern"
         assert ws.session.query(EntryAssets).filter_by(entry_id=project.id, role="celebration").count() == 1
+
+    # ── documents and privacy (a media step's extract_text / pages / find_sensitive / redact) ──
+    def _document(self, ws, store, name, pages):
+        return self._picture_asset(ws, store, name, pdf(pages), mime="application/pdf", asset_type="document")
+
+    def test_ocr_notebook(self, ws, store):
+        _install(ws, "ocr-notebook")
+        guide = self._document(ws, store, "wax-guide", ["Warm the wax before you rub it in.", "Let the canvas cure for a week."])
+        photo = self._picture_asset(ws, store, "snapshot", _picture())
+        ws.ai.reply_text(json.dumps({"title": "Notes: waxing canvas", "body": "Warm the wax first (p. 1). Cure for a week (p. 2)."}))
+
+        for asset in (photo, guide):  # a picture isn't read: the recipe takes PDFs (a scan's pages are read by the AI)
+            self._upload(ws, asset, correlation_id=f"up-{asset.slug}")
+
+        prompt = ws.ai.last_request()
+        assert "[page 1]" in prompt and "Warm the wax before you rub it in." in prompt and "[page 2]" in prompt
+        (notes,) = self._issues(ws)
+        assert (notes.title, notes.status, notes.metadata_json["source_document"]) == ("Notes: waxing canvas", "draft", guide.slug)
+        assert len(ws.ai.requests) == 1  # the text layer was read without AI
+
+    def test_document_preview_factory(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+
+        _install(ws, "document-preview-factory")
+        kit = _entry(ws, "article", "Pattern kit", data={"body": "x"})
+        doc = self._document(ws, store, "pattern-kit", ["Cover", "Pieces"])
+        ws.session.add(EntryAssets(entry_id=kit.id, asset_id=doc.id, role="download", position=0))
+        ws.session.commit()
+
+        _fire(ws, "asset_attached_to_entry", _entry_doc(kit, asset_id=str(doc.id), role="download"), entity=kit.id, entity_type="entry")
+
+        made = sorted(self._made_from(ws, doc), key=lambda a: (a.metadata_json["page"], a.width))
+        assert [(a.metadata_json["page"], a.width) for a in made] == [(1, 1200), (1, 1600), (2, 1200)]  # 2 pages; 1 cover
+        links = {(ea.asset_id, ea.role) for ea in ws.session.query(EntryAssets).filter_by(entry_id=kit.id)}
+        assert links == {(doc.id, "download"), (made[0].id, "preview"), (made[2].id, "preview"), (made[1].id, "cover")}
+
+    def test_privacy_crop_desk(self, ws, store, monkeypatch):
+        from marvin.services.automation.actions import media as media_step
+
+        vision = _Vision(regions=[{"kind": "face", "box": [0.3, 0.2, 0.2, 0.3]}, {"kind": "text", "box": [0.1, 0.8, 0.4, 0.1]}])
+        monkeypatch.setattr(media_step, "vision_handler", lambda session, group_id, kind: (vision, None))
+        _install(ws, "privacy-crop-desk")
+        street = self._picture_asset(ws, store, "street", _picture((800, 600)))
+
+        self._upload(ws, street)
+        assert self._made_from(ws, street) == []  # waits for an editor
+        self._decide(ws)
+
+        (blurred,) = self._made_from(ws, street)
+        assert blurred.metadata_json["media_op"] == "redact" and blurred.metadata_json["regions"] == 1  # a face; text isn't asked for
+        assert [t.slug for t in blurred.tags] == ["blurred"] and len(vision.calls) == 1
 
     # ── rendered images (a media step's render op; needs headless Chromium) ──
     def _with_hero(self, ws, store, entry, size=(1200, 900)):

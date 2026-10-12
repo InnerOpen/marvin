@@ -76,3 +76,15 @@ describe("a render step", () => {
     assert.equal(filledRows({ quote: "" }), null);
   });
 });
+
+test("document and privacy ops: pages as numbers, what to look for as a list, boxes as given", () => {
+  assert.deepEqual(mediaFields("pages", { page: "2", count: "3", format: "webp" }), { page: 2, count: 3, format: "webp" });
+  assert.throws(() => mediaFields("pages", { count: "40" }), /count must be a whole number from 1 to 10/);
+  assert.deepEqual(mediaFields("extract_text", { ocr: "auto" }), {}); // the default
+  assert.deepEqual(mediaFields("extract_text", { ocr: "never" }), { ocr: "never" });
+  assert.deepEqual(mediaFields("find_sensitive", { find: "Face, plate" }), { find: ["face", "plate"] });
+  assert.deepEqual(mediaFields("find_sensitive", { find: "face, plate, text" }), {}); // all of them is the default
+  assert.throws(() => mediaFields("redact", { find: "tattoo" }), /not tattoo/);
+  assert.deepEqual(mediaFields("redact", { boxes: "[[0.1, 0.2, 0.3, 0.3]]" }), { boxes: [[0.1, 0.2, 0.3, 0.3]] });
+  assert.deepEqual(mediaFields("redact", { boxes: "${steps.find.output.regions}" }), { boxes: "${steps.find.output.regions}" });
+});

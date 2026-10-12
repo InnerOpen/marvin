@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-107 recipes: **69** verified-current, **11** supported-after-configuration, **8** needs-adapter, **19** needs-engine-capability.
+107 recipes: **72** verified-current, **11** supported-after-configuration, **6** needs-adapter, **18** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -36,8 +36,11 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [smart-crop-pack](../../src/marvin/services/automation/recipes/smart-crop-pack.json) — Smart crop pack | verified-current | `asset_uploaded` | — | content mutation, paid call |
 | [brand-recolor](../../src/marvin/services/automation/recipes/brand-recolor.json) — Brand recolor | verified-current | `manual` | — | content mutation |
 | [image-quality-gate](../../src/marvin/services/automation/recipes/image-quality-gate.json) — Image quality gate | verified-current | `asset_uploaded` | an integration that can notify (Slack or Apprise) | external post |
+| [privacy-crop-desk](../../src/marvin/services/automation/recipes/privacy-crop-desk.json) — Privacy crop desk | verified-current | `asset_uploaded` | — | content mutation, paid call |
 | [before-after-slider-kit](../../src/marvin/services/automation/recipes/before-after-slider-kit.json) — Before and after kit | verified-current | `manual` | — | content mutation |
 | [contact-sheet-maker](../../src/marvin/services/automation/recipes/contact-sheet-maker.json) — Contact sheet maker | verified-current | `manual` | — | content mutation |
+| [ocr-notebook](../../src/marvin/services/automation/recipes/ocr-notebook.json) — OCR notebook | verified-current | `asset_uploaded` | — | content mutation, paid call |
+| [document-preview-factory](../../src/marvin/services/automation/recipes/document-preview-factory.json) — Document preview factory | verified-current | `asset_uploaded` | — | content mutation |
 | [file-format-converter](../../src/marvin/services/automation/recipes/file-format-converter.json) — File format converter (images) | verified-current | `asset_uploaded` | — | content mutation |
 | [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — Attribution companion | verified-current | `asset_attached_to_entry` | — | content mutation |
 | [duplicate-asset-scout](../../src/marvin/services/automation/recipes/duplicate-asset-scout.json) — Duplicate asset scout | verified-current | `asset_uploaded` | an integration that can notify (Slack or Apprise) | external post |
@@ -112,9 +115,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `product-scene-studio` — Product scene studio | needs-engine-capability | `manual` | media-adapters |
 | `seasonal-variation` — Seasonal variation | needs-engine-capability | `manual` | media-adapters |
 | `thumbnail-audition` — Thumbnail audition | needs-engine-capability | `manual` | workflow-approvals |
-| `privacy-crop-desk` — Privacy crop desk | needs-engine-capability | `asset_uploaded` | media-adapters |
-| `ocr-notebook` — OCR notebook | needs-adapter | `asset_uploaded` | media-adapters |
-| `document-preview-factory` — Document preview factory | needs-adapter | `asset_uploaded` | media-adapters |
 | `achievement-cabinet` — Achievement cabinet | needs-engine-capability | `entry_updated` | custom-events |
 | `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | sandbox |
 | `workshop-field-guide` — Workshop field guide | needs-engine-capability | `manual` | iterate-aggregate, media-adapters |
@@ -287,9 +287,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   An uploaded picture that is too narrow or too blurry is reported to the team's notification channel, with its size and sharpness.
   - Sharpness is the variance of a Laplacian on a downscaled grey copy: blurry pictures score low. Check a few of yours with an Inspect step to pick the minimum.
   - Flagging the asset itself (metadata or a tag) waits for an asset metadata step.
-- `privacy-crop-desk` — **Privacy crop desk** · needs-engine-capability · `asset_uploaded`  
-  Image → propose sensitive-region masking → approve redacted derivative
-  - Blocked by: `media-adapters` (masking)
+- [privacy-crop-desk](../../src/marvin/services/automation/recipes/privacy-crop-desk.json) — **Privacy crop desk** · verified-current · `asset_uploaded`  
+  When a picture is uploaded, the AI model looks for faces, number plates and personal details; an editor approves, and a blurred copy is saved beside it.
+  - The original stays; publish the blurred copy instead (it's a version of the original in the library).
+  - Pixelated in blocks, then softened: nothing readable survives.
 - [before-after-slider-kit](../../src/marvin/services/automation/recipes/before-after-slider-kit.json) — **Before and after kit** · verified-current · `manual`  
   Run by hand: every version tagged for comparison gets a before/after image beside its original, saved as a new asset.
   - A comparison image, not a slider: an interactive slider is a site component.
@@ -297,12 +298,12 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   Up to 48 images with a tag are laid out, labelled, on one contact sheet image.
   - Versions (crops, sizes) are left out unless the query asks for them.
   - Change the tag to make a sheet of another set.
-- `ocr-notebook` — **OCR notebook** · needs-adapter · `asset_uploaded`  
-  Image or PDF → extract text → retain page references → create draft notes
-  - Blocked by: `media-adapters` (OCR / PDF text extraction)
-- `document-preview-factory` — **Document preview factory** · needs-adapter · `asset_uploaded`  
-  File upload → render cover and page previews → attach derivatives
-  - Blocked by: `media-adapters` (PDF rendering)
+- [ocr-notebook](../../src/marvin/services/automation/recipes/ocr-notebook.json) — **OCR notebook** · verified-current · `asset_uploaded`  
+  When a PDF is uploaded, its text is read page by page (scanned pages by the AI model) and an AI drafts study notes with page references.
+  - PDFs only, so every uploaded photo doesn't cost an AI call; a media step reads a picture's text too (extract_text).
+- [document-preview-factory](../../src/marvin/services/automation/recipes/document-preview-factory.json) — **Document preview factory** · verified-current · `asset_uploaded`  
+  When a PDF is attached to an entry as its download, its first three pages become pictures attached as previews, and page one as the cover.
+  - The cover is page one at 1600 px — its own picture, as an entry links each asset once.
 - [file-format-converter](../../src/marvin/services/automation/recipes/file-format-converter.json) — **File format converter (images)** · verified-current · `asset_uploaded`  
   Every uploaded JPEG or PNG gets a WebP copy (smaller, same look) saved as a new asset beside it.
   - Images only in this slice: documents, audio and video formats need adapters that don't exist yet.
@@ -527,7 +528,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 
 | Id | Capability | Priority | Recipes blocked | Acceptance |
 |---|---|---|---|---|
-| `media-adapters` | Image, file and audio processing adapters | P1 | 9 | Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate. |
+| `media-adapters` | Image, file and audio processing adapters | P1 | 6 | Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: TTS, zip, PDF output, and provider-side image edits (background removal, scenes, variants). |
 | `social-adapters` | Social publishing adapters | P1 | 6 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
 | `waits` | Durable waits and delays | P1 | 4 | `{"kind": "wait", "until": "${entry.data.event_date} - 7d"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once. |
 | `create-entry` | Create-entry action | P0 | 3 | Delivered 2026-10-11: an entry step `op: "create"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created). |

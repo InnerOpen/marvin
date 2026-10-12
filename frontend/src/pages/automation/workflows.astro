@@ -721,6 +721,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         const mediaOp = (row.querySelector(".a-media-op") as HTMLSelectElement | null)?.value;
         if (mediaOp === "inspect") return ["width", "height", "sharpness", "orientation"];
         if (mediaOp === "palette") return ["colors"];
+        if (mediaOp === "extract_text") return ["text", "page_count", "pages"];
+        if (mediaOp === "find_sensitive") return ["count", "regions"];
+        if (mediaOp === "pages") return ["asset.id", "assets", "page_count"];
+        if (mediaOp === "redact") return ["count", "asset.id"];
         return ["asset.id", "asset.url"];
       }
       case "approval":
@@ -871,6 +875,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <label class="tf a-m-field" data-field="format"><span>Format</span><select class="input a-m-format">${opt("", "Keep the picture's format", a.format ?? "")}${["jpeg", "png", "webp"].map((f) => opt(f, f.toUpperCase(), a.format)).join("")}</select></label>
       ${num("quality", "Quality", "1–100, default 90 (JPEG and WebP)")}
       ${num("colors", "How many colours", "1–16, default 5")}
+      <label class="tf a-m-field" data-field="ocr"><span>Scanned pages and photos</span><select class="input a-m-ocr">${opt("auto", "Read them with the AI model (one call per page)", a.ocr ?? "auto")}${opt("never", "Skip them — the PDF's own text only (free)", a.ocr)}</select></label>
+      ${num("page", "From page", "default 1")}
+      ${num("count", "How many pages", "1–10, default 1")}
+      <label class="tf a-m-field" data-field="find"><span>Look for <span class="muted">(comma-separated: face, plate, text — blank for all)</span></span><input class="input a-m-find" value="${esc((a.find ?? []).join(", "))}" /></label>
+      <label class="tf a-m-field" data-field="boxes"><span>What to blur <span class="muted">(blank: the AI model finds it; or an earlier step's \${steps.&lt;id&gt;.output.regions})</span></span><input class="input a-m-boxes" value="${esc(typeof a.boxes === "string" ? a.boxes : a.boxes ? JSON.stringify(a.boxes) : "")}" /></label>
       <label class="tf a-m-attach-wrap"><span>Attach as <span class="muted">(link the new picture to the entry in this role, e.g. square — needs a run about an entry)</span></span>
         <input class="input a-m-attach" value="${esc(a.attach_as ?? "")}" /></label>
       <label class="tf a-m-tags-wrap"><span>Tag it <span class="muted">(comma-separated, e.g. web-sizes — find them in the library and smart collections)</span></span>
