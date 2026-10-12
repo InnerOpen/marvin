@@ -71,10 +71,10 @@ class CustomOperation(AIOperation):
     min_role = ROLE_AUTHOR
     invocation_sources = ("automation",)
 
-    def __init__(self, prompt: str = "", output_schema: dict | None = None, see: tuple[str, ...] = DEFAULT_SEE, voice: str = ""):
+    def __init__(self, prompt: str = "", output_schema: dict | None = None, see: tuple[str, ...] | None = DEFAULT_SEE, voice: str = ""):
         self.prompt = prompt
         self.output_schema = output_schema or {}
-        self.see = tuple(see or DEFAULT_SEE)
+        self.see = DEFAULT_SEE if see is None else tuple(see)  # an empty list: the prompt alone
         self.voice = voice
         self.requires_vision = "images" in self.see
 

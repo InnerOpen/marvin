@@ -27,6 +27,19 @@
         "op": "set_metadata",
         "metadata": {
           "broken_links": "${steps.links.output.broken_count}"
+        },
+        "when": {
+          "any": [
+            {
+              "field": "steps.links.output.broken_count",
+              "op": "gt",
+              "value": 0
+            },
+            {
+              "field": "entry.metadata.broken_links",
+              "op": "exists"
+            }
+          ]
         }
       },
       {

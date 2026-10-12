@@ -29,10 +29,30 @@ asset target or an asset event a bare `trash` trashes the asset. An asset or res
 put it is skipped. No other op takes an entity_type.
 """
 
+import re
 import uuid
 
 from ..matcher import interpolate
 from .base import AutomationActionError, register_action
+
+_STEP_REF = re.compile(r"\$\{steps\.[^}]+\}")
+
+
+def _previewed(raw, value, dry_run: bool):
+    """In a dry run, a value read from a step that only previewed (no answer asked, no image made) is empty: show where
+    it comes from (‹${steps.page.output.asset.slug}›) instead of failing on it. A real run leaves it as it resolved."""
+    if dry_run and value in (None, "") and isinstance(raw, str) and _STEP_REF.search(raw):
+        return f"‹{raw.strip()}›"
+    return value
+
+
+def _resolved_map(action: dict, key: str, context: dict, dry_run: bool) -> dict:
+    raw = action.get(key) or {}
+    resolved = _json_ready(interpolate(raw, context))
+    if not isinstance(resolved, dict):
+        return resolved
+    return {k: _previewed(raw.get(k) if isinstance(raw, dict) else None, v, dry_run) for k, v in resolved.items()}
+
 
 # Status op → the status the transition moves the entry to. The specific event (published/archived/…)
 # is derived by EntryService from the entry's prior status, so these stay declarative.
@@ -232,54 +252,10 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
             raise AutomationActionError(f"entry {entity_id} or collection '{collection_ref}' not found in this workspace")
         return {"entry_id": str(entity_id), "op": op, "collection": collection_ref, "result": result}
 
-    # ── Metadata merge ─────────────────────────────────────────────────────────
-    if op in METADATA_OPS:
-        patch = _json_ready(interpolate(action.get("metadata") or {}, context))
-        if not isinstance(patch, dict) or not patch:
-            raise AutomationActionError("entry set_metadata needs a non-empty `metadata` object")
-        # A template that resolved to nothing must not overwrite a real value with null.
-        patch = {k: v for k, v in patch.items() if v is not None and v != ""}
-        if not patch:
-            raise AutomationActionError("entry set_metadata: every metadata value resolved to empty")
-        if dry_run:
-            return {"dry_run": True, "kind": "entry", "op": op, "entity_id": str(entity_id), "would_merge": patch}
-        from marvin.db.models.platform.entries import Entries
-
-        orm = session.get(Entries, entity_id)
-        if orm is None or orm.group_id != group_id:
-            raise AutomationActionError(f"entry {entity_id} not found in this workspace")
-        merged = {**(orm.metadata_json or {}), **patch}
-        svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
-        if svc.update(entity_id, {"metadata_json": merged}, reaction_depth=depth) is None:
-            raise AutomationActionError(f"entry {entity_id} not found in this workspace")
-        return {"entry_id": str(entity_id), "op": op, "merged": patch}
-
-    # ── Schema-field merge ─────────────────────────────────────────────────────
-    if op in DATA_OPS:
-        patch = _json_ready(interpolate(action.get("data") or {}, context))
-        if not isinstance(patch, dict) or not patch:
-            raise AutomationActionError("entry set_data needs a non-empty `data` object")
-        patch = {k: v for k, v in patch.items() if v is not None and v != ""}
-        if not patch:
-            raise AutomationActionError("entry set_data: every data value resolved to empty")
-        if dry_run:
-            return {"dry_run": True, "kind": "entry", "op": op, "entity_id": str(entity_id), "would_merge": patch}
-        from fastapi import HTTPException
-
-        from marvin.db.models.platform.entries import Entries
-
-        orm = session.get(Entries, entity_id)
-        if orm is None or orm.group_id != group_id:
-            raise AutomationActionError(f"entry {entity_id} not found in this workspace")
-        merged = {**(orm.data_json or {}), **_typed_like_schema(patch, getattr(orm, "entry_type", None))}
-        svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
-        try:
-            updated = svc.update(entity_id, {"data_json": merged}, reaction_depth=depth)
-        except HTTPException as e:  # schema validation rejected the merged fields
-            raise AutomationActionError(f"entry set_data rejected: {e.detail}") from e
-        if updated is None:
-            raise AutomationActionError(f"entry {entity_id} not found in this workspace")
-        return {"entry_id": str(entity_id), "op": op, "merged": patch}
+    # ── Metadata / schema-field merge ─────────────────────────────────────────
+    if op in METADATA_OPS or op in DATA_OPS:
+        key = "metadata" if op in METADATA_OPS else "data"
+        return _merge(session, group_id, entity_id, op, key, action, context, user_id=user_id, depth=depth, dry_run=dry_run)
 
     if op in REVIEW_OPS:
         return _request_review(session, group_id, entity_id, action, context, user_id=user_id, depth=depth, dry_run=dry_run)
@@ -315,6 +291,41 @@ def _entry_type_by_slug(session, group_id, slug: str):
     return next((t for t in rows if t.group_id == group_id), rows[0] if rows else None)  # the workspace's own first
 
 
+def _merge(session, group_id, entity_id, op: str, key: str, action: dict, context: dict, *, user_id, depth: int, dry_run: bool) -> dict:
+    """set_metadata / set_data: merge the step's values into the entry's metadata or its type's fields. A value that
+    resolved to nothing never overwrites a real one; a merge that changes nothing saves nothing (no "last updated" bump,
+    no entry_updated), so a weekly check that finds the same answer leaves the entry alone."""
+    from fastapi import HTTPException
+
+    from marvin.db.models.platform.entries import Entries
+    from marvin.services.entries import EntryService
+
+    patch = _resolved_map(action, key, context, dry_run)
+    if not isinstance(patch, dict) or not patch:
+        raise AutomationActionError(f"entry {op} needs a non-empty `{key}` object")
+    patch = {k: v for k, v in patch.items() if v is not None and v != ""}
+    if not patch:
+        raise AutomationActionError(f"entry {op}: every {key} value resolved to empty")
+    if dry_run:
+        return {"dry_run": True, "kind": "entry", "op": op, "entity_id": str(entity_id), "would_merge": patch}
+    orm = session.get(Entries, entity_id)
+    if orm is None or orm.group_id != group_id:
+        raise AutomationActionError(f"entry {entity_id} not found in this workspace")
+    column = "metadata_json" if key == "metadata" else "data_json"
+    current = getattr(orm, column) or {}
+    merged = {**current, **(patch if key == "metadata" else _typed_like_schema(patch, getattr(orm, "entry_type", None)))}
+    if merged == current:
+        return {"entry_id": str(entity_id), "op": op, "merged": patch, "unchanged": True}
+    svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
+    try:
+        updated = svc.update(entity_id, {column: merged}, reaction_depth=depth)
+    except HTTPException as e:  # the type's schema refused the merged fields
+        raise AutomationActionError(f"entry {op} rejected: {e.detail}") from e
+    if updated is None:
+        raise AutomationActionError(f"entry {entity_id} not found in this workspace")
+    return {"entry_id": str(entity_id), "op": op, "merged": patch}
+
+
 def _create_entry(session, group_id, action: dict, context: dict, *, user_id, dry_run: bool) -> dict:
     """Make a new entry: typed and validated against its entry type's schema, `entry_created` sent at depth+1. The same
     step of the same run (an event handled twice) returns the entry it made before (`created: false`)."""
@@ -328,15 +339,15 @@ def _create_entry(session, group_id, action: dict, context: dict, *, user_id, dr
     entry_type = _entry_type_by_slug(session, group_id, type_slug)
     if entry_type is None:
         raise AutomationActionError(f"entry create: no entry type “{type_slug}” in this workspace")
-    title = str(interpolate(action.get("title") or "", context) or "").strip()
+    title = str(_previewed(action.get("title"), interpolate(action.get("title") or "", context), dry_run) or "").strip()
     if not title:
         raise AutomationActionError("entry create: the title resolved to empty")
     status = action.get("status") or "draft"
     if status not in CREATE_STATUSES:
         raise AutomationActionError(f"entry create: status must be {' or '.join(CREATE_STATUSES)} (publish with a following step)")
-    data = _json_ready(interpolate(action.get("data") or {}, context))
+    data = _resolved_map(action, "data", context, dry_run)
     data = _typed_like_schema({k: v for k, v in (data or {}).items() if v is not None and v != ""}, entry_type)
-    metadata = _json_ready(interpolate(action.get("metadata") or {}, context))
+    metadata = _resolved_map(action, "metadata", context, dry_run)
     metadata = {k: v for k, v in (metadata or {}).items() if v is not None and v != ""}
     key = _create_key(context)
     if key:

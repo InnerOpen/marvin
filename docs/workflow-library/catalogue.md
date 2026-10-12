@@ -161,10 +161,11 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Gathers up to 20 entries published in the last 7 days (a relative date) and passes their text to the AI.
   - The issue is a draft for a person to edit and send.
 - [broken-link-patrol](../../src/marvin/services/automation/recipes/broken-link-patrol.json) — **Broken link patrol** · verified-current · `schedule`  
-  Every Monday, the links in each published entry are checked; the entry records how many are broken, and a notification lists the broken ones.
+  Every Monday, the links in each published entry are checked; an entry with broken links records how many, and a notification lists them.
   - Broken = no answer, 404, 410 or 5xx. 401/403/429 aren't counted: those are servers refusing robots.
   - Relative links (/articles/x) are checked against the workspace's site URL.
   - It doesn't take the entry offline: request_review would unpublish it.
+  - It notifies every Monday while an entry still has broken links.
 - `living-resource-collection` — **Living resource collection** · needs-engine-capability · `resource_updated`  
   Resource changes → locate referring entries → propose passage updates
   - Blocked by: `asset-resource-targets` (a target query for the entries linked to the triggering resource (has_resources is only true/false))

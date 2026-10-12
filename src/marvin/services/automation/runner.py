@@ -111,6 +111,7 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
         # Preview: the op is authorized and its inputs/target resolve — but don't call the provider,
         # create an AIExecution row, or write back. (An AI call is the expensive, side-effectful part.)
         return {
+            **(_stand_ins(action.get("output_schema")) if custom else {}),
             "dry_run": True,
             "kind": "operation",
             "op": slug,
@@ -199,17 +200,26 @@ def run_operation_action(session, group_id, action: dict, context: dict, *, user
     return _apply_write_back(session, group_id, action, operation, parsed, entity_type, entity_id, context, user_id, authorizer_role, execution.id)
 
 
+def _stand_ins(output_schema) -> dict:
+    """A dry run's stand-in for a custom step's answer: each text field of its output schema as ‹AI answer: key›, so the
+    steps after it (a create's title, a render's text) preview as they will run instead of failing on an empty value."""
+    properties = (output_schema or {}).get("properties") if isinstance(output_schema, dict) else None
+    if not isinstance(properties, dict):
+        return {}
+    return {key: f"‹AI answer: {key}›" for key, spec in properties.items() if isinstance(spec, dict) and spec.get("type") == "string"}
+
+
 def _operation_for(session, group_id, action: dict, context: dict):
     """The step's operation: a registered one by slug, or (`op: "custom"`) one built from the step's own prompt (its
     ${…} templates filled in now), output schema and `see` — the schema was checked when the workflow was saved."""
     slug = action["op"]
     if slug == CUSTOM_OP:
-        see = tuple(action.get("see") or ())
+        see = tuple(action["see"]) if action.get("see") is not None else None  # [] = the prompt alone; unset = the item
         return CustomOperation(
             prompt=str(interpolate(action.get("prompt") or "", context) or ""),
             output_schema=action.get("output_schema") or {},
             see=see,
-            voice=workspace_voice(session, group_id) if "persona" in see else "",
+            voice=workspace_voice(session, group_id) if "persona" in (see or ()) else "",
         )
     try:
         return get_operation(slug)

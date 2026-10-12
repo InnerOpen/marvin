@@ -988,7 +988,7 @@
     {
       "id": "broken-link-patrol",
       "title": "Broken link patrol",
-      "outcome": "Every Monday, the links in each published entry are checked; the entry records how many are broken, and a notification lists the broken ones.",
+      "outcome": "Every Monday, the links in each published entry are checked; an entry with broken links records how many, and a notification lists them.",
       "category": "Publishing and editorial",
       "category_slug": "publishing",
       "tags": [
@@ -1084,7 +1084,7 @@
         },
         {
           "kind": "content_mutation",
-          "description": "Sets metadata.broken_links (a count; 0 when all work) on each entry checked."
+          "description": "Sets metadata.broken_links (the count) on an entry with broken links, and back to 0 once they're fixed. A clean entry is never written to, and an unchanged count saves nothing (no “last updated” bump, no entry_updated)."
         },
         {
           "kind": "external_post",
@@ -1097,7 +1097,8 @@
       "notes": [
         "Broken = no answer, 404, 410 or 5xx. 401/403/429 aren't counted: those are servers refusing robots.",
         "Relative links (/articles/x) are checked against the workspace's site URL.",
-        "It doesn't take the entry offline: request_review would unpublish it."
+        "It doesn't take the entry offline: request_review would unpublish it.",
+        "It notifies every Monday while an entry still has broken links."
       ],
       "verification": {
         "level": "fixture-executed",

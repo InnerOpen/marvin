@@ -578,10 +578,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       .join("");
     row.innerHTML = `
       <div class="action-head">
+        <span class="a-num" aria-hidden="true"></span>
         <select class="input a-kind">${kinds}</select>
+        <label class="a-id-wrap small" title="A short name later steps use to read this step's result: \${steps.<id>.output…}">id
+          <input class="input a-id" value="${esc(a.id ?? "")}" placeholder="e.g. story" spellcheck="false" autocomplete="off" /></label>
         <button type="button" class="icon-btn" title="Remove step">✕</button>
       </div>
       <div class="a-fields"></div>
+      <div class="a-key hint small" hidden></div>
       <details class="a-when" ${a.when ? "open" : ""}>
         <summary class="small">Only run this step when…${a.when ? " (set)" : ""}</summary>
         <div class="a-when-body"></div>
@@ -590,11 +594,69 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     row.querySelector(".a-when-body")!.appendChild(whenEditor(a.when));
     const kindSel = row.querySelector(".a-kind") as HTMLSelectElement;
     const fields = row.querySelector(".a-fields") as HTMLElement;
-    const render = () => { fields.innerHTML = ""; fields.appendChild(kindFields(kindSel.value, a)); };
+    const renderKey = () => stepKey(row, kindSel.value);
+    const render = () => { fields.innerHTML = ""; fields.appendChild(kindFields(kindSel.value, a)); renderKey(); };
     kindSel.addEventListener("change", () => render());
+    // The key follows what's typed: the id, an AI step's answer fields, a media or entry op.
+    row.addEventListener("input", (e) => { if (!(e.target as HTMLElement).closest(".a-when")) renderKey(); });
+    row.addEventListener("change", (e) => { if (!(e.target as HTMLElement).closest(".a-when")) renderKey(); });
+    row.querySelector(".a-key")!.addEventListener("click", (e) => {
+      const chip = (e.target as HTMLElement).closest(".ref-chip") as HTMLElement | null;
+      if (!chip) return;
+      navigator.clipboard?.writeText(chip.dataset.ref ?? "").then(() => {
+        chip.classList.add("copied");
+        setTimeout(() => chip.classList.remove("copied"), 1200);
+      }, () => {});
+    });
     row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
     render();
     return row;
+  }
+
+  // ── The step key: what later steps write to read this step's result ──────────
+  /** The output keys a step of this kind (and op) gives later steps — `${steps.<id>.output.<key>}`. */
+  function stepOutputs(kind: string, row: HTMLElement): string[] {
+    const op = (row.querySelector(".a-op") as HTMLSelectElement | null)?.value;
+    switch (kind) {
+      case "operation": // a custom step's answer fields, as named in the form
+        return [...row.querySelectorAll(".af-name")].map((i) => (i as HTMLInputElement).value.trim()).filter(Boolean);
+      case "entry":
+        return op === "create" ? ["entry_id", "slug"] : [];
+      case "collect":
+        return ["text", "count", "rows", "total"];
+      case "fetch":
+        return (row.querySelector(".a-f-links") as HTMLInputElement | null)?.value.trim()
+          ? ["broken_count", "text", "checked"]
+          : ["ok", "status", "title", "text", "found"];
+      case "media": {
+        const mediaOp = (row.querySelector(".a-media-op") as HTMLSelectElement | null)?.value;
+        if (mediaOp === "inspect") return ["width", "height", "sharpness", "orientation"];
+        if (mediaOp === "palette") return ["colors"];
+        return ["asset.id", "asset.url"];
+      }
+      case "approval":
+        return ["decision"];
+      case "webhook":
+        return ["status_code", "body"];
+      default:
+        return [];
+    }
+  }
+
+  function stepKey(row: HTMLElement, kind: string) {
+    const box = row.querySelector(".a-key") as HTMLElement;
+    const keys = stepOutputs(kind, row);
+    box.hidden = keys.length === 0;
+    if (!keys.length) return;
+    const id = (row.querySelector(".a-id") as HTMLInputElement).value.trim();
+    if (!id) {
+      box.innerHTML = `To use this step's result later (${keys.map((k) => `<code>${esc(k)}</code>`).join(", ")}), give it an <b>id</b> above.`;
+      return;
+    }
+    const chips = keys
+      .map((k) => { const ref = "${steps." + id + ".output." + k + "}"; return `<button type="button" class="ref-chip" data-ref="${esc(ref)}" title="Copy">${esc(ref)}</button>`; })
+      .join(" ");
+    box.innerHTML = `Use its result: ${chips} <span class="muted">— click to copy. In “Only run this step when…” write it without <code>\${ }</code>: <code>steps.${esc(id)}.output.${esc(keys[0])}</code>.</span>`;
   }
 
   // ── Integration steps: the workspace's connections and their providers, loaded once on first use.
@@ -631,7 +693,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <datalist id="${listId}"></datalist>
       <div class="a-int-pickers"></div>
       <textarea class="input mono a-int-args" rows="4" spellcheck="false" placeholder='{"slug": "\${event.entry.slug}"}'>${esc(a.args && Object.keys(a.args).length ? JSON.stringify(a.args, null, 2) : "")}</textarea>
-      <span class="hint small">Runs one action of a workspace integration. To use its result in a later step, add an <code>"id"</code> to this step in the JSON view, then read <code>\${steps.&lt;id&gt;.output…}</code>.</span>
+      <span class="hint small">Runs one action of a workspace integration. To use its result in a later step, give this step an <b>id</b> (next to its kind), then read <code>\${steps.&lt;id&gt;.output…}</code>.</span>
       <label class="tf"><span>Attach as <span class="muted">(actions that make images: link each picture to the entry in this role, e.g. cover-variant)</span></span>
         <input class="input a-int-attach" placeholder="leave blank to only keep them in Assets" value="${esc(a.attach_as ?? "")}" /></label>
       <label class="tf"><span>Tag them <span class="muted">(actions that make images; comma-separated)</span></span>
@@ -968,6 +1030,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       const step: any = orig?.kind === kind ? { ...orig } : { kind };
       const field = (sel: string) => r.querySelector(sel) as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null;
       const setOrDrop = (key: string, value: unknown) => { if (value) step[key] = value; else delete step[key]; };
+      setOrDrop("id", field(".a-id")?.value.trim().replace(/\s+/g, "_"));
       if (kind === "operation") {
         const op = field(".a-op")?.value;
         if (!op) return null;
@@ -1970,6 +2033,16 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.cond-row) { display: grid; grid-template-columns: 1.5fr 0.9fr 1.3fr auto; gap: 8px; align-items: center; }
   .workflows-page :global(.action-head) { display: flex; gap: 8px; align-items: center; }
   .workflows-page :global(.action-head .a-kind) { flex: 0 0 190px; font-weight: 600; }
+  /* Step numbers follow the order on screen; the id is what later steps use to read a step's result. */
+  .workflows-page :global(#wf-actions) { counter-reset: step; }
+  .workflows-page :global(#wf-actions > .action-row) { counter-increment: step; }
+  .workflows-page :global(.a-num::before) { content: counter(step); display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--line); color: var(--muted); font-size: 12px; font-weight: 600; }
+  .workflows-page :global(.a-id-wrap) { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+  .workflows-page :global(.a-id-wrap .a-id) { width: 120px; font-family: var(--font-mono, monospace); font-size: 12px; }
+  .workflows-page :global(.a-key) { margin-top: 8px; line-height: 1.9; }
+  .workflows-page :global(.ref-chip) { font: 12px var(--font-mono, monospace); border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 1px 6px; cursor: copy; color: inherit; }
+  .workflows-page :global(.ref-chip.copied) { border-color: var(--color-success, green); }
+  @media (max-width: 640px) { .workflows-page :global(.action-head) { flex-wrap: wrap; } .workflows-page :global(.action-head .a-kind) { flex: 1 1 100%; } }
   .workflows-page :global(.a-fields) { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; padding-left: 2px; }
   .workflows-page :global(.icon-btn) { border: none; background: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 4px 6px; border-radius: 6px; margin-left: auto; }
   .workflows-page :global(.icon-btn:hover) { color: var(--color-error); background: color-mix(in srgb, var(--color-error) 10%, transparent); }

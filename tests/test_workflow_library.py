@@ -1688,13 +1688,18 @@ class TestExecution:
         self._run(ws, row, trigger_kind="schedule")
 
         assert "https://gone.example/draft" not in {url for _, url in calls}
-        assert (_reload(ws, broken).metadata_json["broken_links"], _reload(ws, fine).metadata_json["broken_links"]) == (2, 0)
+        assert _reload(ws, broken).metadata_json["broken_links"] == 2
+        assert "broken_links" not in (_reload(ws, fine).metadata_json or {})  # a clean entry is never written to
         (sent,) = ws.providers["apprise"].calls  # only the entry with broken links
         assert sent["title"] == "Broken links in “Brass lantern”" and sent["body"].splitlines()[:3] == [
             "2 of 3 links don't work:",
             "- https://gone.example/guide — no answer (ConnectionRefusedError: connection refused)",
             "- https://shop.example/old — 404",
         ]
+
+        edited = _reload(ws, broken).update_at
+        self._run(ws, row, trigger_kind="schedule")  # next week, the same answer: nothing saved, nothing "updated"
+        assert _reload(ws, broken).update_at == edited
 
     def test_resource_availability_watch(self, ws, monkeypatch):
         from marvin.db.models.platform import Resources
@@ -1771,6 +1776,64 @@ class TestExecution:
         (board,) = self._rendered(ws, "moodboard")
         assert (collage.width, collage.height, board.width, board.height) == (1200, 1200, 1600, 1200)
         assert sorted(board.metadata_json["rendered_from"]["tiles"]) == sorted([str(sea.id), str(sand.id)])
+
+
+# ── A dry run previews what an AI step's answer feeds ────────────────────────
+# The AI isn't called in a dry run, so a custom step's answer is a stand-in (‹AI answer: key›) and the steps after it —
+# a create's title, a render's text — preview as they will run instead of failing on an empty value.
+def _dry(ws, rid: str) -> dict:
+    row = _install(ws, rid)
+    return run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, dry_run=True)
+
+
+def _step_errors(plan) -> list:
+    return [(p.get("label") or p.get("kind"), p.get("error")) for p in plan if p.get("error")]
+
+
+def test_a_dry_run_previews_a_create_fed_by_an_ai_step(ws):
+    from marvin.db.models.platform import Collections
+    from marvin.db.models.platform.entry_collections import EntryCollections
+
+    featured = ws.session.query(Collections).filter_by(group_id=ws.gid, slug="featured").one()
+    piece = _entry(ws, "article", "Waxing canvas", status="published", data={"body": "x"})
+    ws.session.add(EntryCollections(entry_id=piece.id, collection_id=featured.id))
+    ws.session.commit()
+
+    result = _dry(ws, "knowledge-gap-finder")
+
+    assert result["ok"], _step_errors(result["plan"])
+    create = result["plan"][-1]["resolved"]
+    assert (create["title"], create["data"]) == ("‹AI answer: title›", {"body": "‹AI answer: body›"})
+    assert ws.ai.requests == []  # previewed, not asked
+
+
+def test_a_dry_run_of_a_scheduled_digest_and_an_event_recipe_passes(ws):
+    from marvin.services.automation.context import event_context
+    from marvin.services.automation.engine import dry_run_for_event
+
+    self_published = _entry(ws, "article", "Vector clocks", status="published", data={"body": "Lamport timestamps."})
+    self_published.published_at = datetime.now(UTC) - timedelta(days=1)
+    ws.session.commit()
+    assert _dry(ws, "weekly-digest")["ok"]
+
+    row = _install(ws, "ada-explains-it")
+    ctx = event_context("entry_published", _entry_doc(self_published), entity_id=self_published.id, entity_type="entry", correlation_id="dry")
+    preview = dry_run_for_event(ws.session, ws.gid, row, ctx)
+    assert preview["would_fire"] and _step_errors(preview["plan"]) == []
+    assert preview["plan"][-1]["resolved"]["title"] == "‹AI answer: title›"
+
+
+def test_a_dry_run_fills_a_render_from_an_ai_step_without_a_browser(ws, monkeypatch):
+    monkeypatch.setattr(render, "screenshot", lambda *a, **k: pytest.fail("a dry run took a screenshot"))
+    _entry(ws, "project", "Chore coat", status="published", data={"stage": "complete"})
+    result = _dry(ws, "future-newspaper")
+    assert result["ok"], _step_errors(result["plan"])
+
+
+def test_see_nothing_means_the_prompt_alone():
+    from marvin.services.ai.operations.custom import DEFAULT_SEE, CustomOperation
+
+    assert CustomOperation(see=()).see == () and CustomOperation(see=None).see == DEFAULT_SEE == ("item",)
 
 
 # ── The authoring guide and draft_workflow read the same store ───────────────
