@@ -5,12 +5,25 @@
     "width": 1080,
     "height": 1350,
     "fields": {
-      "title": { "label": "Title", "required": true },
-      "text": { "label": "Text" },
-      "footer": { "label": "Footer (e.g. the site)" },
-      "accent": { "label": "Accent colour (CSS, e.g. #c2410c)" }
+      "title": {
+        "label": "Title",
+        "required": true
+      },
+      "text": {
+        "label": "Text"
+      },
+      "footer": {
+        "label": "Footer (e.g. the site)"
+      },
+      "accent": {
+        "label": "Accent colour (CSS, e.g. #c2410c)"
+      }
     },
-    "images": { "image": { "label": "Picture" } }
+    "images": {
+      "image": {
+        "label": "Picture"
+      }
+    }
   },
   "quote": {
     "label": "Quote card",
@@ -18,12 +31,25 @@
     "width": 1080,
     "height": 1080,
     "fields": {
-      "quote": { "label": "Quote", "required": true },
-      "attribution": { "label": "Who said it" },
-      "source": { "label": "Where (title or site)" },
-      "accent": { "label": "Accent colour" }
+      "quote": {
+        "label": "Quote",
+        "required": true
+      },
+      "attribution": {
+        "label": "Who said it"
+      },
+      "source": {
+        "label": "Where (title or site)"
+      },
+      "accent": {
+        "label": "Accent colour"
+      }
     },
-    "images": { "background": { "label": "Background picture" } }
+    "images": {
+      "background": {
+        "label": "Background picture"
+      }
+    }
   },
   "poster": {
     "label": "Retro poster",
@@ -31,13 +57,29 @@
     "width": 1200,
     "height": 1800,
     "fields": {
-      "title": { "label": "Title", "required": true },
-      "subtitle": { "label": "Subtitle" },
-      "tagline": { "label": "Tagline" },
-      "year": { "label": "Year or date" },
-      "footer": { "label": "Footer" }
+      "title": {
+        "label": "Title",
+        "required": true
+      },
+      "subtitle": {
+        "label": "Subtitle"
+      },
+      "tagline": {
+        "label": "Tagline"
+      },
+      "year": {
+        "label": "Year or date"
+      },
+      "footer": {
+        "label": "Footer"
+      }
     },
-    "images": { "image": { "label": "Picture", "required": true } }
+    "images": {
+      "image": {
+        "label": "Picture",
+        "required": true
+      }
+    }
   },
   "trading-card": {
     "label": "Trading card",
@@ -45,14 +87,32 @@
     "width": 750,
     "height": 1050,
     "fields": {
-      "title": { "label": "Name", "required": true },
-      "subtitle": { "label": "Type line" },
-      "stats": { "label": "Stats, one 'Label: value' per line" },
-      "text": { "label": "Flavour text" },
-      "number": { "label": "Card number" },
-      "accent": { "label": "Frame colour" }
+      "title": {
+        "label": "Name",
+        "required": true
+      },
+      "subtitle": {
+        "label": "Type line"
+      },
+      "stats": {
+        "label": "Stats, one 'Label: value' per line"
+      },
+      "text": {
+        "label": "Flavour text"
+      },
+      "number": {
+        "label": "Card number"
+      },
+      "accent": {
+        "label": "Frame colour"
+      }
     },
-    "images": { "image": { "label": "Picture", "required": true } }
+    "images": {
+      "image": {
+        "label": "Picture",
+        "required": true
+      }
+    }
   },
   "meme": {
     "label": "Meme",
@@ -60,10 +120,19 @@
     "width": 1080,
     "height": 1080,
     "fields": {
-      "top": { "label": "Top text" },
-      "bottom": { "label": "Bottom text" }
+      "top": {
+        "label": "Top text"
+      },
+      "bottom": {
+        "label": "Bottom text"
+      }
     },
-    "images": { "image": { "label": "Picture", "required": true } }
+    "images": {
+      "image": {
+        "label": "Picture",
+        "required": true
+      }
+    }
   },
   "side-by-side": {
     "label": "Before / after",
@@ -71,13 +140,25 @@
     "width": 1600,
     "height": 900,
     "fields": {
-      "left_label": { "label": "Left label (default Before)" },
-      "right_label": { "label": "Right label (default After)" },
-      "title": { "label": "Title" }
+      "left_label": {
+        "label": "Left label (default Before)"
+      },
+      "right_label": {
+        "label": "Right label (default After)"
+      },
+      "title": {
+        "label": "Title"
+      }
     },
     "images": {
-      "left": { "label": "Left picture", "required": true },
-      "right": { "label": "Right picture", "required": true }
+      "left": {
+        "label": "Left picture",
+        "required": true
+      },
+      "right": {
+        "label": "Right picture",
+        "required": true
+      }
     }
   },
   "comic-4": {
@@ -86,18 +167,42 @@
     "width": 1200,
     "height": 1400,
     "fields": {
-      "title": { "label": "Title" },
-      "caption1": { "label": "Panel 1 caption", "required": true },
-      "caption2": { "label": "Panel 2 caption", "required": true },
-      "caption3": { "label": "Panel 3 caption", "required": true },
-      "caption4": { "label": "Panel 4 caption", "required": true },
-      "footer": { "label": "Footer" }
+      "title": {
+        "label": "Title"
+      },
+      "caption1": {
+        "label": "Panel 1 caption",
+        "required": true
+      },
+      "caption2": {
+        "label": "Panel 2 caption",
+        "required": true
+      },
+      "caption3": {
+        "label": "Panel 3 caption",
+        "required": true
+      },
+      "caption4": {
+        "label": "Panel 4 caption",
+        "required": true
+      },
+      "footer": {
+        "label": "Footer"
+      }
     },
     "images": {
-      "panel1": { "label": "Panel 1 picture" },
-      "panel2": { "label": "Panel 2 picture" },
-      "panel3": { "label": "Panel 3 picture" },
-      "panel4": { "label": "Panel 4 picture" }
+      "panel1": {
+        "label": "Panel 1 picture"
+      },
+      "panel2": {
+        "label": "Panel 2 picture"
+      },
+      "panel3": {
+        "label": "Panel 3 picture"
+      },
+      "panel4": {
+        "label": "Panel 4 picture"
+      }
     }
   },
   "newspaper": {
@@ -106,13 +211,77 @@
     "width": 1200,
     "height": 1600,
     "fields": {
-      "masthead": { "label": "Newspaper name", "required": true },
-      "date": { "label": "Date line" },
-      "headline": { "label": "Headline", "required": true },
-      "deck": { "label": "Deck (the line under the headline)" },
-      "body": { "label": "Story text", "required": true },
-      "banner": { "label": "Banner (default: an imagined front page, not real news)" }
+      "masthead": {
+        "label": "Newspaper name",
+        "required": true
+      },
+      "date": {
+        "label": "Date line"
+      },
+      "headline": {
+        "label": "Headline",
+        "required": true
+      },
+      "deck": {
+        "label": "Deck (the line under the headline)"
+      },
+      "body": {
+        "label": "Story text",
+        "required": true
+      },
+      "banner": {
+        "label": "Banner (default: an imagined front page, not real news)"
+      }
     },
-    "images": { "image": { "label": "Picture" } }
+    "images": {
+      "image": {
+        "label": "Picture"
+      }
+    }
+  },
+  "grid": {
+    "label": "Contact sheet",
+    "description": "Up to 48 pictures in a labelled grid under a title — a series, a shoot, a month's work.",
+    "width": 1600,
+    "height": 1600,
+    "fields": {
+      "title": {
+        "label": "Title"
+      },
+      "footer": {
+        "label": "Footer"
+      }
+    },
+    "images": {
+      "tiles": {
+        "label": "Pictures (a list, e.g. a gather step's rows)",
+        "required": true,
+        "list": true
+      }
+    }
+  },
+  "moodboard": {
+    "label": "Moodboard",
+    "description": "A collage of pictures with colour swatches and a few lines of notes.",
+    "width": 1600,
+    "height": 1200,
+    "fields": {
+      "title": {
+        "label": "Title"
+      },
+      "notes": {
+        "label": "Notes"
+      },
+      "colors": {
+        "label": "Colours (hex codes, comma-separated)"
+      }
+    },
+    "images": {
+      "tiles": {
+        "label": "Pictures (a list, e.g. a gather step's rows)",
+        "required": true,
+        "list": true
+      }
+    }
   }
 }

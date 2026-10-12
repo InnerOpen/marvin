@@ -368,7 +368,9 @@ class MediaAction(_StepBase):
     template: str | None = None  # render: a built-in template (card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper)
     html: str | None = Field(default=None, max_length=200_000)  # render: or the step's own HTML/CSS ({{ fields.x }}, {{ images.y }})
     fields: dict[str, Any] | None = None  # render: the template's text (templates allowed)
-    images: dict[str, str] | None = None  # render: picture name → an asset (id, slug, ${steps.<id>.output.asset.id}, role:<role>)
+    # render: picture name → an asset (id, slug, URL, ${steps.<id>.output.asset.id}, role:<role>) — or a list of them, or a
+    # collect step's ${steps.<id>.output.rows} (the grid and moodboard templates)
+    images: dict[str, str | list[str]] | None = None
     attach_as: str | None = None  # link the new asset to the run's entry in this role
     tags: list[str] | None = None  # tag the new asset (e.g. web-sizes), so the library and smart collections can find them
     id: str | None = None
@@ -405,6 +407,20 @@ class MediaAction(_StepBase):
         return self
 
 
+class CollectAction(_StepBase):
+    """Gathers a set of entries, assets or resources into one output, so the steps after it see them all — a digest, a
+    report, a contact sheet. `entity` and `query` are a target's (dates may be relative: -7d, now); output `rows` (each
+    like ${entry.*} / ${asset.*}, plus any extra `fields` paths such as data.body), `count`, `total`, and `text` — a ready
+    list for an AI prompt. Asset queries leave versions out unless they ask, as targets do."""
+
+    kind: Literal["collect"]
+    entity: Literal["entry", "asset", "resource"] = "entry"
+    query: dict[str, Any] = Field(default_factory=dict)
+    fields: list[str] | None = None  # extra paths per row beyond the defaults, e.g. data.body, metadata.price
+    limit: int = Field(default=25, ge=1, le=250)  # at most this many rows (the target cap)
+    id: str | None = None
+
+
 ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "operation": OperationAction,
     "entry": EntryAction,
@@ -414,10 +430,19 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "integration": IntegrationAction,
     "approval": ApprovalAction,
     "media": MediaAction,
+    "collect": CollectAction,
 }
 
 Action = Annotated[
-    OperationAction | EntryAction | EmitEventAction | HandlerAction | WebhookAction | IntegrationAction | ApprovalAction | MediaAction,
+    OperationAction
+    | EntryAction
+    | EmitEventAction
+    | HandlerAction
+    | WebhookAction
+    | IntegrationAction
+    | ApprovalAction
+    | MediaAction
+    | CollectAction,
     Field(discriminator="kind"),
 ]
 

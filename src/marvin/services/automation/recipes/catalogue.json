@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 53,
-    "needs-adapter": 10,
-    "needs-engine-capability": 33,
+    "verified-current": 60,
+    "needs-adapter": 8,
+    "needs-engine-capability": 28,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -43,13 +43,13 @@
       "name": "Iterate / aggregate over a target set",
       "priority": "P1",
       "capabilities_md": "Iteration / aggregation",
-      "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run."
+      "acceptance": "Delivered 2026-10-12: a `collect` step (\"Gather items\") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Left: entries linked to an entry or inside a collection's order as a query (relations), and fanning one AI step out over the rows."
     },
     "relative-dates": {
       "name": "Relative dates and cron schedules",
       "priority": "P1",
       "capabilities_md": "Scheduling and waits / Queries",
-      "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick."
+      "acceptance": "Delivered 2026-10-12: every date key of a query (created/updated/published_after|before) takes a relative date (-7d, -12h, -2w, +3d, now, today), read when the run starts; an unreadable date fails the query instead of widening it. Cron schedules compute next_run_at in their time zone and fire (services/cron.py)."
     },
     "asset-resource-targets": {
       "name": "Assets and resources as workflow subjects",
@@ -843,7 +843,7 @@
     {
       "id": "weekly-digest",
       "title": "Weekly digest",
-      "outcome": "Weekly schedule → aggregate eligible entries → generate newsletter draft",
+      "outcome": "Every Monday morning, the week's published entries are gathered and an AI drafts a newsletter issue that introduces and links each one.",
       "category": "Publishing and editorial",
       "category_slug": "publishing",
       "tags": [
@@ -857,43 +857,98 @@
         "type": "schedule",
         "event": null,
         "custom_event": false,
-        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval and once work, cron does not fire yet."
+        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "weekly-digest.json",
+      "vars": "weekly-digest.vars.json",
+      "setup_variables": [
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "reduce the week's entries into one input"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries the digest gathers (published in the last 7 days).",
+          "example": "article"
         },
         {
-          "capability": "relative-dates",
-          "name": "Relative dates and cron schedules",
-          "priority": "P1",
-          "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
-          "why": "`published_after: -7d` and a weekly cron"
+          "name": "body_field",
+          "type": "field_key",
+          "description": "Their text field, for the AI to read.",
+          "example": "body"
+        },
+        {
+          "name": "newsletter_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the digest is drafted as.",
+          "example": "newsletter-issue"
+        },
+        {
+          "name": "newsletter_body_field",
+          "type": "field_key",
+          "description": "That type's field for the newsletter text.",
+          "example": "body"
+        },
+        {
+          "name": "timezone",
+          "type": "text",
+          "description": "The time zone the schedule runs in (IANA name).",
+          "example": "America/New_York"
         }
       ],
+      "requires": {
+        "trigger": "schedule",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [
+        {
+          "kind": "scheduled_task",
+          "required": false,
+          "name": "Workflow: Weekly digest",
+          "purpose": "Created and kept in sync automatically from the schedule trigger (slug wf-<automation id>, task_type run_automation). Nothing to provision.",
+          "referenced_by": "trigger",
+          "create": "automatic (services/automation/workflows.py sync_schedule)"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per run)."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "Nothing matched: the later steps are skipped and the run succeeds with nothing made. An AI error fails the run before the draft is made.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): a schedule (interval 604800 s) + target `{status: published}` runs steps per entry — but each row runs alone, so no digest."
+        "Gathers up to 20 entries published in the last 7 days (a relative date) and passes their text to the AI.",
+        "The issue is a draft for a person to edit and send."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_weekly_digest"
       },
       "brief": {
         "flow": "Weekly schedule → aggregate eligible entries → generate newsletter draft",
@@ -921,7 +976,7 @@
         "type": "schedule",
         "event": null,
         "custom_event": false,
-        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval and once work, cron does not fire yet."
+        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
       },
       "status": "needs-engine-capability",
       "shape": "idea",
@@ -1552,7 +1607,7 @@
     {
       "id": "evergreen-resurfacer",
       "title": "Evergreen resurfacer",
-      "outcome": "Schedule → find older relevant content → propose refreshed drafts",
+      "outcome": "Once a month, the three least recently touched entries published over a year ago get refresh ideas from the AI, saved as a draft entry.",
       "category": "Publishing and editorial",
       "category_slug": "publishing",
       "tags": [
@@ -1565,36 +1620,91 @@
         "type": "schedule",
         "event": null,
         "custom_event": false,
-        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval and once work, cron does not fire yet."
+        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "evergreen-resurfacer.json",
+      "vars": "evergreen-resurfacer.vars.json",
+      "setup_variables": [
         {
-          "capability": "relative-dates",
-          "name": "Relative dates and cron schedules",
-          "priority": "P1",
-          "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
-          "why": "`published_before: -365d` in the target"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries to resurface (published over a year ago).",
+          "example": "article"
+        },
+        {
+          "name": "notes_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the refresh ideas are drafted as.",
+          "example": "newsletter-issue"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
+        },
+        {
+          "name": "timezone",
+          "type": "text",
+          "description": "The time zone the schedule runs in (IANA name).",
+          "example": "America/New_York"
         }
       ],
+      "requires": {
+        "trigger": "schedule",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [
+        {
+          "kind": "scheduled_task",
+          "required": false,
+          "name": "Workflow: Evergreen resurfacer",
+          "purpose": "Created and kept in sync automatically from the schedule trigger (slug wf-<automation id>, task_type run_automation). Nothing to provision.",
+          "referenced_by": "trigger",
+          "create": "automatic (services/automation/workflows.py sync_schedule)"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per run)."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "Nothing matched: the later steps are skipped and the run succeeds with nothing made. An AI error fails the run before the draft is made.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): a schedule + target `{status: published, published_before: \"2025-01-01\"}` (an absolute date) + `generate-summary` works today but the date must be re-typed."
+        "Refreshing a piece (editing it) moves it to the back of the queue: the oldest updates come first."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_evergreen_resurfacer"
       },
       "brief": {
         "flow": "Schedule → find older relevant content → propose refreshed drafts",
@@ -2296,7 +2406,7 @@
         "type": "schedule",
         "event": null,
         "custom_event": false,
-        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval and once work, cron does not fire yet."
+        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
       },
       "status": "needs-adapter",
       "shape": "idea",
@@ -2718,7 +2828,7 @@
     {
       "id": "best-of-month",
       "title": "Best of month",
-      "outcome": "Monthly schedule → select published highlights → create recap carousel",
+      "outcome": "On the 1st of each month, up to nine entries published in the last 30 days with a picture are laid out as one titled grid image.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
@@ -2731,43 +2841,82 @@
         "type": "schedule",
         "event": null,
         "custom_event": false,
-        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval and once work, cron does not fire yet."
+        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "best-of-month.json",
+      "vars": "best-of-month.vars.json",
+      "setup_variables": [
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "the month's set as one input"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries to feature (published in the last 30 days, with a picture).",
+          "example": "article"
         },
         {
-          "capability": "relative-dates",
-          "name": "Relative dates and cron schedules",
-          "priority": "P1",
-          "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
-          "why": "monthly cron + `published_after: -30d`"
+          "name": "title",
+          "type": "text",
+          "description": "The sheet's title.",
+          "example": "New this month"
+        },
+        {
+          "name": "footer",
+          "type": "text",
+          "description": "A line at the bottom, e.g. the site.",
+          "example": "gracemartinfranklinart.com"
+        },
+        {
+          "name": "timezone",
+          "type": "text",
+          "description": "The time zone the schedule runs in (IANA name).",
+          "example": "America/New_York"
         }
       ],
+      "requires": {
+        "trigger": "schedule",
+        "action_kinds": [
+          "collect",
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [
+        {
+          "kind": "scheduled_task",
+          "required": false,
+          "name": "Workflow: Best of month",
+          "purpose": "Created and kept in sync automatically from the schedule trigger (slug wf-<automation id>, task_type run_automation). Nothing to provision.",
+          "referenced_by": "trigger",
+          "create": "automatic (services/automation/workflows.py sync_schedule)"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves the grid as a new image asset tagged best-of-month (once per set of pictures)."
+        }
+      ],
+      "cost_notes": "Free: rendering is local.",
+      "failure_behaviour": "Nothing matched: the later steps are skipped and the run succeeds with nothing made.",
+      "dependencies": [],
       "notes": [
-        "Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies."
+        "Each tile is the entry's main picture with its title. Post or attach the grid by hand, or add a step."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_best_of_month"
       },
       "brief": {
         "flow": "Monthly schedule → select published highlights → create recap carousel",
@@ -3723,7 +3872,7 @@
     {
       "id": "contact-sheet-maker",
       "title": "Contact sheet maker",
-      "outcome": "Query related images → label and render contact sheet",
+      "outcome": "Up to 48 images with a tag are laid out, labelled, on one contact sheet image.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3736,34 +3885,60 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "contact-sheet-maker.json",
+      "vars": "contact-sheet-maker.vars.json",
+      "setup_variables": [
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "many → one sheet"
+          "name": "tag",
+          "type": "text",
+          "description": "Tag of the images to put on the sheet (up to 48).",
+          "example": "october-shoot"
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "description": "The sheet's title.",
+          "example": "October shoot"
         }
       ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "collect",
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves the sheet as a new image asset tagged contact-sheet (once per set of pictures)."
+        }
+      ],
+      "cost_notes": "Free: rendering is local.",
+      "failure_behaviour": "Nothing matched: the later steps are skipped and the run succeeds with nothing made.",
+      "dependencies": [],
       "notes": [
-        "Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies."
+        "Versions (crops, sizes) are left out unless the query asks for them.",
+        "Change the tag to make a sheet of another set."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_contact_sheet_maker"
       },
       "brief": {
         "flow": "Query related images → label and render contact sheet",
@@ -5033,7 +5208,7 @@
     {
       "id": "color-moodboard",
       "title": "Color moodboard",
-      "outcome": "Selected assets → extract palette → produce moodboard and design notes",
+      "outcome": "Up to 12 tagged images become a collage, its main colours are read off, an AI writes short design notes, and all three are rendered as one moodboard.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -5046,34 +5221,67 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "color-moodboard.json",
+      "vars": "color-moodboard.vars.json",
+      "setup_variables": [
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "many → one"
+          "name": "tag",
+          "type": "text",
+          "description": "Tag of the images for the moodboard (up to 12).",
+          "example": "coastal"
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "description": "The moodboard's title.",
+          "example": "Coastal blues"
         }
       ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "collect",
+          "media",
+          "operation"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves two new image assets: the collage (moodboard-collage) and the board (moodboard)."
+        },
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget. The collage, palette and render are local.",
+      "failure_behaviour": "Nothing matched: the later steps are skipped and the run succeeds with nothing made. An AI error fails the run before the board is rendered.",
+      "dependencies": [],
       "notes": [
-        "Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies."
+        "The palette is read from the collage, so it weighs every picture."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_color_moodboard"
       },
       "brief": {
         "flow": "Selected assets → extract palette → produce moodboard and design notes",
@@ -5704,7 +5912,7 @@
         "type": "schedule",
         "event": null,
         "custom_event": false,
-        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval and once work, cron does not fire yet."
+        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
       },
       "status": "needs-engine-capability",
       "shape": "idea",
@@ -5964,7 +6172,7 @@
     {
       "id": "release-notes-compiler",
       "title": "Release notes compiler",
-      "outcome": "Query changes → group and summarize → create release draft",
+      "outcome": "Entries changed since a date (relative, like -14d) are gathered and an AI groups them into release notes, saved as a draft entry.",
       "category": "Operations and knowledge",
       "category_slug": "operations",
       "tags": [
@@ -5978,39 +6186,80 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "release-notes-compiler.json",
+      "vars": "release-notes-compiler.vars.json",
+      "setup_variables": [
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "the change set as one input"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries whose changes go in the notes.",
+          "example": "article"
         },
         {
-          "capability": "relative-dates",
-          "name": "Relative dates and cron schedules",
-          "priority": "P1",
-          "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
-          "why": "since the last release"
+          "name": "since",
+          "type": "text",
+          "description": "How far back: a relative date like -14d, or an ISO date.",
+          "example": "-14d"
+        },
+        {
+          "name": "notes_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the notes are drafted as.",
+          "example": "newsletter-issue"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per run)."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "Nothing matched: the later steps are skipped and the run succeeds with nothing made. An AI error fails the run before the draft is made.",
+      "dependencies": [],
+      "notes": [
+        "Up to 50 entries, most recently changed first; the AI sees each title, summary and link."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_release_notes_compiler"
       },
       "brief": {
         "flow": "Query changes → group and summarize → create release draft",
@@ -6294,7 +6543,7 @@
     {
       "id": "personal-project-radar",
       "title": "Personal project radar",
-      "outcome": "Schedule → identify stalled projects → draft small next actions",
+      "outcome": "Every Monday, each project draft untouched for two weeks gets two or three small next actions from the AI, as a review request.",
       "category": "Operations and knowledge",
       "category_slug": "operations",
       "tags": [
@@ -6307,36 +6556,76 @@
         "type": "schedule",
         "event": null,
         "custom_event": false,
-        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval and once work, cron does not fire yet."
+        "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "personal-project-radar.json",
+      "vars": "personal-project-radar.vars.json",
+      "setup_variables": [
         {
-          "capability": "relative-dates",
-          "name": "Relative dates and cron schedules",
-          "priority": "P1",
-          "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
-          "why": "`updated_before: -14d`"
+          "name": "project_type",
+          "type": "entry_type_slug",
+          "description": "The entry type whose drafts are projects.",
+          "example": "project"
+        },
+        {
+          "name": "timezone",
+          "type": "text",
+          "description": "The time zone the schedule runs in (IANA name).",
+          "example": "America/New_York"
         }
       ],
+      "requires": {
+        "trigger": "schedule",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "request_review"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [
+        {
+          "kind": "scheduled_task",
+          "required": false,
+          "name": "Workflow: Personal project radar",
+          "purpose": "Created and kept in sync automatically from the schedule trigger (slug wf-<automation id>, task_type run_automation). Nothing to provision.",
+          "referenced_by": "trigger",
+          "create": "automatic (services/automation/workflows.py sync_schedule)"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per stalled project (two if the answer misses its field)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Flags each stalled project for review, with the next actions as the reason."
+        }
+      ],
+      "cost_notes": "One AI call per stalled project, from the workspace's monthly AI budget.",
+      "failure_behaviour": "A project the AI fails on fails its row; the others go on.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): a schedule + target `{entry_type: project, status: draft, updated_before: \"<absolute date>\"}` + `request_review` flags stalled projects today, with the date re-typed."
+        "`updated_before: -14d` is a relative date, read when the run starts."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_personal_project_radar"
       },
       "brief": {
         "flow": "Schedule → identify stalled projects → draft small next actions",
@@ -8597,7 +8886,7 @@
       "failure_behaviour": "A failing run does not fail the backing scheduled task; it is reported as automation_failed (the `workflow_failed` alert).",
       "dependencies": [],
       "notes": [
-        "Interval and once schedules fire; `cron` is accepted but never computes a next run (croniter is not a dependency).",
+        "Interval, cron (in its time zone) and once schedules all fire.",
         "The schedule's own run has no event: `${event.*}` is empty and conditions are skipped (a `target` still applies)."
       ],
       "verification": {

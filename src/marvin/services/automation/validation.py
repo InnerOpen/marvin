@@ -418,6 +418,9 @@ def query_issues(definition: dict | None) -> list[dict]:
                 # read against that kind here, so a query written for a resource is answered in resource terms.
                 kind = step.get("entity_type") if step.get("entity_type") in ITEM_KINDS else "entry"
                 issues += _one_query_issues(step["entity_query"], kind, f"{list_key}[{i}].entity_query", where)
+            elif isinstance(step, dict) and step.get("kind") == "collect" and isinstance(step.get("query"), dict):
+                kind = step.get("entity") if step.get("entity") in ("entry", *ITEM_KINDS) else "entry"
+                issues += _one_query_issues(step["query"], kind, f"{list_key}[{i}].query", where)
     return issues
 
 

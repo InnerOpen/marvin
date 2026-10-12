@@ -57,8 +57,8 @@ KEY_NOTES: dict[str, dict[str, str]] = {
         "collections": "in any of these collections",
         "unattached": "true: attached to no entry (an asset's versions of an original still in the library don't count); "
         "false: attached to at least one",
-        "created_after": "ISO date/datetime (UTC); also created_before",
-        "created_before": "ISO date/datetime (UTC)",
+        "created_after": "ISO date/datetime (UTC) or relative: -7d, -12h, -2w, now, today; also created_before",
+        "created_before": "ISO date/datetime (UTC) or relative (-7d…)",
         "trashed": "true: only items in the Trash (left out otherwise) — a `restore` target",
         **(
             {
@@ -172,7 +172,7 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
     for key, keep in (("created_after", lambda at: model.created_at >= at), ("created_before", lambda at: model.created_at < at)):
         if spec.get(key):
             if (at := _when(spec[key])) is None:
-                return nothing, f"{key} is not a date: {spec[key]!r}"
+                return nothing, f"{key} is not a date: {spec[key]!r} (an ISO date, or relative like -7d, -12h, -2w, now, today)"
             q = q.filter(keep(at))
     return q, None
 

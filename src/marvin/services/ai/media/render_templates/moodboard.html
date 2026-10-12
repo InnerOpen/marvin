@@ -1,0 +1,24 @@
+{# A loose collage of pictures beside a column of colour swatches and notes. Colours: hex codes, comma-separated. #}
+{# Colours as text "#aabbcc, #ddeeff" — or a palette step's list, which arrives as "['#aabbcc', '#ddeeff']". #}
+{% set swatches = (fields.colors or "").replace("[", "").replace("]", "").replace("'", "").replace('"', "").replace(";", ",").split(",") | map("trim") | select | list %}
+<style>
+  .mb { box-sizing: border-box; width: 100vw; height: 100vh; padding: 3vw; background: #f5f2ec; color: #292524; display: grid;
+        grid-template-columns: 1fr 26vw; gap: 3vw; font-family: Lato, "Open Sans", "DejaVu Sans", sans-serif; }
+  .collage { min-height: 0; display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 1fr; grid-auto-flow: dense; gap: 1vw; }
+  .collage div { background: #d6d3d1 center / cover no-repeat; border-radius: .5vw; }
+  .collage div:nth-child(5n + 1) { grid-column: span 2; grid-row: span 2; }
+  .side { display: flex; flex-direction: column; gap: 2vw; min-height: 0; }
+  h1 { margin: 0; font-family: "Liberation Serif", "DejaVu Serif", serif; font-size: 3.2vw; font-weight: 700; line-height: 1.1; }
+  .sw { display: flex; flex-direction: column; gap: .8vw; }
+  .sw div { display: flex; align-items: center; gap: 1vw; font-size: 1.3vw; font-family: "DejaVu Sans Mono", monospace; }
+  .sw span { width: 6vw; height: 3.2vw; border-radius: .4vw; box-shadow: inset 0 0 0 .1vw rgba(0,0,0,.15); }
+  .notes { font-size: 1.5vw; line-height: 1.5; color: #44403c; overflow: hidden; }
+</style>
+<div class="mb">
+  <div class="collage">{% for t in images.tiles %}<div style="background-image: url('{{ t.src }}')"></div>{% endfor %}</div>
+  <div class="side">
+    {% if fields.title %}<h1>{{ fields.title }}</h1>{% endif %}
+    {% if swatches %}<div class="sw">{% for c in swatches[:8] %}<div><span style="background: {{ c }}"></span>{{ c }}</div>{% endfor %}</div>{% endif %}
+    {% if fields.notes %}<div class="notes">{{ fields.notes }}</div>{% endif %}
+  </div>
+</div>

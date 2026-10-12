@@ -20,7 +20,7 @@ A spec is a plain dict (all keys optional, unknown keys ignored):
   ``op``: eq, neq, in, contains, exists, missing, gt, gte, lt, lte. Comparisons read number-like text
   (`"$1,170"` → 1170), so they work on fields stored as text.
 - ``created_after``/``created_before``, ``updated_after``/``updated_before``, ``published_after``/``published_before``
-  — ISO dates or datetimes (UTC).
+  — ISO dates or datetimes (UTC), or relative to now: ``-7d``, ``-12h``, ``-2w``, ``now``, ``today``.
 - ``sort`` — ``{"by": "title"|"created_at"|"updated_at"|"published_at"|<field key>, "direction": "asc"|"desc"}``;
   a field sorts numerically when its values are number-like, else as text; empty values sort last.
 - ``group_by`` — a field key, or ``publish_status`` / ``entry_type``: counts per value over the whole match.
@@ -35,7 +35,7 @@ bounded by ``SCAN_CAP`` — and the result says when that bound was hit.
 
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 SCAN_CAP = 5000
@@ -71,12 +71,12 @@ SPEC_KEY_NOTES: dict[str, str] = {
     "data": "same as `fields`",
     "metadata": "exact match on metadata_json keys, {key: value}",
     "where": f"comparisons [{{field, op, value}}]; field = a field key or metadata.<key>; op: {', '.join(WHERE_OPS)}",
-    "created_after": "ISO date/datetime (UTC); also created_before",
-    "created_before": "ISO date/datetime (UTC)",
-    "updated_after": "ISO date/datetime (UTC); also updated_before",
-    "updated_before": "ISO date/datetime (UTC)",
-    "published_after": "ISO date/datetime (UTC); also published_before",
-    "published_before": "ISO date/datetime (UTC)",
+    "created_after": "ISO date/datetime (UTC) or relative to now: -7d, -12h, -2w, now, today; also created_before",
+    "created_before": "a date, as created_after",
+    "updated_after": "a date, as created_after; also updated_before",
+    "updated_before": "a date, as created_after",
+    "published_after": "a date, as created_after; also published_before",
+    "published_before": "a date, as created_after",
     "sort": f"{{by: {' | '.join(COLUMN_SORTS)} | <field key>, direction: asc | desc}}",
     "group_by": "a field key, publish_status or entry_type: counts per value",
 }
@@ -110,11 +110,26 @@ def _as_list(value) -> list[str]:
     return [str(v).strip() for v in items if str(v).strip()]
 
 
-def _when(value) -> datetime | None:
+RELATIVE = re.compile(r"^(?P<sign>[+-]?)\s*(?P<n>\d+)\s*(?P<unit>h|d|w)$", re.IGNORECASE)
+RELATIVE_UNITS = {"h": "hours", "d": "days", "w": "weeks"}
+
+
+def _when(value, now: datetime | None = None) -> datetime | None:
+    """A query's date: an ISO date/datetime (UTC unless it says otherwise), or relative to now — "-7d", "-12h", "-2w"
+    (ago; "+3d" is ahead, a bare "30d" means ago), "now", or "today" (midnight UTC). None when it isn't one."""
     if not value:
         return None
+    text = str(value).strip()
+    now = now or datetime.now(UTC)
+    if text.lower() == "now":
+        return now
+    if text.lower() == "today":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if m := RELATIVE.match(text):
+        delta = timedelta(**{RELATIVE_UNITS[m["unit"].lower()]: int(m["n"])})
+        return now + delta if m["sign"] == "+" else now - delta
     try:
-        parsed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
@@ -203,6 +218,9 @@ def build(session, group_id, spec: dict | None):
 
     for name, column in (("created", Entries.created_at), ("updated", Entries.update_at), ("published", Entries.published_at)):
         after, before = _when(spec.get(f"{name}_after")), _when(spec.get(f"{name}_before"))
+        for key, at in ((f"{name}_after", after), (f"{name}_before", before)):
+            if spec.get(key) and at is None:  # a date it can't read must not widen the selection
+                return nothing, f"{key} is not a date: {spec[key]!r} (an ISO date, or relative like -7d, -12h, -2w, now, today)"
         if after:
             q = q.filter(column >= after)
         if before:

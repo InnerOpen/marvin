@@ -853,6 +853,25 @@ a made-from-nothing image needs an uploader (run user → workflow author → en
 fills (drawn panels = image generation per panel, later). Not verified yet: the Docker image's apt install and a render
 on prod (after Promote).
 
+**I. Local times, agent tools, Gather items, relative dates (2026-10-12, Jared: "yes, 1 then iterate/aggregate")**
+- [x] Times show in the viewer's zone: `LocalTime.astro` (server renders UTC, labelled) + `LocalTimeScript` in both
+      layouts rewrites `time[data-local-time]`; `parseUtc` reads zone-less ISO as UTC. ~26 admin pages converted.
+- [x] AI Executions lists the tools an agent run used (`metadata_json.tools`, set when the run finishes or parks;
+      older runs fall back to `output_json.steps[].tool`).
+- [x] Relative dates in every query date key (`-7d`, `-12h`, `-2w`, `+3d`, `now`, `today`); an unreadable date fails
+      the query with a note instead of widening it.
+- [x] `collect` step ("Gather items"): entry/asset/resource query → rows / count / total / text; extra `fields`
+      paths; assets skip versions unless asked; validator reads its query; editor form; guide note; docs.
+- [x] Render lists: a manifest image with `list: true` takes rows (or asset refs) whole; new `grid` and `moodboard`
+      templates (up to 48 pictures, thumbnails at 800 px).
+- [x] Recipes: weekly-digest, best-of-month, contact-sheet-maker, color-moodboard, release-notes-compiler,
+      personal-project-radar, evergreen-resurfacer + execution tests; catalogue recount; roadmap.
+Review: 60 verified, 36 blocked (needs-adapter 8, needs-engine-capability 28). The examples section of the guide now
+lists id + outcome only (the list outgrew its 16 000 budget); the date-key notes say the relative forms once. Cron
+schedules already fired (services/cron.py) — the catalogue's "cron does not fire yet" notes were stale and are fixed.
+Left for aggregate: relations in a query (project-milestone-report, series-index-keeper) and one AI step fanned out
+over rows. No route schema change (no SDK).
+
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
 Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to

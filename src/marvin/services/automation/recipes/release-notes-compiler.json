@@ -1,0 +1,68 @@
+{
+  "name": "Release notes compiler",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "changes",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{entry_type}}",
+          "updated_after": "{{since}}",
+          "sort": {
+            "by": "updated_at",
+            "direction": "desc"
+          }
+        },
+        "limit": 50
+      },
+      {
+        "kind": "operation",
+        "id": "notes",
+        "op": "custom",
+        "see": [],
+        "prompt": "Group these changes into short release notes with a few headed sections (new, updated, fixed — only the sections that apply) and one line per item. Use only what's listed.\n\n${steps.changes.output.text}",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        },
+        "when": {
+          "field": "steps.changes.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{notes_entry_type}}",
+        "title": "${steps.notes.output.title}",
+        "data": {
+          "{{body_field}}": "${steps.notes.output.body}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.changes.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

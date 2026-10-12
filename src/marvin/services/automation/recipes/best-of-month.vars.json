@@ -1,0 +1,25 @@
+{
+  "recipe": "best-of-month",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries to feature (published in the last 30 days, with a picture).",
+      "example": "article"
+    },
+    "title": {
+      "type": "text",
+      "description": "The sheet's title.",
+      "example": "New this month"
+    },
+    "footer": {
+      "type": "text",
+      "description": "A line at the bottom, e.g. the site.",
+      "example": "gracemartinfranklinart.com"
+    },
+    "timezone": {
+      "type": "text",
+      "description": "The time zone the schedule runs in (IANA name).",
+      "example": "America/New_York"
+    }
+  }
+}

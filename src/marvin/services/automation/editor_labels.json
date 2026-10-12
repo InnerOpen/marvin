@@ -25,7 +25,8 @@
     "webhook": "Call webhook",
     "integration": "Run integration",
     "approval": "Wait for approval",
-    "media": "Process an image"
+    "media": "Process an image",
+    "collect": "Gather items"
   },
   "entryOps": {
     "publish": "Publish",

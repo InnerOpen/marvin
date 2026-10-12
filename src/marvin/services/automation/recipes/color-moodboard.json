@@ -1,0 +1,100 @@
+{
+  "name": "Colour moodboard",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "set",
+        "entity": "asset",
+        "query": {
+          "asset_type": "image",
+          "tags": [
+            "{{tag}}"
+          ]
+        },
+        "limit": 12
+      },
+      {
+        "kind": "media",
+        "id": "collage",
+        "op": "render",
+        "template": "grid",
+        "images": {
+          "tiles": "${steps.set.output.rows}"
+        },
+        "width": 1200,
+        "height": 1200,
+        "tags": [
+          "moodboard-collage"
+        ],
+        "when": {
+          "field": "steps.set.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "media",
+        "id": "colors",
+        "op": "palette",
+        "source": "${steps.collage.output.asset.id}",
+        "colors": 6,
+        "when": {
+          "field": "steps.set.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "operation",
+        "id": "notes",
+        "op": "custom",
+        "see": [],
+        "prompt": "These pictures make up a moodboard:\n${steps.set.output.text}\nTheir main colours: ${steps.colors.output.colors}\nWrite two or three short sentences of design notes on the mood, the palette and the textures, for a designer.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "notes": {
+              "type": "string",
+              "minLength": 20,
+              "maxLength": 400
+            }
+          },
+          "required": [
+            "notes"
+          ]
+        },
+        "when": {
+          "field": "steps.set.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "media",
+        "id": "board",
+        "op": "render",
+        "template": "moodboard",
+        "fields": {
+          "title": "{{title}}",
+          "notes": "${steps.notes.output.notes}",
+          "colors": "${steps.colors.output.colors}"
+        },
+        "images": {
+          "tiles": "${steps.set.output.rows}"
+        },
+        "tags": [
+          "moodboard"
+        ],
+        "when": {
+          "field": "steps.set.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "recipe": "evergreen-resurfacer",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries to resurface (published over a year ago).",
+      "example": "article"
+    },
+    "notes_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the refresh ideas are drafted as.",
+      "example": "newsletter-issue"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    },
+    "timezone": {
+      "type": "text",
+      "description": "The time zone the schedule runs in (IANA name).",
+      "example": "America/New_York"
+    }
+  }
+}

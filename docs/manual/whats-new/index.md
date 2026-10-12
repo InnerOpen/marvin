@@ -78,6 +78,17 @@ before/after, four-panel comic or newspaper front page — or your own HTML/CSS 
 saved as a new asset. Headless Chromium draws it (about half a second, free), with no script and no network. Seven
 Library recipes use it. See [Workflows → Render a template](workflows.md#render-a-template). Unreleased (2026-10-12).
 
+## Gather items and relative dates
+
+A **Gather items** step (`collect`) turns many into one: it runs a query under any trigger and hands the whole set —
+rows, a count, and a ready text list — to the steps after it, so a schedule can make a weekly digest, a month's
+contact sheet or a report. Query dates can be relative (`-7d`, `-2w`, `now`, `today`) everywhere a query takes a date;
+an unreadable date now stops the query instead of being ignored. Render steps take a list of pictures (new `grid` and
+`moodboard` templates). Times across the admin show in your own time zone (they were the server's, UTC), and the AI
+Executions list says which tools an agent run used. Seven new Library recipes use it: Weekly digest, Best of month,
+Contact sheet maker, Color moodboard, Release notes compiler, Personal project radar and Evergreen resurfacer. See
+[Workflows → Gather items](workflows.md#gather-items-many-one). Unreleased (2026-10-12).
+
 ## Media embeds
 
 Paste a YouTube, Vimeo, Spotify, SoundCloud, Apple Music, Apple Podcasts, TIDAL, Simplecast or Transistor link, or Bandcamp's embed code, and the site shows a player. A supported link alone on its own line in a markdown field becomes a player; turn that off per field with **Auto-embed media links** (`autoEmbed: false`). A new **Media embed** field type holds one player. The markdown editor has an **Embed** dialog, and its preview now renders sanitised markdown (marked + DOMPurify) with the players in place. The publishing API carries `embeds` on every entry and list item, keyed by the link as written, and `site.embeds` holds the privacy mode, consent text and player origins. **Embeds & Privacy** in the site settings chooses between click-to-load (the default; nothing third-party loads before a click) and direct players. Marvin builds every player itself from an allow-list and resolves titles through a platform-wide cache, so publishing never calls a provider. The agent tools are `add_embed`, which stages a suggestion, and `preview_embed`. Migration `a78a8895a6a1`. Details: [Media embeds](media-embeds.md).

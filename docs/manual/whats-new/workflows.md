@@ -56,7 +56,7 @@ The form fills a `target`, `{"entity": "entry", "query": {…}}`, using the same
 | `tags`, `collection` / `collections` | any of these, by slug or name |
 | `fields` (alias `data`), `metadata` | exact match, `{field_key: value}`; typed text matches checkbox and number values; an empty value matches nothing |
 | `where` | `[{"field": key, "op": op, "value": v}]`, where `field` is a field key or `metadata.<key>`; ops `eq`, `neq`, `in`, `contains`, `exists`, `missing`, `gt`, `gte`, `lt`, `lte`. Comparisons read number-like text (`"$1,170"` → 1170). An unknown op makes the query match nothing (with a note), so a typo never widens the target. |
-| `created_after` / `created_before`, `updated_…`, `published_…` | ISO dates or datetimes (UTC) |
+| `created_after` / `created_before`, `updated_…`, `published_…` | ISO dates or datetimes (UTC), or relative to the moment the run reads them: `-7d`, `-12h`, `-2w` (ago; `+3d` is ahead), `now`, `today` (midnight UTC). A date it can't read stops the query with a note instead of being ignored |
 | `sort` | `{"by": <key>, "direction": "asc"}` (or `"desc"`); `by` is `title`, `created_at`, `updated_at`, `published_at` or a field key. A field sorts numerically when its values are number-like, empty values last. Default: newest created first. |
 
 In `where` and `sort` a bare key is always the entry type's own field. `where` and sorting by a field read at most 5,000 entries. Query values may be `${event…}` templates, so a webhook payload can carry the query.
@@ -72,7 +72,7 @@ With **Assets** or **Resources**, the target is `{"entity": "asset", "query": {�
 | `collection` / `collections` | in this collection / any of these (**In collection**) |
 | `unattached` | `true`: used by no entry; `false`: used by at least one (**Used by an entry**). A version made from an original still in the library doesn't count as unattached (it goes with its original) unless the query asks for versions (`versions: true` or `source`) |
 | `trashed` | `true`: only items in the Trash (**in the Trash**) |
-| `created_after` / `created_before` | ISO dates or datetimes (UTC) |
+| `created_after` / `created_before` | ISO dates or datetimes (UTC), or relative: `-7d`, `-12h`, `-2w`, `now`, `today` |
 | `asset_type` / `asset_types` | assets only: `image`, `svg`, `document`, `video`, `audio`, `archive`, `other` (**Asset type**) |
 | `mime_type` / `mime_types` | assets only: exact MIME type, e.g. `image/svg+xml` (**MIME type**) |
 | `origin` / `origins` | assets only: `upload`, `derived` (made from another asset by a media step or recipe), `generated` (an image an integration made) |
@@ -90,6 +90,7 @@ An asset or resource query takes only these keys: no `where`, `sort`, `status`, 
 | `webhook` (Call webhook) | `webhook_id` or raw `url`; `method` (raw URL only; default `POST`), `body`, `secret_ref`, `auth_scheme` (`Bearer` default, or `Token`) | A configured webhook's URL, method, `{{SLUG}}` headers and custom payload are used, with `${event…}` templates resolved. Timeout 15 s. A non-2xx response fails the step. Output: `status_code`, `ok`, `webhook_id`, `body` (parsed JSON or text). Deliveries appear in the webhook log. |
 | `integration` (Run integration) | `integration` (the connection's slug from its card, not the provider's), `action` (the provider action key) — or `capability` instead: `notify` with `args` `title` and `body` sends through whatever message action that integration has (Slack's `send_message`, Apprise's `notify`), so one workflow works with either — `args` (templated) | Runs one action of an enabled [integration](integrations.md) with its stored credentials; the provider's result is the step output. An action that requires approval runs only after a [Wait for approval](#wait-for-approval) step, and only when it was approved. An action that makes images (an `image.*` capability, such as OpenAI Images' **Generate image**) keeps each one as an asset — see [Generated images are kept](#generated-images-are-kept). A top-level arg whose whole value is `{{SLUG}}` is replaced by that workspace secret for the call only (the stored workflow keeps the reference); a secret that does not exist fails the step. A provider may give its error a stable code (Buttondown: `blocked`, `suppressed`, `spammy`, `unknown`), which on-failure steps read as `${error.code}`. An input the provider links to one of its read actions gets a searchable picker above the arguments (see [Pick a value from the service](integrations.md#pick-a-value-from-the-service)). |
 | `approval` (Wait for approval) | `message` (what is asked; templates allowed), `approvers` (`editor`, the default, or `admin`), `expires_in_hours` (1–720, default 72) | The run waits here for a person — see [Wait for approval](#wait-for-approval). |
+| `collect` (Gather items) | `entity` (`entry`, `asset`, `resource`), `query` (a target's keys), `fields`, `limit` (default 25, at most 250) | Gathers a set into one output so the steps after it see them all — see [Gather items](#gather-items-many-one). |
 | `media` (Process an image) | `op` (`resize`, `crop`, `convert`, `grade`, `inspect`, `palette`), `source`, the op's own fields, `attach_as` | Makes a new image from an image, or reads one — no AI or provider needed. See [Process an image](#process-an-image). |
 | `operation` (AI operation) | `op` (AI operation slug), `input`, `entity_type`, `entity_id`/`entity_slug`, `write_back` | Offered only when AI is enabled and the **Workflows** invocation source is on. **Write the result back to the entry** (`write_back: true`) follows the workspace approval mode: the result is applied or staged as a suggestion, and the output's `_write_back` says which (`applied` or `staged`). On an asset or resource the step sees the item (an image asset's picture, for an operation that looks at images) and `write_back` is a map of output keys to the item's fields, for example `{"alt_text": "alt_text"}`: an asset takes `alt_text`, `description`, `name`, `tags` or `metadata.<key>`, a resource `description`, `name`, `tags` or `metadata.<key>`. It follows the same approval mode, and needs a workflow author who is an EDITOR or above (else `_write_back` is `not_permitted`). The workspace's AI limits apply: over the daily request or monthly cost limit the step fails, and the per-request token cap bounds the call (see [Agents and Ask → Usage and limits](agents-and-ask.md#usage-and-limits)). |
 | `handler` (Run task) | `task`, `config` | Allowlist: `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections`, `media_enrich`. `request_site_rebuild` queues a coalesced rebuild (see [Operations → Site rebuilds](../operations.md#site-rebuilds)). |
@@ -144,6 +145,34 @@ in, and calls nothing.
 
 Workflow Library recipes that use it: **Community question**, **Marvin margin notes**, **Soundtrack brief**,
 **Resource attachment notes** and **Asset attachment social kit**.
+
+### Gather items (many → one)
+
+A workflow runs once per item — the trigger's, or each row of a query run. A **Gather items** step (`collect`) is the
+other direction: it runs a query and hands the whole set to the steps after it, under any trigger. That makes a weekly
+digest from the week's articles, a contact sheet from a series, a report over a project's notes.
+
+- `entity` and `query` are a target's (see [Run on a query](#run-on-a-query-of-entries)); values may be templates and
+  dates may be relative (`"published_after": "-7d"`). An asset query leaves versions out unless it asks, as a target
+  does. `limit` caps the rows (default 25, at most 250); `total` still counts every match.
+- **Output:** `rows` — each the facts a run binds as `${entry.*}` / `${asset.*}` / `${resource.*}` (an entry's id,
+  type, status, title, slug, summary, url, image and published_at; an asset's id, name, slug, url, size, alt text,
+  tags and origin; a resource's id, name, type, url, description and tags), plus any extra `fields` paths
+  (`data.body`, `metadata.price`) — `count`, `total`, and `text`: one line per row (title or name, summary or size,
+  link) with each extra field under it, ready for a custom AI step's prompt (`${steps.<id>.output.text}`).
+- A **render** step's `images` can take `${steps.<id>.output.rows}` whole: the `grid` (contact sheet) and
+  `moodboard` templates draw up to 48 pictures; an entry row stands for its main picture, labelled with its title.
+- It only reads, so a dry run runs it too. Put `when` on the steps after it (`steps.<id>.output.count` **is more
+  than** 0) to skip an empty week.
+
+```json
+{"kind": "collect", "id": "week", "entity": "entry",
+ "query": {"entry_type": "article", "status": "published", "published_after": "-7d"}, "fields": ["data.body"]},
+{"kind": "operation", "id": "issue", "op": "custom",
+ "prompt": "Write this week's newsletter from these articles:\n${steps.week.output.text}",
+ "output_schema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}}, "required": ["title", "body"]},
+ "when": {"field": "steps.week.output.count", "op": "gt", "value": 0}}
+```
 
 ### Process an image
 
@@ -209,6 +238,8 @@ a trading card — and saves it as an asset like any other made image (lineage, 
   | `side-by-side` | 1600×900 | title, left_label, right_label | left*, right* |
   | `comic-4` | 1200×1400 | title, caption1*–caption4*, footer | panel1–panel4 |
   | `newspaper` | 1200×1600 | masthead*, date, headline*, deck, body* (paragraphs split by a blank line), banner | image |
+  | `grid` (contact sheet) | 1600×1600 | title, footer | tiles* (a list) |
+  | `moodboard` | 1600×1200 | title, notes, colors (hex codes, comma-separated, or a palette step's list) | tiles* (a list) |
 
 - **Your own** (`html` instead of `template`): HTML and CSS using `{{ fields.<name> }}` for text and
   `{{ images.<name> }}` as an image URL (e.g. `background-image: url('{{ images.photo }}')`), at `width` × `height`
@@ -380,7 +411,7 @@ A workflow is `enabled: false` when created. A disabled workflow does not run fr
 
 ## Since
 
-`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12).
+`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12).
 
 ## Related
 

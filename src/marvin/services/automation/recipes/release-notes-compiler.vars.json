@@ -1,0 +1,25 @@
+{
+  "recipe": "release-notes-compiler",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries whose changes go in the notes.",
+      "example": "article"
+    },
+    "since": {
+      "type": "text",
+      "description": "How far back: a relative date like -14d, or an ISO date.",
+      "example": "-14d"
+    },
+    "notes_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the notes are drafted as.",
+      "example": "newsletter-issue"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

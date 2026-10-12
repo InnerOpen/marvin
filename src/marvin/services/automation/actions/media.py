@@ -480,7 +480,7 @@ def _render(session, group_id, action: dict, context: dict, *, user_id, dry_run:
     pictures = _render_pictures(session, group_id, action, context, manifest)
     source_html = render.template_html(template) if template else str(html)
     fmt, quality = action.get("format"), action.get("quality")
-    primary = next(iter(pictures.values()), None)
+    primary = _unwrap(next(iter(_flat(pictures)), None))
     attach_as = _attach_role(action, context)
     entry_id = subject_entry_id(context) if attach_as else None
     if attach_as and entry_id is None:
@@ -489,7 +489,8 @@ def _render(session, group_id, action: dict, context: dict, *, user_id, dry_run:
     existing = _by_slug(session, group_id, slug)
     if dry_run:
         try:  # fill it in (a missing field shows now), but don't start a browser
-            slots = dict.fromkeys(manifest.get("images") or {}) | dict.fromkeys(pictures, "data:,")
+            slots = dict.fromkeys(manifest.get("images") or {})
+            slots |= {k: [{"src": "data:,", "label": r.label} for r in v] if isinstance(v, list) else "data:," for k, v in pictures.items()}
             render.fill(source_html, fields=fields, images=slots, width=width, height=height)
         except render.RenderError as e:
             raise AutomationActionError(str(e)) from e
@@ -504,7 +505,7 @@ def _render(session, group_id, action: dict, context: dict, *, user_id, dry_run:
         reused = False
     else:
         reused = True
-    out = {"template": template or "custom", "sources": {k: str(v.id) for k, v in pictures.items()}}
+    out = {"template": template or "custom", "sources": _ids(pictures)}
     return _deliver(
         session, group_id, out, existing, reused, context, tags=action.get("tags"), attach_as=attach_as, entry_id=entry_id, user_id=user_id
     )
@@ -546,6 +547,11 @@ def _render_pictures(session, group_id, action: dict, context: dict, manifest: d
                 raise AutomationActionError(f"the {manifest.get('label')} template needs the picture {name}")
             continue
         required = (known.get(name) or {}).get("required")
+        if isinstance(resolved, list) or (known.get(name) or {}).get("list"):
+            rows[name] = _picture_list(session, group_id, resolved if isinstance(resolved, list) else [resolved], context)
+            if required and not rows[name]:
+                raise AutomationActionError(f"the {manifest.get('label')} template needs at least one picture in {name}")
+            continue
         try:
             row = resolve_source(session, group_id, str(resolved), context)
         except AutomationActionError:
@@ -558,6 +564,56 @@ def _render_pictures(session, group_id, action: dict, context: dict, manifest: d
     return rows
 
 
+MAX_LIST_PICTURES = 48  # a contact sheet's worth; each is inlined as a thumbnail
+LIST_THUMB_SIDE = 800
+
+
+def _picture_list(session, group_id, items: list, context: dict) -> list:
+    """A list of pictures — a collect step's rows or asset refs — as labelled asset rows (`_Pic`), pictures only, at most
+    MAX_LIST_PICTURES. An asset row is its own picture, labelled by its name; an entry row stands for its main picture
+    (`image`), labelled by its title; an item with no picture is left out."""
+    pics = []
+    for item in items[:MAX_LIST_PICTURES]:
+        if isinstance(item, dict):
+            is_entry = "entry_type" in item or "title" in item
+            ref, label = (item.get("image"), item.get("title")) if is_entry else (item.get("id"), item.get("name"))
+        else:
+            ref, label = item, None
+        if ref in (None, ""):
+            continue
+        row = resolve_source(session, group_id, str(ref), context)
+        if str(row.mime_type or "").startswith("image/"):
+            pics.append(_Pic(row, label or row.name))
+    return pics
+
+
+class _Pic:
+    """An asset row with the label a list template shows under it (an entry's title, or the asset's name)."""
+
+    def __init__(self, row, label: str):
+        self.row, self.label = row, label
+
+    def __getattr__(self, name):
+        return getattr(self.row, name)
+
+
+def _unwrap(row):
+    return row.row if isinstance(row, _Pic) else row
+
+
+def _flat(pictures: dict) -> list:
+    """Every picture a render uses, in order (a list's items in place)."""
+    return [r for v in pictures.values() for r in (v if isinstance(v, list) else [v])]
+
+
+def _fingerprint(row) -> str:
+    return row.checksum or str(row.id)
+
+
+def _ids(pictures: dict) -> dict:
+    return {k: [str(r.id) for r in v] if isinstance(v, list) else str(v.id) for k, v in pictures.items()}
+
+
 def _render_slug(template: str, source_html: str, fields: dict, pictures: dict, shape: tuple, primary) -> str:
     """`<first picture's slug or the template>--render-<hash8>`, from everything that changes the image."""
     from slugify import slugify
@@ -566,7 +622,7 @@ def _render_slug(template: str, source_html: str, fields: dict, pictures: dict, 
         {
             "html": hashlib.sha256(source_html.encode()).hexdigest(),
             "fields": fields,
-            "pictures": {k: (v.checksum or str(v.id)) for k, v in sorted(pictures.items())},
+            "pictures": {k: [_fingerprint(r) for r in v] if isinstance(v, list) else _fingerprint(v) for k, v in sorted(pictures.items())},
             "shape": [str(x) for x in shape],
         },
         sort_keys=True,
@@ -581,6 +637,17 @@ def _by_slug(session, group_id, slug: str):
     return session.query(Assets).filter(Assets.group_id == group_id, Assets.slug == slug).first()
 
 
+def _thumbnail(session, group_id, row) -> str:
+    from marvin.services.ai.media import ops, render
+
+    data = _read_bytes(session, group_id, row)
+    try:
+        small = ops.resize(data, width=LIST_THUMB_SIDE, height=LIST_THUMB_SIDE, fmt="jpeg", quality=82)
+    except ops.NotAnImage:
+        return render.data_uri(data, row.mime_type)  # an svg: inline as it is
+    return render.data_uri(small, "image/jpeg")
+
+
 def _store_render(session, group_id, template, source_html, fields, pictures, size, encoding, slug, context, *, user_id):
     from marvin.db.models.platform.assets import Assets
     from marvin.services.ai.media import ops, render
@@ -588,17 +655,21 @@ def _store_render(session, group_id, template, source_html, fields, pictures, si
 
     # Every picture the template declares is there — blank when not given — so `{% if images.x %}` works.
     images = dict.fromkeys((render.templates().get(template) or {}).get("images") or {})
-    images |= {name: render.data_uri(_read_bytes(session, group_id, row), row.mime_type) for name, row in pictures.items()}
+    for name, value in pictures.items():
+        if isinstance(value, list):  # a list template-side: [{src, label}], each a thumbnail so the page stays small
+            images[name] = [{"src": _thumbnail(session, group_id, pic.row), "label": pic.label} for pic in value]
+        else:
+            images[name] = render.data_uri(_read_bytes(session, group_id, value), value.mime_type)
     try:
         png = render.render(source_html, fields=fields, images=images, width=size[0], height=size[1])
         data = ops.reencode(png, encoding[0], encoding[1])
     except render.RenderError as e:
         raise AutomationActionError(f"render: {e}") from e
     fmt = ops.format_of(data)
-    primary = next(iter(pictures.values()), None)
+    primary = _unwrap(next(iter(_flat(pictures)), None))
     label = (render.templates().get(template) or {}).get("label") or "Custom render"
     title = next((v for v in fields.values() if v.strip()), "") if fields else ""
-    lineage = {"render_template": template or "custom", "rendered_from": {k: str(v.id) for k, v in pictures.items()}, **run_lineage(context)}
+    lineage = {"render_template": template or "custom", "rendered_from": _ids(pictures), **run_lineage(context)}
     if primary is None:
         lineage["generated_by"] = f"render:{template or 'custom'}"
     owner = uploader(session, context, user_id)

@@ -1,0 +1,73 @@
+{
+  "name": "Weekly digest",
+  "definition": {
+    "trigger": {
+      "type": "schedule",
+      "schedule_type": "cron",
+      "schedule_config": {
+        "cron_expression": "0 9 * * 1",
+        "timezone": "{{timezone}}"
+      }
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "week",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{entry_type}}",
+          "status": "published",
+          "published_after": "-7d"
+        },
+        "fields": [
+          "data.{{body_field}}"
+        ],
+        "limit": 20
+      },
+      {
+        "kind": "operation",
+        "id": "issue",
+        "op": "custom",
+        "see": [],
+        "prompt": "Write a short weekly newsletter that introduces and links each of this week's pieces below, in a warm, plain voice. Use only what's listed — don't invent pieces or facts.\n\n${steps.week.output.text}",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 40
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        },
+        "when": {
+          "field": "steps.week.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{newsletter_entry_type}}",
+        "title": "${steps.issue.output.title}",
+        "data": {
+          "{{newsletter_body_field}}": "${steps.issue.output.body}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.week.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

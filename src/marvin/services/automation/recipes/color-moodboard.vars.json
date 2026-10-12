@@ -1,0 +1,15 @@
+{
+  "recipe": "color-moodboard",
+  "variables": {
+    "tag": {
+      "type": "text",
+      "description": "Tag of the images for the moodboard (up to 12).",
+      "example": "coastal"
+    },
+    "title": {
+      "type": "text",
+      "description": "The moodboard's title.",
+      "example": "Coastal blues"
+    }
+  }
+}

@@ -18,6 +18,7 @@ import pathlib
 import subprocess
 import sys
 import uuid
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import httpx
@@ -358,6 +359,10 @@ def ws(db_session, monkeypatch):
         "newspaper_name": "The Raleigh Ledger",
         "footer": "A Mash & Burn tale",
         "compare_tag": "compare",
+        "timezone": "America/New_York",
+        "newsletter_body_field": "body",
+        "since": "-14d",
+        "title": "Brand board",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1471,6 +1476,163 @@ class TestExecution:
         assert (pair.width, pair.height, pair.source_asset_id) == (1600, 900, before.id)
         assert pair.metadata_json["rendered_from"] == {"left": str(before.id), "right": str(after.id)}
 
+    # ── gathered items (a collect step: many → one) and relative dates ──
+    def _aged(self, ws, entry, *, published=None, updated=None):
+        """Back-date an entry: published and/or last updated that many days ago."""
+        if published is not None:
+            entry.published_at = datetime.now(UTC) - timedelta(days=published)
+        if updated is not None:
+            entry.update_at = (datetime.now(UTC) - timedelta(days=updated)).replace(tzinfo=None)  # naive UTC, like the column
+        ws.session.commit()
+        return entry
+
+    def _issues(self, ws):
+        from marvin.db.models.platform import Entries
+
+        ws.session.expire_all()
+        return ws.session.query(Entries).filter_by(group_id=ws.gid, entry_type_id=ws.types["newsletter-issue"]).all()
+
+    def _tagged(self, ws, slug, assets):
+        from marvin.db.models.platform import AssetTags, Tags
+
+        tag = Tags(session=ws.session, group_id=ws.gid, name=slug, slug=slug)
+        ws.session.add(tag)
+        ws.session.flush()
+        ws.session.add_all(AssetTags(asset_id=a.id, tag_id=tag.id) for a in assets)
+        ws.session.commit()
+
+    def _rendered(self, ws, template):
+        from marvin.db.models.platform import Assets
+
+        ws.session.expire_all()
+        rows = ws.session.query(Assets).filter(Assets.group_id == ws.gid).all()
+        return [a for a in rows if (a.metadata_json or {}).get("render_template") == template]
+
+    def _run(self, ws, row, trigger_kind="manual"):
+        recorder = ExecutionRecorder(ws.session, ws.gid)
+        result = run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=recorder, trigger_kind=trigger_kind)
+        assert result["ok"], [a.error for r in _runs(ws, row.slug) for a in r.actions if a.error]
+
+    def test_weekly_digest(self, ws):
+        from zoneinfo import ZoneInfo
+
+        from marvin.db.models.platform.scheduled_tasks import ScheduledTaskModel
+        from marvin.services.automation.workflows import sync_schedule
+
+        row = _install(ws, "weekly-digest")
+        sync_schedule(ws.session, ws.gid, row)
+        task = ws.session.query(ScheduledTaskModel).filter_by(group_id=ws.gid, slug=f"wf-{row.id}").one()
+        next_run = task.next_run_at if task.next_run_at.tzinfo else task.next_run_at.replace(tzinfo=UTC)  # SQLite drops the zone
+        local = next_run.astimezone(ZoneInfo("America/New_York"))
+        assert (local.weekday(), local.hour, local.minute) == (0, 9, 0)  # the cron runs Mondays at 9:00 in the workspace's zone
+        for title, days in (("Brass lantern", 2), ("Chore coat", 5), ("Old loom", 20)):
+            self._aged(ws, _entry(ws, "article", title, status="published", data={"body": f"All about the {title.lower()}."}), published=days)
+        _entry(ws, "article", "Unfinished", data={"body": "x"})
+        ws.ai.reply_text(json.dumps({"title": "This week: lanterns and coats", "body": "Two pieces this week: the lantern and the coat. " * 2}))
+
+        self._run(ws, row, trigger_kind="schedule")
+
+        prompt = ws.ai.last_request()
+        assert "Brass lantern" in prompt and "All about the chore coat." in prompt  # titles and their text
+        assert "Old loom" not in prompt and "Unfinished" not in prompt  # older than 7 days; not published
+        (issue,) = self._issues(ws)
+        assert (issue.title, issue.status) == ("This week: lanterns and coats", "draft") and issue.data_json["body"].startswith("Two pieces")
+        ws.session.delete(task)
+        ws.session.commit()
+
+    def test_release_notes_compiler(self, ws):
+        row = _install(ws, "release-notes-compiler")
+        self._aged(ws, _entry(ws, "article", "New pattern library", data={"body": "x"}, summary="Patterns for coats"), updated=3)
+        self._aged(ws, _entry(ws, "article", "Fixed sizing chart", status="published", data={"body": "x"}), updated=10)
+        self._aged(ws, _entry(ws, "article", "Ancient change", data={"body": "x"}), updated=40)
+        ws.ai.reply_text(json.dumps({"title": "Release notes", "body": "New: the pattern library.\nFixed: the sizing chart."}))
+
+        self._run(ws, row)
+
+        prompt = ws.ai.last_request()
+        assert "New pattern library" in prompt and "Patterns for coats" in prompt and "Fixed sizing chart" in prompt
+        assert "Ancient change" not in prompt  # changed before -14d
+        (notes,) = self._issues(ws)
+        assert notes.status == "draft" and notes.data_json["body"].startswith("New: the pattern library")
+
+    def test_personal_project_radar(self, ws):
+        row = _install(ws, "personal-project-radar")
+        stalled = self._aged(ws, _entry(ws, "project", "Brass lantern", data={"stage": "wiring"}), updated=20)
+        moving = _entry(ws, "project", "Chore coat", data={"stage": "cutting"})
+        done = self._aged(ws, _entry(ws, "project", "Old loom", status="published", data={"stage": "complete"}), updated=60)
+        ws.ai.reply_text(json.dumps({"actions": "Buy a bulb holder; solder the leads."}))
+
+        self._run(ws, row, trigger_kind="schedule")
+
+        assert len(ws.ai.requests) == 1  # only the stalled draft
+        stalled = _reload(ws, stalled)
+        assert stalled.status == "needs_review"
+        assert stalled.metadata_json["review_reasons"] == ["Stalled for two weeks — next: Buy a bulb holder; solder the leads."]
+        assert (_reload(ws, moving).status, _reload(ws, done).status) == ("draft", "published")
+
+    def test_evergreen_resurfacer(self, ws):
+        row = _install(ws, "evergreen-resurfacer")
+        for title, published, updated in (("Waxing canvas", 500, 400), ("Engraving brass", 420, 30), ("This spring", 90, 90)):
+            self._aged(ws, _entry(ws, "article", title, status="published", data={"body": "x"}), published=published, updated=updated)
+        ws.ai.reply_text(json.dumps({"title": "Pieces to refresh", "body": "Waxing canvas: the new wax. Engraving brass: new photos."}))
+
+        self._run(ws, row, trigger_kind="schedule")
+
+        prompt = ws.ai.last_request()
+        assert prompt.index("Waxing canvas") < prompt.index("Engraving brass")  # the least recently touched first
+        assert "This spring" not in prompt  # published within the year
+        (draft,) = self._issues(ws)
+        assert (draft.title, draft.status) == ("Pieces to refresh", "draft")
+
+    @needs_browser
+    def test_best_of_month(self, ws, store):
+        row = _install(ws, "best-of-month")
+        lantern = self._aged(ws, _entry(ws, "article", "Brass lantern", status="published", data={"body": "x"}), published=3)
+        coat = self._aged(ws, _entry(ws, "article", "Chore coat", status="published", data={"body": "x"}), published=10)
+        heroes = [self._with_hero(ws, store, e) for e in (lantern, coat)]
+        self._with_hero(ws, store, self._aged(ws, _entry(ws, "article", "Last spring", status="published", data={"body": "x"}), published=60))
+        self._aged(ws, _entry(ws, "article", "No picture", status="published", data={"body": "x"}), published=1)
+
+        self._run(ws, row, trigger_kind="schedule")
+
+        (sheet,) = self._rendered(ws, "grid")
+        assert (sheet.width, sheet.height) == (1600, 1600) and [t.slug for t in sheet.tags] == ["best-of-month"]
+        assert sheet.metadata_json["rendered_from"] == {"tiles": [str(h.id) for h in heroes]}  # newest first; the month's pictures only
+
+    @needs_browser
+    def test_contact_sheet_maker(self, ws, store):
+        row = _install(ws, "contact-sheet-maker")
+        shots = [self._picture_asset(ws, store, f"shot-{i}", _picture((600, 400), color=(60 * i, 90, 120))) for i in range(3)]
+        crop = self._picture_asset(ws, store, "shot-0-square", _picture((400, 400)))
+        crop.origin, crop.source_asset_id = "derived", shots[0].id
+        self._picture_asset(ws, store, "untagged", _picture())
+        self._tagged(ws, "brand", [*shots, crop])
+
+        self._run(ws, row)
+
+        (sheet,) = self._rendered(ws, "grid")
+        assert sorted(sheet.metadata_json["rendered_from"]["tiles"]) == sorted(str(s.id) for s in shots)  # a version stays out
+        assert [t.slug for t in sheet.tags] == ["contact-sheet"]
+
+    @needs_browser
+    def test_color_moodboard(self, ws, store):
+        import re
+
+        row = _install(ws, "color-moodboard")
+        sea = self._picture_asset(ws, store, "sea", _picture((600, 600), color=(20, 60, 140)))
+        sand = self._picture_asset(ws, store, "sand", _picture((600, 600), color=(220, 190, 120)))
+        self._tagged(ws, "brand", [sea, sand])
+        ws.ai.reply_text(json.dumps({"notes": "Cool sea blues against warm sand: calm, sunlit, a little weathered."}))
+
+        self._run(ws, row)
+
+        prompt = ws.ai.last_request()
+        assert "sea" in prompt and "sand" in prompt and re.search(r"#[0-9a-f]{6}", prompt)  # the pictures and the collage's palette
+        (collage,) = self._rendered(ws, "grid")
+        (board,) = self._rendered(ws, "moodboard")
+        assert (collage.width, collage.height, board.width, board.height) == (1200, 1200, 1600, 1200)
+        assert sorted(board.metadata_json["rendered_from"]["tiles"]) == sorted([str(sea.id), str(sand.id)])
+
 
 # ── The authoring guide and draft_workflow read the same store ───────────────
 def _ctx(ws):
@@ -1508,7 +1670,7 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     assert "buttondown" in asked["error"] and "publication-ledger" in asked["available"]
     assert "no such recipe" in authoring_guide(ws.session, ws.gid, "examples", "nope")["examples"]["error"]
     # An idea is never offered, however the workspace is set up.
-    assert "status is needs-engine-capability" in authoring_guide(ws.session, ws.gid, "examples", "weekly-digest")["examples"]["error"]
+    assert "status is needs-engine-capability" in authoring_guide(ws.session, ws.gid, "examples", "broken-link-patrol")["examples"]["error"]
 
 
 def test_draft_workflow_instantiates_a_recipe_with_typed_vars(ws):
@@ -1527,7 +1689,7 @@ def test_draft_workflow_instantiates_a_recipe_with_typed_vars(ws):
     assert "must be a integer" in out["error"] and "interval_seconds" in out["setup_variables"]
     out = _tool(ws, "draft_workflow", {"recipe": "newsletter-delivery", "vars": {}})
     assert "missing setup value" in out["error"]
-    out = _tool(ws, "draft_workflow", {"recipe": "weekly-digest", "vars": {}})
+    out = _tool(ws, "draft_workflow", {"recipe": "broken-link-patrol", "vars": {}})
     assert "not runnable" in out["error"] and "publication-ledger" in out["available"]
     out = _tool(ws, "draft_workflow", {"name": "x"})
     assert "Pass a definition, or a recipe" in out["error"]

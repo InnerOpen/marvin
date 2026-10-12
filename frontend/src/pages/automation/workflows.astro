@@ -403,7 +403,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "approval", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "approval", "handler", "webhook", "integration", "emit_event"];
   const orderedKinds = (): string[] => {
     const avail = OPTIONS.actionKinds || [];
     return KIND_ORDER.filter((k) => avail.includes(k)).concat(avail.filter((k: string) => !KIND_ORDER.includes(k)));
@@ -892,6 +892,17 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       integrationFields(wrap, a);
     } else if (kind === "media") {
       mediaStepFields(wrap, a);
+    } else if (kind === "collect") {
+      const ent = a.entity ?? "entry";
+      wrap.innerHTML = `
+        <label class="tf"><span>Gather</span>
+          <select class="input a-c-entity">${[["entry", "Entries"], ["asset", "Assets"], ["resource", "Resources"]].map(([v, l]) => `<option value="${v}" ${ent === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="tf"><span>Matching <span class="muted">(a query like a target's — dates may be relative, e.g. {"status": "published", "published_after": "-7d"})</span></span>
+          <textarea class="input mono a-c-query" rows="4" spellcheck="false" placeholder='{"entry_type": "article", "status": "published", "published_after": "-7d"}'>${esc(a.query && Object.keys(a.query).length ? JSON.stringify(a.query, null, 2) : "")}</textarea></label>
+        <label class="tf"><span>Also include <span class="muted">(extra fields per item, comma-separated, e.g. data.body)</span></span>
+          <input class="input a-c-fields" value="${esc((a.fields ?? []).join(", "))}" /></label>
+        <label class="tf"><span>At most</span><input class="input a-c-limit" type="number" min="1" max="250" value="${esc(a.limit ?? 25)}" /></label>
+        <span class="hint small">Later steps read <code>\${steps.&lt;step id&gt;.output.text}</code> (a ready list for an AI prompt), <code>.rows</code> (each item — a render's pictures can take it whole) and <code>.count</code>. Give this step an id.</span>`;
     } else if (kind === "approval") {
       const hours = Number(a.expires_in_hours ?? 72);
       wrap.innerHTML = `
@@ -1030,6 +1041,16 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         setOrDrop("attach_as", makes ? field(".a-m-attach")?.value.trim() : null);
         const tags = (field(".a-m-tags")?.value ?? "").split(",").map((t) => t.trim()).filter(Boolean);
         setOrDrop("tags", makes && tags.length ? tags : null);
+        return step;
+      }
+      if (kind === "collect") {
+        step.entity = field(".a-c-entity")?.value || "entry";
+        const rawQuery = field(".a-c-query")?.value.trim() ?? "";
+        step.query = rawQuery ? parseJsonObject(rawQuery, `Step ${i + 1} query`) : {};
+        const extra = (field(".a-c-fields")?.value ?? "").split(",").map((f) => f.trim()).filter(Boolean);
+        setOrDrop("fields", extra.length ? extra : null);
+        const limit = Number(field(".a-c-limit")?.value);
+        step.limit = Number.isInteger(limit) && limit >= 1 ? Math.min(limit, 250) : 25;
         return step;
       }
       if (kind === "approval") {

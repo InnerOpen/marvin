@@ -1,0 +1,52 @@
+{
+  "name": "Best of the month",
+  "definition": {
+    "trigger": {
+      "type": "schedule",
+      "schedule_type": "cron",
+      "schedule_config": {
+        "cron_expression": "0 9 1 * *",
+        "timezone": "{{timezone}}"
+      }
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "month",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{entry_type}}",
+          "status": "published",
+          "published_after": "-30d",
+          "has_images": true,
+          "sort": {
+            "by": "published_at",
+            "direction": "desc"
+          }
+        },
+        "limit": 9
+      },
+      {
+        "kind": "media",
+        "id": "sheet",
+        "op": "render",
+        "template": "grid",
+        "fields": {
+          "title": "{{title}}",
+          "footer": "{{footer}}"
+        },
+        "images": {
+          "tiles": "${steps.month.output.rows}"
+        },
+        "tags": [
+          "best-of-month"
+        ],
+        "when": {
+          "field": "steps.month.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

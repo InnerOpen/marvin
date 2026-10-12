@@ -367,7 +367,7 @@ def _actions(detail: bool) -> dict:
         "asset_resource_ops": _item_ops(detail),
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}; any step takes `when` (run only if).",
-        **({"when": WHEN_NOTE, "media": MEDIA_NOTE, "render_templates": _render_templates()} if detail else {}),
+        **({"when": WHEN_NOTE, "media": MEDIA_NOTE, "collect": COLLECT_NOTE, "render_templates": _render_templates()} if detail else {}),
     }
 
 
@@ -382,6 +382,13 @@ def _render_templates() -> dict:
     }
 
 
+COLLECT_NOTE = (
+    "collect is many → one: it runs a query (entity entry|asset|resource, query = a target's keys; dates may be relative, "
+    "published_after: -7d) under any trigger and outputs rows (each like ${entry.*} / ${asset.*}, plus extra `fields` "
+    "paths such as data.body), count, total and text — a ready list for a custom AI step's prompt "
+    "(${steps.<id>.output.text}). A render step's images may take ${steps.<id>.output.rows} whole (the grid and "
+    "moodboard templates). Use `when` on count (gt 0) to skip an empty digest."
+)
 MEDIA_NOTE = (
     "A media step works on one image (jpeg, png, webp): source is an asset id or slug (default ${asset.id}), "
     "${entry.image} for the entry's main picture (any of the workspace's own asset URLs works), "
@@ -492,12 +499,10 @@ def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
             return {"error": f"recipe “{recipe}” isn't available here ({why}).", "available": [r["id"] for r in offered]}
         return {"note": _EXAMPLES_NOTE, recipe: recipes.example(item)}
     if detail:
+        # Id and outcome only (the id is the title, slugged): the list must stay under the size budget as the library grows.
         return {
             "note": _EXAMPLES_NOTE + " Call again with recipe=<id> for one recipe's full definition and setup variables.",
-            "recipes": [
-                {"recipe": r["id"], "title": r["title"], "outcome": r["outcome"], "setup_variables": [v["name"] for v in r["setup_variables"]]}
-                for r in offered
-            ],
+            "recipes": [{"recipe": r["id"], "outcome": r["outcome"]} for r in offered],
         }
     # Ids only: the list grows with every recipe, and the overview has a size budget. One recipe in full is a call away.
     return {

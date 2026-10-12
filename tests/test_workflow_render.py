@@ -20,7 +20,10 @@ needs_browser = pytest.mark.skipif(render.browser_path() is None, reason="no hea
 
 def _filled(slug: str, **fields) -> str:
     manifest = render.templates()[slug]
-    images = dict.fromkeys(manifest["images"], "data:image/png;base64,AAAA")
+    images = {
+        name: [{"src": "data:image/png;base64,AAAA", "label": "One"}] if spec.get("list") else "data:image/png;base64,AAAA"
+        for name, spec in manifest["images"].items()
+    }
     return render.fill(
         render.template_html(slug),
         fields=dict.fromkeys(manifest["fields"], "") | fields,
