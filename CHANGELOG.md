@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.272 (2026-10-12)
+
+### Features
+
+- **assets**: Workflows run on originals, a grid view, smart rules by origin, tags on made images,
+  versions follow their original to the Trash
+  ([`1f5311d`](https://github.com/InnerOpen/marvin/commit/1f5311de945a140242f60a5812cef519a57b769a))
+
+
 ## v1.0.0-rc.271 (2026-10-12)
 
 ### Features
