@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.275 (2026-10-12)
+
+### Bug Fixes
+
+- **workflows**: The editor flags a Set metadata / Set fields step with nothing to set; unchecked
+  target filters are left out
+  ([`9f23de2`](https://github.com/InnerOpen/marvin/commit/9f23de2b22226f62677c22936eb1981508c5670b))
+
+
 ## v1.0.0-rc.274 (2026-10-12)
 
 ### Bug Fixes
