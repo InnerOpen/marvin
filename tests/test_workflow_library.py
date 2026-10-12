@@ -1193,3 +1193,18 @@ def test_needs_and_concept_recipes_ship_no_runnable_json():
             continue
         assert r["runnable"] is False and r["shape"] == "idea" and r.get("recipe") is None, r["id"]
         assert not (RECIPES_DIR / f"{r['id']}.json").exists(), r["id"]
+
+
+def test_a_workspace_type_and_a_built_in_with_the_same_slug_are_listed_once(ws):
+    """The pickers (Library setup, the editor) offered "article" twice when the workspace had its own copy of a built-in."""
+    from marvin.db.models.platform import EntryTypes
+
+    built_in = EntryTypes(session=ws.session, group_id=None, name="Article (built-in)", slug="article", schema_json={"fields": [_field("headline")]})
+    ws.session.add(built_in)
+    ws.session.commit()
+    try:
+        articles = [t for t in workspace_refs(ws.session, ws.gid).entry_types if t["slug"] == "article"]
+        assert len(articles) == 1 and articles[0]["fields"] == ["body"]  # the workspace's own, as a step resolves it
+    finally:
+        ws.session.delete(built_in)
+        ws.session.commit()

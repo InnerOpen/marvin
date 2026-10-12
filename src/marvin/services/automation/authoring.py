@@ -185,9 +185,15 @@ def workspace_refs(session, group_id) -> WorkspaceRefs:
         for c in session.query(Collections).filter(Collections.group_id == group_id).order_by(Collections.name).limit(REF_LIMIT)
     ]
     types_q = session.query(EntryTypes).filter((EntryTypes.group_id == group_id) | (EntryTypes.group_id.is_(None))).order_by(EntryTypes.name)
+    # A workspace's own type and a built-in one can share a slug: the workspace's is the one a step names (as at run
+    # time), so it is listed once.
+    by_slug: dict[str, Any] = {}
+    for t in types_q.all():
+        if t.slug not in by_slug or (by_slug[t.slug].group_id is None and t.group_id is not None):
+            by_slug[t.slug] = t
     refs.entry_types = [
         {"slug": t.slug, "name": t.name, "fields": [f.get("key") for f in (t.schema_json or {}).get("fields", []) if isinstance(f, dict)]}
-        for t in types_q.limit(REF_LIMIT)
+        for t in sorted(by_slug.values(), key=lambda t: (t.name or "").lower())[:REF_LIMIT]
     ]
     for row in session.query(IntegrationModel).filter_by(group_id=group_id).order_by(IntegrationModel.name).limit(REF_LIMIT):
         refs.integrations.append(
