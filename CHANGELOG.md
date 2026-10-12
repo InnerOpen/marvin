@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.266 (2026-10-12)
+
+### Bug Fixes
+
+- **workflows**: The Run button starts a run in the background instead of waiting for it
+  ([`4c65485`](https://github.com/InnerOpen/marvin/commit/4c65485a94b570384c49bf4df7e22b175b89b66f))
+
+
 ## v1.0.0-rc.265 (2026-10-12)
 
 ### Features
