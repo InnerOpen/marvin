@@ -176,6 +176,14 @@ API: `GET /api/automations/approvals` (what you may decide, EDITOR+), `POST /api
 with `{"decision": "approve" | "deny", "note": …}` (403 below the step's role, 409 already decided or expired). Events:
 `workflow_approval_requested`, `workflow_approval_decided`.
 
+### One run per entry at a time
+
+A workflow never runs twice on the same entry at the same moment. If a run of it is already working on that entry —
+a retry, the same event delivered twice, **Run** pressed again on a query — the next one waits for it (up to two
+minutes), then reads the entry again and checks the workflow's conditions again before doing anything. So a listing
+that the first run just made isn't made a second time. Different entries, and different workflows, still run side by
+side. (A run that crashed holds its entry for at most five minutes.)
+
 ### When a step fails
 
 `on_failure` is a second list of steps, run when any step of `actions` fails: in the same run, on the same entry (each row's own entry in a query run), after the failed step. They read the failure as `${error.message}` (the step's error), `${error.code}` (the provider's code; `unknown` when it gave none), `${error.step}` (the failed step's `id`, else its position from 0), `${error.kind}` and `${error.at}` (when it failed, ISO 8601). A typical pair records the reason and sends the entry to review, so a refused signup doesn't sit in the inbox looking like a pending one:

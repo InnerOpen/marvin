@@ -52,6 +52,82 @@ def _running_scope(automation):
         _running.reset(token)
 
 
+# One workflow running on one entry at a time (db/models/groups/workflow_entry_locks.py).
+TURN_LEASE_SECONDS = 300  # longest a run holds an entry before another may take it over (a crashed worker)
+TURN_WAIT_SECONDS = 120  # longest a run waits for its turn; then it goes ahead and says so in the log
+TURN_POLL_SECONDS = 0.5
+
+
+def _take_turn(session, automation_id, entry_id, holder: str) -> bool:
+    """Hold the (workflow, entry) turn if it is free or its lease ran out. Commits."""
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from marvin.db.models.groups.workflow_entry_locks import WorkflowEntryLockModel as Lock
+
+    now = datetime.now(UTC)
+    lease = now + timedelta(seconds=TURN_LEASE_SECONDS)
+    mine = (Lock.automation_id == automation_id) & (Lock.entry_id == entry_id)
+    expired = session.execute(update(Lock).where(mine, Lock.lease_until < now).values(holder=holder, lease_until=lease)).rowcount
+    if not expired:
+        dialect = session.get_bind().dialect.name
+        if dialect == "postgresql":
+            from sqlalchemy.dialects.postgresql import insert
+        else:
+            from sqlalchemy.dialects.sqlite import insert
+        row = {"id": uuid4(), "automation_id": automation_id, "entry_id": entry_id, "holder": holder, "lease_until": lease}
+        claim = insert(Lock).values(**row, created_at=now, update_at=now).on_conflict_do_nothing(index_elements=["automation_id", "entry_id"])
+        expired = session.execute(claim).rowcount
+    session.commit()
+    return bool(expired)
+
+
+@contextmanager
+def _entry_turn(session, automation, entry_id, *, dry_run: bool = False, logger=None):
+    """Run this workflow on this entry only when no other run of it is — a retry and a fresh run, or the same event
+    handled twice, would both act on the entry as they first read it. Yields whether it had to wait: then the caller
+    reads the entry again (the other run may have changed it, or made what this one was about to make)."""
+    automation_id = getattr(automation, "id", None)
+    if dry_run or automation_id is None or not entry_id:
+        yield False
+        return
+    import time
+
+    holder = uuid4().hex
+    deadline = time.monotonic() + TURN_WAIT_SECONDS
+    waited = False
+    try:
+        held = _take_turn(session, automation_id, entry_id, holder)
+        while not held and time.monotonic() < deadline:
+            waited = True
+            time.sleep(TURN_POLL_SECONDS)
+            held = _take_turn(session, automation_id, entry_id, holder)
+    except Exception as e:  # noqa: BLE001 — the turn guards against a race; it never stops a run
+        rollback = getattr(session, "rollback", None)
+        if rollback:
+            rollback()
+        if logger:
+            logger.warning("workflow '%s': couldn't take its turn on entry %s (%s); going ahead", getattr(automation, "slug", "?"), entry_id, e)
+        yield waited
+        return
+    if not held and logger:
+        logger.warning("workflow '%s' waited %ss for entry %s and goes ahead anyway", getattr(automation, "slug", "?"), TURN_WAIT_SECONDS, entry_id)
+    try:
+        yield waited
+    finally:
+        if held:
+            from marvin.db.models.groups.workflow_entry_locks import WorkflowEntryLockModel as Lock
+
+            try:
+                session.query(Lock).filter(Lock.automation_id == automation_id, Lock.entry_id == entry_id, Lock.holder == holder).delete(
+                    synchronize_session=False
+                )
+                session.commit()
+            except Exception:  # noqa: BLE001 — the lease runs out on its own
+                session.rollback()
+
+
 def _ms_since(started: datetime) -> int:
     return int((datetime.now(UTC) - started).total_seconds() * 1000)
 
@@ -398,24 +474,33 @@ def _run_targets(
     step_log: list[dict] = []
     base_context["_step_log"] = step_log
     for target_index, ctx, ref in runnable:
-        ok, s_ok, s_failed = _run_pipeline(
-            session,
-            group_id,
-            automation,
-            ctx,
-            user_id=user_id,
-            authorizer_role=authorizer_role,
-            logger=logger,
-            run_action=run_action,
-            recorder=recorder,
-            exec_id=exec_id,
-            target_index=target_index,
-            target_ref=ref,
-            dry_run=dry_run,
-            step_log=step_log,
-            gated=gate,
-            trigger_kind=trigger_kind or trigger_type,
-        )
+        entry_id = (ctx.get("entry") or {}).get("id")
+        with _entry_turn(session, automation, entry_id, dry_run=dry_run, logger=logger) as waited:
+            if waited:  # another run of this workflow had the entry: act on it as it is now, if it still matches
+                fresh = _entry_context(session, group_id, entry_id)
+                if fresh is None or (gate and not matches(conditions, {**ctx, "entry": fresh})):
+                    if logger:
+                        logger.info("workflow '%s': entry %s no longer matches after another run of it; skipped", automation.slug, entry_id)
+                    continue
+                ctx["entry"] = fresh
+            ok, s_ok, s_failed = _run_pipeline(
+                session,
+                group_id,
+                automation,
+                ctx,
+                user_id=user_id,
+                authorizer_role=authorizer_role,
+                logger=logger,
+                run_action=run_action,
+                recorder=recorder,
+                exec_id=exec_id,
+                target_index=target_index,
+                target_ref=ref,
+                dry_run=dry_run,
+                step_log=step_log,
+                gated=gate,
+                trigger_kind=trigger_kind or trigger_type,
+            )
         ok_all = ok_all and ok
         steps_ok += s_ok
         steps_failed += s_failed
@@ -947,7 +1032,6 @@ def run_retry(
     Recorded as its own run pointing back at the run it retries (``retry_of_id``) and announced like
     any run, so chained / on-error workflows see the outcome."""
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
-    from marvin.db.models.groups.integration_errors import RETRY_LIVE
     from marvin.services.integrations import errors
 
     recorder = recorder or NullRecorder()
@@ -966,6 +1050,16 @@ def run_retry(
     if failed.get("kind") != "integration" or failed.get("integration") != row.integration_slug or named != row.action:
         errors.finish_retry(session, row, "superseded", "the workflow's steps changed since the failure")
         return "superseded"
+
+    # Its turn on the entry first: a fresh run of the workflow on it may be under way (it re-reads the entry below).
+    with _entry_turn(session, automation, row.entry_id, logger=logger):
+        return _run_retry_turn(session, group_id, row, automation, defn, logger=logger, run_action=run_action, recorder=recorder)
+
+
+def _run_retry_turn(session, group_id, row, automation, defn, *, logger, run_action, recorder) -> str:
+    """run_retry, once it holds the entry's turn."""
+    from marvin.db.models.groups.integration_errors import RETRY_LIVE
+    from marvin.services.integrations import errors
 
     snap = row.snapshot or {}
     event = dict(snap.get("event") or {})
@@ -1059,11 +1153,7 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
     from its snapshot and the entry as it is now, give the step its output (decision, who, note) and run the steps
     after it — a new run pointing back at the one that parked. Conditions aren't checked again: a person decided.
     Returns the run's status, or ``not resumed`` (the workflow is gone, switched off, or its steps changed)."""
-    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
     from marvin.db.models.groups.automations import WorkspaceAutomationModel
-    from marvin.db.models.users.users import Users
-
-    from .recorder import ExecutionRecorder
 
     automation = session.get(WorkspaceAutomationModel, row.automation_id)
     defn = (automation.definition or {}) if automation is not None else {}
@@ -1073,6 +1163,17 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
         if logger:
             logger.info("approval %s settled %s; its workflow is gone, off or changed — nothing more runs", row.id, row.status)
         return "not resumed"
+    with _entry_turn(session, automation, row.entry_id, logger=logger):
+        return _resume_turn(session, row, automation, step, logger=logger, run_action=run_action, recorder=recorder)
+
+
+def _resume_turn(session, row, automation, step: dict, *, logger, run_action, recorder) -> str:
+    """resume_after_approval, once it holds the entry's turn."""
+    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
+    from marvin.db.models.users.users import Users
+
+    from .recorder import ExecutionRecorder
+
     recorder = recorder or ExecutionRecorder(session, row.group_id)
     group_id = row.group_id
 
