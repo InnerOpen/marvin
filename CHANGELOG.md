@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.276 (2026-10-12)
+
+### Features
+
+- **admin**: Times show in your own time zone; AI Executions lists the tools an agent run used
+  ([`b9121a2`](https://github.com/InnerOpen/marvin/commit/b9121a283af807448223bb7b1cd0458c92749c33))
+
+- **workflows**: Gather items — a collect step turns many into one; relative dates in every query
+  ([`891a1fc`](https://github.com/InnerOpen/marvin/commit/891a1fc57f429d2ab8ead2ce9f14f75472a9ce10))
+
+
 ## v1.0.0-rc.275 (2026-10-12)
 
 ### Bug Fixes
