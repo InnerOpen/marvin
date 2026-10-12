@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.279 (2026-10-12)
+
+### Bug Fixes
+
+- **ui**: Space the Workflows header buttons; an asset's derived_from / rendered_from link to those
+  pictures
+  ([`644b893`](https://github.com/InnerOpen/marvin/commit/644b893441de84e3e90faa74220fe1ab2a56443d))
+
+
 ## v1.0.0-rc.278 (2026-10-12)
 
 ### Bug Fixes
