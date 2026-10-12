@@ -1,6 +1,7 @@
 """Asset routes."""
 
 import json
+from typing import Literal
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
 from pydantic import UUID4
@@ -20,6 +21,36 @@ from marvin.services.storage.provider_factory import get_storage_provider, provi
 
 router = APIRouter(prefix="/assets")
 
+SORTS = {"name": ("name", False), "newest": ("created_at", True), "oldest": ("created_at", False), "largest": ("file_size", True)}
+
+
+def library_page(session, group_id, spec: dict, sort: str) -> list[AssetRead]:
+    """The library's assets matching ``spec`` (services/item_query.py), sorted, each with its versions count. A filter
+    that can't match (an unknown tag or collection) is a 422 saying which."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.platform import Assets
+    from marvin.services import item_query
+
+    query, note = item_query.build(session, group_id, item_query.ASSET, spec)
+    if note:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=note)
+    column, descending = SORTS[sort]
+    order = getattr(Assets, column)
+    rows = query.order_by(order.desc() if descending else order, Assets.name, Assets.id).all()
+    counts = dict(
+        session.query(Assets.source_asset_id, sa.func.count(Assets.id))
+        .filter(
+            Assets.group_id == group_id,
+            Assets.source_asset_id.in_([r.id for r in rows]),
+            Assets.trashed_at.is_(None),
+            Assets.scope == "library",
+        )
+        .group_by(Assets.source_asset_id)
+        .all()
+    )
+    return [AssetRead.model_validate(r).model_copy(update={"versions_count": counts.get(r.id, 0)}) for r in rows]
+
 
 @controller(router)
 class AssetsController(BaseUserController):
@@ -34,15 +65,34 @@ class AssetsController(BaseUserController):
     def list_assets(
         self,
         scope: str = Query(LIBRARY, description="'library' (the Assets library) or 'ask' (files attached to chat questions)"),
+        q: str | None = Query(None, description="Name, slug or filename contains"),
+        asset_type: list[str] = Query(default_factory=list, description="image, svg, document, video, audio, archive, other"),
+        origin: list[str] = Query(default_factory=list, description="upload, derived (made from another asset), generated"),
+        tag: list[str] = Query(default_factory=list, description="Carrying any of these tags (slug or name)"),
+        collection: str | None = Query(None, description="In this collection (slug or name)"),
+        unattached: bool | None = Query(None, description="true: on no entry; false: on at least one"),
+        versions: bool | None = Query(None, description="false: fold versions under their original; true: only versions"),
+        source: str | None = Query(None, description="The versions made from this asset (id or slug)"),
+        sort: Literal["name", "newest", "oldest", "largest"] = Query("name"),
     ) -> list[AssetRead]:
-        """The library's assets, by name; with `scope=ask`, the Ask files, newest first. Never those in the Trash."""
+        """The library's assets (filtered as the workflow and agent asset queries are), each with how many versions
+        were made from it; with `scope=ask`, the Ask files, newest first. Never those in the Trash."""
         if scope not in SCOPES:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"scope must be one of: {', '.join(SCOPES)}")
         if scope == ASK:
             rows = self.repos.assets.get_all(order_by="created_at", order_descending=True)
-        else:
-            rows = self.repos.assets.get_all(order_by="name")
-        return [a for a in rows if a.trashed_at is None and a.scope == scope]
+            return [a for a in rows if a.trashed_at is None and a.scope == scope]
+        spec = {
+            "text": q,
+            "asset_types": asset_type,
+            "origins": origin,
+            "tags": tag,
+            "collection": collection,
+            "unattached": unattached,
+            "versions": versions,
+            "source": source,
+        }
+        return library_page(self.session, self.group_id, {k: v for k, v in spec.items() if v not in (None, "", [])}, sort)
 
     @router.post("/upload", response_model=AssetRead, status_code=status.HTTP_201_CREATED, summary="Upload Asset")
     async def upload_asset(

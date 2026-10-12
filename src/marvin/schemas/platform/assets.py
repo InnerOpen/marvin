@@ -56,6 +56,8 @@ class AssetCreateInternal(_MarvinModel):
     metadata_json: dict | None = Field(default=None, validation_alias=AliasChoices("metadata", "metadata_json"))
 
     scope: str = "library"
+    origin: Literal["upload", "derived", "generated"] = "upload"
+    source_asset_id: UUID4 | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -154,6 +156,12 @@ class AssetRead(AssetSummary):
     """Who moved it to the Trash."""
     scope: str = "library"
     """'library' (the Assets library) or 'ask' (a file attached to a chat question; see the Ask files tab)."""
+    origin: Literal["upload", "derived", "generated"] = "upload"
+    """Where the file came from: an upload, a version made from another asset, or an image an integration generated."""
+    source_asset_id: UUID4 | None = None
+    """For a derived asset: the asset it was made from (empty once that asset is deleted)."""
+    versions_count: int = 0
+    """How many versions in the library were made from this asset (filled in by the list; 0 elsewhere)."""
     suggestion_json: dict | None = Field(
         default=None,
         description="Pending AI-proposed changes staged for review (write-back)",

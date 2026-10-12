@@ -233,6 +233,8 @@ class AssetStorageService(BaseService):
                     public_url=public_url,
                     alt_text=getattr(source, "alt_text", None),
                     metadata_json=provenance,
+                    origin="derived" if source is not None else "generated",
+                    source_asset_id=getattr(source, "id", None),
                 )
                 asset_data = asset_create.model_dump(exclude_unset=True)
                 asset_data["group_id"] = group_id

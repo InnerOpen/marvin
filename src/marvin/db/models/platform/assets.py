@@ -65,6 +65,11 @@ class Assets(SqlAlchemyBase, BaseMixins):
     # 'library' (the Assets library) or 'ask' (a file attached to a chat question, kept out of the library until
     # moved there): services/assets/scope.py.
     scope: Mapped[str] = mapped_column(sa.String, nullable=False, default="library", server_default="library", index=True)
+    # Where the file came from: "upload" (a person or an import), "derived" (made from another asset — a workflow's
+    # media step, an entry type's media recipe) or "generated" (an image an integration generated). A derived asset
+    # names its original in source_asset_id, so the library can fold versions under it (services/item_query.py).
+    origin: Mapped[str] = mapped_column(sa.String(16), nullable=False, default="upload", server_default="upload", index=True)
+    source_asset_id: Mapped[GUID | None] = mapped_column(GUID, sa.ForeignKey("assets.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Relationships
     entries: Mapped[list["Entries"]] = orm.relationship(

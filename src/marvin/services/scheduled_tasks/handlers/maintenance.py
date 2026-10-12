@@ -216,7 +216,13 @@ class RemoveOrphanedAssetsHandler(ScheduledTaskHandler):
                 link_q = link_q.filter(Assets.group_id == task.group_id)
             linked_ids = {row[0] for row in link_q.all()}
 
-            orphans = [a for a in all_assets if a.id not in linked_ids]
+            # A version made from an original still in the library goes with its original (services/item_query.py):
+            # a crop pack or a WebP copy is unattached by nature, not abandoned.
+            live_q = session.query(Assets.id).filter(Assets.trashed_at.is_(None), Assets.scope == "library")
+            if task.group_id:
+                live_q = live_q.filter(Assets.group_id == task.group_id)
+            live = {row[0] for row in live_q.all()}
+            orphans = [a for a in all_assets if a.id not in linked_ids and a.source_asset_id not in live]
             count = len(orphans)
 
             if auto_delete:

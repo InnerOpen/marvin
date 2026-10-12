@@ -14,15 +14,21 @@ check ``unknown_keys`` first):
 - ``tags`` — carrying ANY of these tags (slug or name).
 - ``collection`` / ``collections`` — in any of these collections (slug or name).
 - ``unattached`` — true: attached to no entry; false: attached to at least one. A link to an entry in the
-  Trash still counts as attached, so restoring that entry never finds its image gone.
+  Trash still counts as attached, so restoring that entry never finds its image gone. A version made from an
+  original still in the library is never "unattached": it goes with its original, so a cleanup of unattached
+  images can't sweep a crop pack — unless the spec asks for versions itself (``versions: true`` or ``source``).
 - ``created_after`` / ``created_before`` — ISO dates or datetimes (UTC).
 - ``trashed`` — true: only items in the Trash (the Trash's side, for a restore).
+- ``origin`` / ``origins`` — assets only: upload, derived (made from another asset) or generated (by an integration).
+- ``versions`` — assets only: false leaves out versions of an original that is still in the library (the library's
+  folded view); true keeps only versions. ``source`` — the versions made from this asset (id or slug).
 
 Items in the Trash are left out unless ``trashed`` asks for them (the key, or the ``trashed=True`` argument). A
 filter naming a tag or collection that doesn't exist matches nothing and says so in the note — dropping it
 would widen the selection.
 """
 
+import uuid
 from dataclasses import dataclass
 
 from marvin.services.automation.matcher import as_bool
@@ -31,11 +37,12 @@ from marvin.services.entries.query import _as_list, _when
 ASSET, RESOURCE = "asset", "resource"
 _COMMON = ("text", "query", "tags", "collection", "collections", "unattached", "created_after", "created_before", "trashed")
 KEYS = {
-    ASSET: (*_COMMON, "asset_type", "asset_types", "mime_type", "mime_types"),
+    ASSET: (*_COMMON, "asset_type", "asset_types", "mime_type", "mime_types", "origin", "origins", "versions", "source"),
     RESOURCE: (*_COMMON, "resource_type", "resource_types"),
 }
 
 ASSET_TYPES = ("image", "svg", "document", "video", "audio", "archive", "other")
+ORIGINS = ("upload", "derived", "generated")
 
 # What each key means, in a line — the agent's workflow authoring guide lists these for an asset or resource
 # target's `query` (test_workflow_item_targets keeps them matching KEYS).
@@ -46,7 +53,8 @@ KEY_NOTES: dict[str, dict[str, str]] = {
         "tags": "has any of these tags (slug or name)",
         "collection": "in this collection (slug or name; `collections`: a list)",
         "collections": "in any of these collections",
-        "unattached": "true: attached to no entry; false: attached to at least one",
+        "unattached": "true: attached to no entry (an asset's versions of an original still in the library don't count); "
+        "false: attached to at least one",
         "created_after": "ISO date/datetime (UTC); also created_before",
         "created_before": "ISO date/datetime (UTC)",
         "trashed": "true: only items in the Trash (left out otherwise) — a `restore` target",
@@ -56,6 +64,10 @@ KEY_NOTES: dict[str, dict[str, str]] = {
                 "asset_types": "asset types, any of",
                 "mime_type": "exact MIME type, e.g. image/svg+xml (`mime_types`: a list)",
                 "mime_types": "MIME types, any of",
+                "origin": f"one of {', '.join(ORIGINS)} (`origins`: a list) — derived: made from another asset",
+                "origins": "origins, any of",
+                "versions": "false: leave out versions of an original still in the library; true: only versions",
+                "source": "the versions made from this asset (id or slug)",
             }
             if kind == ASSET
             else {"resource_type": "the resource's type, e.g. supplier (`resource_types`: a list)", "resource_types": "resource types, any of"}
@@ -111,6 +123,9 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
             q = q.filter(Assets.asset_type.in_(types))
         if mimes := _as_list(spec.get("mime_type")) + _as_list(spec.get("mime_types")):
             q = q.filter(Assets.mime_type.in_(mimes))
+        q, note = _asset_lineage(session, group_id, q, spec)
+        if note:
+            return nothing, note
     elif types := _as_list(spec.get("resource_type")) + _as_list(spec.get("resource_types")):
         q = q.filter(Resources.resource_type.in_(types))
 
@@ -144,12 +159,56 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
             return nothing, f"unattached is true or false, not {spec['unattached']!r}"
         linked = model.id.in_(session.query(getattr(entry_link, fk)))
         q = q.filter(~linked if unattached else linked)
+        if unattached and kind == ASSET and not (as_bool(str(spec.get("versions"))) is True or spec.get("source")):
+            q = q.filter(sa.or_(Assets.source_asset_id.is_(None), Assets.source_asset_id.not_in(live_originals(group_id))))
 
     for key, keep in (("created_after", lambda at: model.created_at >= at), ("created_before", lambda at: model.created_at < at)):
         if spec.get(key):
             if (at := _when(spec[key])) is None:
                 return nothing, f"{key} is not a date: {spec[key]!r}"
             q = q.filter(keep(at))
+    return q, None
+
+
+def live_originals(group_id):
+    """The ids of the workspace's library assets not in the Trash — an asset whose source is one of them is a
+    version of a live original (folded under it in the library, kept out of unattached-image cleanups)."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.platform import Assets
+
+    return sa.select(Assets.id).where(Assets.group_id == group_id, Assets.trashed_at.is_(None), Assets.scope == "library")
+
+
+def _asset_lineage(session, group_id, q, spec: dict):
+    """origin / versions / source: what an asset was made from (Assets.origin, Assets.source_asset_id)."""
+    import sqlalchemy as sa
+
+    from marvin.db.models.platform import Assets
+
+    if origins := _as_list(spec.get("origin")) + _as_list(spec.get("origins")):
+        if bad := [o for o in origins if o not in ORIGINS]:
+            return q, f"origin is one of {', '.join(ORIGINS)}, not {', '.join(map(str, bad))}"
+        q = q.filter(Assets.origin.in_(origins))
+    if spec.get("versions") is not None:
+        versions = as_bool(str(spec["versions"]))
+        if versions is None:
+            return q, f"versions is true or false, not {spec['versions']!r}"
+        if versions:
+            q = q.filter(Assets.source_asset_id.isnot(None))
+        else:  # a version whose original is gone or in the Trash stands on its own
+            q = q.filter(sa.or_(Assets.source_asset_id.is_(None), Assets.source_asset_id.not_in(live_originals(group_id))))
+    if ref := spec.get("source"):
+        ref = str(ref).strip()
+        match = Assets.slug == ref
+        try:
+            match = match | (Assets.id == uuid.UUID(ref))
+        except ValueError:
+            pass
+        found = session.query(Assets.id).filter(Assets.group_id == group_id, match).first()
+        if found is None:
+            return q, f"no asset {ref!r} in this workspace"
+        q = q.filter(Assets.source_asset_id == found[0])
     return q, None
 
 

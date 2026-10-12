@@ -8460,7 +8460,8 @@
       "dependencies": [],
       "notes": [
         "A bare `trash` step acts on the current item: its entity_type follows the target.",
-        "Dry-run it first: POST /api/automations/{id}/run?dry_run=true lists the assets it would touch."
+        "Dry-run it first: POST /api/automations/{id}/run?dry_run=true lists the assets it would touch.",
+        "Versions made from an image still in the library (crops, sizes, conversions) are not unattached: they go with their original."
       ],
       "verification": {
         "level": "fixture-executed",

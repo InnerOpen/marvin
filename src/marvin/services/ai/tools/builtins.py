@@ -72,6 +72,9 @@ def _serialize_asset(a, link=None) -> dict:
         "width": a.width,
         "height": a.height,
         "tags": list(getattr(a, "tag_names", None) or []),
+        # Where it came from: an upload, a version made from another asset (sourceAssetId), or a generated image.
+        "origin": getattr(a, "origin", None) or "upload",
+        **({"sourceAssetId": str(a.source_asset_id)} if getattr(a, "source_asset_id", None) else {}),
         **_link_fields(link),
     }
 
@@ -664,7 +667,11 @@ def list_tags(ctx: ToolContext, _args: dict) -> str:
 # and attach_tag's `filter` select by).
 _ITEM_LIST_FILTERS = {
     "collection": {"type": "string", "description": "only items in this collection (slug or name)"},
-    "unattached": {"type": "boolean", "description": "true: only items attached to no entry; false: only attached ones"},
+    "unattached": {
+        "type": "boolean",
+        "description": "true: only items attached to no entry (an asset's versions of an original still in the library don't count); "
+        "false: only attached ones",
+    },
     "created_after": {"type": "string", "description": "ISO date — created on or after"},
     "created_before": {"type": "string", "description": "ISO date — created before"},
 }
@@ -720,6 +727,9 @@ def list_entry_types(ctx: ToolContext, _args: dict) -> str:
         "properties": {
             "asset_type": {"type": "string", "description": "e.g. 'image', 'document'"},
             "query": {"type": "string", "description": "filename/name substring"},
+            "origin": {"type": "string", "enum": ["upload", "derived", "generated"], "description": "derived: made from another asset"},
+            "versions": {"type": "boolean", "description": "false: originals only (versions folded away); true: only versions"},
+            "source": {"type": "string", "description": "the versions made from this asset (id or slug)"},
             "tags": {
                 "type": "array",
                 "items": {"type": "string"},

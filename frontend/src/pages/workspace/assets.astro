@@ -1,38 +1,51 @@
 ---
 import AssetRow from "@/components/AssetRow.astro";
-import FilterBar from "@/components/FilterBar.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
+import { listCollections } from "@/lib/api/collections";
 import { getAssets } from "@/lib/api/platform";
+import { listTags } from "@/lib/api/tags";
 import { listTrashedAssets } from "@/lib/api/trash";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import { getMimeCategory } from "@/lib/assetCategory";
+import { isFiltered, listParams, ORIGINS, readLibraryView, SORTS, TYPES, viewHref } from "@/lib/assetLibraryView";
+import { createSdkClient } from "@/lib/sdk";
 
 const authToken = getAuthToken(Astro.cookies);
 // Everyone reads; uploading is AUTHOR+, editing and deleting assets EDITOR+.
 const access = authToken ? await getContentAccess(authToken) : FULL_CONTENT_ACCESS;
+// The filters live in the URL (lib/assetLibraryView.ts): the API returns exactly the matching assets, with versions
+// folded under their original unless shown.
+const view = readLibraryView(Astro.url.searchParams);
 
-let assets = [];
-// Trashed assets aren't in the library list: loaded so the Trash group lists them and "In the Trash" in
-// Statuses shows them. "All Statuses" leaves them out, as on Entries.
+let assets: any[] = [];
 let trashedAssets: any[] = [];
+let tags: any[] = [];
+let collections: any[] = [];
+let sourceAsset: any = null;
 let error: string | null = null;
 
 // Ask files (chat attachments) live apart from the library: a link to them, with their count.
 let askFiles = 0;
 try {
-  const [library, asks, trashed] = await Promise.all([
-    getAssets(authToken),
+  const [library, asks, trashed, tagList, collectionList] = await Promise.all([
+    view.status === "trashed" ? Promise.resolve([]) : getAssets(authToken, listParams(view)),
     fetchApi<unknown[]>("/api/platform/assets?scope=ask", {}, authToken).catch(() => []),
     listTrashedAssets(authToken).catch(() => []),
+    listTags(authToken).catch(() => []),
+    listCollections(authToken).catch(() => []),
   ]);
   assets = library;
   askFiles = asks.length;
   trashedAssets = trashed;
+  tags = tagList;
+  collections = collectionList.filter((c: any) => (c.targetType ?? "entry") === "asset");
+  if (view.source) sourceAsset = await createSdkClient(authToken).assets.get(view.source).catch(() => null);
 } catch (e) {
   error = e instanceof Error ? e.message : String(e);
   console.error("[Assets] Failed to load:", error);
 }
+const rows = view.status === "trashed" ? trashedAssets : assets;
 
 // Group assets by MIME category
 const categoryLabels: Record<string, string> = {
@@ -43,7 +56,7 @@ const categoryLabels: Record<string, string> = {
   other: "Other",
 };
 const categoryGroups = new Map<string, { label: string; assets: any[] }>();
-for (const asset of assets) {
+for (const asset of rows) {
   const cat = getMimeCategory(asset.mimeType);
   if (!categoryGroups.has(cat)) {
     categoryGroups.set(cat, { label: categoryLabels[cat] || cat, assets: [] });
@@ -54,6 +67,7 @@ const categoryOrder = ["image", "video", "audio", "document", "other"];
 const sortedCategoryGroups = categoryOrder
   .filter((cat) => categoryGroups.has(cat))
   .map((cat) => ({ key: cat, ...categoryGroups.get(cat)! }));
+const opt = (value: string, label: string, current: string) => ({ value, label, selected: value === current });
 ---
 
 <AppLayout title="Assets">
@@ -66,37 +80,65 @@ const sortedCategoryGroups = categoryOrder
     <>
       <div class="toolbar">
         <div>
-          <h2 style="margin:0;font-size:20px;">Media library</h2>
-          <p style="margin:4px 0 0;color:var(--muted);">{assets.length} reusable uploads available to entries.</p>
+          <h2 style="margin:0;font-size:20px;">{view.source ? `Versions of ${sourceAsset?.name ?? "an asset"}` : view.status === "trashed" ? "Assets in the Trash" : "Media library"}</h2>
+          <p style="margin:4px 0 0;color:var(--muted);">
+            {view.source ? (
+              <>Made from it by workflows and the media pipeline · <a href={viewHref(view, { source: "" })}>Back to the library</a></>
+            ) : (
+              <>{rows.length} {rows.length === 1 ? "asset" : "assets"}{!view.versions && view.status !== "trashed" ? " (versions folded under their original)" : ""}.</>
+            )}
+          </p>
         </div>
         <div style="display:flex;gap:0.75rem;">
-          <FilterBar
-            searchPlaceholder="Search assets..."
-            filters={[
-              {
-                id: "type-filter",
-                label: "Types",
-                options: [
-                  { value: "image", label: "Images" },
-                  { value: "video", label: "Videos" },
-                  { value: "audio", label: "Audio" },
-                  { value: "document", label: "Documents" },
-                  { value: "other", label: "Other" }
-                ]
-              },
-              ...(trashedAssets.length > 0 ? [{
-                id: "status-filter",
-                label: "Statuses",
-                options: [{ value: "trashed", label: "In the Trash" }]
-              }] : [])
-            ]}
-          />
           <a class="button secondary" href="/workspace/assets/ask-files" title="Files attached to chat questions, kept out of the library">Ask files{askFiles ? ` (${askFiles})` : ""}</a>
           {access.canAuthor && <a class="button" href="/workspace/assets/new">Upload Asset</a>}
         </div>
       </div>
 
-      {assets.length === 0 && trashedAssets.length === 0 ? (
+      <form method="get" class="asset-filters" id="asset-filters">
+        <input type="search" name="q" class="filter-search" placeholder="Search name or filename…" value={view.q} />
+        <select name="type" class="filter-select" aria-label="Type">
+          <option value="">All types</option>
+          {Object.entries(TYPES).map(([v, l]) => <option value={v} selected={view.type === v}>{l}</option>)}
+        </select>
+        <select name="origin" class="filter-select" aria-label="Where it came from">
+          <option value="">Any origin</option>
+          {Object.entries(ORIGINS).map(([v, l]) => <option value={v} selected={view.origin === v}>{l}</option>)}
+        </select>
+        {tags.length > 0 && (
+          <select name="tag" class="filter-select" aria-label="Tag">
+            <option value="">Any tag</option>
+            {tags.map((t: any) => <option value={t.slug} selected={view.tag === t.slug}>{t.name}</option>)}
+          </select>
+        )}
+        {collections.length > 0 && (
+          <select name="collection" class="filter-select" aria-label="Collection">
+            <option value="">Any collection</option>
+            {collections.map((c: any) => <option value={c.slug} selected={view.collection === c.slug}>{c.name}</option>)}
+          </select>
+        )}
+        <select name="attached" class="filter-select" aria-label="Used on an entry">
+          {[opt("", "On entries or not", view.attached), opt("yes", "Used on an entry", view.attached), opt("no", "Not on any entry", view.attached)].map((o) => (
+            <option value={o.value} selected={o.selected}>{o.label}</option>
+          ))}
+        </select>
+        <select name="sort" class="filter-select" aria-label="Sort">
+          {Object.entries(SORTS).map(([v, l]) => <option value={v} selected={view.sort === v}>{l}</option>)}
+        </select>
+        <label class="filter-check"><input type="checkbox" name="versions" value="show" checked={view.versions} /> Show versions</label>
+        {trashedAssets.length > 0 && (
+          <label class="filter-check"><input type="checkbox" name="status" value="trashed" checked={view.status === "trashed"} /> The Trash ({trashedAssets.length})</label>
+        )}
+        {view.source && <input type="hidden" name="source" value={view.source} />}
+        {(isFiltered(view) || view.versions || view.status || view.sort !== "name") && <a class="filter-reset" href="/workspace/assets">Clear</a>}
+      </form>
+
+      {rows.length === 0 && (isFiltered(view) || view.status) ? (
+        <div class="empty-state">
+          <h3>Nothing matches</h3>
+          <p><a href="/workspace/assets">Clear the filters</a></p>
+        </div>
+      ) : assets.length === 0 && trashedAssets.length === 0 ? (
         <div class="empty-state">
           <div class="empty-icon">🖼️</div>
           <h3>No assets yet</h3>
@@ -130,11 +172,8 @@ const sortedCategoryGroups = categoryOrder
                 </tr>
               </thead>
               <tbody>
-                {assets.map((asset: any) => (
-                  <AssetRow asset={asset} canEdit={access.canEdit} />
-                ))}
-                {trashedAssets.map((asset: any) => (
-                  <AssetRow asset={asset} canEdit={access.canEdit} inTrash />
+                {rows.map((asset: any) => (
+                  <AssetRow asset={asset} canEdit={access.canEdit} inTrash={view.status === "trashed"} versionsHref={viewHref(view, { source: asset.id, versions: false })} />
                 ))}
               </tbody>
             </table>
@@ -164,41 +203,12 @@ const sortedCategoryGroups = categoryOrder
                   </thead>
                   <tbody>
                     {groupAssets.map((asset: any) => (
-                      <AssetRow asset={asset} canEdit={access.canEdit} />
+                      <AssetRow asset={asset} canEdit={access.canEdit} inTrash={view.status === "trashed"} versionsHref={viewHref(view, { source: asset.id, versions: false })} />
                     ))}
                   </tbody>
                 </table>
               </details>
             ))}
-            {trashedAssets.length > 0 && (
-              <details class="collection-group" data-group-type="trash">
-                <summary class="collection-header">
-                  <h3 class="collection-title">
-                    <span class="collapse-chevron"></span>
-                    Trash
-                    <span class="collection-count">{trashedAssets.length}</span>
-                  </h3>
-                </summary>
-                <table class="table">
-                  <thead>
-                    <tr>
-                      <th>Preview</th>
-                      <th>Name</th>
-                      <th>Type</th>
-                      <th>Dimensions</th>
-                      <th>Size</th>
-                      <th>Alt Text</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trashedAssets.map((asset: any) => (
-                      <AssetRow asset={asset} canEdit={access.canEdit} inTrash />
-                    ))}
-                  </tbody>
-                </table>
-              </details>
-            )}
           </div>
         </>
       )}
@@ -207,10 +217,6 @@ const sortedCategoryGroups = categoryOrder
 </AppLayout>
 
 <script>
-  import { showsForStatus } from '@/lib/trashFilter';
-  const searchInput = document.getElementById('filter-search') as HTMLInputElement;
-  const typeFilter = document.getElementById('type-filter') as HTMLSelectElement;
-  const statusFilter = document.getElementById('status-filter') as HTMLSelectElement | null;
   const tableView = document.getElementById('table-view');
   const groupedView = document.getElementById('grouped-view');
   const viewTableBtn = document.getElementById('view-table');
@@ -222,49 +228,55 @@ const sortedCategoryGroups = categoryOrder
     groupedView.style.display = view === 'grouped' ? '' : 'none';
     viewTableBtn?.classList.toggle('active', view === 'table');
     viewGroupedBtn?.classList.toggle('active', view === 'grouped');
-    localStorage.setItem('assets-view', view);
-    filterAssets();
+    try { localStorage.setItem('assets-view', view); } catch { /* a private window: the choice just isn't kept */ }
   }
 
   viewTableBtn?.addEventListener('click', () => setView('table'));
   viewGroupedBtn?.addEventListener('click', () => setView('grouped'));
 
-  const savedView = localStorage.getItem('assets-view') as 'table' | 'grouped' | null;
-  if (savedView) setView(savedView);
+  let savedView: string | null = null;
+  try { savedView = localStorage.getItem('assets-view'); } catch { /* as above */ }
+  if (savedView === 'table' || savedView === 'grouped') setView(savedView);
 
-  function filterAssets() {
-    const searchQuery = searchInput?.value.toLowerCase() || '';
-    const typeQuery = typeFilter?.value || '';
-    const statusQuery = statusFilter?.value || '';
-    const rows = document.querySelectorAll('.asset-row');
-
-    rows.forEach(row => {
-      const name = row.querySelector('.asset-name')?.textContent?.toLowerCase() || '';
-      const type = row.getAttribute('data-type') || '';
-      const trashed = row.hasAttribute('data-in-trash');
-      const inTrashGroup = Boolean(row.closest('[data-group-type="trash"]'));
-
-      const matchesSearch = !searchQuery || name.includes(searchQuery);
-      const matchesType = !typeQuery || type === typeQuery;
-      const matchesStatus = showsForStatus(statusQuery, trashed, inTrashGroup);
-
-      (row as HTMLElement).style.display = (matchesSearch && matchesType && matchesStatus) ? '' : 'none';
-    });
-
-    document.querySelectorAll('.collection-group').forEach(group => {
-      const visibleRows = group.querySelectorAll('.asset-row:not([style*="display: none"])');
-      (group as HTMLElement).style.display = visibleRows.length > 0 ? '' : 'none';
-    });
-  }
-
-  filterAssets();
-
-  searchInput?.addEventListener('input', filterAssets);
-  typeFilter?.addEventListener('change', filterAssets);
-  statusFilter?.addEventListener('change', filterAssets);
+  // The filters are a GET form: a choice reloads the list from the server (search on Enter).
+  const filters = document.getElementById('asset-filters') as HTMLFormElement | null;
+  filters?.querySelectorAll('select, input[type="checkbox"]').forEach((el) => el.addEventListener('change', () => filters.requestSubmit()));
 </script>
 
 <style>
+  .asset-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    align-items: center;
+    margin: 0 0 1rem;
+  }
+  .filter-search {
+    min-width: 220px;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .filter-select {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .filter-check {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .filter-reset {
+    font-size: 0.875rem;
+  }
+
   .error-banner {
     padding: 1.5rem;
     background: var(--color-error-bg);

@@ -11,9 +11,13 @@ interface Props {
   /** EDITOR and above: Edit and Move to Trash. */
   canEdit: boolean;
   inTrash?: boolean;
+  /** Where its "N versions" link goes (the library filtered to what was made from it). */
+  versionsHref?: string;
 }
 
-const { asset, canEdit, inTrash = false } = Astro.props;
+const { asset, canEdit, inTrash = false, versionsHref } = Astro.props;
+// Where it came from, when it isn't a plain upload: a version made from another asset, or an image an integration made.
+const originBadge = asset.origin === "derived" ? "Version" : asset.origin === "generated" ? "Generated" : null;
 const category = getMimeCategory(asset.mimeType);
 ---
 
@@ -38,6 +42,12 @@ const category = getMimeCategory(asset.mimeType);
   <td class="asset-name">
     <strong>{asset.name}</strong>
     {inTrash && <span class="trash-badge">In the Trash</span>}
+    {originBadge && (asset.sourceAssetId
+      ? <a class="origin-badge" href={`/workspace/assets/${asset.sourceAssetId}/view`} title="Open the asset it was made from">{originBadge}</a>
+      : <span class="origin-badge">{originBadge}</span>)}
+    {asset.versionsCount > 0 && versionsHref && (
+      <a class="versions-link" href={versionsHref}>{asset.versionsCount} {asset.versionsCount === 1 ? "version" : "versions"}</a>
+    )}
     {asset.slug && <div class="slug"><code>{asset.slug}</code></div>}
     {asset.tags?.length > 0 && <div class="tags-row"><TagList tags={asset.tags} /></div>}
   </td>
@@ -77,6 +87,21 @@ const category = getMimeCategory(asset.mimeType);
 </tr>
 
 <style>
+  .origin-badge,
+  .versions-link {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0 0.4rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    line-height: 1.4rem;
+    border: 1px solid var(--line);
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .versions-link {
+    color: var(--accent, inherit);
+  }
   .preview {
     width: 80px;
     height: 80px;

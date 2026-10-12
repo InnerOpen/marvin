@@ -486,7 +486,8 @@ def _match_schema(restore: bool) -> dict:
                 "description": (
                     "only those matching — entries: find_entries' filters (entry_types, statuses, text, tags, collection, "
                     "fields, where, created_after/before, …); assets: asset_type(s), mime_type(s), query (name/filename "
-                    "substring), tags, collection, unattached (true: attached to no entry), created_after/before; "
+                    "substring), tags, collection, unattached (true: attached to no entry; versions of an original still in the "
+                    "library don't count), origin(s) (upload|derived|generated), versions, source, created_after/before; "
                     "resources: resource_type(s), query, tags, collection, unattached, created_after/before"
                 ),
             },

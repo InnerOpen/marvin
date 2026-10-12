@@ -512,6 +512,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   A manual run moves every image that no entry uses into the Trash, where it can be restored until the Trash is emptied.
   - A bare `trash` step acts on the current item: its entity_type follows the target.
   - Dry-run it first: POST /api/automations/{id}/run?dry_run=true lists the assets it would touch.
+  - Versions made from an image still in the library (crops, sizes, conversions) are not unattached: they go with their original.
 - [restore-trashed-resources](../../src/marvin/services/automation/recipes/restore-trashed-resources.json) — **Restore all resources in the Trash** · verified-current · `manual`  
   A manual run takes every trashed resource back out of the Trash.
   - `trashed: true` is the only way a target reaches the Trash; every other query leaves trashed rows out.

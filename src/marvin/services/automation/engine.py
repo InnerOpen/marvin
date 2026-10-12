@@ -215,8 +215,8 @@ def _item_context(session, group_id, kind: str, item_id) -> dict | None:
         file = {k: getattr(row, k, None) for k in ("mime_type", "file_size", "width", "height", "alt_text")}
         # The asset it was made from (a media step's or the media pipeline's derivative), so a workflow can tell a
         # derivative from an original — `asset.derived_from` must not exist to act on originals only.
-        derived_from = ctx["metadata"].get("derived_from") or None
-        return {**ctx, "filename": row.original_filename, **file, "url": url, "derived_from": derived_from}
+        derived_from = str(row.source_asset_id) if row.source_asset_id else ctx["metadata"].get("derived_from") or None
+        return {**ctx, "filename": row.original_filename, **file, "url": url, "derived_from": derived_from, "origin": row.origin}
     return {**ctx, "url": row.url, "external_id": row.external_id}
 
 
@@ -275,7 +275,7 @@ TEMPLATE_NAMESPACES: dict[str, str] = {
     "data.<field>, metadata.<key>, image (featured image URL), url (its page on the site)",
     "asset": "the asset the run acts on (an asset event's, or each asset-target match): id, name, slug, asset_type, mime_type, "
     "filename, file_size, width, height, alt_text, description, tags, metadata.<key>, url (its public URL), trashed, "
-    "derived_from (the id of the asset it was made from; None for an original)",
+    "derived_from (the id of the asset it was made from; None for an original), origin (upload | derived | generated)",
     "resource": "the resource the run acts on (a resource event's, or each resource-target match): id, name, slug, resource_type, "
     "description, url, external_id, tags, metadata.<key>, trashed",
     "previous": "the previous step's output",

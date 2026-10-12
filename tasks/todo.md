@@ -794,6 +794,27 @@ Not done: `derived_from` on generated images (needs an edit action that takes a 
 the quality gate (no asset metadata step yet); old responsive sizes stay attached when the hero changes.
 
 
+**F. Asset library: versions, origin, a real filter bar (2026-10-12, Jared: "do 1-3 then we'll talk about the rest")**
+Media steps fill the library with derivatives; today it is a flat name-sorted table filtered client-side by type only.
+- [x] Assets get `origin` (upload | derived | generated, indexed) and `source_asset_id` (the original, FK SET NULL,
+      indexed); `create_derivative` sets both; migration backfills from metadata (derived_from / generated_by).
+- [x] Item query keys `origin`, `versions` (false: leave out versions of an original still in the library; true: only
+      versions), `source` (versions of this asset) — workflows, the agent and the library share them.
+- [x] `GET /assets` filters server-side with the item query (q, asset_type, origin, tag, collection, unattached,
+      versions, source, sort name|newest|oldest|largest); unchanged default; `versionsCount` on each row. SDK types.
+- [x] Library: filter bar (search, type, origin, tag, collection, unattached, sort, show versions) as URL params;
+      versions folded under their original ("3 versions" → that list); origin badge; asset page lists its versions.
+- [x] Tests (query keys, endpoint, backfill on dev Postgres), docs (assets manual, workflow query keys), full suite.
+- [x] Added on the way (Jared: "keep versions out of that cleanup"): `unattached: true` and the orphaned-assets job
+      don't count a version of an original still in the library (unless the query asks for versions / a source), so the
+      agent's trash tools, the Trash-unattached recipe and workflow targets can't sweep crop packs. Agent `list_assets`
+      takes origin/versions/source; get_asset shows origin + sourceAssetId; `${asset.origin}` in runs.
+Review: migration `d00dff591ea6` tested on a scratch Postgres (backfill derived/orphaned/generated, downgrade) — the
+dev DB is pre-squash and wasn't touched. The frontend pins SDK 3.2.0-next.28, so the page calls the route with fetchApi;
+SDK `f5f3c21` (types + assets.list(params)) for other callers. Full suite 4279 passed, npm test 676, astro 44 (no new).
+Later (Jared to decide): grid view, smart-collection rule keys origin/source, tags on media steps, trash versions with
+their original.
+
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
 Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to

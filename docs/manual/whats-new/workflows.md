@@ -32,7 +32,7 @@ The builder sends every value as text. `eq` and `neq` convert it to the type of 
 |---|---|
 | `event.*` | Every field of the event's data, plus `event_type`, `entry_id`, `entity_type`, `entity_id` (what the event is about), `webhook_slug`, `payload`, `changed_fields`, `before`, `after`, `user_id`. `entry_id` is set only when the event is about an entry. Forms: `event.submission_data.<field>`. |
 | `entry.*` | `id`, `entry_type`, `status`, `title`, `slug`, `summary`, `data.<field>` (the entry type's fields), `metadata.<key>`, `image` (the featured image's public URL, or empty). Present for entry events and for every row of a query run. |
-| `asset.*` | `id`, `slug`, `name`, `asset_type`, `mime_type`, `filename`, `file_size`, `description`, `tags`, `metadata.<key>`, `url` (its public URL, or empty), `trashed`, `derived_from` (the id of the asset it was made from — a [Process an image](#process-an-image) step's or an entry type's media derivative; empty for an original). Present for `asset_*` events and for every row of an asset query run. |
+| `asset.*` | `id`, `slug`, `name`, `asset_type`, `mime_type`, `filename`, `file_size`, `description`, `tags`, `metadata.<key>`, `url` (its public URL, or empty), `trashed`, `derived_from` (the id of the asset it was made from — a [Process an image](#process-an-image) step's or an entry type's media derivative; empty for an original), `origin` (`upload`, `derived` or `generated`). Present for `asset_*` events and for every row of an asset query run. |
 | `resource.*` | `id`, `slug`, `name`, `resource_type`, `description`, `tags`, `metadata.<key>`, `url` (its link), `external_id`, `trashed`. Present for `resource_*` events and for every row of a resource query run. |
 | `previous.*`, `steps.<id or index>.output.*` | Step outputs; usable in step inputs only, never in conditions. |
 
@@ -70,11 +70,14 @@ With **Assets** or **Resources**, the target is `{"entity": "asset", "query": {�
 | `text` (alias `query`) | name or slug contains; an asset also by filename (**Name contains**) |
 | `tags` | has any of these tags, by slug or name (**Tagged**, comma-separated) |
 | `collection` / `collections` | in this collection / any of these (**In collection**) |
-| `unattached` | `true`: used by no entry; `false`: used by at least one (**Used by an entry**) |
+| `unattached` | `true`: used by no entry; `false`: used by at least one (**Used by an entry**). A version made from an original still in the library doesn't count as unattached (it goes with its original) unless the query asks for versions (`versions: true` or `source`) |
 | `trashed` | `true`: only items in the Trash (**in the Trash**) |
 | `created_after` / `created_before` | ISO dates or datetimes (UTC) |
 | `asset_type` / `asset_types` | assets only: `image`, `svg`, `document`, `video`, `audio`, `archive`, `other` (**Asset type**) |
 | `mime_type` / `mime_types` | assets only: exact MIME type, e.g. `image/svg+xml` (**MIME type**) |
+| `origin` / `origins` | assets only: `upload`, `derived` (made from another asset by a media step or recipe), `generated` (an image an integration made) |
+| `versions` | assets only: `false` leaves out versions of an original still in the library; `true` keeps only versions |
+| `source` | assets only: the versions made from this asset (id or slug) |
 | `resource_type` / `resource_types` | resources only: the resource's type, e.g. `supplier` (**Resource type**) |
 
 An asset or resource query takes only these keys: no `where`, `sort`, `status`, `fields` or `metadata`. Saving a workflow whose target, or whose entry step's `entity_query`, has an unknown key or the wrong shape is refused with the path of each problem (`POST /api/automations/validate` lists them too). The [Workflow Library](https://github.com/InnerOpen/marvin/blob/develop/docs/workflow-library/catalogue.md) has worked examples: *Trash every unattached image*, *Restore all resources in the Trash* and *Post new uploads to a chat channel*.
