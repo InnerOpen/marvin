@@ -163,6 +163,7 @@ step made, or `role:<role>` — the run's entry's picture in that role (`role:he
 | `grade` | `preset`: `rustic-warm`, `warm`, `cool`, `muted`, or one of the workspace's own media presets | A new asset with that colour grade. |
 | `inspect` | — | `width`, `height`, `orientation` (`landscape`, `portrait`, `square`), `aspect` (width ÷ height), `sharpness`, `mime_type`, `file_size`. Nothing is written. |
 | `palette` | `colors` (1–16, default 5) | `colors`: the main colours as `#rrggbb`, most common first. Nothing is written. |
+| `render` | `template` (a built-in one) or `html` (your own), `fields`, `images`, `width` / `height` | A new image drawn from an HTML/CSS template — see [Render a template](#render-a-template). |
 
 `format` and `quality` (1–100, default 90) re-encode the result of any op that makes a picture.
 
@@ -187,6 +188,47 @@ step made, or `role:<role>` — the run's entry's picture in that role (`role:he
 {"kind": "media", "id": "q", "op": "inspect"},
 {"kind": "entry", "op": "request_review", "reason": "The picture looks blurry",
  "when": {"field": "steps.q.output.sharpness", "op": "lt", "value": 60}}
+```
+
+### Render a template
+
+The `render` op draws a new image from an HTML/CSS template filled with text and pictures — a quote card, a poster,
+a trading card — and saves it as an asset like any other made image (lineage, made once, **Attach as**, **Tag it**).
+
+- **Built-in templates** (`template`), each with its own size, text fields and pictures (* needed):
+
+  | Template | Size | Text | Pictures |
+  |---|---|---|---|
+  | `card` | 1080×1350 | title*, text, footer, accent | image |
+  | `quote` | 1080×1080 | quote*, attribution, source, accent | background |
+  | `poster` (retro) | 1200×1800 | title*, subtitle, tagline, year, footer | image* |
+  | `trading-card` | 750×1050 | title*, subtitle, stats (one `Label: value` per line), text, number, accent | image* |
+  | `meme` | 1080×1080 | top, bottom | image* |
+  | `side-by-side` | 1600×900 | title, left_label, right_label | left*, right* |
+  | `comic-4` | 1200×1400 | title, caption1*–caption4*, footer | panel1–panel4 |
+  | `newspaper` | 1200×1600 | masthead*, date, headline*, deck, body* (paragraphs split by a blank line), banner | image |
+
+- **Your own** (`html` instead of `template`): HTML and CSS using `{{ fields.<name> }}` for text and
+  `{{ images.<name> }}` as an image URL (e.g. `background-image: url('{{ images.photo }}')`), at `width` × `height`
+  (1080×1080 by default). It is a sandboxed Jinja template: text is escaped, and a name you use but don't fill fails
+  the step. Use `vw` / `vh` units to scale with the size.
+- **Text** (`fields`) takes templates (`${entry.title}`, `${steps.<id>.output.<key>}`); a built-in template's
+  needed text that resolves to empty fails the step, and a name it doesn't have is refused.
+- **Pictures** (`images`) are named like **Which picture**: an asset id or slug, `${steps.<id>.output.asset.id}`, or
+  `role:<role>`. An optional picture by role that the entry doesn't have is left out (the template does without
+  it); a needed one fails the step. The first picture is the one the new asset is **Made from**; without pictures it
+  counts as generated.
+- **Locked down:** the page runs no script and loads nothing from the network — not even a font or an image from a
+  URL; pictures are inlined from your assets and fonts are the server's (Lato, Open Sans, DejaVu, Liberation, Noto
+  Color Emoji). Up to 4000 px a side.
+- Rendering takes about half a second and costs nothing. It needs the server's headless Chromium
+  (`chromium-headless-shell`, in the Marvin image); without it a render step fails saying so. A dry run fills the
+  template in (so a missing field shows) without drawing it.
+
+```json
+{"kind": "media", "id": "card", "op": "render", "template": "quote",
+ "fields": {"quote": "${steps.pick.output.quote}", "attribution": "Grace Martin Franklin"},
+ "images": {"background": "role:hero"}, "attach_as": "quote-card"}
 ```
 
 ### Generated images are kept
@@ -336,7 +378,7 @@ A workflow is `enabled: false` when created. A disabled workflow does not run fr
 
 ## Since
 
-`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12).
+`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12).
 
 ## Related
 

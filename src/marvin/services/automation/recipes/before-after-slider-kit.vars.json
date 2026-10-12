@@ -1,0 +1,10 @@
+{
+  "recipe": "before-after-slider-kit",
+  "variables": {
+    "compare_tag": {
+      "type": "text",
+      "description": "Tag the versions to compare with their originals.",
+      "example": "compare"
+    }
+  }
+}

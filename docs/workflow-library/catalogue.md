@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-107 recipes: **46** verified-current, **11** supported-after-configuration, **12** needs-adapter, **38** needs-engine-capability.
+107 recipes: **53** verified-current, **11** supported-after-configuration, **10** needs-adapter, **33** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -20,6 +20,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [comment-discussion-starter](../../src/marvin/services/automation/recipes/comment-discussion-starter.json) — Comment discussion starter | verified-current | `entry_published` | outgoing webhook | content mutation, external post |
 | [editorial-task-maker](../../src/marvin/services/automation/recipes/editorial-task-maker.json) — Editorial task maker | verified-current | `entry_published` | n8n integration | content mutation, external post |
 | [one-entry-many-voices](../../src/marvin/services/automation/recipes/one-entry-many-voices.json) — One entry, many voices | verified-current | `entry_published` | — | content mutation, paid call |
+| [quote-card-studio](../../src/marvin/services/automation/recipes/quote-card-studio.json) — Quote card studio | verified-current | `entry_published` | — | content mutation, paid call |
 | [behind-the-scenes-diary](../../src/marvin/services/automation/recipes/behind-the-scenes-diary.json) — Behind the scenes diary | verified-current | `entry_published` | — | content mutation, paid call |
 | [community-question](../../src/marvin/services/automation/recipes/community-question.json) — Community question | verified-current | `entry_published` | — | content mutation, external post, paid call |
 | [milestone-celebration](../../src/marvin/services/automation/recipes/milestone-celebration.json) — Milestone celebration | verified-current | `entry_updated` | openai_images integration | content mutation, paid call |
@@ -29,11 +30,17 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [smart-crop-pack](../../src/marvin/services/automation/recipes/smart-crop-pack.json) — Smart crop pack | verified-current | `asset_uploaded` | — | content mutation, paid call |
 | [brand-recolor](../../src/marvin/services/automation/recipes/brand-recolor.json) — Brand recolor | verified-current | `manual` | — | content mutation |
 | [image-quality-gate](../../src/marvin/services/automation/recipes/image-quality-gate.json) — Image quality gate | verified-current | `asset_uploaded` | an integration that can notify (Slack or Apprise) | external post |
+| [before-after-slider-kit](../../src/marvin/services/automation/recipes/before-after-slider-kit.json) — Before and after kit | verified-current | `manual` | — | content mutation |
 | [file-format-converter](../../src/marvin/services/automation/recipes/file-format-converter.json) — File format converter (images) | verified-current | `asset_uploaded` | — | content mutation |
 | [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — Attribution companion | verified-current | `asset_attached_to_entry` | — | content mutation |
 | [image-prompt-archive](../../src/marvin/services/automation/recipes/image-prompt-archive.json) — Image prompt archive | verified-current | `asset_attached_to_entry` | — | content mutation |
+| [comic-strip-edition](../../src/marvin/services/automation/recipes/comic-strip-edition.json) — Comic strip edition | verified-current | `manual` | — | content mutation, paid call |
 | [marvin-margin-notes](../../src/marvin/services/automation/recipes/marvin-margin-notes.json) — Marvin margin notes | verified-current | `manual` | — | content mutation, paid call |
 | [ada-explains-it](../../src/marvin/services/automation/recipes/ada-explains-it.json) — Ada explains it | verified-current | `entry_published` | — | content mutation, paid call |
+| [retro-poster-machine](../../src/marvin/services/automation/recipes/retro-poster-machine.json) — Retro poster machine | verified-current | `manual` | — | content mutation |
+| [trading-card-collection](../../src/marvin/services/automation/recipes/trading-card-collection.json) — Trading card collection | verified-current | `entry_updated` | — | content mutation, paid call |
+| [meme-workshop](../../src/marvin/services/automation/recipes/meme-workshop.json) — Meme workshop | verified-current | `manual` | — | content mutation, paid call |
+| [future-newspaper](../../src/marvin/services/automation/recipes/future-newspaper.json) — Future newspaper | verified-current | `manual` | — | content mutation, paid call |
 | [soundtrack-brief](../../src/marvin/services/automation/recipes/soundtrack-brief.json) — Soundtrack brief | verified-current | `manual` | — | content mutation, paid call |
 | [alternate-universe-cover](../../src/marvin/services/automation/recipes/alternate-universe-cover.json) — Alternate universe cover | verified-current | `entry_published` | openai_images integration | content mutation, paid call |
 | [fictional-debate-club](../../src/marvin/services/automation/recipes/fictional-debate-club.json) — Fictional debate club | verified-current | `manual` | — | content mutation, paid call |
@@ -79,9 +86,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `living-resource-collection` — Living resource collection | needs-engine-capability | `resource_updated` | asset-resource-targets |
 | `publication-release-gate` — Publication release gate | needs-engine-capability | `entry_updated` | joins |
 | `evergreen-resurfacer` — Evergreen resurfacer | needs-engine-capability | `schedule` | relative-dates |
-| `carousel-storyteller` — Carousel storyteller | needs-adapter | `entry_published` | media-adapters, social-adapters |
+| `carousel-storyteller` — Carousel storyteller | needs-adapter | `entry_published` | social-adapters |
 | `thread-builder` — Thread builder | needs-engine-capability | `entry_published` | social-adapters |
-| `quote-card-studio` — Quote card studio | needs-adapter | `entry_published` | media-adapters |
 | `teaser-ladder` — Teaser ladder | needs-engine-capability | `entry_published` | waits, social-adapters |
 | `poll-companion` — Poll companion | needs-adapter | `entry_published` | social-adapters |
 | `reply-drafting-desk` — Reply drafting desk | needs-engine-capability | `comment_added` | comments |
@@ -90,27 +96,21 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `platform-preview-checker` — Platform preview checker | needs-engine-capability | `entry_updated` | fetch, social-adapters |
 | `launch-kit` — Launch kit | needs-engine-capability | `entry_published` | joins |
 | `event-countdown` — Event countdown | needs-engine-capability | `entry_published` | waits, relative-dates |
-| `best-of-month` — Best of month | needs-engine-capability | `schedule` | iterate-aggregate, relative-dates, media-adapters |
+| `best-of-month` — Best of month | needs-engine-capability | `schedule` | iterate-aggregate, relative-dates |
 | `community-welcome-pack` — Community welcome pack | needs-engine-capability | subscription: `member_added` | member-email, ops-triggers |
 | `background-remover` — Background remover | needs-adapter | `manual` | media-adapters |
 | `product-scene-studio` — Product scene studio | needs-engine-capability | `manual` | media-adapters |
 | `seasonal-variation` — Seasonal variation | needs-engine-capability | `manual` | media-adapters |
 | `thumbnail-audition` — Thumbnail audition | needs-engine-capability | `manual` | workflow-approvals |
 | `privacy-crop-desk` — Privacy crop desk | needs-engine-capability | `asset_uploaded` | media-adapters |
-| `before-after-slider-kit` — Before/after slider kit | needs-adapter | `manual` | media-adapters |
-| `contact-sheet-maker` — Contact sheet maker | needs-adapter | `manual` | iterate-aggregate, media-adapters |
+| `contact-sheet-maker` — Contact sheet maker | needs-adapter | `manual` | iterate-aggregate |
 | `ocr-notebook` — OCR notebook | needs-adapter | `asset_uploaded` | media-adapters |
 | `document-preview-factory` — Document preview factory | needs-adapter | `asset_uploaded` | media-adapters |
 | `duplicate-asset-scout` — Duplicate asset scout | needs-engine-capability | `asset_uploaded` | asset-resource-targets |
-| `comic-strip-edition` — Comic strip edition | needs-engine-capability | `manual` | media-adapters |
-| `retro-poster-machine` — Retro poster machine | needs-engine-capability | `manual` | media-adapters |
-| `trading-card-collection` — Trading card collection | needs-engine-capability | `entry_updated` | media-adapters |
 | `achievement-cabinet` — Achievement cabinet | needs-engine-capability | `entry_updated` | custom-events |
-| `meme-workshop` — Meme workshop | needs-engine-capability | `manual` | media-adapters |
 | `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | sandbox |
-| `future-newspaper` — Future newspaper | needs-engine-capability | `manual` | media-adapters |
 | `workshop-field-guide` — Workshop field guide | needs-engine-capability | `manual` | iterate-aggregate, media-adapters |
-| `color-moodboard` — Color moodboard | needs-adapter | `manual` | media-adapters, iterate-aggregate |
+| `color-moodboard` — Color moodboard | needs-adapter | `manual` | iterate-aggregate |
 | `time-capsule` — Time capsule | needs-engine-capability | `entry_updated` | snapshots, waits |
 | `surprise-remix-button` — Surprise remix button | needs-engine-capability | `manual` | manual-params |
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox |
@@ -197,13 +197,14 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - A custom AI step, then a create step: the new entry is a draft for a person to edit and publish.
 - `carousel-storyteller` — **Carousel storyteller** · needs-adapter · `entry_published`  
   Article → outline slides → render branded carousel → queue draft
-  - Blocked by: `media-adapters` (render slides); `social-adapters` (queue a draft)
+  - Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies.
+  - Blocked by: `social-adapters` (queue a draft)
 - `thread-builder` — **Thread builder** · needs-engine-capability · `entry_published`  
   Article → ordered thread with links → save draft sequence
   - Blocked by: `social-adapters` (draft on the network)
-- `quote-card-studio` — **Quote card studio** · needs-adapter · `entry_published`  
-  Extract exact attributed quote → render branded card → attach social draft
-  - Blocked by: `media-adapters` (render the card)
+- [quote-card-studio](../../src/marvin/services/automation/recipes/quote-card-studio.json) — **Quote card studio** · verified-current · `entry_published`  
+  When an entry is published, the AI picks one sentence from its text; if that sentence really is in the text word for word, a quote card is rendered over the entry's picture and attached as quote-card.
+  - The exact-quote check is a `when` on the render step: the entry's text must contain the AI's quote.
 - `teaser-ladder` — **Teaser ladder** · needs-engine-capability · `entry_published`  
   Launch → schedule teaser, launch post and follow-up variants
   - Blocked by: `waits` (post at offsets from the launch); `social-adapters` (publish)
@@ -241,7 +242,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `waits` (fire at date offsets); `relative-dates` (date arithmetic in templates)
 - `best-of-month` — **Best of month** · needs-engine-capability · `schedule`  
   Monthly schedule → select published highlights → create recap carousel
-  - Blocked by: `iterate-aggregate` (the month's set as one input); `relative-dates` (monthly cron + `published_after: -30d`); `media-adapters` (render the carousel)
+  - Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies.
+  - Blocked by: `iterate-aggregate` (the month's set as one input); `relative-dates` (monthly cron + `published_after: -30d`)
 - [utm-librarian](../../src/marvin/services/automation/recipes/utm-librarian.json) — **UTM librarian** · verified-current · `entry_created`  
   A new campaign entry gets a tracking link built from its URL and UTM fields, recorded in metadata with the campaign mapping.
   - Pure string templating: `${entry.url}?utm_source=${entry.data.utm_source}&…` — values must already be URL-safe.
@@ -287,12 +289,13 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `privacy-crop-desk` — **Privacy crop desk** · needs-engine-capability · `asset_uploaded`  
   Image → propose sensitive-region masking → approve redacted derivative
   - Blocked by: `media-adapters` (masking)
-- `before-after-slider-kit` — **Before/after slider kit** · needs-adapter · `manual`  
-  Pair original and derivative → generate comparison asset and entry
-  - Blocked by: `media-adapters` (render the comparison)
+- [before-after-slider-kit](../../src/marvin/services/automation/recipes/before-after-slider-kit.json) — **Before and after kit** · verified-current · `manual`  
+  Run by hand: every version tagged for comparison gets a before/after image beside its original, saved as a new asset.
+  - A comparison image, not a slider: an interactive slider is a site component.
 - `contact-sheet-maker` — **Contact sheet maker** · needs-adapter · `manual`  
   Query related images → label and render contact sheet
-  - Blocked by: `iterate-aggregate` (many → one sheet); `media-adapters` (render)
+  - Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies.
+  - Blocked by: `iterate-aggregate` (many → one sheet)
 - `ocr-notebook` — **OCR notebook** · needs-adapter · `asset_uploaded`  
   Image or PDF → extract text → retain page references → create draft notes
   - Blocked by: `media-adapters` (OCR / PDF text extraction)
@@ -315,40 +318,41 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 
 ### Playful experiments
 
-- `comic-strip-edition` — **Comic strip edition** · needs-engine-capability · `manual`  
-  Article → four-panel fictional adaptation → generate panels → review
-  - Blocked by: `media-adapters` (layout)
+- [comic-strip-edition](../../src/marvin/services/automation/recipes/comic-strip-edition.json) — **Comic strip edition** · verified-current · `manual`  
+  Run by hand: the AI retells each published entry as four captions; once an editor approves, a four-panel comic is rendered (the entry's picture in the first panel) and attached.
+  - Panels 2–4 are halftone fills; drawn panels need image generation (OpenAI Images) per panel, a later step.
 - [marvin-margin-notes](../../src/marvin/services/automation/recipes/marvin-margin-notes.json) — **Marvin margin notes** · verified-current · `manual`  
   Run it on your drafts of one type: each gets a short, dry, faintly pessimistic margin note in a voice you describe, kept in its metadata.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
 - [ada-explains-it](../../src/marvin/services/automation/recipes/ada-explains-it.json) — **Ada explains it** · verified-current · `entry_published`  
   A published technical article gets a warm, plain-language explanation drafted as a new entry, clearly marked as an AI adaptation.
   - A custom AI step, then a create step: the new entry is a draft for a person to edit and publish.
-- `retro-poster-machine` — **Retro poster machine** · needs-engine-capability · `manual`  
-  Project → fictional vintage poster with accurate project title
-  - Blocked by: `media-adapters` (typography rendering)
-- `trading-card-collection` — **Trading card collection** · needs-engine-capability · `entry_updated`  
-  Project milestone → create collectible card with grounded stats
-  - Blocked by: `media-adapters` (render the card)
+- [retro-poster-machine](../../src/marvin/services/automation/recipes/retro-poster-machine.json) — **Retro poster machine** · verified-current · `manual`  
+  Run by hand: every published project with a picture and no poster yet gets a vintage-style poster with its exact title, attached as poster.
+  - The title is the entry's own, never generated. metadata.poster marks it done; clear it to make another.
+- [trading-card-collection](../../src/marvin/services/automation/recipes/trading-card-collection.json) — **Trading card collection** · verified-current · `entry_updated`  
+  When a project's status field reaches its done value, the AI writes three or four stats from the entry's own facts and a line of flavour text, and a trading card is rendered and attached.
+  - The prompt allows only facts the entry states; check a card before sharing it.
 - `achievement-cabinet` — **Achievement cabinet** · needs-engine-capability · `entry_updated`  
   Milestone event → award configured badge → update project collection
   - Possible today (partial): `add_to_collection` on a condition (`entry.data.milestone eq shipped`) works today — the badge itself can't be created.
   - Blocked by: `custom-events` (a `milestone` event)
-- `meme-workshop` — **Meme workshop** · needs-engine-capability · `manual`  
-  Entry → propose caption concepts → render selected approved template
-  - Blocked by: `media-adapters` (render onto a template asset)
+- [meme-workshop](../../src/marvin/services/automation/recipes/meme-workshop.json) — **Meme workshop** · verified-current · `manual`  
+  Run by hand: for each published entry with a picture, the AI proposes a kind two-line caption; once an editor approves it, the meme is rendered and attached.
+  - One approval per entry — run it on a small set.
 - `choose-your-own-adventure` — **Choose your own adventure** · needs-engine-capability · `manual`  
   Story entry → generate branching draft and check reachable endings
   - Blocked by: `sandbox` (graph reachability check)
-- `future-newspaper` — **Future newspaper** · needs-engine-capability · `manual`  
-  Project notes → clearly labeled speculative future front page
-  - Blocked by: `media-adapters` (document rendering)
+- [future-newspaper](../../src/marvin/services/automation/recipes/future-newspaper.json) — **Future newspaper** · verified-current · `manual`  
+  Run by hand: each published project gets an imagined front page from ten years on — headline, deck and story written from the entry, under a banner that says it isn't real news.
+  - The newspaper template always prints a banner saying the page is imagined.
 - `workshop-field-guide` — **Workshop field guide** · needs-engine-capability · `manual`  
   Process notes → illustrated tools and steps → printable guide
   - Blocked by: `iterate-aggregate` (many notes → one guide); `media-adapters` (PDF rendering)
 - `color-moodboard` — **Color moodboard** · needs-adapter · `manual`  
   Selected assets → extract palette → produce moodboard and design notes
-  - Blocked by: `media-adapters` (render the moodboard (palette extraction is delivered: a media palette step)); `iterate-aggregate` (many → one)
+  - Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies.
+  - Blocked by: `iterate-aggregate` (many → one)
 - [soundtrack-brief](../../src/marvin/services/automation/recipes/soundtrack-brief.json) — **Soundtrack brief** · verified-current · `manual`  
   Run it on stories of one type: each gets a soundtrack suggestion — mood, tempo, instruments and a short composer's brief — kept in its metadata.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
@@ -524,8 +528,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 
 | Id | Capability | Priority | Recipes blocked | Acceptance |
 |---|---|---|---|---|
-| `media-adapters` | Image, file and audio processing adapters | P1 | 20 | Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits. |
 | `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 12 | A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run. |
+| `media-adapters` | Image, file and audio processing adapters | P1 | 9 | Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate. |
 | `relative-dates` | Relative dates and cron schedules | P1 | 6 | `updated_before: "-30d"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick. |
 | `social-adapters` | Social publishing adapters | P1 | 6 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
 | `collection-scope` | Collection-scoped steps | P1 | 4 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). |

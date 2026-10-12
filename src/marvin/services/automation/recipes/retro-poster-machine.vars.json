@@ -1,0 +1,25 @@
+{
+  "recipe": "retro-poster-machine",
+  "variables": {
+    "project_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type to make posters for.",
+      "example": "project"
+    },
+    "studio_name": {
+      "type": "text",
+      "description": "The line under the title.",
+      "example": "Mash & Burn Co."
+    },
+    "year_label": {
+      "type": "text",
+      "description": "The year line at the top.",
+      "example": "MMXXVI"
+    },
+    "image_role": {
+      "type": "text",
+      "description": "The role an entry's main picture is attached in.",
+      "example": "hero"
+    }
+  }
+}

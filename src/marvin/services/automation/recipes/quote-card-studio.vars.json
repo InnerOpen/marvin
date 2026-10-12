@@ -1,0 +1,25 @@
+{
+  "recipe": "quote-card-studio",
+  "variables": {
+    "entry_type": {
+      "type": "entry_type_slug",
+      "description": "Entries of this type get a quote card when published.",
+      "example": "article"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "The field the quote must come from, word for word (the card is skipped otherwise).",
+      "example": "body"
+    },
+    "attribution": {
+      "type": "text",
+      "description": "Who the quote is credited to.",
+      "example": "Grace Martin Franklin"
+    },
+    "image_role": {
+      "type": "text",
+      "description": "The role an entry's main picture is attached in.",
+      "example": "hero"
+    }
+  }
+}

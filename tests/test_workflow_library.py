@@ -30,6 +30,7 @@ pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not insta
 from marvin_integration_sdk import INTEGRATION_REGISTRY, IntegrationProvider, ProviderAction  # noqa: E402
 from marvin_integration_sdk.ai.fake import FakeAIProvider, ScriptedTransport  # noqa: E402
 
+from marvin.services.ai.media import render  # noqa: E402
 from marvin.services.ai.tools import get_tool  # noqa: E402
 from marvin.services.automation import recipes  # noqa: E402
 from marvin.services.automation.authoring import authoring_guide, draft_issues, guide_size, parse_workflow, workspace_refs  # noqa: E402
@@ -48,6 +49,7 @@ STATUSES = ("verified-current", "supported-after-configuration", "needs-adapter"
 RUNNABLE = {"verified-current", "supported-after-configuration"}
 WORKFLOW_RECIPES = sorted(r["id"] for r in CATALOGUE["recipes"] if r["shape"] == "workflow")
 VERIFIED = sorted(r["id"] for r in CATALOGUE["recipes"] if r["status"] == "verified-current")
+needs_browser = pytest.mark.skipif(render.browser_path() is None, reason="no headless Chromium (chromium-headless-shell) here")
 
 
 def _recipe(rid: str) -> tuple[dict, dict]:
@@ -349,6 +351,13 @@ def ws(db_session, monkeypatch):
         "status_field": "stage",
         "done_value": "complete",
         "image_style": "A bright, hand-drawn poster",
+        "attribution": "Grace Martin Franklin",
+        "studio_name": "Mash & Burn Co.",
+        "year_label": "MMXXVI",
+        "card_series": "Workshop series",
+        "newspaper_name": "The Raleigh Ledger",
+        "footer": "A Mash & Burn tale",
+        "compare_tag": "compare",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1332,6 +1341,135 @@ class TestExecution:
         (call,) = ws.providers["openai_images"].calls
         assert call["prompt"] == "A bright, hand-drawn poster: a glowing brass lantern"
         assert ws.session.query(EntryAssets).filter_by(entry_id=project.id, role="celebration").count() == 1
+
+    # ── rendered images (a media step's render op; needs headless Chromium) ──
+    def _with_hero(self, ws, store, entry, size=(1200, 900)):
+        from marvin.db.models.platform import EntryAssets
+
+        hero = self._picture_asset(ws, store, f"{entry.slug}-hero", _picture(size))
+        ws.session.add(EntryAssets(entry_id=entry.id, asset_id=hero.id, role="hero", position=0))
+        ws.session.commit()
+        return hero
+
+    def _role(self, ws, entry, role):
+        from marvin.db.models.platform import EntryAssets
+
+        ws.session.expire_all()
+        return ws.session.query(EntryAssets).filter_by(entry_id=entry.id, role=role).all()
+
+    @needs_browser
+    def test_quote_card_studio(self, ws, store):
+        _install(ws, "quote-card-studio")
+        body = "Brass takes patience. Every scratch tells you where the file went. I polish until the lamp looks lived in."
+        good = _entry(ws, "article", "Engraving brass", status="published", data={"body": body})
+        made_up = _entry(ws, "article", "Waxing canvas", status="published", data={"body": "Wax goes on warm. Then it cures for a week."})
+        self._with_hero(ws, store, good)
+        ws.ai.reply_text(json.dumps({"quote": "Every scratch tells you where the file went."}))
+        ws.ai.reply_text(json.dumps({"quote": "Canvas loves wax more than people do."}))  # not in the text
+
+        for entry in (good, made_up):
+            _fire(ws, "entry_published", _entry_doc(entry), entity=entry.id, entity_type="entry", correlation_id=f"pub-{entry.slug}")
+
+        (link,) = self._role(ws, good, "quote-card")
+        assert (link.asset.width, link.asset.height, link.asset.metadata_json["render_template"]) == (1080, 1080, "quote")
+        assert self._role(ws, made_up, "quote-card") == []  # a quote that isn't in the text is never rendered
+
+    @needs_browser
+    def test_retro_poster_machine(self, ws, store):
+        row = _install(ws, "retro-poster-machine")
+        coat = _entry(ws, "project", "Chore Coat", status="published", data={"stage": "complete"})
+        hero = self._with_hero(ws, store, coat)
+        _entry(ws, "project", "No picture yet", status="published", data={"stage": "draft"})  # has_images leaves it out
+
+        assert run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))["ok"]
+        run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))  # done: metadata.poster
+
+        (link,) = self._role(ws, coat, "poster")
+        assert (link.asset.width, link.asset.height, link.asset.source_asset_id) == (1200, 1800, hero.id)
+        assert _reload(ws, coat).metadata_json["poster"] == link.asset.slug
+
+    @needs_browser
+    def test_trading_card_collection(self, ws, store):
+        _install(ws, "trading-card-collection")
+        lantern = _entry(ws, "project", "Brass lantern", status="published", data={"stage": "complete"})
+        self._with_hero(ws, store, lantern)
+        ws.ai.reply_text(json.dumps({"stats": "Stage: complete\nMaterial: brass", "flavor": "It finally glows."}))
+
+        _fire(ws, "entry_updated", _entry_doc(lantern, changed_fields=["data_json"]), entity=lantern.id, entity_type="entry", correlation_id="u1")
+        _fire(ws, "entry_updated", _entry_doc(lantern, changed_fields=["data_json"]), entity=lantern.id, entity_type="entry", correlation_id="u2")
+
+        (link,) = self._role(ws, lantern, "trading-card")
+        assert (link.asset.width, link.asset.height) == (750, 1050) and len(ws.ai.requests) == 1
+
+    @needs_browser
+    def test_meme_workshop(self, ws, store):
+        row = _install(ws, "meme-workshop")
+        post = _entry(ws, "article", "First pattern draft", status="published", data={"body": "It fit."})
+        self._with_hero(ws, store, post)
+        ws.ai.reply_text(json.dumps({"top": "When the pattern fits", "bottom": "On the first try"}))
+
+        run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))
+        assert self._role(ws, post, "meme") == []  # waits for an editor
+        self._decide(ws)
+
+        (link,) = self._role(ws, post, "meme")
+        assert link.asset.metadata_json["render_template"] == "meme" and _reload(ws, post).metadata_json["meme"] == "approved"
+
+    @needs_browser
+    def test_future_newspaper(self, ws, store):
+        row = _install(ws, "future-newspaper")
+        coat = _entry(ws, "project", "Chore Coat", status="published", data={"stage": "complete"})
+        story = {
+            "headline": "Coat Outlasts Its Maker's Patience",
+            "deck": "Ten winters on",
+            "date": "12 October 2036",
+            "body": "The coat came back for its tenth rewax this autumn.\n\nIts maker says the elbows are the only honest part left.",
+        }
+        ws.ai.reply_text(json.dumps(story))  # no picture: the page prints without one
+
+        result = run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=ExecutionRecorder(ws.session, ws.gid))  # the Run button's user
+        assert result["ok"], [a.error for r in _runs(ws, "future-newspaper") for a in r.actions if a.error]
+
+        (link,) = self._role(ws, coat, "future-front-page")
+        assert (link.asset.width, link.asset.height, link.asset.origin) == (1200, 1600, "generated")
+
+    @needs_browser
+    def test_comic_strip_edition(self, ws, store):
+        row = _install(ws, "comic-strip-edition")
+        post = _entry(ws, "article", "The chore coat", status="published", data={"body": "Canvas, pattern, wax, done."})
+        self._with_hero(ws, store, post)
+        ws.ai.reply_text(
+            json.dumps({"title": "The Chore Coat", "caption1": "Canvas.", "caption2": "Pattern.", "caption3": "Wax.", "caption4": "Done."})
+        )
+
+        run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))
+        self._decide(ws)
+
+        (link,) = self._role(ws, post, "comic")
+        assert (link.asset.width, link.asset.height) == (1200, 1400)
+
+    @needs_browser
+    def test_before_after_slider_kit(self, ws, store):
+        from marvin.db.models.platform import Assets, AssetTags, Tags
+
+        row = _install(ws, "before-after-slider-kit")
+        before = self._picture_asset(ws, store, "lantern-before", _picture((800, 600), color=(90, 80, 70)))
+        after = self._picture_asset(ws, store, "lantern-after", _picture((800, 600), color=(200, 160, 60)))
+        after.origin, after.source_asset_id = "derived", before.id
+        tag = Tags(session=ws.session, group_id=ws.gid, name="compare", slug="compare")
+        ws.session.add(tag)
+        ws.session.flush()
+        ws.session.add(AssetTags(asset_id=after.id, tag_id=tag.id))
+        ws.session.commit()
+
+        assert run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))["ok"]
+
+        ws.session.expire_all()
+        (pair,) = [
+            a for a in ws.session.query(Assets).filter(Assets.group_id == ws.gid) if (a.metadata_json or {}).get("render_template") == "side-by-side"
+        ]
+        assert (pair.width, pair.height, pair.source_asset_id) == (1600, 900, before.id)
+        assert pair.metadata_json["rendered_from"] == {"left": str(before.id), "right": str(after.id)}
 
 
 # ── The authoring guide and draft_workflow read the same store ───────────────

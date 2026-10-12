@@ -497,6 +497,14 @@ class AppSettings(BaseSettings):
     PUBLISHING_UNKNOWN_ENTRY_TYPE: str = "unknown"
     """Fallback value when entry type is missing. Default: unknown"""
 
+    MEDIA_RENDER_BROWSER: str | None = None
+    """The headless Chromium a workflow's render step screenshots its HTML with (`chromium-headless-shell`).
+    Unset: found on PATH (the image installs Debian's at /usr/bin/chromium-headless-shell), else in a local
+    Playwright cache. No browser: render steps fail saying so; nothing else needs it. Default: unset"""
+
+    MEDIA_RENDER_TIMEOUT_SECONDS: int = 30
+    """How long one render may take before the step fails. Default: 30"""
+
     MEDIA_EMBEDS_FETCH_ENABLED: bool = True
     """Ask media providers' oEmbed endpoints (YouTube, Vimeo, Spotify, …) for a pasted link's title and
     thumbnail, and for the player id of links that don't carry one (Simplecast episodes, short links).

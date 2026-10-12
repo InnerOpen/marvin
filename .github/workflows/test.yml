@@ -42,6 +42,13 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      # The media step's render op screenshots HTML with headless Chromium (services/ai/media/render.py). The runner's
+      # Chrome can't (its headless mode hangs on --screenshot), so fetch the headless shell; without it the render
+      # tests skip rather than fail.
+      - name: Install headless Chromium for render tests
+        continue-on-error: true
+        run: npx -y playwright@1.58.2 install --only-shell chromium
+
       - name: Run pytest with coverage
         run: |
           uv run pytest tests/ \

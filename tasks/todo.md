@@ -827,6 +827,32 @@ their original.
 Review: tests in test_asset_library_filters / test_workflow_media; no route schema change (no SDK). Docs: what's new,
 workflows, collections, trash.
 
+**H. Media slice 2: rendering (2026-10-12, Jared: "go with chromium, do rendering next")**
+A `render` op on the media step: an HTML/CSS template (built-in, or the step's own `html`) filled with fields and
+images, screenshotted by headless Chromium into a new asset with lineage. Prototype: chromium-headless-shell renders a
+600×400 page in 0.4 s; a CSP meta (`default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:`)
+blocks every network load and all script (verified in Chromium's log). Debian trixie ships `chromium-headless-shell`
+(/usr/bin, ~290 MB) — verified as an unprivileged user with no HOME in python:3.12-slim.
+- [x] `services/ai/media/render.py`: browser autodetect (`MEDIA_RENDER_BROWSER`, then PATH, then the Playwright
+      cache), sandboxed Jinja (autoescape), CSP-wrapped document, subprocess screenshot (timeout, size caps).
+- [x] Built-in templates + manifest (fields/images/default size): card, quote, poster, trading-card, meme,
+      side-by-side, comic-4, newspaper. Frontend copy of the manifest kept equal by a test.
+- [x] Media step `op: render` (template | html, fields, images = source refs inlined as data URIs, width/height,
+      format/quality, attach_as, tags); lineage `rendered_from`; same once-only slug rule; dry run renders the HTML
+      only. Origin derived (first image = source) or generated.
+- [x] Validator (template exists, required fields/images, unknown names), guide, editor form, docs.
+- [x] Docker: chromium-headless-shell + fonts in the backend image; CI uses the runner's Chrome (tests skip without a
+      browser).
+- [x] Recipes: quote-card-studio, retro-poster-machine, trading-card-collection, meme-workshop, future-newspaper,
+      comic-strip-edition, before-after-slider-kit (as far as each goes) + execution tests; catalogue recount.
+Review: 7 recipes verified (quote-card-studio with an exact-quote `when`, retro-poster-machine, trading-card-collection,
+meme-workshop, future-newspaper, comic-strip-edition, before-after kit) → 53 verified, 43 blocked; carousel-storyteller,
+best-of-month, contact-sheet-maker, color-moodboard no longer list media (iterate/social are what's left). Found while
+testing: optional pictures a template declares must reach it as blanks (else `{% if images.x %}` fails strictly);
+a made-from-nothing image needs an uploader (run user → workflow author → entry creator). Comic panels 2–4 are halftone
+fills (drawn panels = image generation per panel, later). Not verified yet: the Docker image's apt install and a render
+on prod (after Promote).
+
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
 Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to

@@ -1,0 +1,19 @@
+{# A picture over a title, text and footer. Sizes are in vw/vh so the card scales with the render size. #}
+{% set accent = fields.accent or "#c2410c" %}
+<style>
+  .card { box-sizing: border-box; width: 100vw; height: 100vh; display: flex; flex-direction: column; background: #f7f3ee; color: #1c1917;
+          font-family: Lato, "Open Sans", "DejaVu Sans", "Liberation Sans", sans-serif; }
+  .pic { flex: 1 1 58%; min-height: 0; background: #d6d3d1 center / cover no-repeat; }
+  .words { flex: 0 0 auto; padding: 5vw 6vw 4vw; border-top: 1.2vw solid {{ accent }}; }
+  h1 { margin: 0 0 2.5vw; font-size: 7vw; line-height: 1.05; font-weight: 900; letter-spacing: -0.02em; }
+  p { margin: 0; font-size: 3.6vw; line-height: 1.4; color: #44403c; }
+  .footer { margin-top: 3.5vw; font-size: 2.6vw; letter-spacing: 0.12em; text-transform: uppercase; color: {{ accent }}; font-weight: 700; }
+</style>
+<div class="card">
+  {% if images.image %}<div class="pic" style="background-image: url('{{ images.image }}')"></div>{% endif %}
+  <div class="words">
+    <h1>{{ fields.title }}</h1>
+    {% if fields.text %}<p>{{ fields.text }}</p>{% endif %}
+    {% if fields.footer %}<div class="footer">{{ fields.footer }}</div>{% endif %}
+  </div>
+</div>

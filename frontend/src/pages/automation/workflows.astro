@@ -258,7 +258,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { fetchApi } from "@/lib/api/client";
   import { ANSWER_KINDS, type AnswerField, fieldsFromSchema, SEE_LABELS, schemaFromFields } from "@/lib/customStep";
-  import { ASPECTS, GRADE_PRESETS, MEDIA_FIELDS, MEDIA_OPS, mediaFields, OP_FIELDS, SOURCE_LABELS, type SourceMode, sourceChoice, sourceFromChoice } from "@/lib/mediaStep";
+  import { ASPECTS, filledRows, GRADE_PRESETS, MEDIA_FIELDS, MEDIA_OPS, mediaFields, OP_FIELDS, type RenderTemplate, SOURCE_LABELS, type SourceMode, sourceChoice, sourceFromChoice, templateRows } from "@/lib/mediaStep";
+  import RENDER_TEMPLATES_JSON from "@/lib/renderTemplates.json";
+  const RENDER_TEMPLATES = RENDER_TEMPLATES_JSON as Record<string, RenderTemplate>;
   import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
   import { describeSaveError } from "@/lib/saveError";
   import { definitionDifferences, freeSlug, parseWorkflowJson, workflowDocument } from "@/lib/workflowJson";
@@ -695,7 +697,16 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       `<label class="tf a-m-field" data-field="${k}"><span>${label}${hint ? ` <span class="muted">${hint}</span>` : ""}</span><input class="input a-m-${k}" type="number" value="${esc(a[k] ?? "")}" /></label>`;
     wrap.innerHTML = `
       <select class="input a-media-op">${MEDIA_OPS.map((o) => opt(o.op, o.label, a.op ?? "resize")).join("")}</select>
-      <div class="tf"><span>Which picture</span>
+      <div class="a-m-render">
+        <label class="tf"><span>Template</span>
+          <select class="input a-m-template">${Object.entries(RENDER_TEMPLATES).map(([slug, t]) => opt(slug, t.label, a.template ?? (a.html ? "" : "card"))).join("")}${opt("", "My own HTML…", a.html ? "" : "x")}</select></label>
+        <span class="hint small a-m-template-about"></span>
+        <label class="tf a-m-html-wrap"><span>HTML and CSS <span class="muted">— use {{ fields.name }} for text and {{ images.name }} as an image URL; no scripts or outside links (they're blocked)</span></span>
+          <textarea class="input mono a-m-html" rows="8" spellcheck="false" placeholder="<div style=&quot;font: 60px sans-serif&quot;>{{ fields.title }}</div>">${esc(a.html ?? "")}</textarea></label>
+        <div class="tf"><span>Text <span class="muted">(templates allowed, e.g. \${entry.title})</span></span><div class="a-m-fields-wrap"></div></div>
+        <div class="tf"><span>Pictures <span class="muted">(an asset id or slug, \${steps.&lt;id&gt;.output.asset.id}, or role:hero)</span></span><div class="a-m-images-wrap"></div></div>
+      </div>
+      <div class="tf a-m-source-wrap"><span>Which picture</span>
         <select class="input a-media-source">${(Object.entries(SOURCE_LABELS) as [SourceMode, string][]).map(([m, l]) => opt(m, l, src.mode)).join("")}</select>
         <input class="input a-media-source-value" value="${esc(src.value)}" /></div>
       ${num("width", "Width (px)", "— at most; never scales up")}
@@ -714,6 +725,25 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <label class="tf a-m-tags-wrap"><span>Tag it <span class="muted">(comma-separated, e.g. web-sizes — find them in the library and smart collections)</span></span>
         <input class="input a-m-tags" value="${esc((a.tags ?? []).join(", "))}" /></label>
       <span class="hint small a-m-hint"></span>`;
+    const tplSel = wrap.querySelector(".a-m-template") as HTMLSelectElement;
+    // A template's own text and pictures as rows (what it takes, blank until filled); "My own HTML" keeps the step's.
+    const fillRenderRows = () => {
+      const t = RENDER_TEMPLATES[tplSel.value];
+      const fieldNames = t ? Object.keys(t.fields) : [];
+      const imageNames = t ? Object.keys(t.images) : [];
+      const fieldsWrap = wrap.querySelector(".a-m-fields-wrap")!;
+      const imagesWrap = wrap.querySelector(".a-m-images-wrap")!;
+      const keep = (w: Element, from: Record<string, unknown> | undefined) => (w.querySelector(".kv-row") ? readKv(w) : from);
+      fieldsWrap.replaceChildren(kvEditor(templateRows(fieldNames, keep(fieldsWrap, a.fields)), "+ Add text"));
+      imagesWrap.replaceChildren(kvEditor(templateRows(imageNames, keep(imagesWrap, a.images)), "+ Add picture"));
+      const star = (specs: Record<string, { required?: boolean }>) => Object.entries(specs).map(([k, v]) => (v.required ? `${k}*` : k)).join(", ");
+      (wrap.querySelector(".a-m-template-about") as HTMLElement).textContent = t
+        ? `${t.description} ${t.width}×${t.height} unless you set a size. Text: ${star(t.fields) || "none"}. Pictures: ${star(t.images) || "none"}. (* needed)`
+        : "Your own page, screenshotted at the size you set (1080×1080 by default).";
+      (wrap.querySelector(".a-m-html-wrap") as HTMLElement).hidden = !!t;
+    };
+    tplSel.addEventListener("change", fillRenderRows);
+    fillRenderRows();
     const opSel = wrap.querySelector(".a-media-op") as HTMLSelectElement;
     const srcSel = wrap.querySelector(".a-media-source") as HTMLSelectElement;
     const srcVal = wrap.querySelector(".a-media-source-value") as HTMLInputElement;
@@ -727,6 +757,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         ? "Saves a new asset (the original is never changed) and reuses it when the same picture gets the same treatment again. Later steps read <code>\${steps.&lt;step id&gt;.output.asset.id}</code>; give this step an id."
         : "Reads the picture and writes nothing. Later steps (and “Only run this step when…”) read <code>\${steps.&lt;step id&gt;.output…}</code>, e.g. <code>steps.check.output.sharpness</code> is less than 60.";
       srcVal.hidden = srcSel.value === "current";
+      (wrap.querySelector(".a-m-render") as HTMLElement).hidden = op !== "render";
+      (wrap.querySelector(".a-m-source-wrap") as HTMLElement).hidden = op === "render";
       srcVal.placeholder = srcSel.value === "step" ? "the earlier step's id, e.g. square" : srcSel.value === "role" ? "the role, e.g. hero" : "the asset's id or slug";
     };
     opSel.addEventListener("change", sync);
@@ -983,7 +1015,14 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         try {
           for (const k of MEDIA_FIELDS) delete step[k];
           Object.assign(step, { op }, mediaFields(op, values));
-          setOrDrop("source", sourceFromChoice((field(".a-media-source")?.value || "current") as SourceMode, field(".a-media-source-value")?.value ?? ""));
+          if (op === "render") {
+            delete step.source;
+            setOrDrop("fields", filledRows(readKv(r.querySelector(".a-m-fields-wrap"))));
+            setOrDrop("images", filledRows(readKv(r.querySelector(".a-m-images-wrap"))));
+          } else {
+            delete step.fields; delete step.images;
+            setOrDrop("source", sourceFromChoice((field(".a-media-source")?.value || "current") as SourceMode, field(".a-media-source-value")?.value ?? ""));
+          }
         } catch (e: any) {
           throw new Error(`Step ${i + 1}: ${e.message}`);
         }

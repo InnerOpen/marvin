@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 46,
-    "needs-adapter": 12,
-    "needs-engine-capability": 38,
+    "verified-current": 53,
+    "needs-adapter": 10,
+    "needs-engine-capability": 33,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -79,7 +79,7 @@
       "name": "Image, file and audio processing adapters",
       "priority": "P1",
       "capabilities_md": "Provider adapters",
-      "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits."
+      "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate."
     },
     "fetch": {
       "name": "HTTP fetch step",
@@ -756,7 +756,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
           "why": "a TTS provider action that returns an audio asset"
         }
       ],
@@ -1734,13 +1734,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "render slides"
-        },
-        {
           "capability": "social-adapters",
           "name": "Social publishing adapters",
           "priority": "P1",
@@ -1748,7 +1741,9 @@
           "why": "queue a draft"
         }
       ],
-      "notes": [],
+      "notes": [
+        "Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies."
+      ],
       "verification": {
         "level": "none",
         "mocked": [],
@@ -1822,7 +1817,7 @@
     {
       "id": "quote-card-studio",
       "title": "Quote card studio",
-      "outcome": "Extract exact attributed quote → render branded card → attach social draft",
+      "outcome": "When an entry is published, the AI picks one sentence from its text; if that sentence really is in the text word for word, a quote card is rendered over the entry's picture and attached as quote-card.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
@@ -1837,32 +1832,83 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "quote-card-studio.json",
+      "vars": "quote-card-studio.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "render the card"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Entries of this type get a quote card when published.",
+          "example": "article"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "The field the quote must come from, word for word (the card is skipped otherwise).",
+          "example": "body"
+        },
+        {
+          "name": "attribution",
+          "type": "text",
+          "description": "Who the quote is credited to.",
+          "example": "Grace Martin Franklin"
+        },
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role an entry's main picture is attached in.",
+          "example": "hero"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "contains"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per entry."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves the rendered image as a new asset (made from the entry's picture), once per template, text and picture."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Attaches the card to the entry (asset_attached_to_entry)."
+        }
+      ],
+      "cost_notes": "One AI call per published entry; rendering is local.",
+      "failure_behaviour": "A quote that isn't in the text word for word is skipped (the render step's `when`); no picture in the role: a plain card.",
+      "dependencies": [],
+      "notes": [
+        "The exact-quote check is a `when` on the render step: the entry's text must contain the AI's quote."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_quote_card_studio"
       },
       "brief": {
         "flow": "Extract exact attributed quote → render branded card → attach social draft",
@@ -2713,16 +2759,11 @@
           "priority": "P1",
           "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
           "why": "monthly cron + `published_after: -30d`"
-        },
-        {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "render the carousel"
         }
       ],
-      "notes": [],
+      "notes": [
+        "Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies."
+      ],
       "verification": {
         "level": "none",
         "mocked": [],
@@ -3098,7 +3139,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
           "why": "a background-removal provider"
         }
       ],
@@ -3157,7 +3198,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
           "why": "a provider image edit that keeps the product (generation is kept as assets already)"
         }
       ],
@@ -3367,7 +3408,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
           "why": "a provider image edit for the seasonal variants (derived-asset lineage is delivered)"
         }
       ],
@@ -3588,7 +3629,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
           "why": "masking"
         }
       ],
@@ -3610,8 +3651,8 @@
     },
     {
       "id": "before-after-slider-kit",
-      "title": "Before/after slider kit",
-      "outcome": "Pair original and derivative → generate comparison asset and entry",
+      "title": "Before and after kit",
+      "outcome": "Run by hand: every version tagged for comparison gets a before/after image beside its original, saved as a new asset.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3624,32 +3665,50 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "before-after-slider-kit.json",
+      "vars": "before-after-slider-kit.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "render the comparison"
+          "name": "compare_tag",
+          "type": "text",
+          "description": "Tag the versions to compare with their originals.",
+          "example": "compare"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves the rendered image as a new asset (made from the entry's picture), once per template, text and picture."
+        }
+      ],
+      "cost_notes": "Free: rendering is local.",
+      "failure_behaviour": "A version whose original is gone fails its row.",
+      "dependencies": [],
+      "notes": [
+        "A comparison image, not a slider: an interactive slider is a site component."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_before_after_slider_kit"
       },
       "brief": {
         "flow": "Pair original and derivative → generate comparison asset and entry",
@@ -3696,16 +3755,11 @@
           "priority": "P1",
           "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
           "why": "many → one sheet"
-        },
-        {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "render"
         }
       ],
-      "notes": [],
+      "notes": [
+        "Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies."
+      ],
       "verification": {
         "level": "none",
         "mocked": [],
@@ -3756,7 +3810,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
           "why": "OCR / PDF text extraction"
         }
       ],
@@ -3810,7 +3864,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
           "why": "PDF rendering"
         }
       ],
@@ -4116,7 +4170,7 @@
     {
       "id": "comic-strip-edition",
       "title": "Comic strip edition",
-      "outcome": "Article → four-panel fictional adaptation → generate panels → review",
+      "outcome": "Run by hand: the AI retells each published entry as four captions; once an editor approves, a four-panel comic is rendered (the entry's picture in the first panel) and attached.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -4130,38 +4184,81 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "comic-strip-edition.json",
+      "vars": "comic-strip-edition.vars.json",
+      "setup_variables": [
+        {
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type to adapt.",
+          "example": "article"
+        },
+        {
+          "name": "footer",
+          "type": "text",
+          "description": "A line under the strip.",
+          "example": "A Mash & Burn tale"
+        },
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role an entry's main picture is attached in.",
+          "example": "hero"
+        }
+      ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "approval",
+          "media",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "exists"
+        ]
+      },
       "prerequisites": {},
       "supporting_objects": [],
       "side_effects": [
         {
           "kind": "paid_call",
-          "description": "Four generations.",
-          "flag": true
-        }
-      ],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+          "description": "One AI call per entry."
+        },
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "layout"
+          "kind": "content_mutation",
+          "description": "Saves the rendered image as a new asset (made from the entry's picture), once per template, text and picture."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Attaches the comic when approved; metadata.comic records the decision."
         }
       ],
-      "notes": [],
+      "cost_notes": "One AI call per entry.",
+      "failure_behaviour": "Denied or expired: nothing is rendered.",
+      "dependencies": [],
+      "notes": [
+        "Panels 2–4 are halftone fills; drawn panels need image generation (OpenAI Images) per panel, a later step."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_comic_strip_edition"
       },
       "brief": {
         "flow": "Article → four-panel fictional adaptation → generate panels → review",
@@ -4356,7 +4453,7 @@
     {
       "id": "retro-poster-machine",
       "title": "Retro poster machine",
-      "outcome": "Project → fictional vintage poster with accurate project title",
+      "outcome": "Run by hand: every published project with a picture and no poster yet gets a vintage-style poster with its exact title, attached as poster.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -4369,32 +4466,77 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "retro-poster-machine.json",
+      "vars": "retro-poster-machine.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "typography rendering"
+          "name": "project_type",
+          "type": "entry_type_slug",
+          "description": "The entry type to make posters for.",
+          "example": "project"
+        },
+        {
+          "name": "studio_name",
+          "type": "text",
+          "description": "The line under the title.",
+          "example": "Mash & Burn Co."
+        },
+        {
+          "name": "year_label",
+          "type": "text",
+          "description": "The year line at the top.",
+          "example": "MMXXVI"
+        },
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role an entry's main picture is attached in.",
+          "example": "hero"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "media",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves the rendered image as a new asset (made from the entry's picture), once per template, text and picture."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Attaches the poster and records it in the entry's metadata.poster."
+        }
+      ],
+      "cost_notes": "Free: rendering is local.",
+      "failure_behaviour": "A project without a picture in the role fails its row (the others go on).",
+      "dependencies": [],
+      "notes": [
+        "The title is the entry's own, never generated. metadata.poster marks it done; clear it to make another."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_retro_poster_machine"
       },
       "brief": {
         "flow": "Project → fictional vintage poster with accurate project title",
@@ -4408,7 +4550,7 @@
     {
       "id": "trading-card-collection",
       "title": "Trading card collection",
-      "outcome": "Project milestone → create collectible card with grounded stats",
+      "outcome": "When a project's status field reaches its done value, the AI writes three or four stats from the entry's own facts and a line of flavour text, and a trading card is rendered and attached.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -4422,32 +4564,92 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "trading-card-collection.json",
+      "vars": "trading-card-collection.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "render the card"
+          "name": "project_type",
+          "type": "entry_type_slug",
+          "description": "The entry type whose entries are projects.",
+          "example": "project"
+        },
+        {
+          "name": "status_field",
+          "type": "field_key",
+          "description": "The field that says where a project stands.",
+          "example": "stage"
+        },
+        {
+          "name": "done_value",
+          "type": "text",
+          "description": "Its value when the project is finished.",
+          "example": "complete"
+        },
+        {
+          "name": "card_series",
+          "type": "text",
+          "description": "The card's type line.",
+          "example": "Workshop series"
+        },
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role an entry's main picture is attached in.",
+          "example": "hero"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_updated",
+        "action_kinds": [
+          "operation",
+          "media",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per entry."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves the rendered image as a new asset (made from the entry's picture), once per template, text and picture."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Attaches the card and records it in metadata.trading_card (once per project)."
+        }
+      ],
+      "cost_notes": "One AI call per finished project.",
+      "failure_behaviour": "An AI error fails the run before anything is made.",
+      "dependencies": [],
+      "notes": [
+        "The prompt allows only facts the entry states; check a card before sharing it."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_trading_card_collection"
       },
       "brief": {
         "flow": "Project milestone → create collectible card with grounded stats",
@@ -4518,7 +4720,7 @@
     {
       "id": "meme-workshop",
       "title": "Meme workshop",
-      "outcome": "Entry → propose caption concepts → render selected approved template",
+      "outcome": "Run by hand: for each published entry with a picture, the AI proposes a kind two-line caption; once an editor approves it, the meme is rendered and attached.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -4532,32 +4734,75 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "meme-workshop.json",
+      "vars": "meme-workshop.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "render onto a template asset"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type to offer memes for.",
+          "example": "article"
+        },
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role an entry's main picture is attached in.",
+          "example": "hero"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "approval",
+          "media",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per entry."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves the rendered image as a new asset (made from the entry's picture), once per template, text and picture."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Attaches the meme when approved; metadata.meme records the decision so the entry isn't offered again."
+        }
+      ],
+      "cost_notes": "One AI call per entry.",
+      "failure_behaviour": "Denied or expired: nothing is rendered.",
+      "dependencies": [],
+      "notes": [
+        "One approval per entry — run it on a small set."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_meme_workshop"
       },
       "brief": {
         "flow": "Entry → propose caption concepts → render selected approved template",
@@ -4627,7 +4872,7 @@
     {
       "id": "future-newspaper",
       "title": "Future newspaper",
-      "outcome": "Project notes → clearly labeled speculative future front page",
+      "outcome": "Run by hand: each published project gets an imagined front page from ten years on — headline, deck and story written from the entry, under a banner that says it isn't real news.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -4640,32 +4885,79 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "future-newspaper.json",
+      "vars": "future-newspaper.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "document rendering"
+          "name": "project_type",
+          "type": "entry_type_slug",
+          "description": "The entry type to imagine front pages for.",
+          "example": "project"
+        },
+        {
+          "name": "newspaper_name",
+          "type": "text",
+          "description": "The made-up newspaper's name.",
+          "example": "The Raleigh Ledger"
+        },
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role an entry's main picture is attached in.",
+          "example": "hero"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "media",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per entry."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves the rendered image as a new asset (made from the entry's picture), once per template, text and picture."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Attaches the page and records it in metadata.future_front_page."
+        }
+      ],
+      "cost_notes": "One AI call per project.",
+      "failure_behaviour": "An AI error fails that row; the banner is part of the template.",
+      "dependencies": [],
+      "notes": [
+        "The newspaper template always prints a banner saying the page is imagined."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_future_newspaper"
       },
       "brief": {
         "flow": "Project notes → clearly labeled speculative future front page",
@@ -4717,7 +5009,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
           "why": "PDF rendering"
         }
       ],
@@ -4768,13 +5060,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
-          "why": "render the moodboard (palette extraction is delivered: a media palette step)"
-        },
-        {
           "capability": "iterate-aggregate",
           "name": "Iterate / aggregate over a target set",
           "priority": "P1",
@@ -4782,7 +5067,9 @@
           "why": "many → one"
         }
       ],
-      "notes": [],
+      "notes": [
+        "Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies."
+      ],
       "verification": {
         "level": "none",
         "mocked": [],
@@ -5970,7 +6257,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
           "why": "zip + manifest"
         },
         {

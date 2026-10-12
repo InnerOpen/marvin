@@ -367,7 +367,18 @@ def _actions(detail: bool) -> dict:
         "asset_resource_ops": _item_ops(detail),
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}; any step takes `when` (run only if).",
-        **({"when": WHEN_NOTE, "media": MEDIA_NOTE} if detail else {}),
+        **({"when": WHEN_NOTE, "media": MEDIA_NOTE, "render_templates": _render_templates()} if detail else {}),
+    }
+
+
+def _render_templates() -> dict:
+    """The built-in render templates as the guide lists them: what each is, its size, its fields and pictures (* required)."""
+    from marvin.services.ai.media.render import templates
+
+    star = lambda specs: [k + ("*" if v.get("required") else "") for k, v in specs.items()]  # noqa: E731
+    return {
+        slug: {"about": t["description"], "size": f"{t['width']}x{t['height']}", "fields": star(t["fields"]), "images": star(t["images"])}
+        for slug, t in templates().items()
     }
 
 
@@ -380,7 +391,11 @@ MEDIA_NOTE = (
     "derived_from + the workflow (no asset_uploaded is sent; asset.derived_from tells derivatives apart). format/quality "
     "re-encode any of them. inspect outputs width, height, orientation, aspect, sharpness (Laplacian variance: blurry is "
     "low, roughly under 100); palette outputs colors ['#rrggbb']. attach_as (needs an entry run) links the new asset to "
-    "the entry in that role; tags tags the new asset. An integration action with an image.* capability (openai_images.generate) "
+    "the entry in that role; tags tags the new asset. render fills a template — template: one of card, quote, poster, "
+    "trading-card, meme, side-by-side, comic-4, newspaper (section=actions lists each one's fields and images), or html: your "
+    "own HTML/CSS with {{ fields.<name> }} / {{ images.<name> }} — with fields (text) and images (name → an asset, as source "
+    "takes), at width × height (the template's own size by default), and saves the screenshot as a new asset; no network or "
+    "script runs in it. An integration action with an image.* capability (openai_images.generate) "
     "keeps its pictures the same way — output images: [{asset}] — and takes attach_as and tags too."
 )
 CREATE_NOTE = (
@@ -784,9 +799,32 @@ def _step_issues(
                 field_name = "attach_as" if step.get("attach_as") else "tags"
                 bad(field_name, f"{field_name} goes with an action that makes images; “{slug}.{key}” doesn't.")
     elif kind == "media":
-        preset = step.get("preset")
-        if step.get("op") == "grade" and isinstance(preset, str) and not _templated(preset) and preset not in refs.grade_presets:
-            bad("preset", f"No grade preset “{preset}”. Presets: {', '.join(refs.grade_presets)}.")
+        _media_step_issues(step, refs, bad)
+
+
+def _media_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
+    if step.get("op") == "render" and isinstance(step.get("template"), str) and not _templated(step["template"]):
+        _render_step_issues(step, bad)
+    preset = step.get("preset")
+    if step.get("op") == "grade" and isinstance(preset, str) and not _templated(preset) and preset not in refs.grade_presets:
+        bad("preset", f"No grade preset “{preset}”. Presets: {', '.join(refs.grade_presets)}.")
+
+
+def _render_step_issues(step: dict, bad) -> None:
+    """A render step naming a built-in template: it exists, and the step fills its required text and pictures (a
+    template value is checked when it runs) and nothing it doesn't have."""
+    from marvin.services.ai.media.render import templates
+
+    manifest = templates().get(step["template"])
+    if manifest is None:
+        bad("template", f"No render template “{step['template']}”. Templates: {', '.join(sorted(templates()))}.")
+        return
+    for key, given in (("fields", step.get("fields") or {}), ("images", step.get("images") or {})):
+        known = manifest[key]
+        if unknown := sorted(set(given) - set(known)):
+            bad(key, f"The {manifest['label']} template has no {key[:-1]} {', '.join(unknown)}. Its {key}: {', '.join(known)}.")
+        if missing := [k for k, spec in known.items() if spec.get("required") and given.get(k) in (None, "")]:
+            bad(key, f"The {manifest['label']} template needs {', '.join(missing)} in `{key}`.")
 
 
 def _entry_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:

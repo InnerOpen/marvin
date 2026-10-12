@@ -1,0 +1,30 @@
+{
+  "recipe": "trading-card-collection",
+  "variables": {
+    "project_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type whose entries are projects.",
+      "example": "project"
+    },
+    "status_field": {
+      "type": "field_key",
+      "description": "The field that says where a project stands.",
+      "example": "stage"
+    },
+    "done_value": {
+      "type": "text",
+      "description": "Its value when the project is finished.",
+      "example": "complete"
+    },
+    "card_series": {
+      "type": "text",
+      "description": "The card's type line.",
+      "example": "Workshop series"
+    },
+    "image_role": {
+      "type": "text",
+      "description": "The role an entry's main picture is attached in.",
+      "example": "hero"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{# A quote over a darkened picture (or a plain colour), with who said it. #}
+{% set accent = fields.accent or "#f59e0b" %}
+<style>
+  .q { box-sizing: border-box; width: 100vw; height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 9vw;
+       color: #fff; background: #1c1917 center / cover no-repeat; position: relative;
+       font-family: "Liberation Serif", "DejaVu Serif", Georgia, serif; }
+  .q::before { content: ""; position: absolute; inset: 0; background: linear-gradient(160deg, rgba(0,0,0,.35), rgba(0,0,0,.78)); }
+  .q > * { position: relative; }
+  .mark { font-size: 22vw; line-height: .6; color: {{ accent }}; height: 9vw; }
+  blockquote { margin: 0; font-size: 6.2vw; line-height: 1.22; font-style: italic; }
+  .who { margin-top: 5vw; font-family: Lato, "Open Sans", "DejaVu Sans", sans-serif; font-size: 3.2vw; letter-spacing: .08em; text-transform: uppercase; }
+  .who b { color: {{ accent }}; font-weight: 800; }
+</style>
+<div class="q" {% if images.background %}style="background-image: url('{{ images.background }}')"{% endif %}>
+  <div class="mark">“</div>
+  <blockquote>{{ fields.quote }}</blockquote>
+  {% if fields.attribution or fields.source %}
+  <div class="who">{% if fields.attribution %}<b>{{ fields.attribution }}</b>{% endif %}{% if fields.attribution and fields.source %} · {% endif %}{{ fields.source }}</div>
+  {% endif %}
+</div>

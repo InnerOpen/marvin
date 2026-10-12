@@ -1,0 +1,87 @@
+{
+  "name": "Meme workshop",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "entry",
+      "query": {
+        "entry_type": "{{entry_type}}",
+        "status": "published",
+        "has_images": true
+      }
+    },
+    "conditions": [
+      {
+        "field": "entry.metadata.meme",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "caption",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Write a light-hearted, kind two-part meme caption about “${entry.title}”, grounded in what the entry says: a short top line and a punchline bottom line. No real people mocked, nothing mean.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "top": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "bottom": {
+              "type": "string",
+              "maxLength": 60
+            }
+          },
+          "required": [
+            "top",
+            "bottom"
+          ]
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Make this meme for “${entry.title}”? TOP: ${steps.caption.output.top} / BOTTOM: ${steps.caption.output.bottom}",
+        "approvers": "editor",
+        "expires_in_hours": 72
+      },
+      {
+        "kind": "media",
+        "id": "meme",
+        "op": "render",
+        "template": "meme",
+        "fields": {
+          "top": "${steps.caption.output.top}",
+          "bottom": "${steps.caption.output.bottom}"
+        },
+        "images": {
+          "image": "role:{{image_role}}"
+        },
+        "attach_as": "meme",
+        "tags": [
+          "meme"
+        ],
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "meme": "${steps.ok.output.decision}"
+        }
+      }
+    ]
+  }
+}

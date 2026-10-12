@@ -340,6 +340,7 @@ MEDIA_OP_ARGS: dict[str, tuple[str, ...]] = {
     "grade": ("preset", "format", "quality"),
     "inspect": (),
     "palette": ("colors",),
+    "render": ("template", "html", "width", "height", "fields", "images", "format", "quality"),
 }
 MEDIA_ASPECT_PATTERN = r"^\s*[1-9]\d{0,2}\s*[:x/]\s*[1-9]\d{0,2}\s*$"
 
@@ -348,11 +349,12 @@ class MediaAction(_StepBase):
     """Makes an image from an image, or reads one — no AI, no provider. `resize`, `crop`, `convert` and `grade` save a
     NEW asset (the original is never changed) with its lineage and return `asset` {id, slug, url, width, height}; the
     same op on the same picture reuses it. `inspect` returns width, height, orientation, aspect, sharpness; `palette`
-    returns colors. `source`: an asset id or slug (default ${asset.id}), ${steps.<id>.output.asset.id}, or role:<role>
+    returns colors. `render` fills a template (`template`: a built-in one, or the step's own `html`) with `fields` and
+    `images` and screenshots it into a new asset. `source`: an asset id or slug (default ${asset.id}), ${steps.<id>.output.asset.id}, or role:<role>
     (the entry's asset in that role). `attach_as` links the new asset to the run's entry in that role."""
 
     kind: Literal["media"]
-    op: Literal["resize", "crop", "convert", "grade", "inspect", "palette"]
+    op: Literal["resize", "crop", "convert", "grade", "inspect", "palette", "render"]
     source: str | None = None  # default ${asset.id}
     width: int | None = Field(default=None, ge=1, le=10_000)  # resize: at most this wide (never upscales)
     height: int | None = Field(default=None, ge=1, le=10_000)  # resize: at most this tall
@@ -363,6 +365,10 @@ class MediaAction(_StepBase):
     quality: int | None = Field(default=None, ge=1, le=100)  # jpeg / webp quality (default 90)
     preset: str | None = None  # grade: a colour preset (built-in or the workspace's)
     colors: int | None = Field(default=None, ge=1, le=16)  # palette: how many (default 5)
+    template: str | None = None  # render: a built-in template (card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper)
+    html: str | None = Field(default=None, max_length=200_000)  # render: or the step's own HTML/CSS ({{ fields.x }}, {{ images.y }})
+    fields: dict[str, Any] | None = None  # render: the template's text (templates allowed)
+    images: dict[str, str] | None = None  # render: picture name → an asset (id, slug, ${steps.<id>.output.asset.id}, role:<role>)
     attach_as: str | None = None  # link the new asset to the run's entry in this role
     tags: list[str] | None = None  # tag the new asset (e.g. web-sizes), so the library and smart collections can find them
     id: str | None = None
@@ -372,7 +378,7 @@ class MediaAction(_StepBase):
         takes = MEDIA_OP_ARGS[self.op]
         stray = [
             k
-            for k in ("width", "height", "fit", "aspect", "focus", "format", "quality", "preset", "colors")
+            for k in ("width", "height", "fit", "aspect", "focus", "format", "quality", "preset", "colors", "template", "html", "fields", "images")
             if getattr(self, k) is not None and k not in takes
         ]
         if stray:
@@ -389,6 +395,11 @@ class MediaAction(_StepBase):
             raise ValueError("convert needs a format: jpeg, png or webp")
         if self.op == "grade" and not (self.preset or "").strip():
             raise ValueError("grade needs a preset")
+        if self.op == "render":
+            if bool(self.template) == bool(self.html):
+                raise ValueError("render needs a template (a built-in one) or its own html — one of them")
+            if self.source:
+                raise ValueError("render takes its pictures in `images` (name → asset), not `source`")
         if self.op in ("inspect", "palette") and (self.attach_as or self.tags):
             raise ValueError(f"{self.op} makes no image, so there is nothing to attach_as or tag")
         return self

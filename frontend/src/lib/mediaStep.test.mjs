@@ -3,7 +3,15 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { MEDIA_OPS, mediaFields, OP_FIELDS, sourceChoice, sourceFromChoice } from "./mediaStep.ts";
+import {
+  filledRows,
+  MEDIA_OPS,
+  mediaFields,
+  OP_FIELDS,
+  sourceChoice,
+  sourceFromChoice,
+  templateRows,
+} from "./mediaStep.ts";
 
 describe("where the picture comes from", () => {
   test("each stored source reads back as the form shows it, and goes back unchanged", () => {
@@ -47,5 +55,24 @@ describe("an op's fields", () => {
 
   test("every op has a label and a field list", () => {
     assert.deepEqual(MEDIA_OPS.map((o) => o.op).sort(), Object.keys(OP_FIELDS).sort());
+  });
+});
+
+describe("a render step", () => {
+  test("takes a template or its own html, at most 4000 px a side", () => {
+    assert.deepEqual(mediaFields("render", { template: "quote", width: "800" }), { template: "quote", width: 800 });
+    assert.throws(() => mediaFields("render", {}), /one of them/);
+    assert.throws(() => mediaFields("render", { template: "quote", html: "<p></p>" }), /one of them/);
+    assert.throws(() => mediaFields("render", { html: "<p></p>", width: "5000" }), /4000/);
+  });
+
+  test("rows show the template's names first and keep what the step had", () => {
+    assert.deepEqual(templateRows(["quote", "attribution"], { attribution: "Ada", extra: "x" }), {
+      quote: "",
+      attribution: "Ada",
+      extra: "x",
+    });
+    assert.deepEqual(filledRows({ quote: "", attribution: "Ada" }), { attribution: "Ada" });
+    assert.equal(filledRows({ quote: "" }), null);
   });
 });

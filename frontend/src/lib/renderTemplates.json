@@ -1,0 +1,118 @@
+{
+  "card": {
+    "label": "Card",
+    "description": "A picture with a title, a few lines of text and a footer — a social post or a link preview.",
+    "width": 1080,
+    "height": 1350,
+    "fields": {
+      "title": { "label": "Title", "required": true },
+      "text": { "label": "Text" },
+      "footer": { "label": "Footer (e.g. the site)" },
+      "accent": { "label": "Accent colour (CSS, e.g. #c2410c)" }
+    },
+    "images": { "image": { "label": "Picture" } }
+  },
+  "quote": {
+    "label": "Quote card",
+    "description": "A quote in large type with who said it, over a darkened picture or a plain colour.",
+    "width": 1080,
+    "height": 1080,
+    "fields": {
+      "quote": { "label": "Quote", "required": true },
+      "attribution": { "label": "Who said it" },
+      "source": { "label": "Where (title or site)" },
+      "accent": { "label": "Accent colour" }
+    },
+    "images": { "background": { "label": "Background picture" } }
+  },
+  "poster": {
+    "label": "Retro poster",
+    "description": "A vintage-style poster: the picture in warm halftone colours, a big title, a tagline and a year.",
+    "width": 1200,
+    "height": 1800,
+    "fields": {
+      "title": { "label": "Title", "required": true },
+      "subtitle": { "label": "Subtitle" },
+      "tagline": { "label": "Tagline" },
+      "year": { "label": "Year or date" },
+      "footer": { "label": "Footer" }
+    },
+    "images": { "image": { "label": "Picture", "required": true } }
+  },
+  "trading-card": {
+    "label": "Trading card",
+    "description": "A collectible card: picture, name, a few stats (one 'Label: value' per line), flavour text and a number.",
+    "width": 750,
+    "height": 1050,
+    "fields": {
+      "title": { "label": "Name", "required": true },
+      "subtitle": { "label": "Type line" },
+      "stats": { "label": "Stats, one 'Label: value' per line" },
+      "text": { "label": "Flavour text" },
+      "number": { "label": "Card number" },
+      "accent": { "label": "Frame colour" }
+    },
+    "images": { "image": { "label": "Picture", "required": true } }
+  },
+  "meme": {
+    "label": "Meme",
+    "description": "A picture with bold top and bottom captions.",
+    "width": 1080,
+    "height": 1080,
+    "fields": {
+      "top": { "label": "Top text" },
+      "bottom": { "label": "Bottom text" }
+    },
+    "images": { "image": { "label": "Picture", "required": true } }
+  },
+  "side-by-side": {
+    "label": "Before / after",
+    "description": "Two pictures side by side with a label over each — a before and after, or a comparison.",
+    "width": 1600,
+    "height": 900,
+    "fields": {
+      "left_label": { "label": "Left label (default Before)" },
+      "right_label": { "label": "Right label (default After)" },
+      "title": { "label": "Title" }
+    },
+    "images": {
+      "left": { "label": "Left picture", "required": true },
+      "right": { "label": "Right picture", "required": true }
+    }
+  },
+  "comic-4": {
+    "label": "Four-panel comic",
+    "description": "Four panels with a caption under each and a title across the top.",
+    "width": 1200,
+    "height": 1400,
+    "fields": {
+      "title": { "label": "Title" },
+      "caption1": { "label": "Panel 1 caption", "required": true },
+      "caption2": { "label": "Panel 2 caption", "required": true },
+      "caption3": { "label": "Panel 3 caption", "required": true },
+      "caption4": { "label": "Panel 4 caption", "required": true },
+      "footer": { "label": "Footer" }
+    },
+    "images": {
+      "panel1": { "label": "Panel 1 picture" },
+      "panel2": { "label": "Panel 2 picture" },
+      "panel3": { "label": "Panel 3 picture" },
+      "panel4": { "label": "Panel 4 picture" }
+    }
+  },
+  "newspaper": {
+    "label": "Newspaper front page",
+    "description": "A front page: masthead, date, headline, a short deck, columns of text and a picture, with a banner that says it isn't real.",
+    "width": 1200,
+    "height": 1600,
+    "fields": {
+      "masthead": { "label": "Newspaper name", "required": true },
+      "date": { "label": "Date line" },
+      "headline": { "label": "Headline", "required": true },
+      "deck": { "label": "Deck (the line under the headline)" },
+      "body": { "label": "Story text", "required": true },
+      "banner": { "label": "Banner (default: an imagined front page, not real news)" }
+    },
+    "images": { "image": { "label": "Picture" } }
+  }
+}

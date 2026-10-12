@@ -128,6 +128,14 @@ FROM build-base AS backend
 # client is the newest major (17 on trixie), which dumps any older server.
 RUN apt-get update && apt-get install --no-install-recommends -y postgresql-client && rm -rf /var/lib/apt/lists/*
 
+# Headless Chromium for workflow render steps (services/ai/media/render.py screenshots HTML templates with it;
+# found on PATH as /usr/bin/chromium-headless-shell) and the fonts its templates name. ~300 MB. Runs as the
+# container's unprivileged user with --no-sandbox; the page's Content-Security-Policy keeps it off the network.
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        chromium-headless-shell \
+        fonts-dejavu-core fonts-liberation fonts-noto-color-emoji fonts-open-sans fonts-lato \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV PRODUCTION=True
 ENV TESTING=False
 ENV DATA_DIR="$MARVIN_HOME/data"

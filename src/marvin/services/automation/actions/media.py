@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import re
 import uuid
 
@@ -33,7 +34,8 @@ from .base import AutomationActionError, register_action
 
 DERIVE_OPS = ("resize", "crop", "convert", "grade")
 READ_OPS = ("inspect", "palette")
-OPS = (*DERIVE_OPS, *READ_OPS)
+RENDER = "render"  # a template filled with fields and pictures, screenshotted (services/ai/media/render.py)
+OPS = (*DERIVE_OPS, *READ_OPS, RENDER)
 # What each op takes beside source / attach_as / id / when: format and quality re-encode anything an op makes.
 OP_ARGS = MEDIA_OP_ARGS
 DEFAULT_SOURCE = "${asset.id}"
@@ -64,6 +66,8 @@ def run_media_action(session, group_id, action: dict, context: dict, *, user_id=
     if op not in OPS:
         raise AutomationActionError(f"unknown media op '{op}' (expected: {', '.join(OPS)})")
     require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, ENTRY_ACTION_MIN_ROLE, f"media step '{op}'")
+    if op == RENDER:
+        return _render(session, group_id, action, context, user_id=user_id, dry_run=dry_run)
     src = resolve_source(session, group_id, action.get("source"), context)
     if not transforms.can_transform(src.mime_type):
         raise AutomationActionError(f"“{src.name}” ({src.mime_type or 'unknown type'}) is not an image Marvin can process (jpeg, png or webp)")
@@ -267,9 +271,14 @@ def _derive(session, group_id, op: str, args: dict, src, context: dict, *, user_
         asset, reused = existing, True
     else:
         asset, reused = _store(session, group_id, op, planned, src, produced, slug, context, user_id=user_id), False
+    return _deliver(session, group_id, out, asset, reused, context, tags=action_tags, attach_as=attach_as, entry_id=entry_id, user_id=user_id)
+
+
+def _deliver(session, group_id, out: dict, asset, reused: bool, context: dict, *, tags, attach_as, entry_id, user_id) -> dict:
+    """A made (or reused) asset as the step's output: tagged and attached as the step says."""
     out.update(asset=asset_ref(asset), reused=reused)
-    if tags := tag_names(action_tags, context):
-        out["tags"] = tag_asset(session, group_id, asset, tags)
+    if names := tag_names(tags, context):
+        out["tags"] = tag_asset(session, group_id, asset, names)
     if attach_as:
         out["attached"] = attach(session, group_id, entry_id, asset, attach_as, context, user_id=user_id)
     return out
@@ -370,6 +379,18 @@ def asset_ref(row) -> dict:
     return {"id": str(row.id), "slug": row.slug, "name": row.name, "url": url, "width": row.width, "height": row.height, "mime_type": row.mime_type}
 
 
+def uploader(session, context: dict, user_id):
+    """Who a made-from-nothing image is uploaded by: the run's user, else the workflow's author, else the creator of
+    the entry it was made for."""
+    owner = user_id or (context.get("_step") or {}).get("author_id")
+    if owner is None and (entry_id := subject_entry_id(context)) is not None:
+        from marvin.db.models.platform.entries import Entries
+
+        entry = session.get(Entries, entry_id)
+        owner = getattr(entry, "created_by", None) if entry is not None else None
+    return owner
+
+
 def run_lineage(context: dict) -> dict:
     """Which run made an asset: the workflow, the step and the event's correlation id."""
     from marvin.services.event_bus_service.correlation import current_correlation_id
@@ -411,6 +432,165 @@ def attach(session, group_id, entry_id, asset, role: str, context: dict, *, user
     if result is None:
         raise AutomationActionError(f"could not attach “{asset.name}”: the entry is not in this workspace")
     return result
+
+
+# ── Rendering a template ─────────────────────────────────────────────────────
+def _render(session, group_id, action: dict, context: dict, *, user_id, dry_run: bool) -> dict:
+    """`render`: a built-in template (or the step's own `html`) filled with `fields` (text, templates allowed) and
+    `images` (each a source: an asset id/slug, ${steps.<id>.output.asset.id}, role:<role>), screenshotted at
+    width × height into a new asset. Its first picture is the asset it was made from; the same template, text and
+    pictures make the same asset once."""
+    from marvin.services.ai.media import render
+
+    template, html = action.get("template"), action.get("html")
+    if bool(template) == bool(html):
+        raise AutomationActionError("render needs a template (a built-in one) or its own html — one of them")
+    manifest = render.templates().get(template) if template else {}
+    if template and not manifest:
+        raise AutomationActionError(f"no render template “{template}” (templates: {', '.join(sorted(render.templates()))})")
+    width = int(action.get("width") or manifest.get("width") or render.DEFAULT_SIZE[0])
+    height = int(action.get("height") or manifest.get("height") or render.DEFAULT_SIZE[1])
+    fields = _render_fields(action, context, manifest)
+    pictures = _render_pictures(session, group_id, action, context, manifest)
+    source_html = render.template_html(template) if template else str(html)
+    fmt, quality = action.get("format"), action.get("quality")
+    primary = next(iter(pictures.values()), None)
+    attach_as = _attach_role(action, context)
+    entry_id = subject_entry_id(context) if attach_as else None
+    if attach_as and entry_id is None:
+        raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
+    slug = _render_slug(template or "custom", source_html, fields, pictures, (width, height, fmt, quality), primary)
+    existing = _by_slug(session, group_id, slug)
+    if dry_run:
+        try:  # fill it in (a missing field shows now), but don't start a browser
+            slots = dict.fromkeys(manifest.get("images") or {}) | dict.fromkeys(pictures, "data:,")
+            render.fill(source_html, fields=fields, images=slots, width=width, height=height)
+        except render.RenderError as e:
+            raise AutomationActionError(str(e)) from e
+        plan = {"dry_run": True, "kind": "media", "op": RENDER, "template": template or "custom", "size": f"{width}×{height}"}
+        return {**plan, ("would_reuse" if existing else "would_create"): slug, **({"attach_as": attach_as} if attach_as else {})}
+    if existing is not None and existing.trashed_at is not None:
+        raise AutomationActionError(f"this render was made before and is in the Trash ({slug}): restore it, or delete it to make it again")
+    if existing is None:
+        existing = _store_render(
+            session, group_id, template, source_html, fields, pictures, (width, height), (fmt, quality), slug, context, user_id=user_id
+        )
+        reused = False
+    else:
+        reused = True
+    out = {"template": template or "custom", "sources": {k: str(v.id) for k, v in pictures.items()}}
+    return _deliver(
+        session, group_id, out, existing, reused, context, tags=action.get("tags"), attach_as=attach_as, entry_id=entry_id, user_id=user_id
+    )
+
+
+def _render_fields(action: dict, context: dict, manifest: dict) -> dict:
+    """The step's text, filled in; a built-in template's own fields default to blank, a field it doesn't have fails."""
+    raw = interpolate(action.get("fields") or {}, context)
+    if not isinstance(raw, dict):
+        raise AutomationActionError("render `fields` is an object of text values")
+    fields = {str(k): "" if v is None else str(v) for k, v in raw.items()}
+    known = manifest.get("fields") or {}
+    if known:
+        if unknown := sorted(set(fields) - set(known)):
+            label = manifest.get("label")
+            raise AutomationActionError(f"the {label} template has no field {', '.join(unknown)} (fields: {', '.join(known)})")
+        if missing := [k for k, spec in known.items() if spec.get("required") and not fields.get(k, "").strip()]:
+            raise AutomationActionError(f"the {manifest.get('label')} template needs {', '.join(missing)} (it resolved to empty)")
+        fields = dict.fromkeys(known, "") | fields
+    return fields
+
+
+def _render_pictures(session, group_id, action: dict, context: dict, manifest: dict) -> dict:
+    """name → asset row for each picture the step names (a source ref each); a required one that resolves to nothing
+    fails the step, an optional one is left out."""
+    refs = action.get("images") or {}
+    if not isinstance(refs, dict):
+        raise AutomationActionError("render `images` is an object of picture names to assets")
+    known = manifest.get("images") or {}
+    if known and (unknown := sorted(set(refs) - set(known))):
+        label = manifest.get("label")
+        raise AutomationActionError(f"the {label} template has no picture {', '.join(unknown)} (pictures: {', '.join(known)})")
+    rows = {}
+    for name in [*known, *(k for k in refs if k not in known)]:
+        ref = refs.get(name)
+        resolved = interpolate(ref, context) if ref else None
+        if resolved in (None, ""):
+            if (known.get(name) or {}).get("required"):
+                raise AutomationActionError(f"the {manifest.get('label')} template needs the picture {name}")
+            continue
+        required = (known.get(name) or {}).get("required")
+        try:
+            row = resolve_source(session, group_id, str(resolved), context)
+        except AutomationActionError:
+            if required or not str(resolved).startswith(ROLE_PREFIX):
+                raise
+            continue  # an optional picture by role the entry doesn't have: the template does without it
+        if not str(row.mime_type or "").startswith("image/"):
+            raise AutomationActionError(f"“{row.name}” isn't a picture ({row.mime_type})")
+        rows[name] = row
+    return rows
+
+
+def _render_slug(template: str, source_html: str, fields: dict, pictures: dict, shape: tuple, primary) -> str:
+    """`<first picture's slug or the template>--render-<hash8>`, from everything that changes the image."""
+    from slugify import slugify
+
+    key = json.dumps(
+        {
+            "html": hashlib.sha256(source_html.encode()).hexdigest(),
+            "fields": fields,
+            "pictures": {k: (v.checksum or str(v.id)) for k, v in sorted(pictures.items())},
+            "shape": [str(x) for x in shape],
+        },
+        sort_keys=True,
+    )
+    base = primary.slug[:SLUG_SOURCE_CHARS] if primary is not None else (slugify(f"{template} {next(iter(fields.values()), '')}") or template)[:60]
+    return f"{base}--render-{hashlib.sha256(key.encode()).hexdigest()[:8]}"
+
+
+def _by_slug(session, group_id, slug: str):
+    from marvin.db.models.platform.assets import Assets
+
+    return session.query(Assets).filter(Assets.group_id == group_id, Assets.slug == slug).first()
+
+
+def _store_render(session, group_id, template, source_html, fields, pictures, size, encoding, slug, context, *, user_id):
+    from marvin.db.models.platform.assets import Assets
+    from marvin.services.ai.media import ops, render
+    from marvin.services.assets.asset_storage_service import AssetRejected
+
+    # Every picture the template declares is there — blank when not given — so `{% if images.x %}` works.
+    images = dict.fromkeys((render.templates().get(template) or {}).get("images") or {})
+    images |= {name: render.data_uri(_read_bytes(session, group_id, row), row.mime_type) for name, row in pictures.items()}
+    try:
+        png = render.render(source_html, fields=fields, images=images, width=size[0], height=size[1])
+        data = ops.reencode(png, encoding[0], encoding[1])
+    except render.RenderError as e:
+        raise AutomationActionError(f"render: {e}") from e
+    fmt = ops.format_of(data)
+    primary = next(iter(pictures.values()), None)
+    label = (render.templates().get(template) or {}).get("label") or "Custom render"
+    title = next((v for v in fields.values() if v.strip()), "") if fields else ""
+    lineage = {"render_template": template or "custom", "rendered_from": {k: str(v.id) for k, v in pictures.items()}, **run_lineage(context)}
+    if primary is None:
+        lineage["generated_by"] = f"render:{template or 'custom'}"
+    owner = uploader(session, context, user_id)
+    try:
+        read = _storage(session, group_id).create_derivative(
+            source=primary,
+            data=data,
+            group_id=group_id,
+            derivation=f"render:{template or 'custom'}",
+            slug=slug,
+            name=f"{label}: {title[:80]}" if title else label,
+            user_id=owner,
+            extra_metadata=lineage,
+            extension=ops.FORMATS[fmt][2],
+        )
+    except (AssetRejected, ValueError) as e:
+        raise AutomationActionError(f"the render can't be kept: {e}") from e
+    return session.get(Assets, read.id)
 
 
 # ── Subject focus (a vision model, or an integration that detects subjects) ──
@@ -554,7 +734,7 @@ class _GeneratedKeeper:
         self.session, self.group_id, self.context, self.count = session, group_id, context, count
         self.generated_by = generated_by
         step = context.get("_step") or {}
-        self.uploader = user_id or step.get("author_id")
+        self.uploader = uploader(session, context, user_id)
         usage = result.get("usage") if isinstance(result.get("usage"), dict) else {}
         prompt = str(args.get("prompt") or "")[:PROMPT_KEPT_CHARS]
         entry = context.get("entry") or {}

@@ -1,0 +1,87 @@
+{
+  "name": "Future newspaper",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "entry",
+      "query": {
+        "entry_type": "{{project_type}}",
+        "status": "published"
+      }
+    },
+    "conditions": [
+      {
+        "field": "entry.metadata.future_front_page",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "story",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Imagine a newspaper front page ten years from now about “${entry.title}”. It is clearly speculative fiction: invent nothing about real people beyond the entry, and keep it warm and plausible. Base it on what the entry says. Give a headline, a one-line deck, a date line ten years from today, and a story of three short paragraphs separated by blank lines.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "headline": {
+              "type": "string",
+              "maxLength": 90
+            },
+            "deck": {
+              "type": "string",
+              "maxLength": 160
+            },
+            "date": {
+              "type": "string",
+              "maxLength": 60
+            },
+            "body": {
+              "type": "string",
+              "minLength": 80
+            }
+          },
+          "required": [
+            "headline",
+            "deck",
+            "date",
+            "body"
+          ]
+        }
+      },
+      {
+        "kind": "media",
+        "id": "page",
+        "op": "render",
+        "template": "newspaper",
+        "fields": {
+          "masthead": "{{newspaper_name}}",
+          "date": "${steps.story.output.date}",
+          "headline": "${steps.story.output.headline}",
+          "deck": "${steps.story.output.deck}",
+          "body": "${steps.story.output.body}"
+        },
+        "images": {
+          "image": "role:{{image_role}}"
+        },
+        "attach_as": "future-front-page",
+        "tags": [
+          "speculative"
+        ]
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "future_front_page": "${steps.page.output.asset.slug}"
+        }
+      }
+    ]
+  }
+}

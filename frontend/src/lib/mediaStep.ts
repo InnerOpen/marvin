@@ -9,6 +9,7 @@ export const MEDIA_OPS: { op: string; label: string; makesImage: boolean }[] = [
   { op: "grade", label: "Colour grade", makesImage: true },
   { op: "inspect", label: "Inspect (size, sharpness…)", makesImage: false },
   { op: "palette", label: "Find its main colours", makesImage: false },
+  { op: "render", label: "Render a template (card, poster, quote…)", makesImage: true },
 ];
 
 /** What each op takes besides the picture and Attach as (automation_definition.py: MEDIA_OP_ARGS). */
@@ -19,9 +20,24 @@ export const OP_FIELDS: Record<string, string[]> = {
   grade: ["preset", "format", "quality"],
   inspect: [],
   palette: ["colors"],
+  render: ["template", "html", "width", "height", "format", "quality"],
 };
 
-export const MEDIA_FIELDS = ["width", "height", "fit", "aspect", "focus", "format", "quality", "preset", "colors"];
+export const MEDIA_FIELDS = [
+  "width",
+  "height",
+  "fit",
+  "aspect",
+  "focus",
+  "format",
+  "quality",
+  "preset",
+  "colors",
+  "template",
+  "html",
+];
+/** The largest side a render may have (services/ai/media/render.py MAX_SIDE). */
+export const MAX_RENDER_SIDE = 4000;
 export const ASPECTS = ["1:1", "4:5", "3:2", "16:9", "9:16"];
 export const GRADE_PRESETS = ["rustic-warm", "warm", "cool", "muted"];
 
@@ -100,5 +116,35 @@ export function mediaFields(op: string, values: Record<string, string | undefine
   if (op === "crop" && out.focus === "center") delete out.focus; // the default
   if (op === "convert" && !out.format) throw new Error("convert needs a format");
   if (op === "grade" && !out.preset) throw new Error("grade needs a preset");
+  if (op === "render") {
+    if (Boolean(out.template) === Boolean(out.html))
+      throw new Error("render needs a template, or your own HTML — one of them");
+    if (Number(out.width) > MAX_RENDER_SIDE || Number(out.height) > MAX_RENDER_SIDE)
+      throw new Error(`a render is at most ${MAX_RENDER_SIDE} px on a side`);
+  }
   return out;
+}
+
+export interface RenderTemplate {
+  label: string;
+  description: string;
+  width: number;
+  height: number;
+  fields: Record<string, { label: string; required?: boolean }>;
+  images: Record<string, { label: string; required?: boolean }>;
+}
+
+/** A render step's text or pictures as rows: the template's own names first (blank when unset), then any others the
+ * step already has — so choosing a template shows what it takes. */
+export function templateRows(names: string[], current: Record<string, unknown> | undefined): Record<string, unknown> {
+  const rows: Record<string, unknown> = {};
+  for (const name of names) rows[name] = current?.[name] ?? "";
+  for (const [name, value] of Object.entries(current ?? {})) if (!(name in rows)) rows[name] = value;
+  return rows;
+}
+
+/** Drop rows left blank: a render step stores only what it fills in. */
+export function filledRows(rows: Record<string, unknown>): Record<string, unknown> | null {
+  const kept = Object.fromEntries(Object.entries(rows).filter(([, v]) => v !== "" && v !== null && v !== undefined));
+  return Object.keys(kept).length ? kept : null;
 }

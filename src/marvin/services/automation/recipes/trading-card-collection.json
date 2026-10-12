@@ -1,0 +1,81 @@
+{
+  "name": "Trading card collection",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_updated"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{project_type}}"
+      },
+      {
+        "field": "entry.data.{{status_field}}",
+        "op": "eq",
+        "value": "{{done_value}}"
+      },
+      {
+        "field": "entry.metadata.trading_card",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "stats",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Make a collectible card for the finished project “${entry.title}”. Give three or four short stats as lines of 'Label: value', using only facts the entry states (its fields and text) — never invent a number — and one line of flavour text.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "stats": {
+              "type": "string",
+              "minLength": 5
+            },
+            "flavor": {
+              "type": "string",
+              "minLength": 5,
+              "maxLength": 160
+            }
+          },
+          "required": [
+            "stats",
+            "flavor"
+          ]
+        }
+      },
+      {
+        "kind": "media",
+        "id": "card",
+        "op": "render",
+        "template": "trading-card",
+        "fields": {
+          "title": "${entry.title}",
+          "subtitle": "{{card_series}}",
+          "stats": "${steps.stats.output.stats}",
+          "text": "${steps.stats.output.flavor}"
+        },
+        "images": {
+          "image": "role:{{image_role}}"
+        },
+        "attach_as": "trading-card",
+        "tags": [
+          "trading-card"
+        ]
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "trading_card": "${steps.card.output.asset.slug}"
+        }
+      }
+    ]
+  }
+}

@@ -71,6 +71,13 @@ image-making integration step) can **tag** what it makes. Moving an image to the
 and restoring it brings back those that went with it — except a version an entry uses (a hero's web size on a
 page), which stays; an original with a version in use doesn't count as unattached. Unreleased (2026-10-12).
 
+## Rendered images
+
+A **Process an image** step can **render a template**: a built-in quote card, card, retro poster, trading card, meme,
+before/after, four-panel comic or newspaper front page — or your own HTML/CSS — filled with text and pictures and
+saved as a new asset. Headless Chromium draws it (about half a second, free), with no script and no network. Seven
+Library recipes use it. See [Workflows → Render a template](workflows.md#render-a-template). Unreleased (2026-10-12).
+
 ## Media embeds
 
 Paste a YouTube, Vimeo, Spotify, SoundCloud, Apple Music, Apple Podcasts, TIDAL, Simplecast or Transistor link, or Bandcamp's embed code, and the site shows a player. A supported link alone on its own line in a markdown field becomes a player; turn that off per field with **Auto-embed media links** (`autoEmbed: false`). A new **Media embed** field type holds one player. The markdown editor has an **Embed** dialog, and its preview now renders sanitised markdown (marked + DOMPurify) with the players in place. The publishing API carries `embeds` on every entry and list item, keyed by the link as written, and `site.embeds` holds the privacy mode, consent text and player origins. **Embeds & Privacy** in the site settings chooses between click-to-load (the default; nothing third-party loads before a click) and direct players. Marvin builds every player itself from an allow-list and resolves titles through a platform-wide cache, so publishing never calls a provider. The agent tools are `add_embed`, which stages a suggestion, and `preview_embed`. Migration `a78a8895a6a1`. Details: [Media embeds](media-embeds.md).

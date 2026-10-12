@@ -1,0 +1,13 @@
+{# The picture full-bleed with bold outlined captions at the top and bottom. #}
+<style>
+  .m { box-sizing: border-box; width: 100vw; height: 100vh; position: relative; background: #000 center / cover no-repeat; }
+  .cap { position: absolute; left: 4vw; right: 4vw; text-align: center; color: #fff; text-transform: uppercase;
+         font-family: Impact, "Anton", "DejaVu Sans Condensed", "Liberation Sans Narrow", sans-serif; font-weight: 900;
+         font-size: 8.5vw; line-height: 1.05; letter-spacing: .01em;
+         text-shadow: -.45vw -.45vw 0 #000, .45vw -.45vw 0 #000, -.45vw .45vw 0 #000, .45vw .45vw 0 #000, 0 .6vw 1.2vw rgba(0,0,0,.6); }
+  .top { top: 4vw; } .bottom { bottom: 4vw; }
+</style>
+<div class="m" style="background-image: url('{{ images.image }}')">
+  {% if fields.top %}<div class="cap top">{{ fields.top }}</div>{% endif %}
+  {% if fields.bottom %}<div class="cap bottom">{{ fields.bottom }}</div>{% endif %}
+</div>
