@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.270 (2026-10-12)
+
+### Performance Improvements
+
+- **workflows**: Crops of one picture share one subject detection
+  ([`b88f2a8`](https://github.com/InnerOpen/marvin/commit/b88f2a8d9f42ac6fcb16199acd6af1bbd609eb7a))
+
+
 ## v1.0.0-rc.269 (2026-10-12)
 
 ### Features
