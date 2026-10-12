@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.264 (2026-10-12)
+
+### Features
+
+- **workflows**: Wait for approval — a step that parks the run until a person approves or denies
+  ([`13f5aff`](https://github.com/InnerOpen/marvin/commit/13f5aff24a2f5bc6b29b811f929dc6f807233149))
+
+
 ## v1.0.0-rc.263 (2026-10-12)
 
 ### Bug Fixes
