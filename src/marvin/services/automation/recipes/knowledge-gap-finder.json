@@ -1,0 +1,67 @@
+{
+  "name": "Knowledge gap finder",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "set",
+        "entity": "entry",
+        "query": {
+          "collection": "{{collection_slug}}",
+          "status": "published",
+          "sort": {
+            "by": "position"
+          }
+        },
+        "limit": 100
+      },
+      {
+        "kind": "operation",
+        "id": "gaps",
+        "op": "custom",
+        "see": [],
+        "prompt": "These are the published pieces in the collection “{{collection_name}}”:\n${steps.set.output.text}\n\nSuggest three to five topics it is missing, each a working title and one line on why it belongs. Don't repeat or rename what's there.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 40
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        },
+        "when": {
+          "field": "steps.set.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.gaps.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.gaps.output.body}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.set.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

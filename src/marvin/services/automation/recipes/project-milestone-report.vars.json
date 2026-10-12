@@ -1,0 +1,45 @@
+{
+  "recipe": "project-milestone-report",
+  "variables": {
+    "project_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type of projects.",
+      "example": "project"
+    },
+    "status_field": {
+      "type": "field_key",
+      "description": "The project's field that says where it stands.",
+      "example": "stage"
+    },
+    "done_value": {
+      "type": "text",
+      "description": "Its value when the project is finished.",
+      "example": "complete"
+    },
+    "log_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entries that log a project's progress (bench notes, updates).",
+      "example": "bench-note"
+    },
+    "project_field": {
+      "type": "field_key",
+      "description": "Their field that names the project (its slug).",
+      "example": "project"
+    },
+    "body_field": {
+      "type": "field_key",
+      "description": "Their text field, for the AI to read.",
+      "example": "body"
+    },
+    "report_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the report is drafted as.",
+      "example": "article"
+    },
+    "report_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

@@ -26,7 +26,8 @@
     "integration": "Run integration",
     "approval": "Wait for approval",
     "media": "Process an image",
-    "collect": "Gather items"
+    "collect": "Gather items",
+    "fetch": "Check a web address"
   },
   "entryOps": {
     "publish": "Publish",

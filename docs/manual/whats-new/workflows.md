@@ -54,10 +54,12 @@ The form fills a `target`, `{"entity": "entry", "query": {…}}`, using the same
 | `status` / `statuses` | the publish status (`inbox`, `draft`, `needs_review`, `approved`, `published`, `archived`, `trashed`). Any other value matches nothing; filter a type's own `status` field with `fields` or `where`. Entries in the [Trash](trash.md) match only a query that asks for `trashed`. |
 | `text` (alias `query`) | title or slug contains (case-insensitive) |
 | `tags`, `collection` / `collections` | any of these, by slug or name |
+| `entries` | exactly these entries, by id or slug (one or a list) — the entry a field names: `{"entries": "${entry.data.project}"}`. The other way round, the entries whose field names this one, is `{"data": {"project": "${entry.slug}"}}` |
+| `asset` / `resource` | linked to this asset / resource (id or slug): the entries that use a picture, or a supplier |
 | `fields` (alias `data`), `metadata` | exact match, `{field_key: value}`; typed text matches checkbox and number values; an empty value matches nothing |
 | `where` | `[{"field": key, "op": op, "value": v}]`, where `field` is a field key or `metadata.<key>`; ops `eq`, `neq`, `in`, `contains`, `exists`, `missing`, `gt`, `gte`, `lt`, `lte`. Comparisons read number-like text (`"$1,170"` → 1170). An unknown op makes the query match nothing (with a note), so a typo never widens the target. |
 | `created_after` / `created_before`, `updated_…`, `published_…` | ISO dates or datetimes (UTC), or relative to the moment the run reads them: `-7d`, `-12h`, `-2w` (ago; `+3d` is ahead), `now`, `today` (midnight UTC). A date it can't read stops the query with a note instead of being ignored |
-| `sort` | `{"by": <key>, "direction": "asc"}` (or `"desc"`); `by` is `title`, `created_at`, `updated_at`, `published_at` or a field key. A field sorts numerically when its values are number-like, empty values last. Default: newest created first. |
+| `sort` | `{"by": <key>, "direction": "asc"}` (or `"desc"`); `by` is `title`, `created_at`, `updated_at`, `published_at`, `position` or a field key. A field sorts numerically when its values are number-like, empty values last. `position` is the order of the one `collection` the query names, as the site shows it (its order, then newest published). Default: newest created first. |
 
 In `where` and `sort` a bare key is always the entry type's own field. `where` and sorting by a field read at most 5,000 entries. Query values may be `${event…}` templates, so a webhook payload can carry the query.
 
@@ -72,6 +74,8 @@ With **Assets** or **Resources**, the target is `{"entity": "asset", "query": {�
 | `collection` / `collections` | in this collection / any of these (**In collection**) |
 | `unattached` | `true`: used by no entry; `false`: used by at least one (**Used by an entry**). A version made from an original still in the library doesn't count as unattached (it goes with its original) unless the query asks for versions (`versions: true` or `source`) |
 | `trashed` | `true`: only items in the Trash (**in the Trash**) |
+| `entry` | attached to this entry (id or slug), in the entry's own order — a project's pictures or materials: `{"entry": "${entry.id}"}` |
+| `role` | assets only: attached in this role (`hero`), to `entry` or, without it, to any entry |
 | `created_after` / `created_before` | ISO dates or datetimes (UTC), or relative: `-7d`, `-12h`, `-2w`, `now`, `today` |
 | `asset_type` / `asset_types` | assets only: `image`, `svg`, `document`, `video`, `audio`, `archive`, `other` (**Asset type**) |
 | `mime_type` / `mime_types` | assets only: exact MIME type, e.g. `image/svg+xml` (**MIME type**) |
@@ -91,6 +95,7 @@ An asset or resource query takes only these keys: no `where`, `sort`, `status`, 
 | `integration` (Run integration) | `integration` (the connection's slug from its card, not the provider's), `action` (the provider action key) — or `capability` instead: `notify` with `args` `title` and `body` sends through whatever message action that integration has (Slack's `send_message`, Apprise's `notify`), so one workflow works with either — `args` (templated) | Runs one action of an enabled [integration](integrations.md) with its stored credentials; the provider's result is the step output. An action that requires approval runs only after a [Wait for approval](#wait-for-approval) step, and only when it was approved. An action that makes images (an `image.*` capability, such as OpenAI Images' **Generate image**) keeps each one as an asset — see [Generated images are kept](#generated-images-are-kept). A top-level arg whose whole value is `{{SLUG}}` is replaced by that workspace secret for the call only (the stored workflow keeps the reference); a secret that does not exist fails the step. A provider may give its error a stable code (Buttondown: `blocked`, `suppressed`, `spammy`, `unknown`), which on-failure steps read as `${error.code}`. An input the provider links to one of its read actions gets a searchable picker above the arguments (see [Pick a value from the service](integrations.md#pick-a-value-from-the-service)). |
 | `approval` (Wait for approval) | `message` (what is asked; templates allowed), `approvers` (`editor`, the default, or `admin`), `expires_in_hours` (1–720, default 72) | The run waits here for a person — see [Wait for approval](#wait-for-approval). |
 | `collect` (Gather items) | `entity` (`entry`, `asset`, `resource`), `query` (a target's keys), `fields`, `limit` (default 25, at most 250) | Gathers a set into one output so the steps after it see them all — see [Gather items](#gather-items-many-one). |
+| `fetch` (Check a web address) | `url` (+ `method` `GET`/`HEAD`, `find`) or `links` (a text, + `base`) | Reads a public web address, or checks the links in a text. A dead link is output, not a failure — see [Check a web address](#check-a-web-address). |
 | `media` (Process an image) | `op` (`resize`, `crop`, `convert`, `grade`, `inspect`, `palette`), `source`, the op's own fields, `attach_as` | Makes a new image from an image, or reads one — no AI or provider needed. See [Process an image](#process-an-image). |
 | `operation` (AI operation) | `op` (AI operation slug), `input`, `entity_type`, `entity_id`/`entity_slug`, `write_back` | Offered only when AI is enabled and the **Workflows** invocation source is on. **Write the result back to the entry** (`write_back: true`) follows the workspace approval mode: the result is applied or staged as a suggestion, and the output's `_write_back` says which (`applied` or `staged`). On an asset or resource the step sees the item (an image asset's picture, for an operation that looks at images) and `write_back` is a map of output keys to the item's fields, for example `{"alt_text": "alt_text"}`: an asset takes `alt_text`, `description`, `name`, `tags` or `metadata.<key>`, a resource `description`, `name`, `tags` or `metadata.<key>`. It follows the same approval mode, and needs a workflow author who is an EDITOR or above (else `_write_back` is `not_permitted`). The workspace's AI limits apply: over the daily request or monthly cost limit the step fails, and the per-request token cap bounds the call (see [Agents and Ask → Usage and limits](agents-and-ask.md#usage-and-limits)). |
 | `handler` (Run task) | `task`, `config` | Allowlist: `request_site_rebuild`, `publish_scheduled_entries`, `unpublish_expired_entries`, `ai_reindex_embeddings`, `resync_smart_collections`, `media_enrich`. `request_site_rebuild` queues a coalesced rebuild (see [Operations → Site rebuilds](../operations.md#site-rebuilds)). |
@@ -152,6 +157,11 @@ A workflow runs once per item — the trigger's, or each row of a query run. A *
 other direction: it runs a query and hands the whole set to the steps after it, under any trigger. That makes a weekly
 digest from the week's articles, a contact sheet from a series, a report over a project's notes.
 
+**Linked items.** A query can follow links from the run's entry: `entries` (the entry a field names), `data` (the
+entries whose field names this one), `asset` / `resource` (the entries using one), an asset or resource query's `entry`
+(what this entry holds, in its order), and `collection` with sort `position` (a series in its own order). A key whose
+template resolved to nothing matches nothing, never everything.
+
 - `entity` and `query` are a target's (see [Run on a query](#run-on-a-query-of-entries)); values may be templates and
   dates may be relative (`"published_after": "-7d"`). An asset query leaves versions out unless it asks, as a target
   does. `limit` caps the rows (default 25, at most 250); `total` still counts every match.
@@ -172,6 +182,29 @@ digest from the week's articles, a contact sheet from a series, a report over a 
  "prompt": "Write this week's newsletter from these articles:\n${steps.week.output.text}",
  "output_schema": {"type": "object", "properties": {"title": {"type": "string"}, "body": {"type": "string"}}, "required": ["title", "body"]},
  "when": {"field": "steps.week.output.count", "op": "gt", "value": 0}}
+```
+
+### Check a web address
+
+A **Check a web address** step (`fetch`) reads the web for a workflow, through the same guarded client integrations use:
+public addresses only (a private or local one is refused, also after a redirect), 10 seconds, 2 MB.
+
+- **`url`** — one address (templates allowed: `${resource.url}`). Output: `status`, `ok` (2xx/3xx), `content_type`,
+  `title` (a page's), `text` (the first 20,000 characters) and `json` (an API's answer). `find` takes words to look for
+  on the page, ignoring case — `found` lists the ones there (`"find": "sold out"`, then **Only run this step when**
+  `steps.<id>.output.found.0` exists). `method: HEAD` asks only whether it answers.
+- **`links`** — a text (`${entry.data.body}`): its links (markdown, HTML or bare; relative ones against `base`, default
+  the site URL), up to 50, checked a few at a time. Output: `checked`, `broken` (`[{url, status, error}]`),
+  `broken_count` and `text` (one line per broken link). Broken means no answer, 404, 410 or a 5xx; 401, 403 and 429 are
+  servers refusing robots, so they don't count.
+- No answer is `status: 0` with an `error` — output, never a failed step, so a `when` decides what happens. A dry run
+  doesn't fetch.
+
+```json
+{"kind": "fetch", "id": "links", "links": "${entry.data.body}"},
+{"kind": "integration", "integration": "alerts", "capability": "notify",
+ "args": {"title": "Broken links in ${entry.title}", "body": "${steps.links.output.text}"},
+ "when": {"field": "steps.links.output.broken_count", "op": "gt", "value": 0}}
 ```
 
 ### Process an image
@@ -411,7 +444,7 @@ A workflow is `enabled: false` when created. A disabled workflow does not run fr
 
 ## Since
 
-`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12).
+`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12). Linked items in queries (`entries`, `asset`, `resource`, `entry`, `role`, sort `position`) and **Check a web address** (`fetch`): unreleased (2026-10-12).
 
 ## Related
 

@@ -403,7 +403,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "media", "collect", "approval", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "entry", "media", "collect", "fetch", "approval", "handler", "webhook", "integration", "emit_event"];
   const orderedKinds = (): string[] => {
     const avail = OPTIONS.actionKinds || [];
     return KIND_ORDER.filter((k) => avail.includes(k)).concat(avail.filter((k: string) => !KIND_ORDER.includes(k)));
@@ -903,6 +903,17 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <input class="input a-c-fields" value="${esc((a.fields ?? []).join(", "))}" /></label>
         <label class="tf"><span>At most</span><input class="input a-c-limit" type="number" min="1" max="250" value="${esc(a.limit ?? 25)}" /></label>
         <span class="hint small">Later steps read <code>\${steps.&lt;step id&gt;.output.text}</code> (a ready list for an AI prompt), <code>.rows</code> (each item — a render's pictures can take it whole) and <code>.count</code>. Give this step an id.</span>`;
+    } else if (kind === "fetch") {
+      wrap.innerHTML = `
+        <label class="tf"><span>Read this address <span class="muted">(templates allowed, e.g. \${resource.url})</span></span>
+          <input class="input a-f-url" value="${esc(a.url ?? "")}" placeholder="https://… or \${resource.url}" /></label>
+        <label class="tf"><span>Read</span>
+          <select class="input a-f-method">${[["GET", "The page (status, title, text)"], ["HEAD", "Only whether it answers"]].map(([v, l]) => `<option value="${v}" ${(a.method ?? "GET") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="tf"><span>Look for <span class="muted">(words on the page, any case, comma-separated — e.g. sold out; later steps read <code>.found</code>)</span></span>
+          <input class="input a-f-find" value="${esc([a.find ?? []].flat().join(", "))}" placeholder="sold out, discontinued" /></label>
+        <label class="tf"><span>— or check the links in <span class="muted">(a text, e.g. \${entry.data.body}; fill this or the address, not both)</span></span>
+          <input class="input a-f-links" value="${esc(a.links ?? "")}" placeholder="\${entry.data.body}" /></label>
+        <span class="hint small">Public addresses only. A missing page is output, not a failed step: later steps read <code>\${steps.&lt;step id&gt;.output.ok}</code>, <code>.status</code> and <code>.text</code> — or, for links, <code>.broken_count</code> and <code>.text</code> (the broken ones). A dry run doesn't fetch. Give this step an id.</span>`;
     } else if (kind === "approval") {
       const hours = Number(a.expires_in_hours ?? 72);
       wrap.innerHTML = `
@@ -1051,6 +1062,17 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         setOrDrop("fields", extra.length ? extra : null);
         const limit = Number(field(".a-c-limit")?.value);
         step.limit = Number.isInteger(limit) && limit >= 1 ? Math.min(limit, 250) : 25;
+        return step;
+      }
+      if (kind === "fetch") {
+        const links = field(".a-f-links")?.value.trim() ?? "";
+        const url = field(".a-f-url")?.value.trim() ?? "";
+        if (!links && !url) return null;
+        setOrDrop("links", links || null);
+        setOrDrop("url", links ? null : url);
+        setOrDrop("method", !links && field(".a-f-method")?.value === "HEAD" ? "HEAD" : null);
+        const find = (field(".a-f-find")?.value ?? "").split(",").map((w) => w.trim()).filter(Boolean);
+        setOrDrop("find", !links && find.length ? find : null);
         return step;
       }
       if (kind === "approval") {

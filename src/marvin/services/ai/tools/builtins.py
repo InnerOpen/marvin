@@ -255,10 +255,12 @@ from marvin.services.entries.query import WHERE_OPS  # noqa: E402 — the tool s
         "PUBLISH status (inbox, draft, needs_review, approved, published, archived — never a field's value); fields = exact "
         "match on the entry type's own fields {field_key: value}; where = comparisons on fields [{field, op, value}] with op "
         "eq|neq|in|contains|exists|missing|gt|gte|lt|lte (number-like text such as '$1,170' compares as 1170); query = "
-        "title/slug contains; tags; collection; has_images / has_assets / has_resources; created_/updated_/published_ "
-        "after|before (ISO dates). Field keys differ per type and per workspace — take them from get_entry_type. "
-        "sort = {by: title|created_at|updated_at|published_at|<field_key>, direction: asc|desc} (fields sort numerically when "
-        "number-like). group_by = a field key (or publish_status / entry_type) → counts per value over the whole match. "
+        "title/slug contains; tags; collection; has_images / has_assets / has_resources; entries = exactly these (ids or "
+        "slugs — the entry a field names); asset / resource = the entries using this asset / resource; created_/updated_/"
+        "published_ after|before (ISO dates, or relative: -7d, -2w, now). Field keys differ per type and per workspace — take "
+        "them from get_entry_type. sort = {by: title|created_at|updated_at|published_at|position|<field_key>, direction: "
+        "asc|desc} (fields sort numerically when number-like; position = the one collection's own order). group_by = a field "
+        "key (or publish_status / entry_type) → counts per value over the whole match. "
         "include_fields / include_metadata = keys whose values to put on each row, so you can compare many entries in one "
         "call instead of get_entry on each. Returns `count` (true total), `returned`, rows (default 10, max 200; use offset "
         "to page) and `groups` when grouped. Use `count` to answer 'how many'. A row's `url`, when present, is the entry's "
@@ -293,6 +295,13 @@ from marvin.services.entries.query import WHERE_OPS  # noqa: E402 — the tool s
             "has_images": {"type": "boolean", "description": "only entries that have an image asset"},
             "has_assets": {"type": "boolean", "description": "only entries that have any attached asset"},
             "has_resources": {"type": "boolean", "description": "only entries that have a linked resource"},
+            "entries": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "exactly these entries (ids or slugs), e.g. the one a field names",
+            },
+            "asset": {"type": "string", "description": "only entries using this asset (id or slug)"},
+            "resource": {"type": "string", "description": "only entries this resource is linked to (id or slug)"},
             "created_after": {"type": "string"},
             "created_before": {"type": "string"},
             "updated_after": {"type": "string"},
@@ -672,6 +681,7 @@ _ITEM_LIST_FILTERS = {
         "description": "true: only items attached to no entry (an asset's versions of an original still in the library don't count); "
         "false: only attached ones",
     },
+    "entry": {"type": "string", "description": "only items attached to this entry (id or slug), in its order"},
     "created_after": {"type": "string", "description": "ISO date — created on or after"},
     "created_before": {"type": "string", "description": "ISO date — created before"},
 }
@@ -730,6 +740,7 @@ def list_entry_types(ctx: ToolContext, _args: dict) -> str:
             "origin": {"type": "string", "enum": ["upload", "derived", "generated"], "description": "derived: made from another asset"},
             "versions": {"type": "boolean", "description": "false: originals only (versions folded away); true: only versions"},
             "source": {"type": "string", "description": "the versions made from this asset (id or slug)"},
+            "role": {"type": "string", "description": "only assets attached in this role (e.g. hero), to `entry` or any entry"},
             "tags": {
                 "type": "array",
                 "items": {"type": "string"},

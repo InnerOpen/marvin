@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 60,
+    "verified-current": 65,
     "needs-adapter": 8,
-    "needs-engine-capability": 28,
+    "needs-engine-capability": 23,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -43,7 +43,7 @@
       "name": "Iterate / aggregate over a target set",
       "priority": "P1",
       "capabilities_md": "Iteration / aggregation",
-      "acceptance": "Delivered 2026-10-12: a `collect` step (\"Gather items\") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Left: entries linked to an entry or inside a collection's order as a query (relations), and fanning one AI step out over the rows."
+      "acceptance": "Delivered 2026-10-12: a `collect` step (\"Gather items\") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Left: fanning one AI step out over the rows."
     },
     "relative-dates": {
       "name": "Relative dates and cron schedules",
@@ -55,7 +55,7 @@
       "name": "Assets and resources as workflow subjects",
       "priority": "P1",
       "capabilities_md": "Assets and resources",
-      "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset. Derived-asset lineage is part of media-adapters."
+      "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Left: an asset target query by checksum. Derived-asset lineage is part of media-adapters."
     },
     "workflow-approvals": {
       "name": "Approval step inside a workflow",
@@ -85,7 +85,7 @@
       "name": "HTTP fetch step",
       "priority": "P1",
       "capabilities_md": "Provider adapters",
-      "acceptance": "A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry."
+      "acceptance": "Delivered 2026-10-12: a `fetch` step (\"Check a web address\") — `url`: GET/HEAD through the guarded client (public hosts, re-checked on redirects, 2 MB cap) → status, ok, content_type, title, text, json, and `find` phrases (any case) → found; `links`: the links in a text checked a few at a time → checked, broken, broken_count, text. A dead link is output, never a failed step; a dry run doesn't fetch."
     },
     "social-adapters": {
       "name": "Social publishing adapters",
@@ -103,7 +103,7 @@
       "name": "Collection-scoped steps",
       "priority": "P1",
       "capabilities_md": "Queries / relationships",
-      "acceptance": "A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup)."
+      "acceptance": "A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; left: collection events carrying the set."
     },
     "member-email": {
       "name": "Member-addressed email",
@@ -779,7 +779,7 @@
     {
       "id": "series-index-keeper",
       "title": "Series index keeper",
-      "outcome": "Series member published → refresh ordered index and navigation",
+      "outcome": "When a part of a series (a collection) is published, the series' index entry is rewritten as a list of its published parts, in the collection's order, with their links.",
       "category": "Publishing and editorial",
       "category_slug": "publishing",
       "tags": [
@@ -794,41 +794,66 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "series-index-keeper.json",
+      "vars": "series-index-keeper.vars.json",
+      "setup_variables": [
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "the index is built from all members"
+          "name": "collection_slug",
+          "type": "collection_slug",
+          "description": "The series: a collection, in the order the site shows it.",
+          "example": "chore-coat-series"
         },
         {
-          "capability": "collection-scope",
-          "name": "Collection-scoped steps",
-          "priority": "P1",
-          "acceptance": "A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup).",
-          "why": "a series is a collection"
+          "name": "index_slug",
+          "type": "text",
+          "description": "Slug of the entry that holds the series' index (its list of parts is replaced).",
+          "example": "chore-coat-series-index"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "The index entry's text field.",
+          "example": "body"
         }
       ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "collect",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_data"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Replaces the index entry's text field (entry_updated)."
+        }
+      ],
+      "cost_notes": "Free: no AI.",
+      "failure_behaviour": "An index slug that doesn't exist fails the run (recorded); publishing anything outside the series does nothing.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): a target query `{collection: <series>}` with `set_metadata` can stamp each member, but no step can read the ordered list to write an index."
+        "The first step checks membership: a one-row query for this entry in the collection.",
+        "Previous/next links are the site's: the publishing API serves the collection in the same order."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null
+        "test": "tests/test_workflow_library.py::TestExecution::test_series_index_keeper"
       },
       "brief": {
         "flow": "Series member published → refresh ordered index and navigation",
@@ -963,7 +988,7 @@
     {
       "id": "broken-link-patrol",
       "title": "Broken link patrol",
-      "outcome": "Scheduled scan → check links → create repair notes",
+      "outcome": "Every Monday, the links in each published entry are checked; the entry records how many are broken, and a notification lists the broken ones.",
       "category": "Publishing and editorial",
       "category_slug": "publishing",
       "tags": [
@@ -978,41 +1003,109 @@
         "custom_event": false,
         "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "broken-link-patrol.json",
+      "vars": "broken-link-patrol.vars.json",
+      "setup_variables": [
         {
-          "capability": "fetch",
-          "name": "HTTP fetch step",
-          "priority": "P1",
-          "acceptance": "A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry.",
-          "why": "no step can GET a URL and read the status"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The published entries whose links are checked.",
+          "example": "article"
         },
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "one note per scan, not per link"
+          "name": "body_field",
+          "type": "field_key",
+          "description": "Their text field (markdown or HTML).",
+          "example": "body"
+        },
+        {
+          "name": "notify_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+          "example": "alerts"
+        },
+        {
+          "name": "timezone",
+          "type": "text",
+          "description": "The time zone the schedule runs in (IANA name).",
+          "example": "America/New_York"
         }
       ],
+      "requires": {
+        "trigger": "schedule",
+        "action_kinds": [
+          "fetch",
+          "entry",
+          "integration"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "capability": "notify",
+            "examples": "Slack or Apprise"
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "scheduled_task",
+          "required": false,
+          "name": "Workflow: Broken link patrol",
+          "purpose": "Created and kept in sync automatically from the schedule trigger (slug wf-<automation id>, task_type run_automation). Nothing to provision.",
+          "referenced_by": "trigger",
+          "create": "automatic (services/automation/workflows.py sync_schedule)"
+        },
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "Slack or Apprise",
+          "purpose": "Where the alert goes.",
+          "referenced_by": "actions[2].integration",
+          "create": "Settings → Integrations"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "external_read",
+          "description": "One HEAD (or GET) per link, public addresses only, up to 50 links per entry."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Sets metadata.broken_links (a count; 0 when all work) on each entry checked."
+        },
+        {
+          "kind": "external_post",
+          "description": "Sends one notification per entry with broken links."
+        }
+      ],
+      "cost_notes": "Free: no AI. Network requests only.",
+      "failure_behaviour": "A dead link or server is output, never a failed run; a notifier error fails that entry's row (the others go on).",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): a schedule + target `{status: published}` + `request_review` could flag every published entry — but blindly, without checking links."
+        "Broken = no answer, 404, 410 or 5xx. 401/403/429 aren't counted: those are servers refusing robots.",
+        "Relative links (/articles/x) are checked against the workspace's site URL.",
+        "It doesn't take the entry offline: request_review would unpublish it."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "http:guarded-client",
+          "integration:notify"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_broken_link_patrol"
       },
       "brief": {
         "flow": "Scheduled scan → check links → create repair notes",
@@ -5899,7 +5992,7 @@
     {
       "id": "resource-availability-watch",
       "title": "Resource availability watch",
-      "outcome": "Schedule → check known resource URLs → flag changed availability",
+      "outcome": "Every morning, each resource of a type with a URL has its page checked; one that doesn't answer or says it's sold out sends a notification.",
       "category": "Operations and knowledge",
       "category_slug": "operations",
       "tags": [
@@ -5914,39 +6007,102 @@
         "custom_event": false,
         "note": "A schedule trigger creates its own backing scheduled task (no separate object); interval, cron (in its time zone) and once all run."
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "resource-availability-watch.json",
+      "vars": "resource-availability-watch.vars.json",
+      "setup_variables": [
         {
-          "capability": "fetch",
-          "name": "HTTP fetch step",
-          "priority": "P1",
-          "acceptance": "A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry.",
-          "why": "HEAD/GET each URL"
+          "name": "resource_type",
+          "type": "text",
+          "description": "The resources to watch (their type), e.g. supplier — each with a URL.",
+          "example": "supplier"
         },
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "one report"
+          "name": "unavailable_text",
+          "type": "text",
+          "description": "What their page says when an item is gone (case-insensitive).",
+          "example": "sold out"
+        },
+        {
+          "name": "notify_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+          "example": "alerts"
+        },
+        {
+          "name": "timezone",
+          "type": "text",
+          "description": "The time zone the schedule runs in (IANA name).",
+          "example": "America/New_York"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "schedule",
+        "action_kinds": [
+          "fetch",
+          "integration"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists",
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "capability": "notify",
+            "examples": "Slack or Apprise"
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "scheduled_task",
+          "required": false,
+          "name": "Workflow: Resource availability watch",
+          "purpose": "Created and kept in sync automatically from the schedule trigger (slug wf-<automation id>, task_type run_automation). Nothing to provision.",
+          "referenced_by": "trigger",
+          "create": "automatic (services/automation/workflows.py sync_schedule)"
+        },
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "Slack or Apprise",
+          "purpose": "Where the alert goes.",
+          "referenced_by": "actions[1].integration",
+          "create": "Settings → Integrations"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "external_read",
+          "description": "One GET per resource with a URL, public addresses only."
+        },
+        {
+          "kind": "external_post",
+          "description": "Sends one notification per resource that looks unavailable."
+        }
+      ],
+      "cost_notes": "Free: no AI. Network requests only.",
+      "failure_behaviour": "A dead page is output (and notified), never a failed run; a notifier error fails that resource's row.",
+      "dependencies": [],
+      "notes": [
+        "`find` looks for the phrase on the page ignoring case (Sold Out, SOLD OUT).",
+        "It notifies every morning while a resource stays unavailable — it reports a state, not a change."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "http:guarded-client",
+          "integration:notify"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_resource_availability_watch"
       },
       "brief": {
         "flow": "Schedule → check known resource URLs → flag changed availability",
@@ -5962,7 +6118,7 @@
     {
       "id": "project-milestone-report",
       "title": "Project milestone report",
-      "outcome": "Completion → assemble linked outcomes → create report draft",
+      "outcome": "When a project is marked finished, its log entries (the ones whose field names it) and its linked materials are gathered and an AI drafts a project report.",
       "category": "Operations and knowledge",
       "category_slug": "operations",
       "tags": [
@@ -5977,32 +6133,111 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "project-milestone-report.json",
+      "vars": "project-milestone-report.vars.json",
+      "setup_variables": [
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "linked outcomes"
+          "name": "project_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of projects.",
+          "example": "project"
+        },
+        {
+          "name": "status_field",
+          "type": "field_key",
+          "description": "The project's field that says where it stands.",
+          "example": "stage"
+        },
+        {
+          "name": "done_value",
+          "type": "text",
+          "description": "Its value when the project is finished.",
+          "example": "complete"
+        },
+        {
+          "name": "log_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries that log a project's progress (bench notes, updates).",
+          "example": "bench-note"
+        },
+        {
+          "name": "project_field",
+          "type": "field_key",
+          "description": "Their field that names the project (its slug).",
+          "example": "project"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "Their text field, for the AI to read.",
+          "example": "body"
+        },
+        {
+          "name": "report_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the report is drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "report_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_updated",
+        "action_kinds": [
+          "entry",
+          "collect",
+          "operation"
+        ],
+        "entry_ops": [
+          "set_metadata",
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Marks the project (metadata.reported) so a later save doesn't report again."
+        },
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per run)."
+        }
+      ],
+      "cost_notes": "One AI call per finished project, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error fails the run before the draft is made; metadata.reported is already set — clear it to try again.",
+      "dependencies": [],
+      "notes": [
+        "A log entry belongs to the project when its field holds the project's slug (`data: {project: ${entry.slug}}`).",
+        "Materials are the resources linked to the project, in its order (`entry: ${entry.id}`)."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_project_milestone_report"
       },
       "brief": {
         "flow": "Completion → assemble linked outcomes → create report draft",
@@ -6017,7 +6252,7 @@
     {
       "id": "knowledge-gap-finder",
       "title": "Knowledge gap finder",
-      "outcome": "Collection → find missing coverage → propose article backlog",
+      "outcome": "The published pieces of a collection are gathered and an AI proposes three to five topics it's missing, saved as a draft backlog.",
       "category": "Operations and knowledge",
       "category_slug": "operations",
       "tags": [
@@ -6031,34 +6266,80 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "knowledge-gap-finder.json",
+      "vars": "knowledge-gap-finder.vars.json",
+      "setup_variables": [
         {
-          "capability": "collection-scope",
-          "name": "Collection-scoped steps",
-          "priority": "P1",
-          "acceptance": "A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup).",
-          "why": "read the collection"
+          "name": "collection_slug",
+          "type": "collection_slug",
+          "description": "The collection to look for gaps in.",
+          "example": "workshop-reference"
+        },
+        {
+          "name": "collection_name",
+          "type": "text",
+          "description": "Its name, as the AI should read it.",
+          "example": "Workshop Reference"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the backlog is drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per run)."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An empty collection skips the AI and the draft; an AI error fails the run before the draft is made.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): `answer-workspace-question` (retrieval) can answer “what topics are missing?” as one step output today — nothing can turn the answer into entries."
+        "Up to 100 pieces, in the collection's order; the AI sees each title, summary and link."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_knowledge_gap_finder"
       },
       "brief": {
         "flow": "Collection → find missing coverage → propose article backlog",

@@ -408,8 +408,8 @@ class MediaAction(_StepBase):
 
 
 class CollectAction(_StepBase):
-    """Gathers a set of entries, assets or resources into one output, so the steps after it see them all — a digest, a
-    report, a contact sheet. `entity` and `query` are a target's (dates may be relative: -7d, now); output `rows` (each
+    """Gathers the entries, assets or resources a query matches into one output (many → one). For a digest, a report, a
+    contact sheet: `entity` and `query` are a target's (dates may be relative: -7d, now); output `rows` (each
     like ${entry.*} / ${asset.*}, plus any extra `fields` paths such as data.body), `count`, `total`, and `text` — a ready
     list for an AI prompt. Asset queries leave versions out unless they ask, as targets do."""
 
@@ -419,6 +419,28 @@ class CollectAction(_StepBase):
     fields: list[str] | None = None  # extra paths per row beyond the defaults, e.g. data.body, metadata.price
     limit: int = Field(default=25, ge=1, le=250)  # at most this many rows (the target cap)
     id: str | None = None
+
+
+class FetchAction(_StepBase):
+    """Reads a web address, or checks the links in a text — public addresses only. `url`: output `status`, `ok`,
+    `content_type`, `title`, `text` and `json` (an API's answer), and with `find` (phrases, any case) `found`; `links`
+    (a text, e.g. ${entry.data.body}; relative links resolve against `base`, default the site URL): output `checked`,
+    `broken` [{url, status, error}], `broken_count` and `text`. A dead link or server is output, never a failed step; a
+    dry run doesn't fetch."""
+
+    kind: Literal["fetch"]
+    url: str | None = None
+    method: Literal["GET", "HEAD"] = "GET"
+    find: str | list[str] | None = None  # phrases to look for on the page, ignoring case → output `found`
+    links: str | None = None
+    base: str | None = None
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _one_mode(self):
+        if bool(self.url) == (self.links is not None):
+            raise ValueError("a fetch step takes `url` (one address) or `links` (a text whose links to check)")
+        return self
 
 
 ACTION_MODELS: dict[str, type[_DefnBase]] = {
@@ -431,6 +453,7 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "approval": ApprovalAction,
     "media": MediaAction,
     "collect": CollectAction,
+    "fetch": FetchAction,
 }
 
 Action = Annotated[
@@ -442,7 +465,8 @@ Action = Annotated[
     | IntegrationAction
     | ApprovalAction
     | MediaAction
-    | CollectAction,
+    | CollectAction
+    | FetchAction,
     Field(discriminator="kind"),
 ]
 

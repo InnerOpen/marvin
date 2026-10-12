@@ -1,0 +1,55 @@
+{
+  "name": "Resource availability watch",
+  "definition": {
+    "trigger": {
+      "type": "schedule",
+      "schedule_type": "cron",
+      "schedule_config": {
+        "cron_expression": "0 7 * * *",
+        "timezone": "{{timezone}}"
+      }
+    },
+    "target": {
+      "entity": "resource",
+      "query": {
+        "resource_type": "{{resource_type}}"
+      }
+    },
+    "conditions": [
+      {
+        "field": "resource.url",
+        "op": "exists"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "fetch",
+        "id": "page",
+        "url": "${resource.url}",
+        "find": "{{unavailable_text}}"
+      },
+      {
+        "kind": "integration",
+        "integration": "{{notify_integration}}",
+        "capability": "notify",
+        "args": {
+          "title": "Check “${resource.name}”",
+          "body": "Its page may be unavailable: ${resource.url} answered ${steps.page.output.status} (0 = no answer), or says “{{unavailable_text}}”."
+        },
+        "when": {
+          "any": [
+            {
+              "field": "steps.page.output.ok",
+              "op": "eq",
+              "value": false
+            },
+            {
+              "field": "steps.page.output.found.0",
+              "op": "exists"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

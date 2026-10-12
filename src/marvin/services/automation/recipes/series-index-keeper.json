@@ -1,0 +1,52 @@
+{
+  "name": "Series index keeper",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "member",
+        "entity": "entry",
+        "query": {
+          "entries": "${entry.id}",
+          "collection": "{{collection_slug}}"
+        },
+        "limit": 1
+      },
+      {
+        "kind": "collect",
+        "id": "series",
+        "entity": "entry",
+        "query": {
+          "collection": "{{collection_slug}}",
+          "status": "published",
+          "sort": {
+            "by": "position"
+          }
+        },
+        "limit": 100,
+        "when": {
+          "field": "steps.member.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_data",
+        "entity_slug": "{{index_slug}}",
+        "data": {
+          "{{body_field}}": "${steps.series.output.text}"
+        },
+        "when": {
+          "field": "steps.member.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

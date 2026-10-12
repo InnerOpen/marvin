@@ -872,6 +872,21 @@ schedules already fired (services/cron.py) — the catalogue's "cron does not fi
 Left for aggregate: relations in a query (project-milestone-report, series-index-keeper) and one AI step fanned out
 over rows. No route schema change (no SDK).
 
+**J. Linked items + Check a web address (2026-10-12, Jared: "do 2 then 3")**
+- [x] Entry query: `entries` (ids/slugs — the entry a field names), `asset` / `resource` (entries using one), sort
+      `position` (one collection's own order, as the publishing API serves it). Asset/resource query: `entry` (what an
+      entry holds, in its order), `role` (assets). Present-but-empty or unknown → a note, never wider.
+- [x] Agent tools (find_entries, list_assets, list_resources) take the new keys.
+- [x] `fetch` step: `url` (GET/HEAD via MarvinHttpHelper, 2 MB, `find` phrases any case → `found`) or `links` (extract,
+      HEAD→GET fallback, 5 at a time, broken = no answer/404/410/5xx); dry run doesn't fetch; editor form, guide note,
+      validator, docs. `MarvinHttpHelper.head()` added.
+- [x] Recipes: series-index-keeper, project-milestone-report, knowledge-gap-finder, broken-link-patrol,
+      resource-availability-watch + execution tests (web faked at the client).
+Review: 65 verified, 31 blocked. The guide overview's recipe list became a count (it grew past the 16 000 budget with
+every recipe; `section='examples'` lists them). Condition `contains` is case-sensitive (shared matcher, left alone) —
+hence `find`. Broken-link patrol records a count and notifies instead of request_review (which would unpublish). The
+guarded client resolves the host twice (check, then connect) — a DNS-rebinding window that predates this step.
+
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
 Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to

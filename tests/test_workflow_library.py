@@ -39,6 +39,7 @@ from marvin.services.automation.context import event_context  # noqa: E402
 from marvin.services.automation.engine import run_automation_now, run_automations_for_event  # noqa: E402
 from marvin.services.automation.library import RecipeConfigError, configure, placeholders, unresolved  # noqa: E402
 from marvin.services.automation.recorder import ExecutionRecorder  # noqa: E402
+from tests.test_workflow_fetch import _web  # noqa: E402
 from tests.test_workflow_item_targets import _asset, _resource  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -269,7 +270,7 @@ def ws(db_session, monkeypatch):
     types = {}
     specs = {
         "newsletter-issue": ([_field("body", "markdown"), _field("preview")], None, None),
-        "article": ([_field("body", "markdown", required=True)], "/articles/{slug}", None),
+        "article": ([_field("body", "markdown", required=True), _field("project")], "/articles/{slug}", None),
         "campaign": ([_field("utm_source"), _field("utm_medium")], "/campaigns/{slug}", None),
         "contact-request": ([_field("email"), _field("message", "textarea")], None, {"submittable": True}),
         "project": ([_field("stage")], None, None),
@@ -363,6 +364,14 @@ def ws(db_session, monkeypatch):
         "newsletter_body_field": "body",
         "since": "-14d",
         "title": "Brand board",
+        "index_slug": "series-index",
+        "log_entry_type": "article",
+        "project_field": "project",
+        "report_entry_type": "newsletter-issue",
+        "report_body_field": "body",
+        "draft_body_field": "body",
+        "resource_type": "supplier",
+        "unavailable_text": "sold out",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1584,6 +1593,136 @@ class TestExecution:
         (draft,) = self._issues(ws)
         assert (draft.title, draft.status) == ("Pieces to refresh", "draft")
 
+    def test_series_index_keeper(self, ws):
+        from marvin.db.models.platform import Collections
+        from marvin.db.models.platform.entry_collections import EntryCollections
+
+        _install(ws, "series-index-keeper")
+        index = _entry(ws, "article", "Series index", status="published", data={"body": "(empty)"})
+        index.slug = "series-index"
+        series = ws.session.query(Collections).filter_by(group_id=ws.gid, slug="featured").one()
+        parts = {}
+        for title, order, status in (("Part two", 1, "published"), ("Part one", 0, "published"), ("Part three", 2, "draft")):
+            parts[title] = _entry(ws, "article", title, status=status, data={"body": "x"})
+            ws.session.add(EntryCollections(entry_id=parts[title].id, collection_id=series.id, sort_order=order))
+        outsider = _entry(ws, "article", "Unrelated", status="published", data={"body": "x"})
+        ws.session.commit()
+
+        _fire(ws, "entry_published", _entry_doc(outsider), entity=outsider.id, entity_type="entry", correlation_id="p-out")
+        assert _reload(ws, index).data_json["body"] == "(empty)"  # not a member: nothing to refresh
+        _fire(ws, "entry_published", _entry_doc(parts["Part two"]), entity=parts["Part two"].id, entity_type="entry", correlation_id="p-2")
+
+        lines = _reload(ws, index).data_json["body"].splitlines()
+        assert [line.split(" (")[0] for line in lines] == ["- Part one", "- Part two"]  # the series' order; the draft waits
+        assert lines[0].endswith(f"(/articles/{parts['Part one'].slug})")
+
+    def test_knowledge_gap_finder(self, ws):
+        from marvin.db.models.platform import Collections
+        from marvin.db.models.platform.entry_collections import EntryCollections
+
+        row = _install(ws, "knowledge-gap-finder")
+        featured = ws.session.query(Collections).filter_by(group_id=ws.gid, slug="featured").one()
+        for title, status in (("Waxing canvas", "published"), ("Setting rivets", "published"), ("Unfinished idea", "draft")):
+            entry = _entry(ws, "article", title, status=status, data={"body": "x"}, summary=f"How to {title.lower()}")
+            ws.session.add(EntryCollections(entry_id=entry.id, collection_id=featured.id))
+        _entry(ws, "article", "Elsewhere", status="published", data={"body": "x"})
+        ws.session.commit()
+        ws.ai.reply_text(json.dumps({"title": "Featured: what's missing", "body": "Caring for leather: the pieces cover canvas and metal only."}))
+
+        self._run(ws, row)
+
+        prompt = ws.ai.last_request()
+        assert "How to waxing canvas" in prompt and "Setting rivets" in prompt and "Featured" in prompt
+        assert "Unfinished idea" not in prompt and "Elsewhere" not in prompt
+        (backlog,) = self._issues(ws)
+        assert (backlog.title, backlog.status) == ("Featured: what's missing", "draft")
+
+    def test_project_milestone_report(self, ws):
+        from marvin.db.models.platform.entry_resources import EntryResources
+
+        _install(ws, "project-milestone-report")
+        lantern = _entry(ws, "project", "Brass lantern", data={"stage": "complete"})
+        coat = _entry(ws, "project", "Chore coat", data={"stage": "cutting"})
+        for title, project, body in (
+            ("Cutting the shade", lantern, "Cut the brass shade from a 0.5 mm sheet."),
+            ("Wiring day", lantern, "Soldered the leads; the bulb holder was too deep."),
+            ("Pattern drafting", coat, "Drafted the coat's back panel."),
+        ):
+            _entry(ws, "article", title, status="published", data={"body": body, "project": project.slug})
+        supplier = _resource(ws, "Brass sheet supply")
+        ws.session.add(EntryResources(entry_id=lantern.id, resource_id=supplier.id))
+        ws.session.commit()
+        ws.ai.reply_text(
+            json.dumps({"title": "Brass lantern: done", "body": "The lantern is finished: a cut brass shade, rewired after one setback."})
+        )
+
+        for correlation_id in ("u1", "u2"):  # a later save of the finished project doesn't report again
+            _fire(
+                ws,
+                "entry_updated",
+                _entry_doc(lantern, changed_fields=["data_json"]),
+                entity=lantern.id,
+                entity_type="entry",
+                correlation_id=correlation_id,
+            )
+
+        prompt = ws.ai.last_request()
+        assert prompt.index("Cut the brass shade") < prompt.index("Soldered the leads")  # its log, oldest first
+        assert "Brass sheet supply" in prompt and "back panel" not in prompt  # its materials; not another project's log
+        (report,) = self._issues(ws)
+        assert (report.title, report.status, len(ws.ai.requests)) == ("Brass lantern: done", "draft", 1)
+        assert _reload(ws, lantern).metadata_json["reported"] is True
+        ws.session.query(EntryResources).filter_by(resource_id=supplier.id).delete()
+        ws.session.delete(supplier)  # resources aren't swept with the workspace's entries
+        ws.session.commit()
+
+    # ── reading the web (a fetch step; the web is faked at the guarded client) ──
+    def test_broken_link_patrol(self, ws, monkeypatch):
+        row = _install(ws, "broken-link-patrol")
+        body = "Bought from [the shop](https://shop.example/brass) — see https://gone.example/guide and <a href='https://shop.example/old'>this</a>."
+        broken = _entry(ws, "article", "Brass lantern", status="published", data={"body": body})
+        fine = _entry(ws, "article", "Chore coat", status="published", data={"body": "All at https://shop.example/brass."})
+        _entry(ws, "article", "Unfinished", data={"body": "https://gone.example/draft"})  # a draft isn't patrolled
+        calls = _web(monkeypatch, {"https://shop.example/brass": (200, "text/html", ""), "https://shop.example/old": (404, "text/html", "")})
+
+        self._run(ws, row, trigger_kind="schedule")
+
+        assert "https://gone.example/draft" not in {url for _, url in calls}
+        assert (_reload(ws, broken).metadata_json["broken_links"], _reload(ws, fine).metadata_json["broken_links"]) == (2, 0)
+        (sent,) = ws.providers["apprise"].calls  # only the entry with broken links
+        assert sent["title"] == "Broken links in “Brass lantern”" and sent["body"].splitlines()[:3] == [
+            "2 of 3 links don't work:",
+            "- https://gone.example/guide — no answer (ConnectionRefusedError: connection refused)",
+            "- https://shop.example/old — 404",
+        ]
+
+    def test_resource_availability_watch(self, ws, monkeypatch):
+        from marvin.db.models.platform import Resources
+
+        row = _install(ws, "resource-availability-watch")
+        for name, url in (
+            ("Brass supply", "https://brass.example/sheet"),
+            ("Canvas mill", "https://canvas.example/waxed"),
+            ("Rivet shop", "https://rivets.example/copper"),
+            ("Local smith", None),  # no page to check
+        ):
+            _resource(ws, name, url=url)
+        ws.session.commit()
+        _web(
+            monkeypatch,
+            {
+                "https://brass.example/sheet": (200, "text/html", "<title>Brass sheet</title> In stock"),
+                "https://canvas.example/waxed": (200, "text/html", "<title>Waxed canvas</title> SOLD OUT"),
+            },
+        )
+
+        self._run(ws, row, trigger_kind="schedule")
+
+        sent = sorted(c["title"] for c in ws.providers["apprise"].calls)
+        assert sent == ["Check “Canvas mill”", "Check “Rivet shop”"]  # says sold out; no answer
+        ws.session.query(Resources).filter(Resources.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
     @needs_browser
     def test_best_of_month(self, ws, store):
         row = _install(ws, "best-of-month")
@@ -1658,7 +1797,7 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     assert one["definition"] == recipes.load_recipe("newsletter-delivery")["definition"] and "newsletter_integration" in one["setup_variables"]
     assert "{{" in json.dumps(one["definition"]) and "${entry.title}" in json.dumps(one["definition"])
     overview = authoring_guide(ws.session, ws.gid)["examples"]
-    assert sorted(overview["available"]) == WORKFLOW_RECIPES and "recipe=<id>" in overview["note"]  # ids only; one in full on request
+    assert overview["count"] == len(WORKFLOW_RECIPES) and "section='examples'" in overview["note"]  # the list is a call away
 
     # Disconnect Buttondown: the newsletter recipe is no longer offered, and asking for it says why.
     ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="newsletter").update({"enabled": False})
@@ -1670,7 +1809,7 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     assert "buttondown" in asked["error"] and "publication-ledger" in asked["available"]
     assert "no such recipe" in authoring_guide(ws.session, ws.gid, "examples", "nope")["examples"]["error"]
     # An idea is never offered, however the workspace is set up.
-    assert "status is needs-engine-capability" in authoring_guide(ws.session, ws.gid, "examples", "broken-link-patrol")["examples"]["error"]
+    assert "status is needs-engine-capability" in authoring_guide(ws.session, ws.gid, "examples", "agent-directory-intake")["examples"]["error"]
 
 
 def test_draft_workflow_instantiates_a_recipe_with_typed_vars(ws):
@@ -1689,7 +1828,7 @@ def test_draft_workflow_instantiates_a_recipe_with_typed_vars(ws):
     assert "must be a integer" in out["error"] and "interval_seconds" in out["setup_variables"]
     out = _tool(ws, "draft_workflow", {"recipe": "newsletter-delivery", "vars": {}})
     assert "missing setup value" in out["error"]
-    out = _tool(ws, "draft_workflow", {"recipe": "broken-link-patrol", "vars": {}})
+    out = _tool(ws, "draft_workflow", {"recipe": "agent-directory-intake", "vars": {}})
     assert "not runnable" in out["error"] and "publication-ledger" in out["available"]
     out = _tool(ws, "draft_workflow", {"name": "x"})
     assert "Pass a definition, or a recipe" in out["error"]
@@ -1716,7 +1855,7 @@ def test_a_workspace_type_and_a_built_in_with_the_same_slug_are_listed_once(ws):
     ws.session.commit()
     try:
         articles = [t for t in workspace_refs(ws.session, ws.gid).entry_types if t["slug"] == "article"]
-        assert len(articles) == 1 and articles[0]["fields"] == ["body"]  # the workspace's own, as a step resolves it
+        assert len(articles) == 1 and articles[0]["fields"] == ["body", "project"]  # the workspace's own, as a step resolves it
     finally:
         ws.session.delete(built_in)
         ws.session.commit()

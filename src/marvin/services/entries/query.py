@@ -14,6 +14,8 @@ A spec is a plain dict (all keys optional, unknown keys ignored):
 - ``text`` / ``query`` — title or slug contains (case-insensitive).
 - ``tags`` — any of these tags (slug or name). ``collection`` / ``collections`` — in any of these (slug or name).
 - ``has_images`` / ``has_assets`` / ``has_resources``.
+- ``entries`` — exactly these entries (ids or slugs; one or a list): the entry a field names (``${entry.data.project}``).
+- ``asset`` / ``resource`` — linked to this asset / resource (id or slug): the entries that use a picture or a supplier.
 - ``fields`` / ``data`` — exact match on the entry type's own fields ``{key: value}``; ``metadata`` the same on
   metadata. Typed-in text matches checkbox/number values. An empty value matches nothing.
 - ``where`` — ``[{"field": key, "op": op, "value": v}]``; ``field`` is a field key, or ``metadata.<key>``.
@@ -21,8 +23,9 @@ A spec is a plain dict (all keys optional, unknown keys ignored):
   (`"$1,170"` → 1170), so they work on fields stored as text.
 - ``created_after``/``created_before``, ``updated_after``/``updated_before``, ``published_after``/``published_before``
   — ISO dates or datetimes (UTC), or relative to now: ``-7d``, ``-12h``, ``-2w``, ``now``, ``today``.
-- ``sort`` — ``{"by": "title"|"created_at"|"updated_at"|"published_at"|<field key>, "direction": "asc"|"desc"}``;
-  a field sorts numerically when its values are number-like, else as text; empty values sort last.
+- ``sort`` — ``{"by": "title"|"created_at"|"updated_at"|"published_at"|"position"|<field key>, "direction": "asc"|"desc"}``;
+  a field sorts numerically when its values are number-like, else as text; empty values sort last. ``position`` is the
+  order of the one ``collection`` the spec names, as the site shows it (its order, then newest published).
 - ``group_by`` — a field key, or ``publish_status`` / ``entry_type``: counts per value over the whole match.
 
 In ``where``, ``sort`` and ``group_by`` a bare key is always the entry type's own field (a type may well
@@ -43,7 +46,8 @@ SCAN_CAP = 5000
 
 SPEC_KEYS = (
     *("entry_type", "entry_types", "status", "statuses", "text", "query", "tags", "collection", "collections"),
-    *("has_images", "has_assets", "has_resources", "fields", "data", "metadata", "where", "sort", "group_by"),
+    *("has_images", "has_assets", "has_resources", "entries", "asset", "resource"),
+    *("fields", "data", "metadata", "where", "sort", "group_by"),
     *(f"{name}_{edge}" for name in ("created", "updated", "published") for edge in ("after", "before")),
 )
 """Every key a spec understands. Unknown keys are ignored, so a caller that must never widen a selection (the
@@ -51,22 +55,26 @@ agent's trash_entries `match`) rejects any key not here instead."""
 
 WHERE_OPS = ("eq", "neq", "in", "contains", "exists", "missing", "gt", "gte", "lt", "lte")
 COLUMN_SORTS = ("title", "created_at", "updated_at", "published_at")
+POSITION = "position"  # a collection's own order (sort.by)
 
 # What each of SPEC_KEYS means, in a line — the agent's workflow authoring guide lists these for a workflow's
 # `target.query` (test_entry_query keeps both matching what `build` / `run` read).
 SPEC_KEY_NOTES: dict[str, str] = {
     "entry_type": "entry type slug (`entry_types`: a list)",
     "entry_types": "entry type slugs, any of",
-    "status": "publish status (`statuses`: a list); the Trash is left out unless `trashed` is asked for",
+    "status": "publish status (`statuses`: a list); the Trash is left out unless `trashed` is named",
     "statuses": "publish statuses, any of",
     "text": "title or slug contains (same as `query`)",
-    "query": "title or slug contains (same as `text`)",
+    "query": "same as `text`",
     "tags": "has any of these tags (slug or name)",
     "collection": "in this collection (slug or name; `collections`: a list)",
     "collections": "in any of these collections",
-    "has_images": "true: has an image asset attached",
+    "has_images": "true: has an image attached",
     "has_assets": "true: has any asset attached",
     "has_resources": "true: has a resource linked",
+    "entries": "exactly these (ids or slugs), e.g. ${entry.data.project}",
+    "asset": "uses this asset (id or slug)",
+    "resource": "has this resource linked (id or slug)",
     "fields": "exact match on the entry type's own fields, {field_key: value}",
     "data": "same as `fields`",
     "metadata": "exact match on metadata_json keys, {key: value}",
@@ -77,7 +85,7 @@ SPEC_KEY_NOTES: dict[str, str] = {
     "updated_before": "a date, as created_after",
     "published_after": "a date, as created_after; also published_before",
     "published_before": "a date, as created_after",
-    "sort": f"{{by: {' | '.join(COLUMN_SORTS)} | <field key>, direction: asc | desc}}",
+    "sort": f"{{by: {' | '.join(COLUMN_SORTS)} | position | <field key>, direction: asc | desc}}; position: the collection's order",
     "group_by": "a field key, publish_status or entry_type: counts per value",
 }
 _NUMBER = re.compile(r"-?\d+(?:\.\d+)?")
@@ -206,6 +214,10 @@ def build(session, group_id, spec: dict | None):
         resource_links = session.query(EntryResources.entry_id).join(Resources, Resources.id == EntryResources.resource_id)
         q = q.filter(Entries.id.in_(resource_links.filter(Resources.trashed_at.is_(None))))
 
+    q, note = _linked(session, group_id, q, spec)
+    if note:
+        return nothing, note
+
     # An empty/None value matches NOTHING rather than dropping the filter: a template that resolved to
     # nothing must never widen the query to the whole workspace.
     for key_name, column in (("metadata", Entries.metadata_json), ("fields", Entries.data_json), ("data", Entries.data_json)):
@@ -227,6 +239,61 @@ def build(session, group_id, spec: dict | None):
             q = q.filter(column < before)
 
     return q, None
+
+
+def _linked(session, group_id, q, spec: dict):
+    """entries / asset / resource: what an entry is linked to. A key present with nothing in it (a template that
+    resolved to nothing) or naming something that isn't there matches nothing, with a note — never everything."""
+    from marvin.db.models.platform.assets import Assets
+    from marvin.db.models.platform.entries import Entries
+    from marvin.db.models.platform.entry_assets import EntryAssets
+    from marvin.db.models.platform.entry_resources import EntryResources
+    from marvin.db.models.platform.resources import Resources
+
+    if "entries" in spec:
+        refs = [str(r).strip() for r in _as_list(spec["entries"]) if str(r or "").strip()]
+        if not refs:
+            return q, "entries has no value"
+        q = q.filter(Entries.slug.in_(refs) | Entries.id.in_(_uuids(refs)))
+    for key, model, link, fk in (("asset", Assets, EntryAssets, "asset_id"), ("resource", Resources, EntryResources, "resource_id")):
+        if key not in spec:
+            continue
+        ref = str(spec[key] or "").strip()
+        if not ref:
+            return q, f"{key} has no value"
+        found = session.query(model.id).filter(model.group_id == group_id, (model.slug == ref) | model.id.in_(_uuids([ref]))).first()
+        if found is None:
+            return q, f"no {key} {ref!r} in this workspace"
+        q = q.filter(Entries.id.in_(session.query(link.entry_id).filter(getattr(link, fk) == found[0])))
+    return q, None
+
+
+def _uuids(refs: list[str]) -> list:
+    import uuid
+
+    out = []
+    for ref in refs:
+        try:
+            out.append(uuid.UUID(ref))
+        except ValueError:
+            pass
+    return out
+
+
+def _positions(session, group_id, spec: dict) -> tuple[dict | None, str | None]:
+    """entry id → place in the one collection the spec names (sort by position), or a note why there isn't one."""
+    from marvin.db.models.platform.collections import Collections
+    from marvin.db.models.platform.entry_collections import EntryCollections
+
+    named = _as_list(spec.get("collection")) + _as_list(spec.get("collections"))
+    if len(named) != 1:
+        return None, "sort by position needs exactly one collection"
+    named_match = (Collections.slug == named[0]) | (Collections.name == named[0])
+    coll = session.query(Collections.id).filter(Collections.group_id == group_id, named_match).first()
+    if coll is None:
+        return None, f"no such collection(s) in this workspace: {named[0]}"
+    rows = session.query(EntryCollections.entry_id, EntryCollections.sort_order).filter(EntryCollections.collection_id == coll[0])
+    return dict(rows.all()), None
 
 
 def _field_value(entry, key: str):
@@ -322,6 +389,11 @@ def run(session, group_id, spec: dict | None, *, limit: int | None = None, offse
         rows = page.limit(limit).all() if limit is not None else page.all()
         return EntryQueryResult(rows=rows, total=total, unknown_ops=unknown_ops)
 
+    positions = None
+    if sort_by == POSITION:
+        positions, note = _positions(session, group_id, spec)
+        if note:
+            return EntryQueryResult(rows=[], total=0, note=note)
     candidates = q.order_by(Entries.created_at.desc(), Entries.id).limit(SCAN_CAP + 1).all()
     scan_capped = len(candidates) > SCAN_CAP
     candidates = candidates[:SCAN_CAP]
@@ -337,7 +409,11 @@ def run(session, group_id, spec: dict | None, *, limit: int | None = None, offse
         groups = dict(sorted(groups.items(), key=lambda kv: (-kv[1], kv[0])))
 
     if sort_by:
-        if sort_by in COLUMN_SORTS:
+        if positions is not None:  # as the publishing API orders a collection: its order, then newest published
+            oldest = datetime.min.replace(tzinfo=None)
+            matched.sort(key=lambda e: (e.published_at or oldest).replace(tzinfo=None), reverse=True)
+            matched.sort(key=lambda e: positions.get(e.id, 0), reverse=descending)
+        elif sort_by in COLUMN_SORTS:
             attr = "update_at" if sort_by == "updated_at" else sort_by
             filled = [e for e in matched if getattr(e, attr) is not None]
             filled.sort(key=lambda e: getattr(e, attr) if attr != "title" else (e.title or "").lower(), reverse=descending)

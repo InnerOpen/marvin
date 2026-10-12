@@ -87,7 +87,7 @@ an unreadable date now stops the query instead of being ignored. Render steps ta
 `moodboard` templates). Times across the admin show in your own time zone (they were the server's, UTC), and the AI
 Executions list says which tools an agent run used. Seven new Library recipes use it: Weekly digest, Best of month,
 Contact sheet maker, Color moodboard, Release notes compiler, Personal project radar and Evergreen resurfacer. See
-[Workflows → Gather items](workflows.md#gather-items-many-one). Unreleased (2026-10-12).
+[Workflows → Gather items](workflows.md#gather-items-many-one). Queries also follow links: the entry a field names (`entries`), the entries using an asset or resource, what an entry holds (`entry`, `role`), and a collection in its own order (sort `position`) — which makes Series index keeper, Project milestone report and Knowledge gap finder. A **Check a web address** step (`fetch`) reads a public page or API, or checks the links in a text — Broken link patrol and Resource availability watch use it. See [Workflows → Check a web address](workflows.md#check-a-web-address). Unreleased (2026-10-12).
 
 ## Media embeds
 

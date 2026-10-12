@@ -13,7 +13,7 @@ from marvin.services.ai.media import render
 from marvin.services.automation.authoring import draft_issues
 from marvin.services.entries.query import _when
 from tests.test_workflow_authoring import workspace, ws  # noqa: F401 — fixtures
-from tests.test_workflow_media import _derivatives, _png, _stored, _workflow, media  # noqa: F401
+from tests.test_workflow_media import _derivatives, _link, _png, _stored, _workflow, media  # noqa: F401
 
 needs_browser = pytest.mark.skipif(render.browser_path() is None, reason="no headless Chromium (chromium-headless-shell) here")
 
@@ -142,3 +142,84 @@ def test_the_validator_reads_a_collect_query(ws):
     step = {"kind": "collect", "entity": "resource", "query": {"where": [{"field": "x", "op": "eq", "value": 1}]}}
     issues = draft_issues(ws.session, ws.gid, {"trigger": {"type": "manual"}, "actions": [step]})
     assert any(str(i.get("path", "")).startswith("actions[0].query") for i in issues), issues
+
+
+# ── Linked items: what an entry names, uses, holds — and a collection's own order ──
+def _query(ws, spec):
+    from marvin.services.entries.query import run
+
+    return run(ws.session, ws.gid, spec)
+
+
+def test_entries_follows_a_field_to_the_entry_it_names(media):
+    lantern, coat = _entry(media, "Brass lantern"), _entry(media, "Chore coat")
+    note = _entry(media, "Wiring day")
+    note.data_json = {"project": lantern.slug}
+    media.session.commit()
+
+    assert [e.id for e in _query(media, {"entries": note.data_json["project"]}).rows] == [lantern.id]
+    by_both = _query(media, {"entries": [lantern.slug, str(coat.id)]}).rows
+    assert {e.id for e in by_both} == {lantern.id, coat.id}  # ids or slugs
+    assert [e.id for e in _query(media, {"data": {"project": lantern.slug}}).rows] == [note.id]  # and back: what names it
+    empty = _query(media, {"entries": ""})
+    assert (empty.rows, empty.note) == ([], "entries has no value")  # a template that resolved to nothing never widens
+
+
+def test_asset_and_resource_find_the_entries_that_use_them(media):
+    from marvin.db.models.platform.entry_resources import EntryResources
+    from tests.test_workflow_item_targets import _resource
+
+    lantern, coat, _other = _entry(media, "Brass lantern"), _entry(media, "Chore coat"), _entry(media, "Loom")
+    photo = _stored(media, "lantern-photo", _png())
+    _link(media, lantern, photo, "hero")
+    supplier = _resource(media, "Brass supply")
+    media.session.add(EntryResources(entry_id=coat.id, resource_id=supplier.id))
+    media.session.commit()
+
+    assert [e.id for e in _query(media, {"asset": photo.slug}).rows] == [lantern.id]
+    assert [e.id for e in _query(media, {"resource": str(supplier.id)}).rows] == [coat.id]
+    missing = _query(media, {"resource": "no-such-supplier"})
+    assert missing.rows == [] and "no resource 'no-such-supplier'" in missing.note
+
+
+def test_position_is_a_collections_own_order(media):
+    from marvin.db.models.platform.collections import Collections
+    from marvin.db.models.platform.entry_collections import EntryCollections
+
+    series = Collections(session=media.session, group_id=media.gid, name="Series", slug="series")
+    media.session.add(series)
+    media.session.flush()
+    parts = {title: _entry(media, title) for title in ("Part two", "Part one", "Part three", "Extra")}
+    for title, order in (("Part one", 0), ("Part two", 1), ("Part three", 2), ("Extra", 2)):
+        parts[title].published_at = datetime.now(UTC) - timedelta(days=1 if title == "Extra" else 5)
+        media.session.add(EntryCollections(entry_id=parts[title].id, collection_id=series.id, sort_order=order))
+    _entry(media, "Not in it")
+    media.session.commit()
+
+    in_order = _query(media, {"collection": "series", "sort": {"by": "position"}}).rows
+    assert [e.title for e in in_order] == ["Part one", "Part two", "Extra", "Part three"]  # a tie: newest published first
+    no_collection = _query(media, {"sort": {"by": "position"}})
+    assert no_collection.rows == [] and no_collection.note == "sort by position needs exactly one collection"
+
+
+def test_entry_lists_an_entrys_pictures_in_its_order_and_role(media):
+    from marvin.db.models.platform.entry_assets import EntryAssets
+    from marvin.services import item_query
+
+    lantern = _entry(media, "Brass lantern")
+    shots = [_stored(media, name, _png()) for name in ("a-detail", "b-hero", "c-side")]
+    for asset, position, role in ((shots[0], 2, "gallery"), (shots[1], 0, "hero"), (shots[2], 1, "gallery")):
+        media.session.add(EntryAssets(entry_id=lantern.id, asset_id=asset.id, position=position, role=role))
+    _stored(media, "elsewhere", _png())
+    media.session.commit()
+
+    def ids(spec):
+        result = item_query.run(media.session, media.gid, "asset", spec)
+        assert result.note is None, result.note
+        return [r.id for r in result.rows]
+
+    assert ids({"entry": lantern.slug}) == [shots[1].id, shots[2].id, shots[0].id]  # the entry's order, not by name
+    assert ids({"entry": str(lantern.id), "role": "gallery"}) == [shots[2].id, shots[0].id]
+    assert ids({"role": "hero"}) == [shots[1].id]
+    gone = item_query.run(media.session, media.gid, "asset", {"entry": "no-such-entry"})
+    assert gone.rows == [] and gone.note == "no entry 'no-such-entry' in this workspace"

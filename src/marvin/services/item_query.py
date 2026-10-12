@@ -18,7 +18,9 @@ check ``unknown_keys`` first):
   versions an entry uses counts as attached. A version made from an
   original still in the library is never "unattached": it goes with its original, so a cleanup of unattached
   images can't sweep a crop pack — unless the spec asks for versions itself (``versions: true`` or ``source``).
-- ``created_after`` / ``created_before`` — ISO dates or datetimes (UTC).
+- ``entry`` — attached to this entry (id or slug), in the entry's own order; ``role`` — assets only: attached in this
+  role (``hero``), to that entry or, without ``entry``, to any.
+- ``created_after`` / ``created_before`` — ISO dates or datetimes (UTC), or relative (``-7d``).
 - ``trashed`` — true: only items in the Trash (the Trash's side, for a restore).
 - ``origin`` / ``origins`` — assets only: upload, derived (made from another asset) or generated (by an integration).
 - ``versions`` — assets only: false leaves out versions of an original that is still in the library (the library's
@@ -37,9 +39,9 @@ from marvin.services.automation.matcher import as_bool
 from marvin.services.entries.query import _as_list, _when
 
 ASSET, RESOURCE = "asset", "resource"
-_COMMON = ("text", "query", "tags", "collection", "collections", "unattached", "created_after", "created_before", "trashed")
+_COMMON = ("text", "query", "tags", "collection", "collections", "unattached", "entry", "created_after", "created_before", "trashed")
 KEYS = {
-    ASSET: (*_COMMON, "asset_type", "asset_types", "mime_type", "mime_types", "origin", "origins", "versions", "source"),
+    ASSET: (*_COMMON, "asset_type", "asset_types", "mime_type", "mime_types", "origin", "origins", "versions", "source", "role"),
     RESOURCE: (*_COMMON, "resource_type", "resource_types"),
 }
 
@@ -57,8 +59,9 @@ KEY_NOTES: dict[str, dict[str, str]] = {
         "collections": "in any of these collections",
         "unattached": "true: attached to no entry (an asset's versions of an original still in the library don't count); "
         "false: attached to at least one",
+        "entry": "attached to this entry (id or slug), in its order",
         "created_after": "ISO date/datetime (UTC) or relative: -7d, -12h, -2w, now, today; also created_before",
-        "created_before": "ISO date/datetime (UTC) or relative (-7d…)",
+        "created_before": "a date, as created_after",
         "trashed": "true: only items in the Trash (left out otherwise) — a `restore` target",
         **(
             {
@@ -71,6 +74,7 @@ KEY_NOTES: dict[str, dict[str, str]] = {
                 "versions": "false: leave out versions of an original still in the library; true: only versions; all: both "
                 "(a workflow's asset target leaves them out unless it sets versions, source or origin derived)",
                 "source": "the versions made from this asset (id or slug)",
+                "role": "attached in this role (e.g. hero), to `entry` or to any entry",
             }
             if kind == ASSET
             else {"resource_type": "the resource's type, e.g. supplier (`resource_types`: a list)", "resource_types": "resource types, any of"}
@@ -156,6 +160,11 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
             return nothing, f"no such collection(s) in this workspace: {', '.join(collections)}"
         q = q.filter(model.id.in_(session.query(getattr(coll_link, fk)).filter(coll_link.collection_id.in_(coll_ids))))
 
+    if "entry" in spec or (kind == ASSET and "role" in spec):
+        q, note = _attached_to(session, group_id, q, model, entry_link, fk, spec)
+        if note:
+            return nothing, note
+
     if spec.get("unattached") is not None:
         unattached = as_bool(str(spec["unattached"]))
         if unattached is None:
@@ -175,6 +184,42 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
                 return nothing, f"{key} is not a date: {spec[key]!r} (an ISO date, or relative like -7d, -12h, -2w, now, today)"
             q = q.filter(keep(at))
     return q, None
+
+
+def _attached_to(session, group_id, q, model, link, fk: str, spec: dict):
+    """entry / role: the links an entry has. A key present with nothing in it, or an entry that isn't there, matches
+    nothing — a template that resolved to nothing must never widen the selection."""
+    from marvin.db.models.platform.entries import Entries
+    from marvin.services.entries.query import _uuids
+
+    links = session.query(getattr(link, fk))
+    if "entry" in spec:
+        ref = str(spec["entry"] or "").strip()
+        if not ref:
+            return q, "entry has no value"
+        found = session.query(Entries.id).filter(Entries.group_id == group_id, (Entries.slug == ref) | Entries.id.in_(_uuids([ref]))).first()
+        if found is None:
+            return q, f"no entry {ref!r} in this workspace"
+        links = links.filter(link.entry_id == found[0])
+    if "role" in spec:
+        if not str(spec["role"] or "").strip():
+            return q, "role has no value"
+        links = links.filter(link.role == str(spec["role"]).strip())
+    return q.filter(model.id.in_(links)), None
+
+
+def _entry_order(session, group_id, kind: str, spec: dict):
+    """{item id: position} on the entry ``spec`` names, so its pictures come in the entry's own order."""
+    from marvin.db.models.platform import EntryAssets, EntryResources
+    from marvin.db.models.platform.entries import Entries
+    from marvin.services.entries.query import _uuids
+
+    link, fk = (EntryAssets, "asset_id") if kind == ASSET else (EntryResources, "resource_id")
+    ref = str(spec.get("entry") or "").strip()
+    entry = session.query(Entries.id).filter(Entries.group_id == group_id, (Entries.slug == ref) | Entries.id.in_(_uuids([ref]))).first()
+    if entry is None:
+        return {}
+    return dict(session.query(getattr(link, fk), link.position).filter(link.entry_id == entry[0]).all())
 
 
 def live_originals(group_id):
@@ -227,4 +272,8 @@ def run(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fals
     model = q.column_descriptions[0]["entity"]
     total = q.count()
     page = q.order_by(model.name, model.id)
+    if (spec or {}).get("entry"):  # the entry's own order (a gallery as it shows), by name after that
+        order = _entry_order(session, group_id, kind, spec)
+        rows = sorted(page.all(), key=lambda r: order.get(r.id, len(order)))
+        return ItemQueryResult(rows=rows[:limit] if limit is not None else rows, total=total)
     return ItemQueryResult(rows=page.limit(limit).all() if limit is not None else page.all(), total=total)

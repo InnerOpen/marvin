@@ -26,6 +26,7 @@ import typing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 # What the guide offers in detail (`section=`); without one it gives a bounded overview of all of them.
 SECTIONS = ("shape", "triggers", "events", "target", "conditions", "actions", "templates", "workspace", "examples", "editor")
@@ -367,7 +368,11 @@ def _actions(detail: bool) -> dict:
         "asset_resource_ops": _item_ops(detail),
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}; any step takes `when` (run only if).",
-        **({"when": WHEN_NOTE, "media": MEDIA_NOTE, "collect": COLLECT_NOTE, "render_templates": _render_templates()} if detail else {}),
+        **(
+            {"when": WHEN_NOTE, "media": MEDIA_NOTE, "collect": COLLECT_NOTE, "fetch": FETCH_NOTE, "render_templates": _render_templates()}
+            if detail
+            else {}
+        ),
     }
 
 
@@ -388,6 +393,12 @@ COLLECT_NOTE = (
     "paths such as data.body), count, total and text — a ready list for a custom AI step's prompt "
     "(${steps.<id>.output.text}). A render step's images may take ${steps.<id>.output.rows} whole (the grid and "
     "moodboard templates). Use `when` on count (gt 0) to skip an empty digest."
+)
+FETCH_NOTE = (
+    "fetch reads the web for a step: with a target over published entries, links: ${entry.data.body} then a `when` on "
+    "steps.<id>.output.broken_count (gt 0) → request_review with ${steps.<id>.output.text} is a broken-link patrol. Broken = "
+    "no answer, 404, 410 or 5xx (401/403/429 are a server refusing robots). url: a resource's page "
+    '(${resource.url}) → `when` on output.ok; find: "sold out" (any case) → output.found lists what is there. Public addresses only.'
 )
 MEDIA_NOTE = (
     "A media step works on one image (jpeg, png, webp): source is an asset id or slug (default ${asset.id}), "
@@ -504,10 +515,11 @@ def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
             "note": _EXAMPLES_NOTE + " Call again with recipe=<id> for one recipe's full definition and setup variables.",
             "recipes": [{"recipe": r["id"], "outcome": r["outcome"]} for r in offered],
         }
-    # Ids only: the list grows with every recipe, and the overview has a size budget. One recipe in full is a call away.
+    # A count only: the list grows with every recipe and the overview has a size budget. The list is a call away.
     return {
-        "note": _EXAMPLES_NOTE + " section='examples' lists them with their outcomes; recipe=<id> shows one in full.",
-        "available": [r["id"] for r in offered],
+        "note": _EXAMPLES_NOTE + " section='examples' lists them with their outcomes — look there before writing one from "
+        "scratch; recipe=<id> shows one in full.",
+        "count": len(offered),
     }
 
 
@@ -806,6 +818,14 @@ def _step_issues(
                 bad(field_name, f"{field_name} goes with an action that makes images; “{slug}.{key}” doesn't.")
     elif kind == "media":
         _media_step_issues(step, refs, bad)
+    elif kind == "fetch":
+        _fetch_step_issues(step, bad)
+
+
+def _fetch_step_issues(step: dict, bad) -> None:
+    url = step.get("url")
+    if isinstance(url, str) and not _templated(url) and urlparse(url.strip()).scheme not in ("http", "https"):
+        bad("url", f"“{url}” isn't a web address: it needs http:// or https://.")
 
 
 def _media_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:

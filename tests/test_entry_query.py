@@ -179,8 +179,9 @@ def test_spec_keys_are_exactly_what_the_query_reads():
 
     from marvin.services.entries import query
 
-    source = inspect.getsource(query.build) + inspect.getsource(query.run)
-    read = set(re.findall(r'spec\.get\("([a-z_]+)"', source))
+    source = inspect.getsource(query.build) + inspect.getsource(query.run) + inspect.getsource(query._linked)
+    read = set(re.findall(r'spec\.get\("([a-z_]+)"', source)) | set(re.findall(r'if "([a-z_]+)" in spec', source))
+    read |= set(re.findall(r'\("([a-z]+)", (?:Assets|Resources), ', source))
     read |= {f"{name}_{side}" for name in re.findall(r'\("([a-z]+)", Entries\.\w+_at\)', source) for side in ("after", "before")}
     read |= set(re.findall(r'\("([a-z]+)", Entries\.(?:metadata|data)_json\)', source))
     assert read == set(query.SPEC_KEYS) == set(query.SPEC_KEY_NOTES)

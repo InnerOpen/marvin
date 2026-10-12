@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-107 recipes: **60** verified-current, **11** supported-after-configuration, **8** needs-adapter, **28** needs-engine-capability.
+107 recipes: **65** verified-current, **11** supported-after-configuration, **8** needs-adapter, **23** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -15,7 +15,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [editorial-approval-gate](../../src/marvin/services/automation/recipes/editorial-approval-gate.json) — Editorial approval gate | verified-current | `entry_updated` | entry type with required fields (its completeness rules are the validation) | content mutation |
 | [seo-assistant](../../src/marvin/services/automation/recipes/seo-assistant.json) — SEO assistant | verified-current | `entry_updated` | AI enabled for the workspace with the `automation` invocation source allowed; a default model | content mutation, paid call ⚠ |
 | [translation-desk](../../src/marvin/services/automation/recipes/translation-desk.json) — Translation desk | verified-current | `entry_published` | — | content mutation, paid call |
+| [series-index-keeper](../../src/marvin/services/automation/recipes/series-index-keeper.json) — Series index keeper | verified-current | `entry_published` | — | content mutation |
 | [weekly-digest](../../src/marvin/services/automation/recipes/weekly-digest.json) — Weekly digest | verified-current | `schedule` | — | content mutation, paid call |
+| [broken-link-patrol](../../src/marvin/services/automation/recipes/broken-link-patrol.json) — Broken link patrol | verified-current | `schedule` | an integration that can notify (Slack or Apprise) | content mutation, external post, external read |
 | [content-refresh](../../src/marvin/services/automation/recipes/content-refresh.json) — Content refresh | verified-current | `entry_updated` | outgoing webhook | external post |
 | [featured-collection-curator](../../src/marvin/services/automation/recipes/featured-collection-curator.json) — Featured collection curator | verified-current | `entry_published` | — | content mutation, paid call |
 | [comment-discussion-starter](../../src/marvin/services/automation/recipes/comment-discussion-starter.json) — Comment discussion starter | verified-current | `entry_published` | outgoing webhook | content mutation, external post |
@@ -50,6 +52,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [alternate-universe-cover](../../src/marvin/services/automation/recipes/alternate-universe-cover.json) — Alternate universe cover | verified-current | `entry_published` | openai_images integration | content mutation, paid call |
 | [fictional-debate-club](../../src/marvin/services/automation/recipes/fictional-debate-club.json) — Fictional debate club | verified-current | `manual` | — | content mutation, paid call |
 | [client-handoff](../../src/marvin/services/automation/recipes/client-handoff.json) — Client handoff | verified-current | `entry_updated` | outgoing webhook | content mutation, external post |
+| [resource-availability-watch](../../src/marvin/services/automation/recipes/resource-availability-watch.json) — Resource availability watch | verified-current | `schedule` | an integration that can notify (Slack or Apprise) | external post, external read |
+| [project-milestone-report](../../src/marvin/services/automation/recipes/project-milestone-report.json) — Project milestone report | verified-current | `entry_updated` | — | content mutation, paid call |
+| [knowledge-gap-finder](../../src/marvin/services/automation/recipes/knowledge-gap-finder.json) — Knowledge gap finder | verified-current | `manual` | — | content mutation, paid call |
 | [meeting-notes-to-tasks](../../src/marvin/services/automation/recipes/meeting-notes-to-tasks.json) — Meeting notes to tasks | verified-current | `entry_created` | — | content mutation, paid call |
 | [release-notes-compiler](../../src/marvin/services/automation/recipes/release-notes-compiler.json) — Release notes compiler | verified-current | `manual` | — | content mutation, paid call |
 | [failure-repair-desk](../../src/marvin/services/automation/recipes/failure-repair-desk.json) — Failure repair desk | verified-current | `on_error` (`automation_failed`) | — | content mutation |
@@ -87,8 +92,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | Recipe | Status | Trigger | Blocked by |
 |---|---|---|---|
 | `audio-edition` — Audio edition | needs-adapter | `entry_published` | media-adapters |
-| `series-index-keeper` — Series index keeper | needs-engine-capability | `entry_published` | iterate-aggregate, collection-scope |
-| `broken-link-patrol` — Broken link patrol | needs-engine-capability | `schedule` | fetch, iterate-aggregate |
 | `living-resource-collection` — Living resource collection | needs-engine-capability | `resource_updated` | asset-resource-targets |
 | `publication-release-gate` — Publication release gate | needs-engine-capability | `entry_updated` | joins |
 | `carousel-storyteller` — Carousel storyteller | needs-adapter | `entry_published` | social-adapters |
@@ -116,9 +119,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `time-capsule` — Time capsule | needs-engine-capability | `entry_updated` | snapshots, waits |
 | `surprise-remix-button` — Surprise remix button | needs-engine-capability | `manual` | manual-params |
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox |
-| `resource-availability-watch` — Resource availability watch | needs-engine-capability | `schedule` | fetch, iterate-aggregate |
-| `project-milestone-report` — Project milestone report | needs-engine-capability | `entry_updated` | iterate-aggregate |
-| `knowledge-gap-finder` — Knowledge gap finder | needs-engine-capability | `manual` | collection-scope |
 | `intake-triage` — Intake triage | needs-engine-capability | `form_submission_received` | form-classification |
 | `archive-packager` — Archive packager | needs-adapter | `manual` | media-adapters, collection-scope, iterate-aggregate |
 | `entry-schema-impact-report` — Entry schema impact report | needs-engine-capability | `entry_type_updated` | iterate-aggregate |
@@ -152,18 +152,19 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `audio-edition` — **Audio edition** · needs-adapter · `entry_published`  
   Publication → narrate article → attach audio → update podcast feed
   - Blocked by: `media-adapters` (a TTS provider action that returns an audio asset)
-- `series-index-keeper` — **Series index keeper** · needs-engine-capability · `entry_published`  
-  Series member published → refresh ordered index and navigation
-  - Possible today (partial): a target query `{collection: <series>}` with `set_metadata` can stamp each member, but no step can read the ordered list to write an index.
-  - Blocked by: `iterate-aggregate` (the index is built from all members); `collection-scope` (a series is a collection)
+- [series-index-keeper](../../src/marvin/services/automation/recipes/series-index-keeper.json) — **Series index keeper** · verified-current · `entry_published`  
+  When a part of a series (a collection) is published, the series' index entry is rewritten as a list of its published parts, in the collection's order, with their links.
+  - The first step checks membership: a one-row query for this entry in the collection.
+  - Previous/next links are the site's: the publishing API serves the collection in the same order.
 - [weekly-digest](../../src/marvin/services/automation/recipes/weekly-digest.json) — **Weekly digest** · verified-current · `schedule`  
   Every Monday morning, the week's published entries are gathered and an AI drafts a newsletter issue that introduces and links each one.
   - Gathers up to 20 entries published in the last 7 days (a relative date) and passes their text to the AI.
   - The issue is a draft for a person to edit and send.
-- `broken-link-patrol` — **Broken link patrol** · needs-engine-capability · `schedule`  
-  Scheduled scan → check links → create repair notes
-  - Possible today (partial): a schedule + target `{status: published}` + `request_review` could flag every published entry — but blindly, without checking links.
-  - Blocked by: `fetch` (no step can GET a URL and read the status); `iterate-aggregate` (one note per scan, not per link)
+- [broken-link-patrol](../../src/marvin/services/automation/recipes/broken-link-patrol.json) — **Broken link patrol** · verified-current · `schedule`  
+  Every Monday, the links in each published entry are checked; the entry records how many are broken, and a notification lists the broken ones.
+  - Broken = no answer, 404, 410 or 5xx. 401/403/429 aren't counted: those are servers refusing robots.
+  - Relative links (/articles/x) are checked against the workspace's site URL.
+  - It doesn't take the entry offline: request_review would unpublish it.
 - `living-resource-collection` — **Living resource collection** · needs-engine-capability · `resource_updated`  
   Resource changes → locate referring entries → propose passage updates
   - Blocked by: `asset-resource-targets` (a target query for the entries linked to the triggering resource (has_resources is only true/false))
@@ -378,16 +379,17 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   Agent submission → validate capability document → sandbox checks → review
   - Possible today (partial): form-intake-desk covers the intake half (record, review, notify).
   - Blocked by: `fetch` (retrieve the capability document); `sandbox` (schema validation)
-- `resource-availability-watch` — **Resource availability watch** · needs-engine-capability · `schedule`  
-  Schedule → check known resource URLs → flag changed availability
-  - Blocked by: `fetch` (HEAD/GET each URL); `iterate-aggregate` (one report)
-- `project-milestone-report` — **Project milestone report** · needs-engine-capability · `entry_updated`  
-  Completion → assemble linked outcomes → create report draft
-  - Blocked by: `iterate-aggregate` (linked outcomes)
-- `knowledge-gap-finder` — **Knowledge gap finder** · needs-engine-capability · `manual`  
-  Collection → find missing coverage → propose article backlog
-  - Possible today (partial): `answer-workspace-question` (retrieval) can answer “what topics are missing?” as one step output today — nothing can turn the answer into entries.
-  - Blocked by: `collection-scope` (read the collection)
+- [resource-availability-watch](../../src/marvin/services/automation/recipes/resource-availability-watch.json) — **Resource availability watch** · verified-current · `schedule`  
+  Every morning, each resource of a type with a URL has its page checked; one that doesn't answer or says it's sold out sends a notification.
+  - `find` looks for the phrase on the page ignoring case (Sold Out, SOLD OUT).
+  - It notifies every morning while a resource stays unavailable — it reports a state, not a change.
+- [project-milestone-report](../../src/marvin/services/automation/recipes/project-milestone-report.json) — **Project milestone report** · verified-current · `entry_updated`  
+  When a project is marked finished, its log entries (the ones whose field names it) and its linked materials are gathered and an AI drafts a project report.
+  - A log entry belongs to the project when its field holds the project's slug (`data: {project: ${entry.slug}}`).
+  - Materials are the resources linked to the project, in its order (`entry: ${entry.id}`).
+- [knowledge-gap-finder](../../src/marvin/services/automation/recipes/knowledge-gap-finder.json) — **Knowledge gap finder** · verified-current · `manual`  
+  The published pieces of a collection are gathered and an AI proposes three to five topics it's missing, saved as a draft backlog.
+  - Up to 100 pieces, in the collection's order; the AI sees each title, summary and link.
 - [meeting-notes-to-tasks](../../src/marvin/services/automation/recipes/meeting-notes-to-tasks.json) — **Meeting notes to tasks** · verified-current · `entry_created`  
   New meeting notes have their commitments pulled out; once an editor approves, they become a draft task list.
   - An approval step parks the run; Automation → Approvals and a push ask the editors; the steps after it read ${steps.ok.output.decision}.
@@ -525,15 +527,15 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | Id | Capability | Priority | Recipes blocked | Acceptance |
 |---|---|---|---|---|
 | `media-adapters` | Image, file and audio processing adapters | P1 | 9 | Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate. |
-| `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 7 | Delivered 2026-10-12: a `collect` step ("Gather items") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Left: entries linked to an entry or inside a collection's order as a query (relations), and fanning one AI step out over the rows. |
 | `social-adapters` | Social publishing adapters | P1 | 6 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
-| `collection-scope` | Collection-scoped steps | P1 | 4 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). |
-| `fetch` | HTTP fetch step | P1 | 4 | A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry. |
 | `waits` | Durable waits and delays | P1 | 4 | `{"kind": "wait", "until": "${entry.data.event_date} - 7d"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once. |
 | `create-entry` | Create-entry action | P0 | 3 | Delivered 2026-10-11: an entry step `op: "create"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created). |
+| `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 3 | Delivered 2026-10-12: a `collect` step ("Gather items") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Left: fanning one AI step out over the rows. |
 | `ops-triggers` | Operational events as workflow triggers | P2 | 3 | ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel. |
-| `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 2 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset. Derived-asset lineage is part of media-adapters. |
+| `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 2 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Left: an asset target query by checksum. Derived-asset lineage is part of media-adapters. |
+| `collection-scope` | Collection-scoped steps | P1 | 2 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; left: collection events carrying the set. |
 | `data-change-detection` | Data-field change detection | P1 | 2 | entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works. |
+| `fetch` | HTTP fetch step | P1 | 2 | Delivered 2026-10-12: a `fetch` step ("Check a web address") — `url`: GET/HEAD through the guarded client (public hosts, re-checked on redirects, 2 MB cap) → status, ok, content_type, title, text, json, and `find` phrases (any case) → found; `links`: the links in a text checked a few at a time → checked, broken, broken_count, text. A dead link is output, never a failed step; a dry run doesn't fetch. |
 | `form-classification` | Form-submission classification from workflows | P0 | 2 | The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches. |
 | `idempotency` | Per-step idempotency keys | P0 | 2 | A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once. |
 | `joins` | Parallel branches and joins | P1 | 2 | Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics. |
