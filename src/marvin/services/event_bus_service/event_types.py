@@ -929,6 +929,8 @@ class EventAssetData(EventDocumentDataBase):
     """The user who uploaded the asset."""
     uploader_name: str | None = None
     """The full name of the uploader."""
+    role: str | None = None
+    """On asset_attached_to_entry: the role the asset was attached in (hero, gallery…), if any."""
 
     @classmethod
     def from_schema(

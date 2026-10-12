@@ -213,7 +213,10 @@ def _item_context(session, group_id, kind: str, item_id) -> dict | None:
         except Exception:  # noqa: BLE001 — a missing file must never break the workflow context
             url = None
         file = {k: getattr(row, k, None) for k in ("mime_type", "file_size", "width", "height", "alt_text")}
-        return {**ctx, "filename": row.original_filename, **file, "url": url}
+        # The asset it was made from (a media step's or the media pipeline's derivative), so a workflow can tell a
+        # derivative from an original — `asset.derived_from` must not exist to act on originals only.
+        derived_from = ctx["metadata"].get("derived_from") or None
+        return {**ctx, "filename": row.original_filename, **file, "url": url, "derived_from": derived_from}
     return {**ctx, "url": row.url, "external_id": row.external_id}
 
 
@@ -271,7 +274,8 @@ TEMPLATE_NAMESPACES: dict[str, str] = {
     "entry": "the entry the run acts on (the trigger's, or each target match): id, entry_type, status, title, slug, summary, "
     "data.<field>, metadata.<key>, image (featured image URL), url (its page on the site)",
     "asset": "the asset the run acts on (an asset event's, or each asset-target match): id, name, slug, asset_type, mime_type, "
-    "filename, file_size, width, height, alt_text, description, tags, metadata.<key>, url (its public URL), trashed",
+    "filename, file_size, width, height, alt_text, description, tags, metadata.<key>, url (its public URL), trashed, "
+    "derived_from (the id of the asset it was made from; None for an original)",
     "resource": "the resource the run acts on (a resource event's, or each resource-target match): id, name, slug, resource_type, "
     "description, url, external_id, tags, metadata.<key>, trashed",
     "previous": "the previous step's output",
@@ -673,7 +677,17 @@ class _StepRunner:
             self.context["_resume"] = resume
         # Which step of which run this is — a create step keys its entry on it, so the same event handled twice
         # doesn't create two (services/automation/actions/entry.py).
-        self.context["_step"] = {"workflow": _run_key(self.automation), "index": action_index, "target": self.target_index, "on_failure": on_failure}
+        # The rest names the run on what it makes (a media step's derivative records which workflow and step made it).
+        self.context["_step"] = {
+            "workflow": _run_key(self.automation),
+            "index": action_index,
+            "target": self.target_index,
+            "on_failure": on_failure,
+            "workflow_slug": getattr(self.automation, "slug", None),
+            "workflow_name": getattr(self.automation, "name", None),
+            "author_id": getattr(self.automation, "created_by", None),
+            "step_id": action.get("id"),
+        }
         try:
             out = self.run_action(
                 self.session, self.group_id, action, self.context, user_id=self.user_id, authorizer_role=self.authorizer_role, dry_run=self.dry_run

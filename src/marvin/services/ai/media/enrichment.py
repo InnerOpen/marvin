@@ -29,6 +29,23 @@ from marvin.services.storage.provider_factory import get_storage_provider
 logger = logging.getLogger(__name__)
 
 
+def grade_presets(session, group_id) -> dict:
+    """Merge the workspace's ``media_presets`` setting over the built-in ``GRADE_PRESETS`` (a workspace preset
+    replaces/extends a built-in by name). Missing/invalid setting → built-ins only. Shared by enrichment and a
+    workflow's media step (services/automation/actions/media.py)."""
+    from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
+
+    overrides = None
+    try:
+        row = session.query(WorkspaceAISettingsModel).filter_by(group_id=group_id).first()
+        overrides = getattr(row, "media_presets", None) if row is not None else None
+    except Exception as e:  # noqa: BLE001 — a settings read failure must not break enrichment
+        logger.debug("media: media_presets read failed for %s: %s", group_id, e)
+    if isinstance(overrides, dict) and overrides:
+        return {**transforms.GRADE_PRESETS, **overrides}
+    return dict(transforms.GRADE_PRESETS)
+
+
 class MediaEnrichmentService:
     def __init__(self, session, repos, group_id, user_id=None, provider=None, model=None) -> None:
         self.session = session
@@ -182,20 +199,7 @@ class MediaEnrichmentService:
         return handler.invoke(inputs).get("image_bytes")
 
     def _resolve_grade_presets(self) -> dict:
-        """Merge the workspace's ``media_presets`` setting over the built-in ``GRADE_PRESETS`` (a
-        workspace preset replaces/extends a built-in by name). Missing/invalid setting → built-ins
-        only, so behaviour is identical to today when nothing is configured."""
-        from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
-
-        overrides = None
-        try:
-            row = self.session.query(WorkspaceAISettingsModel).filter_by(group_id=self.group_id).first()
-            overrides = getattr(row, "media_presets", None) if row is not None else None
-        except Exception as e:  # noqa: BLE001 — a settings read failure must not break enrichment
-            logger.debug("media: media_presets read failed for %s: %s", self.group_id, e)
-        if isinstance(overrides, dict) and overrides:
-            return {**transforms.GRADE_PRESETS, **overrides}
-        return dict(transforms.GRADE_PRESETS)
+        return grade_presets(self.session, self.group_id)
 
     def _crop_subject(self, src, data: bytes) -> bytes | None:
         """Detect the main subject (vision provider or integration) and crop to it. Skips cleanly
@@ -384,12 +388,10 @@ class MediaEnrichmentService:
         url = result.get("url")
         if not url:
             return None
-        try:
-            import httpx
+        from marvin.services.ai.media.fetch import fetch_image
 
-            resp = httpx.get(url, timeout=30.0, follow_redirects=True)
-            resp.raise_for_status()
-            return resp.content
+        try:
+            return fetch_image(url)  # SSRF-guarded: a provider's URL must not reach a private host
         except Exception as e:  # noqa: BLE001 — a bad URL just yields no derivative
             logger.warning("media: could not fetch generated image %s: %s", url, e)
             return None

@@ -1,0 +1,15 @@
+{
+  "recipe": "brand-recolor",
+  "variables": {
+    "tag": {
+      "type": "text",
+      "description": "Tag of the images to recolor (the run works on every image with it).",
+      "example": "brand"
+    },
+    "preset": {
+      "type": "text",
+      "description": "Colour preset: rustic-warm, warm, cool, muted, or one of the workspace's own media presets.",
+      "example": "warm"
+    }
+  }
+}

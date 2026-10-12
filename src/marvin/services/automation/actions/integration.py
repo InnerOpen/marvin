@@ -15,6 +15,11 @@ and `body` arguments; the Workflow Library's notification recipes are written th
 A provider failure is raised as :class:`IntegrationStepError`, carrying the provider's error code and
 its resolved error policy, which the engine applies (`services/integrations/errors.py`): review, retry,
 notify, or carry on.
+
+An action with an `image.*` capability (OpenAI Images' `generate`) returns pictures: each is kept as an asset and
+replaced by a reference (`images: [{asset: {id, slug, url, …}}]`) before the output reaches the run, so a run can wait
+for approval after generating and be retried — see media.keep_generated_images. `attach_as` links them to the run's
+entry in that role.
 """
 
 from ..matcher import interpolate
@@ -78,8 +83,16 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     # previews it after one) — services/automation/approvals.py.
     if getattr(declared, "requires_approval", False) and not (context.get("_approved") is True or (dry_run and context.get("_approval_ahead"))):
         raise AutomationActionError(f"'{row.provider}.{key}' requires approval: put an Approval step before it (it runs once approved)")
+    from .media import keep_generated_images, returns_images
+
+    keeps_images = returns_images(declared)
     if dry_run:
-        return {"dry_run": True, "kind": "integration", "integration": slug, "action": key, "args": args}
+        preview = {"dry_run": True, "kind": "integration", "integration": slug, "action": key, "args": args}
+        if keeps_images:
+            preview["keeps_images_as_assets"] = True
+            if action.get("attach_as"):
+                preview["attach_as"] = interpolate(action["attach_as"], context)
+        return preview
     from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets
 
     try:
@@ -88,7 +101,7 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
         raise AutomationActionError(str(e)) from e
     # The values {{SLUG}} resolved to — scrubbed from any error the provider raises, like its credential.
     arg_secrets = [v for k, v in resolved.items() if isinstance(v, str) and v != args.get(k)]
-    args = resolved
+    plain_args, args = args, resolved  # what the workflow says (an image's lineage keeps its prompt without secrets)
 
     from marvin.services.integrations import errors
 
@@ -120,7 +133,13 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
             seed=seed,
         ) from e
     errors.action_succeeded(session, group_id, row.id, key, context)
-    return result if isinstance(result, dict) else {}
+    out = result if isinstance(result, dict) else {}
+    if keeps_images:
+        made_by = f"{row.provider}.{key}"
+        out = keep_generated_images(
+            session, group_id, out, generated_by=made_by, args=plain_args, context=context, user_id=user_id, attach_as=action.get("attach_as")
+        )
+    return out
 
 
 def _logger():

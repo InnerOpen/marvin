@@ -17,7 +17,10 @@ from typing import Any
 
 # Supported condition operators. `changed*` key on an update's diff (event.changed_fields/before/
 # after); the field's last segment names the field (so `entry.status` → the "status" diff key).
-_OPS = ("eq", "neq", "contains", "in", "starts_with", "exists", "changed", "changed_from", "changed_to")
+_OPS = ("eq", "neq", "contains", "in", "starts_with", "exists", "changed", "changed_from", "changed_to", "gt", "gte", "lt", "lte")
+
+# Number comparisons: both sides read as numbers (typed-in text too); anything else fails closed.
+_COMPARE = {"gt": lambda a, b: a > b, "gte": lambda a, b: a >= b, "lt": lambda a, b: a < b, "lte": lambda a, b: a <= b}
 
 _BRACED = re.compile(r"\$\{([^}]+)\}")
 
@@ -54,6 +57,15 @@ def _like(actual: Any, expected: Any) -> Any:
     else:
         converted = None
     return expected if converted is None else converted
+
+
+def _number(value: Any) -> int | float | None:
+    """A value as a number for gt/lt: a number as it is, numeric text converted; a yes/no or anything else is None."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return value
+    return as_number(value.strip()) if isinstance(value, str) else None
 
 
 def resolve_path(path: str, context: dict) -> Any:
@@ -159,6 +171,9 @@ def _match_one(cond: dict, context: dict) -> bool:
             return False
     if op == "starts_with":
         return isinstance(actual, str) and actual.startswith(str(expected))
+    if op in _COMPARE:
+        a, b = _number(actual), _number(expected)
+        return a is not None and b is not None and _COMPARE[op](a, b)
     # Unknown operator → fail closed (never silently "match everything").
     return False
 

@@ -177,19 +177,22 @@ class AssetStorageService(BaseService):
         name: str,
         user_id: UUID4 | None = None,
         extra_metadata: dict | None = None,
+        extension: str | None = None,
     ) -> AssetRead:
         """Persist transformed image `data` as a NEW asset derived from `source`.
 
-        Used by the media pipeline (grade/crop) to store a produced image with provenance
-        (`metadata_json.derived_from` / `.derivation`) linking it back to the source asset. The
-        source asset is left untouched. `slug` must be unique in the workspace — callers keep this
-        idempotent by not re-deriving the same (source, derivation) pair.
+        Used by the media pipeline (grade/crop, a workflow's media step) to store a produced image with provenance
+        (`metadata_json.derived_from` / `.derivation`, plus `extra_metadata`) linking it back to the source asset. The
+        source asset is left untouched. `slug` must be unique in the workspace — callers keep this idempotent by not
+        re-deriving the same (source, derivation) pair. `extension` names the file type when it differs from the
+        source's (a conversion). `source` may be None for an image made from nothing (a generated one): no
+        `derived_from` then, and `user_id` is its uploader. The upload limits apply (AssetRejected).
         """
         group = self.repos.groups.get_one(group_id)
         if not group:
             raise ValueError(f"Workspace not found: {group_id}")
 
-        ext = (getattr(source, "extension", None) or "jpg").lstrip(".")
+        ext = (extension or getattr(source, "extension", None) or "jpg").lstrip(".")
         original_filename = f"{slug}.{ext}"
         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{ext}") as temp_file:
             temp_path = Path(temp_file.name)
@@ -197,9 +200,10 @@ class AssetStorageService(BaseService):
             temp_file.flush()
             try:
                 metadata = self.metadata_extractor.extract_metadata(temp_path)
+                check_allowed(metadata.size, metadata.mime_type)
                 storage_key = self.generate_storage_key(group_id, original_filename, metadata.mime_type)
                 provenance = {
-                    "derived_from": str(getattr(source, "id", "")),
+                    **({"derived_from": str(source.id)} if source is not None else {}),
                     "derivation": derivation,
                     **(extra_metadata or {}),
                 }
@@ -235,6 +239,8 @@ class AssetStorageService(BaseService):
                 # A derivative inherits the source asset's uploader when no actor is supplied
                 # (system/AI-produced images still need a non-null uploaded_by).
                 asset_data["uploaded_by"] = user_id or getattr(source, "uploaded_by", None)
+                if asset_data["uploaded_by"] is None:
+                    raise ValueError("a derivative needs an uploader: pass user_id when there is no source asset")
                 asset = self.repos.assets.create(asset_data)
                 return AssetRead.model_validate(asset)
             finally:

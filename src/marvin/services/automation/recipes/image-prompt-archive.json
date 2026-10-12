@@ -1,0 +1,27 @@
+{
+  "name": "Image prompt archive",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_attached_to_entry"
+    },
+    "conditions": [
+      {
+        "field": "asset.metadata.generated_by",
+        "op": "exists"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "image_prompt": "${asset.metadata.prompt}",
+          "image_model": "${asset.metadata.model}",
+          "image_generated_by": "${asset.metadata.generated_by}",
+          "image_asset": "${asset.slug}"
+        }
+      }
+    ]
+  }
+}

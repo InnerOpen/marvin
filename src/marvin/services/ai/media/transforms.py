@@ -13,7 +13,7 @@ from __future__ import annotations
 import io
 import logging
 
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageEnhance, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +45,12 @@ def can_transform(mime_type: str | None) -> bool:
 def _load(data: bytes) -> tuple[Image.Image, str]:
     img = Image.open(io.BytesIO(data))
     fmt = (img.format or "JPEG").upper()
-    return img, fmt
+    # A camera photo is often stored sideways with an EXIF "rotate me" tag. Saving drops the tag, so turn the pixels
+    # upright first — else a portrait photo's crop or resize comes out lying on its side.
+    return ImageOps.exif_transpose(img), fmt
 
 
-def _dump(img: Image.Image, fmt: str) -> bytes:
+def _dump(img: Image.Image, fmt: str, quality: int = 90) -> bytes:
     out = io.BytesIO()
     if fmt in ("JPG", "JPEG"):
         # JPEG has no alpha channel. Composite transparency onto WHITE — the naive `convert("RGB")`
@@ -59,9 +61,9 @@ def _dump(img: Image.Image, fmt: str) -> bytes:
             flattened = Image.new("RGB", rgba.size, (255, 255, 255))
             flattened.paste(rgba, mask=rgba.getchannel("A"))
             img = flattened
-        img.convert("RGB").save(out, format="JPEG", quality=90, optimize=True)
+        img.convert("RGB").save(out, format="JPEG", quality=quality, optimize=True)
     elif fmt == "WEBP":
-        img.save(out, format="WEBP", quality=90)
+        img.save(out, format="WEBP", quality=quality)
     else:
         img.save(out, format="PNG", optimize=True)
     return out.getvalue()
@@ -143,26 +145,27 @@ def color_grade(data: bytes, preset: str) -> bytes | None:
     return color_grade_params(data, params)
 
 
-def crop_to_aspect(data: bytes, aspect: tuple[int, int]) -> bytes | None:
-    """Center-crop to the given aspect ratio (e.g. (4, 5))."""
-    aw, ah = aspect
-    if aw <= 0 or ah <= 0:
+def crop_to_aspect(data: bytes, aspect: tuple[int, int], focus: tuple[float, float] = (0.5, 0.5)) -> bytes | None:
+    """Crop to the given aspect ratio (e.g. (4, 5)) — the largest such window, centred as near the normalized
+    ``focus`` point ``(x, y)`` as the image allows (default: the centre)."""
+    if aspect[0] <= 0 or aspect[1] <= 0:
         return None
     img, fmt = _load(data)
-    w, h = img.size
+    return _dump(img.crop(aspect_box(img.size, aspect, focus)), fmt)
+
+
+def aspect_box(size: tuple[int, int], aspect: tuple[int, int], focus: tuple[float, float] = (0.5, 0.5)) -> tuple[int, int, int, int]:
+    """The largest ``aspect`` window inside an image of ``size``, centred on ``focus`` (normalized) and kept in bounds."""
+    w, h = size
+    aw, ah = aspect
     target = aw / ah
-    current = w / h
-    if abs(current - target) < 1e-3:
-        return _dump(img, fmt)
-    if current > target:  # too wide → trim sides
-        new_w = int(h * target)
-        left = (w - new_w) // 2
-        box = (left, 0, left + new_w, h)
-    else:  # too tall → trim top/bottom
-        new_h = int(w / target)
-        top = (h - new_h) // 2
-        box = (0, top, w, top + new_h)
-    return _dump(img.crop(box), fmt)
+    if abs(w / h - target) < 1e-3:
+        return (0, 0, w, h)
+    new_w, new_h = (int(h * target), h) if w / h > target else (w, int(w / target))
+    fx, fy = (min(max(float(v), 0.0), 1.0) for v in focus)
+    left = min(max(int(round(fx * w - new_w / 2)), 0), w - new_w)
+    top = min(max(int(round(fy * h - new_h / 2)), 0), h - new_h)
+    return (left, top, left + new_w, top + new_h)
 
 
 def crop_to_box(data: bytes, box: tuple[float, float, float, float]) -> bytes | None:

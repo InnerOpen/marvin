@@ -1,0 +1,51 @@
+{
+  "name": "Image quality gate",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_uploaded"
+    },
+    "conditions": [
+      {
+        "field": "asset.mime_type",
+        "op": "in",
+        "value": "image/jpeg,image/png,image/webp"
+      },
+      {
+        "field": "asset.derived_from",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "media",
+        "id": "check",
+        "op": "inspect"
+      },
+      {
+        "kind": "integration",
+        "integration": "{{notify_integration}}",
+        "capability": "notify",
+        "args": {
+          "title": "An image may need a better version",
+          "body": "“${asset.name}” is ${steps.check.output.width}×${steps.check.output.height} px with sharpness ${steps.check.output.sharpness} — below the workflow's minimum. Upload a larger or sharper version."
+        },
+        "when": {
+          "any": [
+            {
+              "field": "steps.check.output.sharpness",
+              "op": "lt",
+              "value": "{{min_sharpness}}"
+            },
+            {
+              "field": "steps.check.output.width",
+              "op": "lt",
+              "value": "{{min_width}}"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

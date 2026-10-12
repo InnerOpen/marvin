@@ -155,6 +155,8 @@ class VisionModelHandler:
         self.priority = priority
         self.cost_hint = cost_hint
         self.requires_approval = False
+        # The last call's token usage, for a caller that records the cost (a workflow's media step does).
+        self.last_usage = None
 
     def invoke(self, inputs: dict) -> dict:
         if not (self.provider and getattr(self.provider, "supports_vision", False) and self.model):
@@ -199,7 +201,7 @@ class VisionModelHandler:
                     ),
                 ]
                 opts = CompletionOptions(max_tokens=200)
-                parsed, _ = self.provider.execute_operation(messages, self.model, _DETECT_SUBJECT_SCHEMA, opts)
+                parsed, self.last_usage = self.provider.execute_operation(messages, self.model, _DETECT_SUBJECT_SCHEMA, opts)
                 box = _normalize_box((parsed or {}).get("box"))
                 return {"box": box} if box else {}
         except Exception as e:  # noqa: BLE001 — best-effort; a vision failure just yields no result

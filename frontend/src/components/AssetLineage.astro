@@ -1,0 +1,46 @@
+---
+// "Made from <source> · <what was done> · by <workflow>" for a derivative or a generated image (lib/assetLineage.ts).
+// Nothing for an original. The source's name is looked up best-effort: a deleted source still shows the line.
+import { lineageOf } from "@/lib/assetLineage";
+import { createSdkClient } from "@/lib/sdk";
+
+interface Props {
+  metadata: unknown;
+  authToken: string | null | undefined;
+}
+
+const { metadata, authToken } = Astro.props;
+const lineage = lineageOf(metadata);
+let sourceName: string | null = null;
+if (lineage?.sourceId && authToken) {
+  try {
+    sourceName = (await createSdkClient(authToken).assets.get(lineage.sourceId)).name;
+  } catch {
+    sourceName = null; // gone, or not readable here: the line says "an asset that no longer exists"
+  }
+}
+---
+
+{lineage && (
+  <p class="asset-lineage">
+    {lineage.sourceId ? (
+      <>Made from {sourceName ? <a href={`/workspace/assets/${lineage.sourceId}/view`}>{sourceName}</a> : "an asset that no longer exists"} · {lineage.made}</>
+    ) : (
+      <>{lineage.made[0].toUpperCase() + lineage.made.slice(1)}</>
+    )}
+    {lineage.workflow && <> · by the workflow <a href="/automation/workflows">{lineage.workflow}</a></>}
+    {lineage.prompt && <span class="asset-lineage-prompt">Prompt: “{lineage.prompt}”</span>}
+  </p>
+)}
+
+<style>
+  .asset-lineage {
+    margin: 0.5rem 0 0;
+    color: var(--muted);
+    font-size: 0.875rem;
+  }
+  .asset-lineage-prompt {
+    display: block;
+    margin-top: 0.25rem;
+  }
+</style>

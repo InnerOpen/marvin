@@ -1,0 +1,32 @@
+{
+  "name": "Brand recolor",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "asset",
+      "query": {
+        "asset_type": "image",
+        "tags": [
+          "{{tag}}"
+        ]
+      }
+    },
+    "conditions": [
+      {
+        "field": "asset.derived_from",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "media",
+        "id": "graded",
+        "op": "grade",
+        "preset": "{{preset}}"
+      }
+    ]
+  }
+}

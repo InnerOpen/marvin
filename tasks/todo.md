@@ -758,6 +758,42 @@ after the approval can be undone (entry ops trash/restore/archive/add/remove col
 agent rule), checked again on the tap; `POST /api/self/push/workflow-approvals/{id}/{decision}` decides as that person
 at their role now; the SW routes by `approval.kind`. Push category renamed "Approvals".
 
+**E. Media adapters, slice 1 (P1, 29 recipes) — 2026-10-12, plan approved by Jared**
+A workflow step that makes images from images, and generated images kept as assets. Rendering, OCR/PDF, TTS, zip and
+background removal are later slices (new libraries/providers).
+- [x] `services/ai/media/ops.py`: resize (inside|cover, never upscales), convert (jpeg|png|webp, quality), inspect
+      (size, orientation, aspect, Laplacian sharpness), palette; `transforms`: EXIF-upright load, focal-point aspect crop,
+      dump quality. Safe image fetch (SSRF-guarded client, 20 MB) shared with enrichment's `_materialize`.
+- [x] `create_derivative`: extension/format parameter, `check_allowed`, source optional (generated images).
+- [x] `media` step (`actions/media.py`): source (`${asset.id}` default, a slug, `${steps.x.output.asset.id}`,
+      `role:<role>`), ops resize/crop/convert/grade/inspect/palette, `focus: subject` via detect_subject (falls back to
+      center, says so), lineage metadata, deterministic slug `<src>--<op>-<hash8>` → reuse, `attach_as` (EntryService),
+      dry run plans only.
+- [x] Integration steps: images from an `image.*` action saved as assets (b64 or URL), replaced by `{asset: …}` refs
+      before the output reaches the run; lineage (generated_by, prompt, model, workflow); `attach_as`.
+- [x] Schema `MediaAction`; validator (op args, aspect, preset, attach_as/role: needs an entry); `asset.derived_from`
+      in the run context; `role` on `asset_attached_to_entry`; guide kind + MEDIA_NOTE under the 16 000 budget.
+- [x] Editor "Process an image" + "Attach as" on integration steps (`lib/mediaStep.ts` + tests); asset page lineage line.
+- [x] Recipes: responsive-image-factory, smart-crop-pack, file-format-converter, image-quality-gate, brand-recolor,
+      alternate-universe-cover, image-prompt-archive (+ execution tests); catalogue recount + render; docs.
+- [x] Full suite, npm test, astro check (no new errors; 2 fewer), SDK types: no route schema changed.
+- [ ] Live check on prod after Promote (smart-crop-pack on one of Grace's images, then delete the test derivatives).
+
+Review (slice 1, 2026-10-12): `media` step + `ops.py` (resize/convert/inspect/palette/sharpness) on `transforms` (EXIF-upright
+load, focal-point `aspect_box`, dump quality); subject focus = detect_subject via the workspace vision model under the same
+gates as an AI step (AI on, workflows source, budget, a model that sees images), logged as AIExecution `detect-subject` with
+cost; falls back to centre and says why. `create_derivative`: extension, upload limits, source optional. Integration
+`image.*` output → assets before the run sees it (b64 or a URL through `MarvinHttpHelper`, 20 MB; enrichment's raw httpx
+fetch replaced). Found on the way and done: numeric `gt/gte/lt/lte` condition ops (the quality gate needs them),
+`role` on asset_attached_to_entry, the editor dropping a capability-only integration step (notify recipes) on save, the
+asset view's metadata panel reading a field that doesn't exist (`metadata_` → `metadataJson`), the stale "asset events
+hydrate nothing" trigger notes. Library: 8 recipes verified (responsive-image-factory, smart-crop-pack,
+file-format-converter (images), image-quality-gate, brand-recolor, alternate-universe-cover, image-prompt-archive,
+milestone-celebration) → 46 verified, 50 blocked of 107; thumbnail-audition now waits on approval choices, not media.
+Not done: `derived_from` on generated images (needs an edit action that takes a source — slice 2); flagging the asset in
+the quality gate (no asset metadata step yet); old responsive sizes stay attached when the hero changes.
+
+
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
 Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to

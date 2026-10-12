@@ -597,7 +597,7 @@ class EntryService:
         self.session.add(EntryAssets(entry_id=entry.id, asset_id=asset.id, role=role, position=(max_pos + 1) if max_pos is not None else 0))
         self.session.commit()
         self._emit_asset_link(
-            entry, asset, EventTypes.asset_attached_to_entry, f"Asset '{asset.name}' attached to entry '{entry.title}'", reaction_depth
+            entry, asset, EventTypes.asset_attached_to_entry, f"Asset '{asset.name}' attached to entry '{entry.title}'", reaction_depth, role=role
         )
         return "attached"
 
@@ -621,7 +621,7 @@ class EntryService:
         )
         return "detached"
 
-    def _emit_asset_link(self, entry, asset, event_type, message: str, reaction_depth: int) -> None:
+    def _emit_asset_link(self, entry, asset, event_type, message: str, reaction_depth: int, role: str | None = None) -> None:
         """Dispatch an asset↔entry link event (EventAssetData, keyed to the entry so automations can
         react on $event.entry_id). Best-effort — never breaks the write."""
         from marvin.services.event_bus_service.event_types import EventAssetData
@@ -643,6 +643,7 @@ class EntryService:
                     workspace_id=self.group_id,
                     workspace_name=workspace_name,
                     uploader_id=self.actor_id,
+                    role=role,
                 ),
                 message=message,
                 user_id=self.actor_id,

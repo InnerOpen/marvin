@@ -1,0 +1,52 @@
+{
+  "name": "Responsive image factory",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_attached_to_entry"
+    },
+    "conditions": [
+      {
+        "field": "event.role",
+        "op": "eq",
+        "value": "{{image_role}}"
+      },
+      {
+        "field": "asset.mime_type",
+        "op": "in",
+        "value": "image/jpeg,image/png,image/webp"
+      },
+      {
+        "field": "asset.derived_from",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "media",
+        "id": "large",
+        "op": "resize",
+        "width": 1600,
+        "format": "webp",
+        "attach_as": "{{image_role}}-1600"
+      },
+      {
+        "kind": "media",
+        "id": "medium",
+        "op": "resize",
+        "width": 800,
+        "format": "webp",
+        "attach_as": "{{image_role}}-800"
+      },
+      {
+        "kind": "media",
+        "id": "small",
+        "op": "resize",
+        "width": 400,
+        "format": "webp",
+        "attach_as": "{{image_role}}-400"
+      }
+    ]
+  }
+}

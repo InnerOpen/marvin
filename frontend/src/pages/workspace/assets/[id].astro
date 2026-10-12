@@ -1,5 +1,6 @@
 ---
 import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
+import AssetLineage from "@/components/AssetLineage.astro";
 import ItemTrashBanner from "@/components/ItemTrashBanner.astro";
 import SuggestionBanner from "@/components/SuggestionBanner.astro";
 import TagChips from "@/components/TagChips.astro";
@@ -83,6 +84,7 @@ const showAiPanel = aiEnabled && isImage;
         <div>
           <h2 style="margin:0;font-size:20px;">Edit Asset</h2>
           <p style="margin:4px 0 0;color:var(--muted);">Update asset metadata and details</p>
+          <AssetLineage metadata={asset.metadataJson} authToken={authToken} />
         </div>
         <div style="display:flex;gap:0.75rem;">
           {canEdit && (

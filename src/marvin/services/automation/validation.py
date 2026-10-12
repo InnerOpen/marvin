@@ -95,6 +95,57 @@ def subject_of(definition: dict | None) -> str:
     return next((kind for kind in ITEM_KINDS if kind in event), "entry")
 
 
+def has_entry_subject(definition: dict | None) -> bool:
+    """Whether every run has an entry to act on: an entry target's rows, or an event about an entry (`entry_*`, and
+    the asset/resource/tag links to one — the builder's "Entries" group). What `attach_as` and `source: role:<role>`
+    on a media step need."""
+    from marvin.services.events.event_catalog import canonical_event_type, get_catalog_entry
+
+    definition = definition or {}
+    target = definition.get("target")
+    if isinstance(target, dict):
+        return (target.get("entity") or "entry") == "entry"
+    trig = definition.get("trigger") or {}
+    if trig.get("type", "event") != "event" or not isinstance(trig.get("event"), str):
+        return False
+    event = canonical_event_type(trig["event"])
+    entry = get_catalog_entry(event)
+    return event.startswith("entry_") or (entry is not None and entry.trigger_group == "Entries")
+
+
+def entry_link_issues(definition: dict | None) -> list[dict]:
+    """A step that needs the run's entry where runs have none: a media step's `attach_as` or `source: role:<role>`, an
+    integration step's `attach_as`. ERROR-level with their path (an agent's draft stops on them; the editor warns)."""
+    if has_entry_subject(definition):
+        return []
+    issues: list[dict] = []
+    for list_key, where in (("actions", "action"), ("on_failure", "on_failure")):
+        for i, step in enumerate((definition or {}).get(list_key) or []):
+            if not isinstance(step, dict) or step.get("kind") not in ("media", "integration"):
+                continue
+            if step.get("attach_as"):
+                issues.append(
+                    {
+                        "level": "error",
+                        "where": where,
+                        "path": f"{list_key}[{i}].attach_as",
+                        "message": "attach_as links the new image to the run's entry, but this workflow's runs have none: trigger it on "
+                        "an entry event (or asset_attached_to_entry), or target entries.",
+                    }
+                )
+            if step.get("kind") == "media" and str(step.get("source") or "").startswith("role:"):
+                issues.append(
+                    {
+                        "level": "error",
+                        "where": where,
+                        "path": f"{list_key}[{i}].source",
+                        "message": f"“{step['source']}” takes the entry's image in that role, but this workflow's runs have no entry: "
+                        "name the asset (an id, a slug, ${asset.id}) or run it on entries.",
+                    }
+                )
+    return issues
+
+
 def condition_field_catalog() -> dict[str, list[dict]]:
     """Suggested condition fields per trigger type — advertised by /api/automations/options."""
     return {ttype: cfg["fields"] for ttype, cfg in _TRIGGER_CONTEXT.items()}
@@ -203,7 +254,9 @@ def validate_definition(definition: dict | None) -> list[dict]:
 
     # What would certainly go wrong at run time (a query shape nothing reads, an entry op on an asset target) —
     # advisory here, where hand-written JSON is kept lenient; an agent's draft gets the same as errors.
-    issues.extend({**issue, "level": "warning"} for issue in query_issues(definition) + item_target_issues(definition))
+    issues.extend(
+        {**issue, "level": "warning"} for issue in query_issues(definition) + item_target_issues(definition) + entry_link_issues(definition)
+    )
     issues.extend(unattended_trash_issues(definition))
     issues.extend(when_issues(definition))
     return issues

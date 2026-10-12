@@ -310,19 +310,85 @@ class WebhookAction(_StepBase):
 
 class IntegrationAction(_StepBase):
     """Runs a connected integration's action (`integration`: its slug, `action`: the action key) with `args` — or,
-    with `capability` instead of `action`, whichever of its actions offers that (`notify`: `title`, `body`)."""
+    with `capability` instead of `action`, whichever of its actions offers that (`notify`: `title`, `body`). An image.*
+    action's pictures are kept as assets (output `images: [{asset}]`); `attach_as` links them to the run's entry."""
 
     kind: Literal["integration"]
     integration: str  # the workspace integration's slug
     action: str | None = None  # the provider action key…
     capability: str | None = None  # …or a capability it offers (`notify`), whatever the provider
     args: dict[str, Any] = Field(default_factory=dict)  # values may be templates; result → $steps.<id>.output
+    # An image.* action's pictures are kept as assets (output `images: [{asset}]`); attach_as links them to the run's
+    # entry in this role.
+    attach_as: str | None = None
     id: str | None = None
 
     @model_validator(mode="after")
     def _action_or_capability(self):
         if not (self.action or self.capability):
             raise ValueError("an integration step needs `action` (the provider action key) or `capability` (e.g. notify)")
+        return self
+
+
+# What each media op takes beside source / attach_as — the media step's executor reads the same table
+# (services/automation/actions/media.py).
+MEDIA_OP_ARGS: dict[str, tuple[str, ...]] = {
+    "resize": ("width", "height", "fit", "format", "quality"),
+    "crop": ("aspect", "focus", "format", "quality"),
+    "convert": ("format", "quality"),
+    "grade": ("preset", "format", "quality"),
+    "inspect": (),
+    "palette": ("colors",),
+}
+MEDIA_ASPECT_PATTERN = r"^\s*[1-9]\d{0,2}\s*[:x/]\s*[1-9]\d{0,2}\s*$"
+
+
+class MediaAction(_StepBase):
+    """Makes an image from an image, or reads one — no AI, no provider. `resize`, `crop`, `convert` and `grade` save a
+    NEW asset (the original is never changed) with its lineage and return `asset` {id, slug, url, width, height}; the
+    same op on the same picture reuses it. `inspect` returns width, height, orientation, aspect, sharpness; `palette`
+    returns colors. `source`: an asset id or slug (default ${asset.id}), ${steps.<id>.output.asset.id}, or role:<role>
+    (the entry's asset in that role). `attach_as` links the new asset to the run's entry in that role."""
+
+    kind: Literal["media"]
+    op: Literal["resize", "crop", "convert", "grade", "inspect", "palette"]
+    source: str | None = None  # default ${asset.id}
+    width: int | None = Field(default=None, ge=1, le=10_000)  # resize: at most this wide (never upscales)
+    height: int | None = Field(default=None, ge=1, le=10_000)  # resize: at most this tall
+    fit: Literal["inside", "cover"] | None = None  # resize: inside (default) keeps it all; cover fills width × height
+    aspect: str | None = Field(default=None, pattern=MEDIA_ASPECT_PATTERN)  # crop: 1:1, 4:5, 16:9…
+    focus: Literal["center", "subject"] | None = None  # crop: subject asks a vision model where the subject is
+    format: Literal["jpeg", "png", "webp"] | None = None  # convert; re-encodes any op that makes an image
+    quality: int | None = Field(default=None, ge=1, le=100)  # jpeg / webp quality (default 90)
+    preset: str | None = None  # grade: a colour preset (built-in or the workspace's)
+    colors: int | None = Field(default=None, ge=1, le=16)  # palette: how many (default 5)
+    attach_as: str | None = None  # link the new asset to the run's entry in this role
+    id: str | None = None
+
+    @model_validator(mode="after")
+    def _op_shape(self):
+        takes = MEDIA_OP_ARGS[self.op]
+        stray = [
+            k
+            for k in ("width", "height", "fit", "aspect", "focus", "format", "quality", "preset", "colors")
+            if getattr(self, k) is not None and k not in takes
+        ]
+        if stray:
+            raise ValueError(
+                f"{', '.join(stray)} {'goes' if len(stray) == 1 else 'go'} with another op: {self.op} takes {', '.join(takes) or 'nothing'}"
+            )
+        if self.op == "resize" and not (self.width or self.height):
+            raise ValueError("resize needs a width or a height")
+        if self.op == "resize" and self.fit == "cover" and not (self.width and self.height):
+            raise ValueError("fit cover needs both a width and a height")
+        if self.op == "crop" and not self.aspect:
+            raise ValueError("crop needs an aspect like 1:1, 4:5 or 16:9")
+        if self.op == "convert" and not self.format:
+            raise ValueError("convert needs a format: jpeg, png or webp")
+        if self.op == "grade" and not (self.preset or "").strip():
+            raise ValueError("grade needs a preset")
+        if self.op in ("inspect", "palette") and self.attach_as:
+            raise ValueError(f"{self.op} makes no image, so there is nothing to attach_as")
         return self
 
 
@@ -334,10 +400,11 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "webhook": WebhookAction,
     "integration": IntegrationAction,
     "approval": ApprovalAction,
+    "media": MediaAction,
 }
 
 Action = Annotated[
-    OperationAction | EntryAction | EmitEventAction | HandlerAction | WebhookAction | IntegrationAction | ApprovalAction,
+    OperationAction | EntryAction | EmitEventAction | HandlerAction | WebhookAction | IntegrationAction | ApprovalAction | MediaAction,
     Field(discriminator="kind"),
 ]
 

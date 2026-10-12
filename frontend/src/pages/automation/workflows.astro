@@ -251,6 +251,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { fetchApi } from "@/lib/api/client";
   import { ANSWER_KINDS, type AnswerField, fieldsFromSchema, SEE_LABELS, schemaFromFields } from "@/lib/customStep";
+  import { ASPECTS, GRADE_PRESETS, MEDIA_FIELDS, MEDIA_OPS, mediaFields, OP_FIELDS, SOURCE_LABELS, type SourceMode, sourceChoice, sourceFromChoice } from "@/lib/mediaStep";
   import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
   import { describeSaveError } from "@/lib/saveError";
   import { definitionDifferences, freeSlug, parseWorkflowJson, workflowDocument } from "@/lib/workflowJson";
@@ -393,7 +394,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "approval", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "entry", "media", "approval", "handler", "webhook", "integration", "emit_event"];
   const orderedKinds = (): string[] => {
     const avail = OPTIONS.actionKinds || [];
     return KIND_ORDER.filter((k) => avail.includes(k)).concat(avail.filter((k: string) => !KIND_ORDER.includes(k)));
@@ -617,11 +618,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <span class="a-int-mark"></span>
         <input class="input a-integration" list="wf-integrations" placeholder="integration slug, e.g. square" value="${esc(a.integration ?? "")}" />
       </div>
-      <input class="input a-int-action" list="${listId}" placeholder="action, e.g. create_listing" value="${esc(a.action ?? "")}" />
+      <input class="input a-int-action" list="${listId}" placeholder="${a.capability ? `capability: ${esc(a.capability)} (or pick an action)` : "action, e.g. create_listing"}" value="${esc(a.action ?? "")}" />
       <datalist id="${listId}"></datalist>
       <div class="a-int-pickers"></div>
       <textarea class="input mono a-int-args" rows="4" spellcheck="false" placeholder='{"slug": "\${event.entry.slug}"}'>${esc(a.args && Object.keys(a.args).length ? JSON.stringify(a.args, null, 2) : "")}</textarea>
-      <span class="hint small">Runs one action of a workspace integration. To use its result in a later step, add an <code>"id"</code> to this step in the JSON view, then read <code>\${steps.&lt;id&gt;.output…}</code>.</span>`;
+      <span class="hint small">Runs one action of a workspace integration. To use its result in a later step, add an <code>"id"</code> to this step in the JSON view, then read <code>\${steps.&lt;id&gt;.output…}</code>.</span>
+      <label class="tf"><span>Attach as <span class="muted">(actions that make images: link each picture to the entry in this role, e.g. cover-variant)</span></span>
+        <input class="input a-int-attach" placeholder="leave blank to only keep them in Assets" value="${esc(a.attach_as ?? "")}" /></label>`;
     const slugInput = wrap.querySelector(".a-integration") as HTMLInputElement;
     const actionInput = wrap.querySelector(".a-int-action") as HTMLInputElement;
     const argsInput = wrap.querySelector(".a-int-args") as HTMLTextAreaElement;
@@ -672,6 +675,51 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     slugInput.addEventListener("change", () => void sync());
     actionInput.addEventListener("change", () => void sync());
     void sync();
+  }
+
+  // "Process an image": the op picks which fields show; the picture comes from the run's asset, an earlier step's
+  // image, the entry's image in a role, or a named asset (lib/mediaStep.ts).
+  function mediaStepFields(wrap: HTMLElement, a: any) {
+    const src = sourceChoice(a.source);
+    const opt = (v: string, label: string, cur: unknown) => `<option value="${esc(v)}" ${String(cur ?? "") === v ? "selected" : ""}>${esc(label)}</option>`;
+    const num = (k: string, label: string, hint = "") =>
+      `<label class="tf a-m-field" data-field="${k}"><span>${label}${hint ? ` <span class="muted">${hint}</span>` : ""}</span><input class="input a-m-${k}" type="number" value="${esc(a[k] ?? "")}" /></label>`;
+    wrap.innerHTML = `
+      <select class="input a-media-op">${MEDIA_OPS.map((o) => opt(o.op, o.label, a.op ?? "resize")).join("")}</select>
+      <div class="tf"><span>Which picture</span>
+        <select class="input a-media-source">${(Object.entries(SOURCE_LABELS) as [SourceMode, string][]).map(([m, l]) => opt(m, l, src.mode)).join("")}</select>
+        <input class="input a-media-source-value" value="${esc(src.value)}" /></div>
+      ${num("width", "Width (px)", "— at most; never scales up")}
+      ${num("height", "Height (px)", "— at most")}
+      <label class="tf a-m-field" data-field="fit"><span>Fit</span><select class="input a-m-fit">${opt("inside", "Keep the whole picture inside the box", a.fit ?? "inside")}${opt("cover", "Fill the box exactly (trims the edges)", a.fit)}</select></label>
+      <label class="tf a-m-field" data-field="aspect"><span>Shape</span><input class="input a-m-aspect" list="wf-media-aspects" placeholder="1:1, 4:5, 16:9…" value="${esc(a.aspect ?? "")}" /></label>
+      <datalist id="wf-media-aspects">${ASPECTS.map((x) => `<option value="${x}"></option>`).join("")}</datalist>
+      <label class="tf a-m-field" data-field="focus"><span>Centre on</span><select class="input a-m-focus">${opt("center", "The middle", a.focus ?? "center")}${opt("subject", "The subject (asks the AI model; the middle without one)", a.focus)}</select></label>
+      <label class="tf a-m-field" data-field="preset"><span>Preset</span><input class="input a-m-preset" list="wf-media-presets" placeholder="warm" value="${esc(a.preset ?? "")}" /></label>
+      <datalist id="wf-media-presets">${GRADE_PRESETS.map((x) => `<option value="${x}"></option>`).join("")}</datalist>
+      <label class="tf a-m-field" data-field="format"><span>Format</span><select class="input a-m-format">${opt("", "Keep the picture's format", a.format ?? "")}${["jpeg", "png", "webp"].map((f) => opt(f, f.toUpperCase(), a.format)).join("")}</select></label>
+      ${num("quality", "Quality", "1–100, default 90 (JPEG and WebP)")}
+      ${num("colors", "How many colours", "1–16, default 5")}
+      <label class="tf a-m-attach-wrap"><span>Attach as <span class="muted">(link the new picture to the entry in this role, e.g. square — needs a run about an entry)</span></span>
+        <input class="input a-m-attach" value="${esc(a.attach_as ?? "")}" /></label>
+      <span class="hint small a-m-hint"></span>`;
+    const opSel = wrap.querySelector(".a-media-op") as HTMLSelectElement;
+    const srcSel = wrap.querySelector(".a-media-source") as HTMLSelectElement;
+    const srcVal = wrap.querySelector(".a-media-source-value") as HTMLInputElement;
+    const sync = () => {
+      const op = opSel.value;
+      const makes = MEDIA_OPS.find((o) => o.op === op)?.makesImage;
+      wrap.querySelectorAll<HTMLElement>(".a-m-field").forEach((el) => { el.hidden = !OP_FIELDS[op].includes(el.dataset.field!); });
+      (wrap.querySelector(".a-m-attach-wrap") as HTMLElement).hidden = !makes;
+      (wrap.querySelector(".a-m-hint") as HTMLElement).innerHTML = makes
+        ? "Saves a new asset (the original is never changed) and reuses it when the same picture gets the same treatment again. Later steps read <code>\${steps.&lt;step id&gt;.output.asset.id}</code>; give this step an id."
+        : "Reads the picture and writes nothing. Later steps (and “Only run this step when…”) read <code>\${steps.&lt;step id&gt;.output…}</code>, e.g. <code>steps.check.output.sharpness</code> is less than 60.";
+      srcVal.hidden = srcSel.value === "current";
+      srcVal.placeholder = srcSel.value === "step" ? "the earlier step's id, e.g. square" : srcSel.value === "role" ? "the role, e.g. hero" : "the asset's id or slug";
+    };
+    opSel.addEventListener("change", sync);
+    srcSel.addEventListener("change", sync);
+    sync();
   }
 
   function kindFields(kind: string, a: any): HTMLElement {
@@ -798,6 +846,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       });
     } else if (kind === "integration") {
       integrationFields(wrap, a);
+    } else if (kind === "media") {
+      mediaStepFields(wrap, a);
     } else if (kind === "approval") {
       const hours = Number(a.expires_in_hours ?? 72);
       wrap.innerHTML = `
@@ -915,6 +965,19 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         }
         return step;
       }
+      if (kind === "media") {
+        const op = field(".a-media-op")?.value || "resize";
+        const values = Object.fromEntries(MEDIA_FIELDS.map((k) => [k, field(`.a-m-${k}`)?.value]));
+        try {
+          for (const k of MEDIA_FIELDS) delete step[k];
+          Object.assign(step, { op }, mediaFields(op, values));
+          setOrDrop("source", sourceFromChoice((field(".a-media-source")?.value || "current") as SourceMode, field(".a-media-source-value")?.value ?? ""));
+        } catch (e: any) {
+          throw new Error(`Step ${i + 1}: ${e.message}`);
+        }
+        setOrDrop("attach_as", MEDIA_OPS.find((o) => o.op === op)?.makesImage ? field(".a-m-attach")?.value.trim() : null);
+        return step;
+      }
       if (kind === "approval") {
         const message = field(".a-message")?.value.trim();
         if (!message) return null;
@@ -933,9 +996,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       if (kind === "integration") {
         const integration = field(".a-integration")!.value.trim();
         const key = field(".a-int-action")!.value.trim();
-        if (!integration || !key) return null;
+        if (!integration || !(key || step.capability)) return null;
         step.integration = integration;
-        step.action = key;
+        if (key) step.action = key; // else it names a capability (notify), kept from the JSON
+        setOrDrop("attach_as", field(".a-int-attach")?.value.trim());
         const rawArgs = field(".a-int-args")!.value.trim();
         setOrDrop("args", rawArgs ? parseJsonObject(rawArgs, `Step ${i + 1} arguments`) : null);
         return step;

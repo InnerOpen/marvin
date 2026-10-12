@@ -88,6 +88,7 @@ class WorkspaceRefs:
     # None: AI operations can't run from a workflow here (AI off, or the automation source disabled).
     operations: list[dict] | None = None
     handlers: list[dict] = field(default_factory=list)
+    grade_presets: list[str] = field(default_factory=list)  # a media step's `grade` presets: built-in + the workspace's
 
 
 def automation_operations(session, group_id) -> list | None:
@@ -228,6 +229,9 @@ def workspace_refs(session, group_id) -> WorkspaceRefs:
         refs.operations = [{"op": op.slug, "name": op.name, "description": op.description, "entity_types": list(op.entity_types)} for op in ops]
     info = {i["task_type"]: i for i in TaskHandlerRegistry.get_task_type_info()}
     refs.handlers = [{"task": t, "description": (info.get(t) or {}).get("description", "")} for t in sorted(AUTOMATION_ALLOWED_HANDLERS)]
+    from marvin.services.ai.media.enrichment import grade_presets
+
+    refs.grade_presets = sorted(grade_presets(session, group_id))
     return refs
 
 
@@ -363,10 +367,22 @@ def _actions(detail: bool) -> dict:
         "asset_resource_ops": _item_ops(detail),
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}; any step takes `when` (run only if).",
-        **({"when": WHEN_NOTE} if detail else {}),
+        **({"when": WHEN_NOTE, "media": MEDIA_NOTE} if detail else {}),
     }
 
 
+MEDIA_NOTE = (
+    "A media step works on one image (jpeg, png, webp): source is an asset id or slug (default ${asset.id}), "
+    "${steps.<id>.output.asset.id} to chain, or role:<role> for the run's entry's image in that role. resize (width/height, "
+    "fit inside|cover; never upscales), crop (aspect like 4:5; focus subject asks a vision model, else centre — output "
+    "focus_used), convert (format), grade (preset) save a NEW asset and output asset {id, slug, url, width, height}, "
+    "reused: the same op on the same image is made once, the original is never changed, and the new asset records "
+    "derived_from + the workflow (no asset_uploaded is sent; asset.derived_from tells derivatives apart). format/quality "
+    "re-encode any of them. inspect outputs width, height, orientation, aspect, sharpness (Laplacian variance: blurry is "
+    "low, roughly under 100); palette outputs colors ['#rrggbb']. attach_as (needs an entry run) links the new asset to "
+    "the entry in that role. An integration action with an image.* capability (openai_images.generate) keeps its pictures "
+    "the same way — output images: [{asset}] — and takes attach_as too."
+)
 CREATE_NOTE = (
     " create makes a new entry: entry_type (slug), title, optional data (the type's fields) and metadata, status draft|inbox "
     "(publish with a following publish step on ${steps.<id>.output.entry_id}); output entry_id/slug; once per event."
@@ -762,6 +778,14 @@ def _step_issues(
             bad("action", f"“{slug}” has no action “{key}” a workflow can run. Actions: {actions}.")
         elif row["actions"] is not None and not after_approval and any(a["action"] == key and a.get("requires_approval") for a in row["actions"]):
             bad("action", f"“{slug}.{key}” needs a person's approval: put an Approval step before it (it runs once approved).")
+        elif step.get("attach_as") and row["actions"] is not None:
+            declared = next((a for a in row["actions"] if a["action"] == key), None)
+            if declared is not None and not str(declared.get("capability") or "").startswith("image."):
+                bad("attach_as", f"attach_as goes with an action that makes images; “{slug}.{key}” doesn't.")
+    elif kind == "media":
+        preset = step.get("preset")
+        if step.get("op") == "grade" and isinstance(preset, str) and not _templated(preset) and preset not in refs.grade_presets:
+            bad("preset", f"No grade preset “{preset}”. Presets: {', '.join(refs.grade_presets)}.")
 
 
 def _entry_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
@@ -793,9 +817,10 @@ def draft_issues(session, group_id, definition: dict) -> list[dict]:
     """Everything that stops an agent's draft: the REST write path's structural gate first (exactly the
     function `POST /api/automations` calls) with the query shapes and item-target steps a run can't read
     (advisory on the REST path), then unknown keys and unknown references. Empty: draftable."""
-    from .validation import item_target_issues, query_issues, structural_issues, unknown_key_issues
+    from .validation import entry_link_issues, item_target_issues, query_issues, structural_issues, unknown_key_issues
 
-    issues = structural_issues(definition) + query_issues(definition) + item_target_issues(definition) + _trash_sweep_issues(definition)
+    issues = structural_issues(definition) + query_issues(definition) + item_target_issues(definition) + entry_link_issues(definition)
+    issues += _trash_sweep_issues(definition)
     if issues:
         return issues
     return unknown_key_issues(definition) + reference_issues(session, group_id, definition)

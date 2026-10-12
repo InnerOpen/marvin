@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-107 recipes: **38** verified-current, **11** supported-after-configuration, **16** needs-adapter, **42** needs-engine-capability.
+107 recipes: **46** verified-current, **11** supported-after-configuration, **12** needs-adapter, **38** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -22,12 +22,20 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [one-entry-many-voices](../../src/marvin/services/automation/recipes/one-entry-many-voices.json) — One entry, many voices | verified-current | `entry_published` | — | content mutation, paid call |
 | [behind-the-scenes-diary](../../src/marvin/services/automation/recipes/behind-the-scenes-diary.json) — Behind the scenes diary | verified-current | `entry_published` | — | content mutation, paid call |
 | [community-question](../../src/marvin/services/automation/recipes/community-question.json) — Community question | verified-current | `entry_published` | — | content mutation, external post, paid call |
+| [milestone-celebration](../../src/marvin/services/automation/recipes/milestone-celebration.json) — Milestone celebration | verified-current | `entry_updated` | openai_images integration | content mutation, paid call |
 | [utm-librarian](../../src/marvin/services/automation/recipes/utm-librarian.json) — UTM librarian | verified-current | `entry_created` | an entry type with a page URL pattern (so `entry.url` resolves) and two fields for UTM source and medium | content mutation |
 | [alt-text-assistant](../../src/marvin/services/automation/recipes/alt-text-assistant.json) — Alt text assistant | verified-current | `asset_uploaded` | — | content mutation, paid call |
+| [responsive-image-factory](../../src/marvin/services/automation/recipes/responsive-image-factory.json) — Responsive image factory | verified-current | `asset_attached_to_entry` | — | content mutation |
+| [smart-crop-pack](../../src/marvin/services/automation/recipes/smart-crop-pack.json) — Smart crop pack | verified-current | `asset_uploaded` | — | content mutation, paid call |
+| [brand-recolor](../../src/marvin/services/automation/recipes/brand-recolor.json) — Brand recolor | verified-current | `manual` | — | content mutation |
+| [image-quality-gate](../../src/marvin/services/automation/recipes/image-quality-gate.json) — Image quality gate | verified-current | `asset_uploaded` | an integration that can notify (Slack or Apprise) | external post |
+| [file-format-converter](../../src/marvin/services/automation/recipes/file-format-converter.json) — File format converter (images) | verified-current | `asset_uploaded` | — | content mutation |
 | [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — Attribution companion | verified-current | `asset_attached_to_entry` | — | content mutation |
+| [image-prompt-archive](../../src/marvin/services/automation/recipes/image-prompt-archive.json) — Image prompt archive | verified-current | `asset_attached_to_entry` | — | content mutation |
 | [marvin-margin-notes](../../src/marvin/services/automation/recipes/marvin-margin-notes.json) — Marvin margin notes | verified-current | `manual` | — | content mutation, paid call |
 | [ada-explains-it](../../src/marvin/services/automation/recipes/ada-explains-it.json) — Ada explains it | verified-current | `entry_published` | — | content mutation, paid call |
 | [soundtrack-brief](../../src/marvin/services/automation/recipes/soundtrack-brief.json) — Soundtrack brief | verified-current | `manual` | — | content mutation, paid call |
+| [alternate-universe-cover](../../src/marvin/services/automation/recipes/alternate-universe-cover.json) — Alternate universe cover | verified-current | `entry_published` | openai_images integration | content mutation, paid call |
 | [fictional-debate-club](../../src/marvin/services/automation/recipes/fictional-debate-club.json) — Fictional debate club | verified-current | `manual` | — | content mutation, paid call |
 | [client-handoff](../../src/marvin/services/automation/recipes/client-handoff.json) — Client handoff | verified-current | `entry_updated` | outgoing webhook | content mutation, external post |
 | [meeting-notes-to-tasks](../../src/marvin/services/automation/recipes/meeting-notes-to-tasks.json) — Meeting notes to tasks | verified-current | `entry_created` | — | content mutation, paid call |
@@ -81,26 +89,19 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `social-experiment-log` — Social experiment log | needs-engine-capability | `manual` | metrics |
 | `platform-preview-checker` — Platform preview checker | needs-engine-capability | `entry_updated` | fetch, social-adapters |
 | `launch-kit` — Launch kit | needs-engine-capability | `entry_published` | joins |
-| `milestone-celebration` — Milestone celebration | needs-engine-capability | `entry_updated` | media-adapters |
 | `event-countdown` — Event countdown | needs-engine-capability | `entry_published` | waits, relative-dates |
 | `best-of-month` — Best of month | needs-engine-capability | `schedule` | iterate-aggregate, relative-dates, media-adapters |
 | `community-welcome-pack` — Community welcome pack | needs-engine-capability | subscription: `member_added` | member-email, ops-triggers |
-| `responsive-image-factory` — Responsive image factory | needs-adapter | `asset_uploaded` | media-adapters |
 | `background-remover` — Background remover | needs-adapter | `manual` | media-adapters |
 | `product-scene-studio` — Product scene studio | needs-engine-capability | `manual` | media-adapters |
-| `smart-crop-pack` — Smart crop pack | needs-adapter | `asset_uploaded` | media-adapters |
-| `brand-recolor` — Brand recolor | needs-adapter | `manual` | media-adapters |
 | `seasonal-variation` — Seasonal variation | needs-engine-capability | `manual` | media-adapters |
-| `thumbnail-audition` — Thumbnail audition | needs-engine-capability | `manual` | media-adapters |
-| `image-quality-gate` — Image quality gate | needs-engine-capability | `asset_uploaded` | media-adapters |
+| `thumbnail-audition` — Thumbnail audition | needs-engine-capability | `manual` | workflow-approvals |
 | `privacy-crop-desk` — Privacy crop desk | needs-engine-capability | `asset_uploaded` | media-adapters |
 | `before-after-slider-kit` — Before/after slider kit | needs-adapter | `manual` | media-adapters |
 | `contact-sheet-maker` — Contact sheet maker | needs-adapter | `manual` | iterate-aggregate, media-adapters |
 | `ocr-notebook` — OCR notebook | needs-adapter | `asset_uploaded` | media-adapters |
 | `document-preview-factory` — Document preview factory | needs-adapter | `asset_uploaded` | media-adapters |
-| `file-format-converter` — File format converter | needs-adapter | `asset_uploaded` | media-adapters |
 | `duplicate-asset-scout` — Duplicate asset scout | needs-engine-capability | `asset_uploaded` | asset-resource-targets |
-| `image-prompt-archive` — Image prompt archive | needs-engine-capability | `manual` | media-adapters |
 | `comic-strip-edition` — Comic strip edition | needs-engine-capability | `manual` | media-adapters |
 | `retro-poster-machine` — Retro poster machine | needs-engine-capability | `manual` | media-adapters |
 | `trading-card-collection` — Trading card collection | needs-engine-capability | `entry_updated` | media-adapters |
@@ -110,7 +111,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `future-newspaper` — Future newspaper | needs-engine-capability | `manual` | media-adapters |
 | `workshop-field-guide` — Workshop field guide | needs-engine-capability | `manual` | iterate-aggregate, media-adapters |
 | `color-moodboard` — Color moodboard | needs-adapter | `manual` | media-adapters, iterate-aggregate |
-| `alternate-universe-cover` — Alternate universe cover | needs-engine-capability | `manual` | media-adapters |
 | `time-capsule` — Time capsule | needs-engine-capability | `entry_updated` | snapshots, waits |
 | `surprise-remix-button` — Surprise remix button | needs-engine-capability | `manual` | manual-params |
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox |
@@ -233,10 +233,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `launch-kit` — **Launch kit** · needs-engine-capability · `entry_published`  
   Product entry → assemble announcement, FAQ, images and newsletter draft
   - Blocked by: `joins` (assemble in parallel)
-- `milestone-celebration` — **Milestone celebration** · needs-engine-capability · `entry_updated`  
-  Project complete → generate grounded achievement post and visual
-  - Possible today (partial): `entry.data.<status> changed_to complete` is not detectable (changed_fields covers status/title/slug only); `entry.data.status eq complete` on entry_updated fires on every save while complete.
-  - Blocked by: `media-adapters` (openai_images.generate returns image data; keeping it as an asset (with lineage) is a media adapter)
+- [milestone-celebration](../../src/marvin/services/automation/recipes/milestone-celebration.json) — **Milestone celebration** · verified-current · `entry_updated`  
+  When a project's status field reaches its done value, the AI drafts a celebration post grounded in the entry; once an editor approves, OpenAI Images draws an illustration, attached as celebration, and the post is saved on the entry.
+  - metadata.celebrated makes it once per project: a later save while still complete doesn't fire again.
 - `event-countdown` — **Event countdown** · needs-engine-capability · `entry_published`  
   Event entry → create reminder drafts relative to event date
   - Blocked by: `waits` (fire at date offsets); `relative-dates` (date arithmetic in templates)
@@ -258,31 +257,33 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   An uploaded image without alt text gets alt text written by the AI, describing what it shows; people can edit it on the asset.
   - `write_back: {"alt_text": "alt_text"}` writes onto the asset; in the review-everything approval mode it is staged as a suggestion instead.
   - Images that already have alt text are skipped (`asset.alt_text` must not exist).
-- `responsive-image-factory` — **Responsive image factory** · needs-adapter · `asset_uploaded`  
-  Image added → create requested sizes and formats → link derivatives
-  - Marvin's `media_enrich` handler runs an entry type's recipe media derivations for one entry — the nearest existing primitive (entry-scoped, not asset-scoped).
-  - Blocked by: `media-adapters` (resize/convert)
+- [responsive-image-factory](../../src/marvin/services/automation/recipes/responsive-image-factory.json) — **Responsive image factory** · verified-current · `asset_attached_to_entry`  
+  When a picture is attached to an entry in its main role, three WebP sizes (1600, 800, 400 px wide) are made and attached beside it as <role>-1600, -800 and -400.
+  - Never upscales: a picture narrower than a size keeps its own width.
+  - Sizes from an earlier main picture stay attached; remove them by hand when the picture changes.
 - `background-remover` — **Background remover** · needs-adapter · `manual`  
   Selected product image → remove background → save transparent derivative
   - Blocked by: `media-adapters` (a background-removal provider)
 - `product-scene-studio` — **Product scene studio** · needs-engine-capability · `manual`  
   Product image → create styled scenes while preserving product details → review
-  - Blocked by: `media-adapters` (image editing)
-- `smart-crop-pack` — **Smart crop pack** · needs-adapter · `asset_uploaded`  
-  Image → focal-point crops for square, portrait and landscape → preview
-  - Blocked by: `media-adapters` (focal-point crop)
-- `brand-recolor` — **Brand recolor** · needs-adapter · `manual`  
-  Selected artwork → apply brand palette → save derivative
-  - Blocked by: `media-adapters` (recolor)
+  - Blocked by: `media-adapters` (a provider image edit that keeps the product (generation is kept as assets already))
+- [smart-crop-pack](../../src/marvin/services/automation/recipes/smart-crop-pack.json) — **Smart crop pack** · verified-current · `asset_uploaded`  
+  Every uploaded picture gets square (1:1), portrait (4:5) and landscape (16:9) crops centred on its subject, saved as new assets beside the original.
+  - The crops are found in the Assets library; each says Made from the original.
+- [brand-recolor](../../src/marvin/services/automation/recipes/brand-recolor.json) — **Brand recolor** · verified-current · `manual`  
+  Run by hand: every image with the chosen tag gets a colour-graded copy in the workspace's preset, saved as a new asset.
+  - Presets: rustic-warm, warm, cool, muted, or the workspace's own media presets (AI settings).
+  - Preview it first with a dry run: it lists what would be made.
 - `seasonal-variation` — **Seasonal variation** · needs-engine-capability · `manual`  
   Approved graphic → seasonal variants → retain original and lineage
-  - Blocked by: `media-adapters` (lineage (derived-asset lineage))
+  - Blocked by: `media-adapters` (a provider image edit for the seasonal variants (derived-asset lineage is delivered))
 - `thumbnail-audition` — **Thumbnail audition** · needs-engine-capability · `manual`  
   Entry → generate three thumbnail concepts → user selects one
-  - Blocked by: `media-adapters` (attach the chosen one (derived-asset lineage))
-- `image-quality-gate` — **Image quality gate** · needs-engine-capability · `asset_uploaded`  
-  Upload → check dimensions, blur and orientation → flag or normalize
-  - Blocked by: `media-adapters` (blur/orientation analysis)
+  - Blocked by: `workflow-approvals` (pick one of three generated thumbnails — an approval with choices (approval steps ask approve/deny); generating and attaching is delivered)
+- [image-quality-gate](../../src/marvin/services/automation/recipes/image-quality-gate.json) — **Image quality gate** · verified-current · `asset_uploaded`  
+  An uploaded picture that is too narrow or too blurry is reported to the team's notification channel, with its size and sharpness.
+  - Sharpness is the variance of a Laplacian on a downscaled grey copy: blurry pictures score low. Check a few of yours with an Inspect step to pick the minimum.
+  - Flagging the asset itself (metadata or a tag) waits for an asset metadata step.
 - `privacy-crop-desk` — **Privacy crop desk** · needs-engine-capability · `asset_uploaded`  
   Image → propose sensitive-region masking → approve redacted derivative
   - Blocked by: `media-adapters` (masking)
@@ -298,9 +299,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `document-preview-factory` — **Document preview factory** · needs-adapter · `asset_uploaded`  
   File upload → render cover and page previews → attach derivatives
   - Blocked by: `media-adapters` (PDF rendering)
-- `file-format-converter` — **File format converter** · needs-adapter · `asset_uploaded`  
-  Uploaded file → supported output formats → save download references
-  - Blocked by: `media-adapters` (conversion)
+- [file-format-converter](../../src/marvin/services/automation/recipes/file-format-converter.json) — **File format converter (images)** · verified-current · `asset_uploaded`  
+  Every uploaded JPEG or PNG gets a WebP copy (smaller, same look) saved as a new asset beside it.
+  - Images only in this slice: documents, audio and video formats need adapters that don't exist yet.
 - [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — **Attribution companion** · verified-current · `asset_attached_to_entry`  
   When an image with credit and licence metadata is attached to an entry, its credit line is recorded on the entry.
   - Reads the asset through `${asset.metadata.<key>}`: asset events bind the asset as they bind the entry.
@@ -308,10 +309,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   Upload → compare hashes or similarity → suggest existing asset
   - Assets already store a `checksum`; a query key for it would make this a one-step recipe.
   - Blocked by: `asset-resource-targets` (an asset target query by checksum)
-- `image-prompt-archive` — **Image prompt archive** · needs-engine-capability · `manual`  
-  Generation → save prompt, model, seed if available and parent references
-  - `openai_images.generate` returns `usage` (provider, model, tokens) and images (b64 or URL) but no asset is created from a workflow.
-  - Blocked by: `media-adapters` (write prompt/model/parent onto the generated asset (derived-asset lineage))
+- [image-prompt-archive](../../src/marvin/services/automation/recipes/image-prompt-archive.json) — **Image prompt archive** · verified-current · `asset_attached_to_entry`  
+  When a generated picture is attached to an entry, the entry records the prompt, model and integration that made it (and the picture keeps them too).
+  - Every image an integration step generates already carries generated_by, prompt, model and the run in its own metadata; this copies it onto the entry it illustrates.
 
 ### Playful experiments
 
@@ -348,13 +348,13 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Blocked by: `iterate-aggregate` (many notes → one guide); `media-adapters` (PDF rendering)
 - `color-moodboard` — **Color moodboard** · needs-adapter · `manual`  
   Selected assets → extract palette → produce moodboard and design notes
-  - Blocked by: `media-adapters` (palette extraction + render); `iterate-aggregate` (many → one)
+  - Blocked by: `media-adapters` (render the moodboard (palette extraction is delivered: a media palette step)); `iterate-aggregate` (many → one)
 - [soundtrack-brief](../../src/marvin/services/automation/recipes/soundtrack-brief.json) — **Soundtrack brief** · verified-current · `manual`  
   Run it on stories of one type: each gets a soundtrack suggestion — mood, tempo, instruments and a short composer's brief — kept in its metadata.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
-- `alternate-universe-cover` — **Alternate universe cover** · needs-engine-capability · `manual`  
-  Entry → sci-fi, noir or botanical cover variations → review
-  - Blocked by: `media-adapters` (openai_images.generate returns image data; keeping it as an asset (with lineage) is a media adapter)
+- [alternate-universe-cover](../../src/marvin/services/automation/recipes/alternate-universe-cover.json) — **Alternate universe cover** · verified-current · `entry_published`  
+  When an entry is published, an editor is asked whether to make an alternate-universe cover; once approved, OpenAI Images draws it and it is attached to the entry as cover-variant.
+  - The picture is kept as an asset before the run goes on, so the run carries a reference, not image data.
 - `time-capsule` — **Time capsule** · needs-engine-capability · `entry_updated`  
   Capture approved project snapshot → schedule retrospective draft
   - Blocked by: `snapshots` (capture the version); `waits` (months later)
@@ -523,7 +523,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 
 | Id | Capability | Priority | Recipes blocked | Acceptance |
 |---|---|---|---|---|
-| `media-adapters` | Image, file and audio processing adapters | P1 | 29 | SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified. |
+| `media-adapters` | Image, file and audio processing adapters | P1 | 20 | Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits. |
 | `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 12 | A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run. |
 | `relative-dates` | Relative dates and cron schedules | P1 | 6 | `updated_before: "-30d"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick. |
 | `social-adapters` | Social publishing adapters | P1 | 6 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
@@ -545,5 +545,5 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `custom-operation` | Free-form AI operation | P0 | 1 | Delivered 2026-10-11: an operation step `op: "custom"` carries its own prompt (${…} templates) and output_schema (a JSON Schema object); `see` adds the item, its attachments, images, the workspace persona; the answer is checked (one retry) and is the step output; write_back maps it onto the entry (summary, tags, metadata.<key>), asset or resource; budget, approval mode and min_role apply as for built-in operations. Named, reusable workspace operations are a later phase. |
 | `manual-params` | Manual / MCP run parameters | P1 | 1 | A manual or mcp trigger declares typed inputs; the Run dialog and the MCP tool collect them; steps read `${input.*}`; the run records them. |
 | `snapshots` | Entity snapshots and restore | P2 | 1 | A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable. |
+| `workflow-approvals` | Approval step inside a workflow | P1 | 1 | Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice. |
 | `branches` | Conditional steps (if/else) | P0 | 0 | Delivered 2026-10-11: any step takes `when` conditions evaluated against steps.* / previous.* (same operators); false records it as skipped (not failed), later references read None, and the dry run shows the verdicts. |
-| `workflow-approvals` | Approval step inside a workflow | P1 | 0 | Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice. |

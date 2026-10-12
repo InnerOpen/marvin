@@ -220,7 +220,7 @@ def _recipe_problems(recipe, provider) -> list[str]:
     check of an agent's draft that doesn't depend on the workspace (authoring.draft_issues)."""
     from marvin_integration_sdk import check_recipe
 
-    from ..validation import item_target_issues, query_issues, structural_issues, unknown_key_issues
+    from ..validation import entry_link_issues, item_target_issues, query_issues, structural_issues, unknown_key_issues
 
     try:
         problems = check_recipe(recipe, provider)
@@ -232,7 +232,9 @@ def _recipe_problems(recipe, provider) -> list[str]:
         return [f"its examples don't fit its variables ({e})"]
     except Exception as e:  # noqa: BLE001 — a plugin's odd object must never break the Library
         return [f"unreadable ({type(e).__name__}: {e})"]
-    issues = structural_issues(definition) or query_issues(definition) + item_target_issues(definition) + unknown_key_issues(definition)
+    issues = structural_issues(definition) or (
+        query_issues(definition) + item_target_issues(definition) + entry_link_issues(definition) + unknown_key_issues(definition)
+    )
     return [f"{i.get('path') or i.get('where') or 'definition'}: {i['message']}" for i in issues]
 
 

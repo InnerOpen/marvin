@@ -11,6 +11,8 @@ The catalogue (catalogue.json) and the readable catalogue.md are checked to stay
 rendered by scripts/render_workflow_library.py and must not drift.
 """
 
+import base64
+import io
 import json
 import pathlib
 import subprocess
@@ -20,6 +22,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from PIL import Image, ImageFilter
 from pytest import fixture
 
 pytest.importorskip("marvin_integration_sdk", reason="integrations SDK not installed (optional feature)")
@@ -199,6 +202,27 @@ class _N8n(IntegrationProvider):
         }
 
 
+class _Images(IntegrationProvider):
+    """OpenAI Images' shape: one paid action, asked for approval, that returns base64 pictures and the model used."""
+
+    slug = "openai_images"
+    name = "OpenAI Images (fake)"
+    actions = (ProviderAction(key="generate", label="Generate image", capability="image.generate", requires_approval=True),)
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    def run_action(self, key, args, ctx):
+        self.calls.append(dict(args))
+        return {"images": [{"image_b64": base64.b64encode(_picture((900, 600))).decode()}], "usage": {"model": "gpt-image-1"}}
+
+
+def _picture(size=(1600, 1200), color=(180, 90, 40), fmt="PNG") -> bytes:
+    out = io.BytesIO()
+    Image.new("RGB", size, color).save(out, format=fmt)
+    return out.getvalue()
+
+
 def _field(key, type_="text", required=False):
     return {"key": key, "label": key.replace("_", " ").title(), "type": type_, "required": required}
 
@@ -217,7 +241,7 @@ def ws(db_session, monkeypatch):
     from marvin.services.ai import factory
     from marvin.services.event_bus_service.event_types import WebhookMode
 
-    providers = {"buttondown": _Buttondown(), "apprise": _Apprise(), "n8n": _N8n()}
+    providers = {"buttondown": _Buttondown(), "apprise": _Apprise(), "n8n": _N8n(), "openai_images": _Images()}
     for slug, provider in providers.items():
         monkeypatch.setitem(INTEGRATION_REGISTRY, slug, provider)
     monkeypatch.setattr("marvin.services.secrets.resolver.resolve_secret", lambda ref, gid=None: "tok")
@@ -245,6 +269,7 @@ def ws(db_session, monkeypatch):
         "article": ([_field("body", "markdown", required=True)], "/articles/{slug}", None),
         "campaign": ([_field("utm_source"), _field("utm_medium")], "/campaigns/{slug}", None),
         "contact-request": ([_field("email"), _field("message", "textarea")], None, {"submittable": True}),
+        "project": ([_field("stage")], None, None),
     }
     for slug, (fields, pattern, caps) in specs.items():
         et = EntryTypes(session=db_session, group_id=gid, name=slug.replace("-", " ").title(), slug=slug, schema_json={"fields": fields})
@@ -254,7 +279,7 @@ def ws(db_session, monkeypatch):
         db_session.add(et)
         types[slug] = et.id
     db_session.add(Collections(session=db_session, group_id=gid, name="Featured", slug="featured"))
-    for slug, provider in (("newsletter", "buttondown"), ("alerts", "apprise"), ("automation-hub", "n8n")):
+    for slug, provider in (("newsletter", "buttondown"), ("alerts", "apprise"), ("automation-hub", "n8n"), ("openai-images", "openai_images")):
         db_session.add(IntegrationModel(session=db_session, group_id=gid, provider=provider, name=slug, slug=slug, enabled=True, config={}))
     webhooks = {}
     for name, url in (
@@ -312,6 +337,18 @@ def ws(db_session, monkeypatch):
         "collection_purpose": "our best pieces",
         "notes_entry_type": "newsletter-issue",
         "task_entry_type": "article",
+        "image_role": "hero",
+        "quality": 82,
+        "min_width": 1200,
+        "min_sharpness": 60,
+        "tag": "brand",
+        "preset": "warm",
+        "image_integration": "openai-images",
+        "style": "a 1950s sci-fi pulp",
+        "project_type": "project",
+        "status_field": "stage",
+        "done_value": "complete",
+        "image_style": "A bright, hand-drawn poster",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1120,6 +1157,181 @@ class TestExecution:
         _fire(ws, "incoming_webhook", call("no-such-entry"), entity=uuid.uuid4(), entity_type="incoming_webhook")
         runs = _runs(ws, "archive-entry-from-webhook")
         assert [r.status for r in runs] == ["success", "failed"] and "no entry with slug 'no-such-entry'" in runs[1].error
+
+    # ── media steps and generated images ──
+    @fixture
+    def store(self, ws, tmp_path, monkeypatch):
+        """Storage in a temporary folder; the events item ops send are recorded rather than put on the bus."""
+        from marvin.services.storage import provider_factory
+        from marvin.services.storage.local_provider import LocalStorageProvider
+
+        local = LocalStorageProvider(root=tmp_path / "store", public_base_url="/assets")
+        monkeypatch.setattr(provider_factory, "get_storage_provider", lambda *a, **k: local)
+        monkeypatch.setattr(provider_factory, "provider_for", lambda slug: local)
+        yield SimpleNamespace(local=local, sent=_dispatched(monkeypatch))
+        from marvin.db.models.platform import Assets, EntryAssets
+
+        ws.session.rollback()
+        ws.session.query(EntryAssets).filter(EntryAssets.asset_id.in_(ws.session.query(Assets.id).filter(Assets.group_id == ws.gid))).delete(
+            synchronize_session=False
+        )
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    def _picture_asset(self, ws, store, name, data, mime="image/png", **extra):
+        row = _asset(ws, name, mime=mime, **extra)
+        row.storage_key, row.file_size = f"lib/{row.slug}", len(data)
+        store.local.put(storage_key=row.storage_key, file_data=io.BytesIO(data), content_type=mime)
+        ws.session.commit()
+        return row
+
+    def _made_from(self, ws, source) -> list:
+        from marvin.db.models.platform import Assets
+
+        rows = ws.session.query(Assets).filter(Assets.group_id == ws.gid).all()
+        return sorted((a for a in rows if (a.metadata_json or {}).get("derived_from") == str(source.id)), key=lambda a: a.width or 0)
+
+    def _upload(self, ws, asset, correlation_id="corr-1"):
+        _fire(ws, "asset_uploaded", {"asset_id": str(asset.id)}, entity=asset.id, entity_type="asset", correlation_id=correlation_id)
+
+    def test_responsive_image_factory(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+
+        _install(ws, "responsive-image-factory")
+        article = _entry(ws, "article", "Harbour", data={"body": "x"})
+        hero = self._picture_asset(ws, store, "hero", _picture((2400, 1600)))
+        ws.session.add(EntryAssets(entry_id=article.id, asset_id=hero.id, role="hero", position=0))
+        ws.session.commit()
+
+        _fire(ws, "asset_attached_to_entry", _entry_doc(article, asset_id=str(hero.id), role="hero"), entity=article.id, entity_type="entry")
+        _fire(ws, "asset_attached_to_entry", _entry_doc(article, asset_id=str(hero.id), role="gallery"), entity=article.id, entity_type="entry")
+
+        sizes = self._made_from(ws, hero)
+        assert [(a.width, a.height, a.mime_type) for a in sizes] == [(400, 267, "image/webp"), (800, 533, "image/webp"), (1600, 1067, "image/webp")]
+        roles = {ea.role for ea in ws.session.query(EntryAssets).filter_by(entry_id=article.id)}
+        assert roles == {"hero", "hero-400", "hero-800", "hero-1600"}
+        assert [r.status for r in _runs(ws, "responsive-image-factory")] == ["success"]  # the gallery attach didn't match
+
+    def test_smart_crop_pack(self, ws, store):
+        from marvin.db.models.groups.ai_executions import AIExecutionModel
+
+        _install(ws, "smart-crop-pack")
+        photo = self._picture_asset(ws, store, "harbour", _picture((1200, 800)))
+        for _ in range(3):
+            ws.ai.reply_text(json.dumps({"box": [0.1, 0.2, 0.3, 0.5]}))
+
+        self._upload(ws, photo)
+        self._upload(ws, photo, correlation_id="corr-2")  # again: the crops are reused, not remade
+
+        crops = self._made_from(ws, photo)
+        assert sorted((a.width, a.height) for a in crops) == [(640, 800), (800, 800), (1200, 675)]
+        assert all(a.metadata_json["derivation"].endswith("focus=subject") for a in crops)
+        assert ws.session.query(AIExecutionModel).filter_by(group_id=ws.gid, operation_slug="detect-subject").count() == 3
+        assert [s["reused"] for s in (a.output_snapshot for a in _runs(ws, "smart-crop-pack")[-1].actions)] == [True, True, True]
+
+    def test_file_format_converter(self, ws, store):
+        _install(ws, "file-format-converter")
+        jpeg = self._picture_asset(ws, store, "photo", _picture(fmt="JPEG"), mime="image/jpeg")
+        webp = self._picture_asset(ws, store, "already", _picture(fmt="WEBP"), mime="image/webp")
+
+        for asset in (jpeg, webp):
+            self._upload(ws, asset)
+
+        (copy,) = self._made_from(ws, jpeg)
+        assert (copy.mime_type, copy.extension, copy.metadata_json["derivation"]) == ("image/webp", "webp", "media:convert:format=webp,quality=82")
+        assert self._made_from(ws, webp) == [] and self._made_from(ws, copy) == []  # its own copy isn't an upload
+
+    def test_image_quality_gate(self, ws, store):
+        _install(ws, "image-quality-gate")
+        crisp = Image.new("RGB", (1600, 1200), (255, 255, 255))
+        for x in range(0, 1600, 8):
+            crisp.paste((0, 0, 0), (x, 0, x + 4, 1200))
+        blurry = crisp.filter(ImageFilter.GaussianBlur(12))
+        assets = []
+        for name, img in (("crisp", crisp), ("blurry", blurry)):
+            out = io.BytesIO()
+            img.save(out, format="PNG")
+            assets.append(self._picture_asset(ws, store, name, out.getvalue()))
+        small = self._picture_asset(ws, store, "thumb", _picture((300, 200)))
+
+        for asset in (*assets, small):
+            self._upload(ws, asset)
+
+        reported = [c["body"] for c in ws.providers["apprise"].calls]
+        assert len(reported) == 2 and any("“blurry”" in b for b in reported) and any("“thumb” is 300×200" in b for b in reported)
+
+    def test_brand_recolor(self, ws, store):
+        from marvin.db.models.platform import AssetTags, Tags
+
+        row = _install(ws, "brand-recolor")
+        tag = Tags(session=ws.session, group_id=ws.gid, name="brand", slug="brand")
+        ws.session.add(tag)
+        ws.session.flush()
+        logo = self._picture_asset(ws, store, "logo", _picture(color=(120, 120, 120)))
+        other = self._picture_asset(ws, store, "other", _picture())
+        ws.session.add(AssetTags(asset_id=logo.id, tag_id=tag.id))
+        ws.session.commit()
+
+        result = run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))
+
+        (graded,) = self._made_from(ws, logo)
+        assert result["ok"] and graded.metadata_json["derivation"] == "media:grade:preset=warm" and self._made_from(ws, other) == []
+
+    def test_alternate_universe_cover(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+
+        _install(ws, "alternate-universe-cover")
+        article = _entry(ws, "article", "Harbour at dawn", status="published", data={"body": "x"}, summary="Boats at first light.")
+
+        _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id="pub-cover")
+        assert ws.providers["openai_images"].calls == []  # nothing drawn before an editor says yes
+        self._decide(ws)
+
+        (call,) = ws.providers["openai_images"].calls
+        assert "1950s sci-fi pulp" in call["prompt"] and "Harbour at dawn" in call["prompt"]
+        link = ws.session.query(EntryAssets).filter_by(entry_id=article.id, role="cover-variant").one()
+        cover = link.asset
+        assert cover.name == "Harbour at dawn — a 1950s sci-fi pulp cover" and cover.mime_type == "image/png"
+        assert cover.metadata_json["generated_by"] == "openai_images.generate" and cover.metadata_json["model"] == "gpt-image-1"
+
+    def test_image_prompt_archive(self, ws, store):
+        _install(ws, "image-prompt-archive")
+        article = _entry(ws, "article", "Harbour", data={"body": "x"})
+        drawn = self._picture_asset(
+            ws, store, "drawn", _picture(), metadata_json={"generated_by": "openai_images.generate", "prompt": "A harbour", "model": "gpt-image-1"}
+        )
+        photo = self._picture_asset(ws, store, "photo", _picture())
+
+        for asset in (photo, drawn):
+            _fire(ws, "asset_attached_to_entry", _entry_doc(article, asset_id=str(asset.id)), entity=article.id, entity_type="entry")
+
+        meta = _reload(ws, article).metadata_json
+        assert (meta["image_prompt"], meta["image_model"], meta["image_generated_by"], meta["image_asset"]) == (
+            "A harbour",
+            "gpt-image-1",
+            "openai_images.generate",
+            drawn.slug,
+        )
+        assert [r.status for r in _runs(ws, "image-prompt-archive")] == ["success"]  # the photo didn't match
+
+    def test_milestone_celebration(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+
+        _install(ws, "milestone-celebration")
+        project = _entry(ws, "project", "Brass lantern", data={"stage": "complete"})
+        ws.ai.reply_text(json.dumps({"post": "The brass lantern is finished — weeks of careful work.", "visual": "a glowing brass lantern"}))
+        updated = _entry_doc(project, changed_fields=["data_json"])
+
+        _fire(ws, "entry_updated", updated, entity=project.id, entity_type="entry", correlation_id="upd-1")
+        _fire(ws, "entry_updated", updated, entity=project.id, entity_type="entry", correlation_id="upd-2")  # a later save
+        self._decide(ws)
+
+        meta = _reload(ws, project).metadata_json
+        assert meta["celebrated"] is True and meta["celebration_post"].startswith("The brass lantern is finished")
+        assert len(ws.ai.requests) == 1  # once per project
+        (call,) = ws.providers["openai_images"].calls
+        assert call["prompt"] == "A bright, hand-drawn poster: a glowing brass lantern"
+        assert ws.session.query(EntryAssets).filter_by(entry_id=project.id, role="celebration").count() == 1
 
 
 # ── The authoring guide and draft_workflow read the same store ───────────────

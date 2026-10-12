@@ -1,0 +1,44 @@
+{
+  "name": "Smart crop pack",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "asset_uploaded"
+    },
+    "conditions": [
+      {
+        "field": "asset.mime_type",
+        "op": "in",
+        "value": "image/jpeg,image/png,image/webp"
+      },
+      {
+        "field": "asset.derived_from",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "media",
+        "id": "square",
+        "op": "crop",
+        "aspect": "1:1",
+        "focus": "subject"
+      },
+      {
+        "kind": "media",
+        "id": "portrait",
+        "op": "crop",
+        "aspect": "4:5",
+        "focus": "subject"
+      },
+      {
+        "kind": "media",
+        "id": "landscape",
+        "op": "crop",
+        "aspect": "16:9",
+        "focus": "subject"
+      }
+    ]
+  }
+}

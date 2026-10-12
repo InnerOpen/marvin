@@ -66,7 +66,7 @@ Installed-plugin actions (origin/main of each MarvinIntegration* repo): Buttondo
 `trigger_workflow`, `list_workflows`, `list_webhooks`, `get_execution`; Cloudflare Pages `list_deployments`,
 `build_log`, `connect_notifications`, `deploy`; Square `list_locations`, `create_listing`, `close_listing`;
 Instagram `list_recent_comments`, `refresh_token` (+2 approval-only); OpenAI Images `generate` (approval-only).
-No image-processing, TTS, OCR, social-publishing or HTTP-fetch adapters exist.
+No image-processing, TTS, OCR, social-publishing or HTTP-fetch adapters exist. (2026-10-12: image processing exists as the `media` step — resize, crop, convert, grade, inspect, palette — and `image.*` integration output is kept as assets; TTS, OCR, rendering and social publishing still don't.)
 
 ## Supporting objects
 
@@ -115,5 +115,6 @@ recipes avoid `{{field}}` templating so an installer can't confuse them.
 - Custom completion events (`newsletter_issue_processed`) cannot be emitted; `automation_ran` + `chained` is
   the completion signal.
 - Image generation is `requires_approval` and therefore unreachable from workflows; every image recipe waits on
-  approvals-in-workflows plus asset targets/adapters.
+  approvals-in-workflows plus asset targets/adapters. (Resolved: approval steps 2026-10-11, generated images kept as
+  assets 2026-10-12.)
 - `member_added` carries no email address; the member cannot be addressed.

@@ -24,7 +24,8 @@
     "handler": "Run task",
     "webhook": "Call webhook",
     "integration": "Run integration",
-    "approval": "Wait for approval"
+    "approval": "Wait for approval",
+    "media": "Process an image"
   },
   "entryOps": {
     "publish": "Publish",
@@ -48,6 +49,10 @@
     "exists": "exists",
     "changed": "changed",
     "changed_from": "changed from",
-    "changed_to": "changed to"
+    "changed_to": "changed to",
+    "gt": "is more than",
+    "gte": "is at least",
+    "lt": "is less than",
+    "lte": "is at most"
   }
 }

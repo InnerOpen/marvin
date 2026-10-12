@@ -851,12 +851,16 @@ CATALOG: list[CatalogEntry] = [
         category="Assets",
         trigger_group="Entries",
         triggerable=True,
-        sent_by=["Attaching an asset to an entry, or importing images into one (AI assistant, MCP)"],
+        sent_by=[
+            "Attaching an asset to an entry, or importing images into one (AI assistant, MCP)",
+            "A workflow's image step or image-generating integration step with Attach as",
+        ],
         leads_to=["site_rebuild_queued"],
         variables=COMMON_VARS
         + [
             EventVariable("asset_name", "Filename of the asset", "photo.jpg", type="name"),
             EventVariable("entry_title", "Title of the entry", "My Post", type="title"),
+            EventVariable("role", "The role it was attached in, if any", "hero"),
         ],
     ),
     CatalogEntry(

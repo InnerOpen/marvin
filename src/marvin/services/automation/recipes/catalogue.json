@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 38,
-    "needs-adapter": 16,
-    "needs-engine-capability": 42,
+    "verified-current": 46,
+    "needs-adapter": 12,
+    "needs-engine-capability": 38,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -79,7 +79,7 @@
       "name": "Image, file and audio processing adapters",
       "priority": "P1",
       "capabilities_md": "Provider adapters",
-      "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified."
+      "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits."
     },
     "fetch": {
       "name": "HTTP fetch step",
@@ -756,7 +756,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "a TTS provider action that returns an audio asset"
         }
       ],
@@ -1737,7 +1737,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "render slides"
         },
         {
@@ -1854,7 +1854,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "render the card"
         }
       ],
@@ -2476,7 +2476,7 @@
     {
       "id": "milestone-celebration",
       "title": "Milestone celebration",
-      "outcome": "Project complete → generate grounded achievement post and visual",
+      "outcome": "When a project's status field reaches its done value, the AI drafts a celebration post grounded in the entry; once an editor approves, OpenAI Images draws an illustration, attached as celebration, and the post is saved on the entry.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
@@ -2490,34 +2490,112 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "milestone-celebration.json",
+      "vars": "milestone-celebration.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "openai_images.generate returns image data; keeping it as an asset (with lineage) is a media adapter"
+          "name": "project_type",
+          "type": "entry_type_slug",
+          "description": "The entry type whose entries are projects.",
+          "example": "project"
+        },
+        {
+          "name": "status_field",
+          "type": "field_key",
+          "description": "The project's field that says where it stands.",
+          "example": "stage"
+        },
+        {
+          "name": "done_value",
+          "type": "text",
+          "description": "The value of that field that means finished.",
+          "example": "complete"
+        },
+        {
+          "name": "image_integration",
+          "type": "integration_slug",
+          "description": "Slug of the connected OpenAI Images integration (Settings → Integrations).",
+          "example": "openai-images"
+        },
+        {
+          "name": "image_style",
+          "type": "text",
+          "description": "How the picture should look.",
+          "example": "A bright, hand-drawn poster"
         }
       ],
+      "requires": {
+        "trigger": "event:entry_updated",
+        "action_kinds": [
+          "entry",
+          "operation",
+          "approval",
+          "integration"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [
+          "generate"
+        ],
+        "condition_ops": [
+          "eq",
+          "exists"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "provider": "openai_images",
+            "actions": [
+              "generate"
+            ],
+            "credentials": [
+              "api_key"
+            ]
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "OpenAI Images",
+          "purpose": "Generates the picture (a paid call, asked for approval first).",
+          "referenced_by": "actions[3].integration",
+          "create": "Settings → Integrations → Connect OpenAI Images"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per finished project, and one paid image once approved."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Marks the entry celebrated (so later saves don't repeat it), saves the post in its metadata and attaches the picture."
+        }
+      ],
+      "cost_notes": "One text AI call (monthly AI budget) and one paid image per approval.",
+      "failure_behaviour": "An AI error fails the run after the entry is marked celebrated: clear metadata.celebrated to try again. Denied or expired: no picture, no post.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): `entry.data.<status> changed_to complete` is not detectable (changed_fields covers status/title/slug only); `entry.data.status eq complete` on entry_updated fires on every save while complete."
+        "metadata.celebrated makes it once per project: a later save while still complete doesn't fire again."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "integration:openai_images"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_milestone_celebration"
       },
       "brief": {
         "flow": "Project complete → generate grounded achievement post and visual",
@@ -2640,7 +2718,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "render the carousel"
         }
       ],
@@ -2903,7 +2981,7 @@
     {
       "id": "responsive-image-factory",
       "title": "Responsive image factory",
-      "outcome": "Image added → create requested sizes and formats → link derivatives",
+      "outcome": "When a picture is attached to an entry in its main role, three WebP sizes (1600, 800, 400 px wide) are made and attached beside it as <role>-1600, -800 and -400.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -2913,39 +2991,63 @@
       "target_entity": "asset",
       "trigger": {
         "type": "event",
-        "event": "asset_uploaded",
+        "event": "asset_attached_to_entry",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "asset_* events are triggerable but hydrate no `asset.*` context; an operation step with entity_type asset gets no image and never writes back (services/automation/runner.py)."
+        "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "responsive-image-factory.json",
+      "vars": "responsive-image-factory.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "resize/convert"
+          "name": "image_role",
+          "type": "text",
+          "description": "The role an entry's main picture is attached in; its sizes are attached as <role>-1600, <role>-800 and <role>-400.",
+          "example": "hero"
         }
       ],
+      "requires": {
+        "trigger": "event:asset_attached_to_entry",
+        "action_kinds": [
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "in",
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves new image assets (originals untouched); the same derivation of the same picture is made once."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Attaches the sizes to the entry (asset_attached_to_entry, at depth+1)."
+        }
+      ],
+      "cost_notes": "Free: local image processing.",
+      "failure_behaviour": "A file that isn't a jpeg/png/webp never matches the conditions; a missing file fails the step and the run is recorded.",
+      "dependencies": [],
       "notes": [
-        "Marvin's `media_enrich` handler runs an entry type's recipe media derivations for one entry — the nearest existing primitive (entry-scoped, not asset-scoped)."
+        "Never upscales: a picture narrower than a size keeps its own width.",
+        "Sizes from an earlier main picture stay attached; remove them by hand when the picture changes."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_responsive_image_factory"
       },
       "brief": {
         "flow": "Image added → create requested sizes and formats → link derivatives",
@@ -2996,7 +3098,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "a background-removal provider"
         }
       ],
@@ -3055,8 +3157,8 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "image editing"
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "why": "a provider image edit that keeps the product (generation is kept as assets already)"
         }
       ],
       "notes": [],
@@ -3078,7 +3180,7 @@
     {
       "id": "smart-crop-pack",
       "title": "Smart crop pack",
-      "outcome": "Image → focal-point crops for square, portrait and landscape → preview",
+      "outcome": "Every uploaded picture gets square (1:1), portrait (4:5) and landscape (16:9) crops centred on its subject, saved as new assets beside the original.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3090,35 +3192,53 @@
         "type": "event",
         "event": "asset_uploaded",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "asset_* events are triggerable but hydrate no `asset.*` context; an operation step with entity_type asset gets no image and never writes back (services/automation/runner.py)."
+        "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "smart-crop-pack.json",
+      "vars": "smart-crop-pack.vars.json",
       "setup_variables": [],
-      "requires": null,
+      "requires": {
+        "trigger": "event:asset_uploaded",
+        "action_kinds": [
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "in",
+          "exists"
+        ]
+      },
       "prerequisites": {},
       "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "side_effects": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "focal-point crop"
+          "kind": "content_mutation",
+          "description": "Saves new image assets (originals untouched); the same derivation of the same picture is made once."
+        },
+        {
+          "kind": "paid_call",
+          "description": "One small vision AI call per picture to find the subject (when AI is on for workflows); otherwise the crops are centred."
         }
       ],
-      "notes": [],
+      "cost_notes": "Free without AI; with it, one vision call per upload from the monthly AI budget.",
+      "failure_behaviour": "No vision model, AI off or the budget reached: the crops are centred and the step output says so (focus_used: center). A file that can't be read fails the step.",
+      "dependencies": [],
+      "notes": [
+        "The crops are found in the Assets library; each says Made from the original."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local",
+          "ai:detect-subject"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_smart_crop_pack"
       },
       "brief": {
         "flow": "Image → focal-point crops for square, portrait and landscape → preview",
@@ -3133,7 +3253,7 @@
     {
       "id": "brand-recolor",
       "title": "Brand recolor",
-      "outcome": "Selected artwork → apply brand palette → save derivative",
+      "outcome": "Run by hand: every image with the chosen tag gets a colour-graded copy in the workspace's preset, saved as a new asset.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3145,32 +3265,59 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "brand-recolor.json",
+      "vars": "brand-recolor.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "recolor"
+          "name": "tag",
+          "type": "text",
+          "description": "Tag of the images to recolor (the run works on every image with it).",
+          "example": "brand"
+        },
+        {
+          "name": "preset",
+          "type": "text",
+          "description": "Colour preset: rustic-warm, warm, cool, muted, or one of the workspace's own media presets.",
+          "example": "warm"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves new image assets (originals untouched); the same derivation of the same picture is made once."
+        }
+      ],
+      "cost_notes": "Free: local image processing.",
+      "failure_behaviour": "An unknown preset fails the step; the originals are never changed.",
+      "dependencies": [],
+      "notes": [
+        "Presets: rustic-warm, warm, cool, muted, or the workspace's own media presets (AI settings).",
+        "Preview it first with a dry run: it lists what would be made."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_brand_recolor"
       },
       "brief": {
         "flow": "Selected artwork → apply brand palette → save derivative",
@@ -3220,8 +3367,8 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "lineage (derived-asset lineage)"
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "why": "a provider image edit for the seasonal variants (derived-asset lineage is delivered)"
         }
       ],
       "notes": [],
@@ -3277,11 +3424,11 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
+          "capability": "workflow-approvals",
+          "name": "Approval step inside a workflow",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "attach the chosen one (derived-asset lineage)"
+          "acceptance": "Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice.",
+          "why": "pick one of three generated thumbnails — an approval with choices (approval steps ask approve/deny); generating and attaching is delivered"
         }
       ],
       "notes": [],
@@ -3303,7 +3450,7 @@
     {
       "id": "image-quality-gate",
       "title": "Image quality gate",
-      "outcome": "Upload → check dimensions, blur and orientation → flag or normalize",
+      "outcome": "An uploaded picture that is too narrow or too blurry is reported to the team's notification channel, with its size and sharpness.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3315,35 +3462,87 @@
         "type": "event",
         "event": "asset_uploaded",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "asset_* events are triggerable but hydrate no `asset.*` context; an operation step with entity_type asset gets no image and never writes back (services/automation/runner.py)."
+        "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "image-quality-gate.json",
+      "vars": "image-quality-gate.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "blur/orientation analysis"
+          "name": "notify_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+          "example": "alerts"
+        },
+        {
+          "name": "min_width",
+          "type": "integer",
+          "description": "Narrowest acceptable width in pixels.",
+          "example": 1200
+        },
+        {
+          "name": "min_sharpness",
+          "type": "integer",
+          "description": "Lowest acceptable sharpness (blurry pictures often score under 100; check a few of yours with an Inspect step).",
+          "example": 60
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:asset_uploaded",
+        "action_kinds": [
+          "media",
+          "integration"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "in",
+          "exists",
+          "lt"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "capability": "notify",
+            "examples": "Slack or Apprise"
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "Slack or Apprise",
+          "purpose": "Where the report goes.",
+          "referenced_by": "actions[1].integration",
+          "create": "Settings → Integrations"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "external_post",
+          "description": "Sends one notification per picture below the minimums."
+        }
+      ],
+      "cost_notes": "Free: local image processing; the notification is the integration's.",
+      "failure_behaviour": "A notification failure follows the integration's error policy; the inspection writes nothing.",
+      "dependencies": [],
+      "notes": [
+        "Sharpness is the variance of a Laplacian on a downscaled grey copy: blurry pictures score low. Check a few of yours with an Inspect step to pick the minimum.",
+        "Flagging the asset itself (metadata or a tag) waits for an asset metadata step."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local",
+          "integration:apprise"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_image_quality_gate"
       },
       "brief": {
         "flow": "Upload → check dimensions, blur and orientation → flag or normalize",
@@ -3370,8 +3569,7 @@
         "type": "event",
         "event": "asset_uploaded",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "asset_* events are triggerable but hydrate no `asset.*` context; an operation step with entity_type asset gets no image and never writes back (services/automation/runner.py)."
+        "custom_event": false
       },
       "status": "needs-engine-capability",
       "shape": "idea",
@@ -3390,7 +3588,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "masking"
         }
       ],
@@ -3443,7 +3641,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "render the comparison"
         }
       ],
@@ -3503,7 +3701,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "render"
         }
       ],
@@ -3539,8 +3737,7 @@
         "type": "event",
         "event": "asset_uploaded",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "asset_* events are triggerable but hydrate no `asset.*` context; an operation step with entity_type asset gets no image and never writes back (services/automation/runner.py)."
+        "custom_event": false
       },
       "status": "needs-adapter",
       "shape": "idea",
@@ -3559,7 +3756,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "OCR / PDF text extraction"
         }
       ],
@@ -3594,8 +3791,7 @@
         "type": "event",
         "event": "asset_uploaded",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "asset_* events are triggerable but hydrate no `asset.*` context; an operation step with entity_type asset gets no image and never writes back (services/automation/runner.py)."
+        "custom_event": false
       },
       "status": "needs-adapter",
       "shape": "idea",
@@ -3614,7 +3810,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "PDF rendering"
         }
       ],
@@ -3636,8 +3832,8 @@
     },
     {
       "id": "file-format-converter",
-      "title": "File format converter",
-      "outcome": "Uploaded file → supported output formats → save download references",
+      "title": "File format converter (images)",
+      "outcome": "Every uploaded JPEG or PNG gets a WebP copy (smaller, same look) saved as a new asset beside it.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3649,35 +3845,55 @@
         "type": "event",
         "event": "asset_uploaded",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "asset_* events are triggerable but hydrate no `asset.*` context; an operation step with entity_type asset gets no image and never writes back (services/automation/runner.py)."
+        "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "file-format-converter.json",
+      "vars": "file-format-converter.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "conversion"
+          "name": "quality",
+          "type": "integer",
+          "description": "WebP quality, 1–100 (80–85 keeps photos looking the same at a fraction of the size).",
+          "example": 82
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:asset_uploaded",
+        "action_kinds": [
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "in",
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves new image assets (originals untouched); the same derivation of the same picture is made once."
+        }
+      ],
+      "cost_notes": "Free: local image processing.",
+      "failure_behaviour": "A file that can't be read fails the step; the original is never changed.",
+      "dependencies": [],
+      "notes": [
+        "Images only in this slice: documents, audio and video formats need adapters that don't exist yet."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_file_format_converter"
       },
       "brief": {
         "flow": "Uploaded file → supported output formats → save download references",
@@ -3789,8 +4005,7 @@
         "type": "event",
         "event": "asset_uploaded",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "asset_* events are triggerable but hydrate no `asset.*` context; an operation step with entity_type asset gets no image and never writes back (services/automation/runner.py)."
+        "custom_event": false
       },
       "status": "needs-engine-capability",
       "shape": "idea",
@@ -3834,7 +4049,7 @@
     {
       "id": "image-prompt-archive",
       "title": "Image prompt archive",
-      "outcome": "Generation → save prompt, model, seed if available and parent references",
+      "outcome": "When a generated picture is attached to an entry, the entry records the prompt, model and integration that made it (and the picture keeps them too).",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3844,38 +4059,50 @@
       ],
       "target_entity": "asset",
       "trigger": {
-        "type": "manual",
-        "event": null,
-        "custom_event": false
+        "type": "event",
+        "event": "asset_attached_to_entry",
+        "custom_event": false,
+        "builtin_event": true
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "image-prompt-archive.json",
+      "vars": "image-prompt-archive.vars.json",
       "setup_variables": [],
-      "requires": null,
+      "requires": {
+        "trigger": "event:asset_attached_to_entry",
+        "action_kinds": [
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists"
+        ]
+      },
       "prerequisites": {},
       "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "side_effects": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "write prompt/model/parent onto the generated asset (derived-asset lineage)"
+          "kind": "content_mutation",
+          "description": "Merges image_prompt / image_model / image_generated_by / image_asset into the entry's metadata."
         }
       ],
+      "cost_notes": "Free.",
+      "failure_behaviour": "A picture that wasn't generated by a workflow never matches.",
+      "dependencies": [],
       "notes": [
-        "`openai_images.generate` returns `usage` (provider, model, tokens) and images (b64 or URL) but no asset is created from a workflow."
+        "Every image an integration step generates already carries generated_by, prompt, model and the run in its own metadata; this copies it onto the entry it illustrates."
       ],
       "verification": {
-        "level": "none",
+        "level": "fixture-executed",
         "mocked": [],
-        "test": null
+        "test": "tests/test_workflow_library.py::TestExecution::test_image_prompt_archive"
       },
       "brief": {
         "flow": "Generation → save prompt, model, seed if available and parent references",
@@ -3926,7 +4153,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "layout"
         }
       ],
@@ -4159,7 +4386,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "typography rendering"
         }
       ],
@@ -4212,7 +4439,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "render the card"
         }
       ],
@@ -4322,7 +4549,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "render onto a template asset"
         }
       ],
@@ -4430,7 +4657,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "document rendering"
         }
       ],
@@ -4490,7 +4717,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "PDF rendering"
         }
       ],
@@ -4544,8 +4771,8 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "palette extraction + render"
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
+          "why": "render the moodboard (palette extraction is delivered: a media palette step)"
         },
         {
           "capability": "iterate-aggregate",
@@ -4650,7 +4877,7 @@
     {
       "id": "alternate-universe-cover",
       "title": "Alternate universe cover",
-      "outcome": "Entry → sci-fi, noir or botanical cover variations → review",
+      "outcome": "When an entry is published, an editor is asked whether to make an alternate-universe cover; once approved, OpenAI Images draws it and it is attached to the entry as cover-variant.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -4660,36 +4887,97 @@
       ],
       "target_entity": "entry",
       "trigger": {
-        "type": "manual",
-        "event": null,
-        "custom_event": false
+        "type": "event",
+        "event": "entry_published",
+        "custom_event": false,
+        "builtin_event": true
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "alternate-universe-cover.json",
+      "vars": "alternate-universe-cover.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
-          "why": "openai_images.generate returns image data; keeping it as an asset (with lineage) is a media adapter"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Entries of this type get an alternate-universe cover offered when published.",
+          "example": "article"
+        },
+        {
+          "name": "image_integration",
+          "type": "integration_slug",
+          "description": "Slug of the connected OpenAI Images integration (Settings → Integrations).",
+          "example": "openai-images"
+        },
+        {
+          "name": "style",
+          "type": "text",
+          "description": "The other universe: sci-fi, noir, botanical…",
+          "example": "a 1950s sci-fi pulp"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "approval",
+          "integration"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [
+          "generate"
+        ],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "provider": "openai_images",
+            "actions": [
+              "generate"
+            ],
+            "credentials": [
+              "api_key"
+            ]
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "OpenAI Images",
+          "purpose": "Generates the picture (a paid call, asked for approval first).",
+          "referenced_by": "actions[1].integration",
+          "create": "Settings → Integrations → Connect OpenAI Images"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One image generation per approved run (OpenAI Images)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves the picture as an asset (prompt, model and run recorded) and attaches it to the entry."
+        }
+      ],
+      "cost_notes": "One paid image per approval, billed by OpenAI.",
+      "failure_behaviour": "Denied or expired: nothing is drawn. A provider error fails the step and follows the integration's error policy.",
+      "dependencies": [],
+      "notes": [
+        "The picture is kept as an asset before the run goes on, so the run carries a reference, not image data."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "integration:openai_images"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_alternate_universe_cover"
       },
       "brief": {
         "flow": "Entry → sci-fi, noir or botanical cover variations → review",
@@ -5682,7 +5970,7 @@
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "acceptance": "Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: rendering (cards, carousels, posters, layouts), OCR/PDF, TTS, zip, background removal / masking and provider-side image edits.",
           "why": "zip + manifest"
         },
         {
