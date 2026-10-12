@@ -43,6 +43,9 @@ DEFAULT_PALETTE_COLORS = 5
 SLUG_SOURCE_CHARS = 120  # the source's slug inside a derivative's, so the whole stays well under 200
 PROMPT_KEPT_CHARS = 2000  # a generated image's prompt, as its lineage keeps it
 DETECT_OPERATION = "detect-subject"  # the AI execution log's name for a subject-focus crop's vision call
+# Where a run keeps what subject detection found per source asset (its box, or None: no subject), so a run's square,
+# portrait and landscape crops of one picture make one vision call between them, not three.
+SUBJECTS = "_media_subjects"
 
 
 def parse_aspect(value) -> tuple[int, int] | None:
@@ -217,7 +220,11 @@ def _derive(session, group_id, op: str, args: dict, src, context: dict, *, user_
     from marvin.db.models.platform.assets import Assets
 
     if op == "crop" and args["focus"] == "subject":
-        detector, why_not = _subject_detector(session, group_id)
+        known = context.get(SUBJECTS) or {}
+        if str(src.id) in known and known[str(src.id)] is None:  # an earlier step found no subject in this picture
+            detector, why_not = None, "no subject found; cropped from the centre"
+        else:
+            detector, why_not = _subject_detector(session, group_id)
         planned = {**args, "focus": "subject" if detector else "center"}
     else:
         detector, why_not, planned = None, None, args
@@ -234,7 +241,7 @@ def _derive(session, group_id, op: str, args: dict, src, context: dict, *, user_
             out["focus_note"] = why_not
     if existing is None:
         data = _read_bytes(session, group_id, src)
-        produced, box = _produce(session, group_id, op, args, src, data, detector, user_id=user_id)
+        produced, box = _produce(session, group_id, op, args, src, data, detector, context, user_id=user_id)
         if op == "crop" and planned["focus"] == "subject" and box is None:  # the model found no subject: centre it
             out.update(focus_used="center", focus_note="no subject found; cropped from the centre")
             planned = {**args, "focus": "center"}
@@ -254,7 +261,7 @@ def _derive(session, group_id, op: str, args: dict, src, context: dict, *, user_
     return out
 
 
-def _produce(session, group_id, op: str, args: dict, src, data: bytes, detector, *, user_id) -> tuple[bytes, list | None]:
+def _produce(session, group_id, op: str, args: dict, src, data: bytes, detector, context: dict, *, user_id) -> tuple[bytes, list | None]:
     """The new image's bytes (and the subject box a subject crop used, None when it centred)."""
     from marvin.services.ai.media import ops, transforms
 
@@ -268,7 +275,10 @@ def _produce(session, group_id, op: str, args: dict, src, data: bytes, detector,
         elif op == "crop":
             focus = (0.5, 0.5)
             if detector is not None:
-                box = _detect_subject(session, group_id, detector, src, data, user_id=user_id)
+                known = context.setdefault(SUBJECTS, {})
+                if str(src.id) not in known:
+                    known[str(src.id)] = _detect_subject(session, group_id, detector, src, data, user_id=user_id)
+                box = known[str(src.id)]
                 if box:
                     focus = (box[0] + box[2] / 2, box[1] + box[3] / 2)
             produced = ops.reencode(transforms.crop_to_aspect(data, parse_aspect(args["aspect"]), focus=focus), fmt, quality)

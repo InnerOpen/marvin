@@ -1217,8 +1217,7 @@ class TestExecution:
 
         _install(ws, "smart-crop-pack")
         photo = self._picture_asset(ws, store, "harbour", _picture((1200, 800)))
-        for _ in range(3):
-            ws.ai.reply_text(json.dumps({"box": [0.1, 0.2, 0.3, 0.5]}))
+        ws.ai.reply_text(json.dumps({"box": [0.1, 0.2, 0.3, 0.5]}))  # one answer: the three crops share it
 
         self._upload(ws, photo)
         self._upload(ws, photo, correlation_id="corr-2")  # again: the crops are reused, not remade
@@ -1226,7 +1225,8 @@ class TestExecution:
         crops = self._made_from(ws, photo)
         assert sorted((a.width, a.height) for a in crops) == [(640, 800), (800, 800), (1200, 675)]
         assert all(a.metadata_json["derivation"].endswith("focus=subject") for a in crops)
-        assert ws.session.query(AIExecutionModel).filter_by(group_id=ws.gid, operation_slug="detect-subject").count() == 3
+        assert ws.session.query(AIExecutionModel).filter_by(group_id=ws.gid, operation_slug="detect-subject").count() == 1
+        assert len(ws.ai.requests) == 1  # one vision call per picture, and none on the re-run (the crops are reused)
         assert [s["reused"] for s in (a.output_snapshot for a in _runs(ws, "smart-crop-pack")[-1].actions)] == [True, True, True]
 
     def test_file_format_converter(self, ws, store):

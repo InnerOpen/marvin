@@ -431,6 +431,43 @@ def test_a_subject_crop_asks_the_vision_model_and_records_the_call(media, monkey
     assert call.trigger_type == "automation" and call.total_tokens > 0
 
 
+def test_crops_of_one_picture_share_one_subject_detection(media, monkeypatch):
+    from marvin_integration_sdk.ai.fake import FakeAIProvider, ScriptedTransport
+
+    from marvin.services.ai import factory
+
+    transport = ScriptedTransport()
+    transport.reply_text('{"box": [0.0, 0.0, 0.2, 1.0]}')
+    monkeypatch.setattr(factory, "get_workspace_ai_provider", lambda *a, **k: FakeAIProvider(transport))
+    photo = _stored(media, "halves", _halves((400, 200)))
+    crops = [{"kind": "media", "op": "crop", "aspect": aspect, "focus": "subject"} for aspect in ("1:1", "1:2", "3:2")]
+    _workflow(media, {"trigger": ON_UPLOAD, "actions": crops})
+
+    _fire(media, "asset_uploaded", {"asset_id": str(photo.id)}, entity=photo.id, entity_type="asset")
+
+    assert len(transport.requests) == 1
+    assert [a.output_snapshot["focus_used"] for a in _last_run(media).actions] == ["subject", "subject", "subject"]
+
+
+def test_no_subject_found_is_remembered_for_the_runs_other_crops(media, monkeypatch):
+    from marvin_integration_sdk.ai.fake import FakeAIProvider, ScriptedTransport
+
+    from marvin.services.ai import factory
+
+    transport = ScriptedTransport()
+    transport.reply_text('{"box": [0, 0, 0, 0]}')  # a degenerate box: no subject
+    monkeypatch.setattr(factory, "get_workspace_ai_provider", lambda *a, **k: FakeAIProvider(transport))
+    photo = _stored(media, "fog", _png((400, 200)))
+    crops = [{"kind": "media", "op": "crop", "aspect": aspect, "focus": "subject"} for aspect in ("1:1", "1:2")]
+    _workflow(media, {"trigger": ON_UPLOAD, "actions": crops})
+
+    _fire(media, "asset_uploaded", {"asset_id": str(photo.id)}, entity=photo.id, entity_type="asset")
+
+    assert len(transport.requests) == 1
+    outputs = [a.output_snapshot for a in _last_run(media).actions]
+    assert [o["focus_used"] for o in outputs] == ["center", "center"] and all("no subject" in o["focus_note"] for o in outputs)
+
+
 def test_a_subject_crop_without_ai_centres_and_says_so(media):
     from marvin.db.models.groups.ai_settings import WorkspaceAISettingsModel
 

@@ -374,7 +374,7 @@ def _actions(detail: bool) -> dict:
 MEDIA_NOTE = (
     "A media step works on one image (jpeg, png, webp): source is an asset id or slug (default ${asset.id}), "
     "${steps.<id>.output.asset.id} to chain, or role:<role> for the run's entry's image in that role. resize (width/height, "
-    "fit inside|cover; never upscales), crop (aspect like 4:5; focus subject asks a vision model, else centre — output "
+    "fit inside|cover; never upscales), crop (aspect like 4:5; focus subject asks a vision model once per image per run, else centre — output "
     "focus_used), convert (format), grade (preset) save a NEW asset and output asset {id, slug, url, width, height}, "
     "reused: the same op on the same image is made once, the original is never changed, and the new asset records "
     "derived_from + the workflow (no asset_uploaded is sent; asset.derived_from tells derivatives apart). format/quality "
