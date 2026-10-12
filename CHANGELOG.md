@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.283 (2026-10-12)
+
+### Features
+
+- **workflows**: Run inputs — a manual workflow asks for what it needs when it runs; cron in the
+  editor's schedule
+  ([`5c42d5c`](https://github.com/InnerOpen/marvin/commit/5c42d5cc9a3490872a5fd7e376ad8fd6e3160067))
+
+
 ## v1.0.0-rc.282 (2026-10-12)
 
 ### Features
