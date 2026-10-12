@@ -348,6 +348,10 @@ def _step_issues(act, i: int, where: str, ttype: str, has_entry: bool, subject: 
                 i,
             )
         )
+    # A field write with nothing to write fails when it runs ("needs a non-empty metadata object"): say so while editing.
+    empty_write = {"set_metadata": ("metadata", "Set metadata"), "set_data": ("data", "Set fields")}.get(act.get("op")) if kind == "entry" else None
+    if empty_write and not act.get(empty_write[0]):
+        issues.append(_issue("warning", f"Step “{empty_write[1]}” has nothing to set — add a field and its value, or remove the step.", where, i))
     # A collection-membership entry action needs a target collection.
     if (
         kind == "entry"

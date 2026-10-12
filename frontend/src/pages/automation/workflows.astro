@@ -1119,9 +1119,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     }
     setOrDrop("entry_type", ($("wf-t-type") as HTMLInputElement).value.trim());
     setOrDrop("status", ($("wf-t-status") as HTMLSelectElement).value);
-    setOrDrop("has_images", ($("wf-t-images") as HTMLInputElement).checked);
-    setOrDrop("has_assets", ($("wf-t-assets") as HTMLInputElement).checked);
-    setOrDrop("has_resources", ($("wf-t-resources") as HTMLInputElement).checked);
+    // Unchecked means "don't filter": left out, not stored as false.
+    setOrDrop("has_images", ($("wf-t-images") as HTMLInputElement).checked || null);
+    setOrDrop("has_assets", ($("wf-t-assets") as HTMLInputElement).checked || null);
+    setOrDrop("has_resources", ($("wf-t-resources") as HTMLInputElement).checked || null);
     const metadata = readKv($("wf-t-meta"));
     setOrDrop("metadata", Object.keys(metadata).length ? metadata : null);
     const data = readKv($("wf-t-data"));

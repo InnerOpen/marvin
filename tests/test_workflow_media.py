@@ -566,3 +566,12 @@ def test_a_source_may_be_the_url_the_asset_is_served_at(media):
     assert resolve_source(media.session, media.gid, "${asset.url}", {"asset": {"url": url}}).id == photo.id
     with pytest.raises(AutomationActionError, match="isn't one of this workspace's assets"):
         resolve_source(media.session, media.gid, "https://example.com/elsewhere.png", {})
+
+
+def test_the_editor_warns_about_a_field_write_with_nothing_to_write():
+    from marvin.services.automation.validation import validate_definition
+
+    issues = validate_definition({"trigger": {"type": "event", "event": "entry_published"}, "actions": [{"kind": "entry", "op": "set_metadata"}]})
+    assert any("has nothing to set" in i["message"] for i in issues)
+    fine = validate_definition({"trigger": {"type": "event", "event": "entry_published"}, "actions": [{"kind": "entry", "op": "set_metadata", "metadata": {"a": "b"}}]})
+    assert not any("has nothing to set" in i["message"] for i in fine)
