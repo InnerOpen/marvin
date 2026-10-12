@@ -95,6 +95,17 @@ def subject_of(definition: dict | None) -> str:
     return next((kind for kind in ITEM_KINDS if kind in event), "entry")
 
 
+def run_inputs(definition: dict | None) -> list[dict]:
+    """A manual trigger's run inputs (services/automation/inputs.py); [] for any other trigger."""
+    trig = (definition or {}).get("trigger") or {}
+    return [i for i in trig.get("inputs") or [] if isinstance(i, dict)] if trig.get("type") == "manual" else []
+
+
+def has_entry_input(definition: dict | None) -> bool:
+    """A manual workflow whose run asks for an entry: it acts on that entry, as an entry event's run would."""
+    return any(i.get("type") == "entry" for i in run_inputs(definition))
+
+
 def has_entry_subject(definition: dict | None) -> bool:
     """Whether every run has an entry to act on: an entry target's rows, or an event about an entry (`entry_*`, and
     the asset/resource/tag links to one — the builder's "Entries" group). What `attach_as` and `source: role:<role>`
@@ -105,6 +116,8 @@ def has_entry_subject(definition: dict | None) -> bool:
     target = definition.get("target")
     if isinstance(target, dict):
         return (target.get("entity") or "entry") == "entry"
+    if has_entry_input(definition):
+        return True
     trig = definition.get("trigger") or {}
     if trig.get("type", "event") != "event" or not isinstance(trig.get("event"), str):
         return False
@@ -177,9 +190,11 @@ def validate_definition(definition: dict | None) -> list[dict]:
     # conditions/actions are valid even under a trigger (webhook/manual) that has no inherent entry.
     target = definition.get("target") or {}
     has_target_entry = bool(target) and target.get("entity", "entry") == "entry"
-    has_entry = (ttype in _ENTRY_TRIGGERS) or has_target_entry
-    if has_target_entry:
+    has_entry = (ttype in _ENTRY_TRIGGERS) or has_target_entry or has_entry_input(definition)
+    if has_target_entry or has_entry_input(definition):
         namespaces = namespaces | {"entry"}
+    if run_inputs(definition):
+        namespaces = namespaces | {"input"}
     # An asset/resource target (or event) hydrates `asset.*` / `resource.*` the same way.
     subject = subject_of(definition)
     if subject in ITEM_KINDS:
@@ -468,7 +483,7 @@ def item_target_issues(definition: dict | None) -> list[dict]:
     from .actions.entry import ITEM_OPS
 
     ttype = (definition.get("trigger") or {}).get("type", "event")
-    has_entry = ttype in _ENTRY_TRIGGERS
+    has_entry = ttype in _ENTRY_TRIGGERS or has_entry_input(definition)
     issues: list[dict] = []
     for list_key, where in (("actions", "action"), ("on_failure", "on_failure")):
         for i, step in enumerate(definition.get(list_key) or []):

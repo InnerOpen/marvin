@@ -28,6 +28,7 @@ from marvin.schemas.group.automation import (
     AutomationPreviewRequest,
     AutomationPreviewResult,
     AutomationRead,
+    AutomationRunRequest,
     AutomationTargetOption,
     AutomationUpdate,
     AutomationValidateRequest,
@@ -130,7 +131,7 @@ def _library_recipe(item: dict, refs, uses: dict[str, list[dict]] | None = None)
     )
 
 
-def _run_in_background(group_id, automation_id, user_id) -> None:
+def _run_in_background(group_id, automation_id, user_id, inputs: dict | None = None) -> None:
     """A Run-button run that answered first: in its own session, after the response. A failure is logged and lands in
     the workflow's Runs and the automation_failed event like any run's."""
     from marvin.core.root_logger import get_logger
@@ -144,7 +145,8 @@ def _run_in_background(group_id, automation_id, user_id) -> None:
             row = session.get(WorkspaceAutomationModel, automation_id)
             if row is None or str(row.group_id) != str(group_id) or not row.enabled:
                 return
-            run_automation_now(session, group_id, row, user_id=user_id, logger=logger, recorder=ExecutionRecorder(session, group_id))
+            recorder = ExecutionRecorder(session, group_id)
+            run_automation_now(session, group_id, row, user_id=user_id, logger=logger, recorder=recorder, inputs=inputs)
     except Exception as e:  # noqa: BLE001 — a background run must never take the worker down
         logger.error(f"background run of workflow {automation_id} failed: {e}", exc_info=True)
 
@@ -487,6 +489,7 @@ class AutomationsController(BaseUserController):
         entry_id: UUID4 | None = None,
         event_id: UUID4 | None = None,
         background: bool = False,
+        body: AutomationRunRequest | None = None,
     ) -> dict:
         """Run the automation's steps immediately — the Manual trigger / Run button. Skips the
         trigger + condition gates (the caller asked for it explicitly).
@@ -503,7 +506,10 @@ class AutomationsController(BaseUserController):
         row), ``entry_id`` (that entry's latest event of the trigger's type, or one built for it), or
         by default the latest matching event (see ``GET /samples``). The result adds ``sample``,
         ``trigger_matched``, per-condition ``conditions`` with the values compared, and
-        ``would_fire``."""
+        ``would_fire``.
+
+        The body's ``inputs`` are the run's inputs (the manual trigger's ``inputs``: ${input.<name>}); a missing
+        required one, an unknown name or a value that doesn't fit is a 400 saying which."""
         _require_admin(self.user, self.group_id)
         row = _get_or_404(self.session, automation_id, self.group_id)
         if (entry_id or event_id) and not dry_run:
@@ -518,13 +524,19 @@ class AutomationsController(BaseUserController):
                 detail="This workflow is disabled — enable it to run.",
             )
         from marvin.services.automation.engine import run_automation_now
+        from marvin.services.automation.inputs import RunInputError, resolve
         from marvin.services.automation.recorder import ExecutionRecorder
         from marvin.services.automation.samples import trigger_event
 
+        inputs = (body.inputs if body else None) or None
         if dry_run and (entry_id or event_id or trigger_event(row)):
             return {"status": "dry_run", **self._dry_run_with_sample(row, entry_id=entry_id, event_id=event_id)}
+        try:
+            resolve(self.session, self.group_id, row, inputs, dry_run=dry_run)  # refused now, not after answering
+        except RunInputError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
         if background and not dry_run:
-            bg_tasks.add_task(_run_in_background, self.group_id, row.id, self.user.id)
+            bg_tasks.add_task(_run_in_background, self.group_id, row.id, self.user.id, inputs)
             return {"status": "started", "ok": True}
         try:
             res = run_automation_now(
@@ -534,6 +546,7 @@ class AutomationsController(BaseUserController):
                 user_id=self.user.id,
                 dry_run=dry_run,
                 recorder=None if dry_run else ExecutionRecorder(self.session, self.group_id),
+                inputs=inputs,
             )
         except Exception as e:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e)) from e

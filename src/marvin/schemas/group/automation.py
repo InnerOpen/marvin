@@ -31,6 +31,12 @@ class AutomationUpdate(_MarvinModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AutomationRunRequest(_MarvinModel):
+    """A run's inputs, by name — the workflow's manual trigger declares them (`trigger.inputs`)."""
+
+    inputs: dict[str, Any] | None = None
+
+
 class AutomationRead(_MarvinModel):
     id: UUID4
     group_id: UUID4

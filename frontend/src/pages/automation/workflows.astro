@@ -87,11 +87,24 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <span class="hint">The event that starts the workflow.</span>
         </div>
         <p class="hint" id="wf-manual-hint" hidden>Runs when you press <strong>Run</strong> on the workflow (or via the API). No event needed.</p>
+        <div class="form-field" id="wf-inputs-field" hidden>
+          <span class="label">Ask when it runs <span class="muted">(optional — steps read them as <code>{"${input.<name>}"}</code>; an <em>entry</em> is the entry the run works on)</span></span>
+          <div id="wf-inputs" class="rows"></div>
+          <button type="button" class="linkish" id="wf-add-input">+ Add input</button>
+        </div>
         <p class="hint" id="wf-mcp-hint" hidden>Exposed as a named MCP tool (<code>marvin_wf_&lt;slug&gt;</code>) so external MCP hosts can run it. Also runnable via <strong>Run</strong>.</p>
 
         <div class="form-field" id="wf-schedule-field" hidden>
-          <label class="label" for="wf-sched-n">Every</label>
-          <div class="inline">
+          <label class="label" for="wf-sched-kind">Runs</label>
+          <select class="input" id="wf-sched-kind">
+            <option value="interval">Every few minutes, hours or days</option>
+            <option value="cron">At set times (cron)</option>
+          </select>
+          <div class="inline" id="wf-cron-fields" hidden>
+            <input class="input mono" id="wf-cron-expr" placeholder="0 9 * * 1  (Mondays at 9:00)" spellcheck="false" />
+            <input class="input" id="wf-cron-tz" placeholder="America/New_York" spellcheck="false" />
+          </div>
+          <div class="inline" id="wf-interval-fields">
             <input class="input" id="wf-sched-n" type="number" min="1" value="1" />
             <select class="input" id="wf-sched-unit">
               <option value="60">minutes</option>
@@ -343,6 +356,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const isChain = t === "chained" || t === "on_error";
     $("wf-event-field").toggleAttribute("hidden", t !== "event");
     $("wf-manual-hint").toggleAttribute("hidden", t !== "manual");
+    $("wf-inputs-field").toggleAttribute("hidden", t !== "manual");
+    syncScheduleKind();
     $("wf-mcp-hint").toggleAttribute("hidden", t !== "mcp");
     $("wf-schedule-field").toggleAttribute("hidden", t !== "schedule");
     $("wf-chained-field").toggleAttribute("hidden", !isChain);
@@ -354,6 +369,77 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     }
     populateFieldDatalist(t);
     revalidate();
+  }
+
+  function syncScheduleKind() {
+    const cron = ($("wf-sched-kind") as HTMLSelectElement).value === "cron";
+    $("wf-cron-fields").toggleAttribute("hidden", !cron);
+    $("wf-interval-fields").toggleAttribute("hidden", cron);
+  }
+
+  /** The Run form: one field per input. Resolves to the values by name, or null when cancelled. */
+  function askRunInputs(name: string, asks: any[]): Promise<Record<string, unknown> | null> {
+    return new Promise((done) => {
+      const dialog = document.createElement("dialog");
+      dialog.className = "run-inputs";
+      const field = (spec: any) => {
+        const label = esc(spec.label || spec.name);
+        const req = spec.required === false ? "" : "required";
+        if (spec.type === "choice") {
+          const opts = (spec.options ?? []).map((o: string) => `<option ${String(spec.default ?? "") === o ? "selected" : ""}>${esc(o)}</option>`).join("");
+          return `<label class="tf"><span>${label}</span><select class="input" name="${esc(spec.name)}" ${req}>${req ? "" : "<option value=''>—</option>"}${opts}</select></label>`;
+        }
+        const type = spec.type === "number" ? "number" : "text";
+        const hint = spec.type === "entry" ? "the entry's slug (from its URL) or id" : spec.description ?? "";
+        return `<label class="tf"><span>${label}${hint ? ` <span class="muted">(${esc(hint)})</span>` : ""}</span>
+          <input class="input" type="${type}" name="${esc(spec.name)}" value="${esc(spec.default ?? "")}" ${req} ${type === "number" ? 'step="any"' : ""} /></label>`;
+      };
+      dialog.innerHTML = `<form method="dialog"><h3>Run “${esc(name)}”</h3>${asks.map(field).join("")}
+        <div class="run-inputs-actions"><button type="button" class="button secondary" value="cancel">Cancel</button><button class="button" value="run">Run</button></div></form>`;
+      const form = dialog.querySelector("form")!;
+      form.querySelector("[value=cancel]")!.addEventListener("click", () => dialog.close("cancel"));
+      dialog.addEventListener("close", () => {
+        const values = Object.fromEntries([...new FormData(form).entries()].filter(([, v]) => String(v).trim() !== ""));
+        dialog.remove();
+        done(dialog.returnValue === "run" ? values : null);
+      });
+      document.body.appendChild(dialog);
+      dialog.showModal();
+    });
+  }
+
+  // ── Run inputs (a manual trigger's `inputs`: what the Run form asks for) ───
+  const INPUT_TYPES: [string, string][] = [["text", "Text"], ["choice", "One of a list"], ["number", "Number"], ["entry", "An entry (the run works on it)"]];
+  function inputRow(spec: any = {}) {
+    const row = document.createElement("div");
+    row.className = "row input-row";
+    const type = spec.type ?? "text";
+    row.innerHTML = `
+      <div class="input-grid">
+        <input class="input mono i-name" value="${esc(spec.name ?? "")}" placeholder="name, e.g. style" spellcheck="false" />
+        <input class="input i-label" value="${esc(spec.label ?? "")}" placeholder="Label, e.g. Remix it as" />
+        <select class="input i-type">${INPUT_TYPES.map(([v, l]) => `<option value="${v}" ${type === v ? "selected" : ""}>${l}</option>`).join("")}</select>
+        <label class="check small"><input type="checkbox" class="i-required" ${spec.required === false ? "" : "checked"} /> required</label>
+        <button type="button" class="icon-btn" title="Remove input">✕</button>
+      </div>
+      <input class="input i-options" value="${esc((spec.options ?? []).join(", "))}" placeholder="Options, comma-separated: a haiku, a fairy tale" ${type === "choice" ? "" : "hidden"} />`;
+    const typeSel = row.querySelector(".i-type") as HTMLSelectElement;
+    typeSel.addEventListener("change", () => (row.querySelector(".i-options") as HTMLElement).toggleAttribute("hidden", typeSel.value !== "choice"));
+    row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
+    return row;
+  }
+  function readInputs(): any[] {
+    return [...document.querySelectorAll("#wf-inputs .input-row")].map((r) => {
+      const val = (sel: string) => (r.querySelector(sel) as HTMLInputElement).value.trim();
+      const name = val(".i-name").toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+      if (!name) return null;
+      const type = val(".i-type");
+      const spec: any = { name, type };
+      if (val(".i-label")) spec.label = val(".i-label");
+      if (type === "choice") spec.options = val(".i-options").split(",").map((o) => o.trim()).filter(Boolean);
+      if (!(r.querySelector(".i-required") as HTMLInputElement).checked) spec.required = false;
+      return spec;
+    }).filter(Boolean);
   }
 
   // ── Live coherence check (advisory) ───────────────────────────────────────
@@ -559,6 +645,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     }
     return parsed;
   }
+
+  // The schedule a workflow was opened with: a kind the form doesn't edit (once) is saved back unchanged.
+  let ORIGINAL_SCHEDULE: any = null;
 
   // ── Action rows (kind-dependent fields) ───────────────────────────────────
   function actionRow(a: any = {}) {
@@ -1178,10 +1267,19 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     let trigger: any;
     if (ttype === "event") {
       trigger = { type: "event", event: ($("wf-trigger") as HTMLSelectElement).value };
+    } else if (ttype === "schedule" && ($("wf-sched-kind") as HTMLSelectElement).value === "cron") {
+      const tz = ($("wf-cron-tz") as HTMLInputElement).value.trim();
+      const cronExpr = ($("wf-cron-expr") as HTMLInputElement).value.trim();
+      trigger = { type: "schedule", schedule_type: "cron", schedule_config: { cron_expression: cronExpr, ...(tz ? { timezone: tz } : {}) } };
+    } else if (ttype === "schedule" && ORIGINAL_SCHEDULE && !["interval", "cron"].includes(ORIGINAL_SCHEDULE.schedule_type)) {
+      trigger = ORIGINAL_SCHEDULE;  // a kind the form doesn't edit (once, at a time): kept as it was
     } else if (ttype === "schedule") {
       const n = Math.max(1, parseInt(($("wf-sched-n") as HTMLInputElement).value || "1", 10));
       const unit = parseInt(($("wf-sched-unit") as HTMLSelectElement).value, 10);
       trigger = { type: "schedule", schedule_type: "interval", schedule_config: { interval_seconds: n * unit } };
+    } else if (ttype === "manual") {
+      const inputs = readInputs();
+      trigger = { type: "manual", ...(inputs.length ? { inputs } : {}) };
     } else if (ttype === "chained" || ttype === "on_error") {
       const target = ($("wf-chained-target") as HTMLSelectElement).value;
       trigger = { type: ttype, ...(target && target !== "any" ? { automation: target } : {}) };
@@ -1305,6 +1403,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     const trig = def.trigger ?? {};
     ($("wf-trigger-type") as HTMLSelectElement).value = trig.type || "event";
     if (trig.event) ($("wf-trigger") as HTMLSelectElement).value = trig.event;
+    ORIGINAL_SCHEDULE = trig.type === "schedule" ? trig : null;
+    const isCron = trig.type === "schedule" && trig.schedule_type === "cron";
+    ($("wf-sched-kind") as HTMLSelectElement).value = isCron ? "cron" : "interval";
+    ($("wf-cron-expr") as HTMLInputElement).value = isCron ? trig.schedule_config?.cron_expression ?? "" : "";
+    ($("wf-cron-tz") as HTMLInputElement).value = isCron ? trig.schedule_config?.timezone ?? "" : "";
+    $("wf-inputs").replaceChildren(...(trig.type === "manual" ? trig.inputs ?? [] : []).map((spec: any) => inputRow(spec)));
     if (trig.type === "schedule") {
       const secs = trig.schedule_config?.interval_seconds || 86400;
       const unit = secs % 86400 === 0 ? 86400 : secs % 3600 === 0 ? 3600 : 60;
@@ -1759,10 +1863,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       }
       card.querySelector(".js-run")!.addEventListener("click", async (e) => {
         const btn = e.currentTarget as HTMLButtonElement;
+        const asks = wf.definition?.trigger?.type === "manual" ? wf.definition.trigger.inputs ?? [] : [];
+        const inputs = asks.length ? await askRunInputs(wf.name, asks) : undefined;
+        if (asks.length && !inputs) return;  // cancelled
         btn.disabled = true; const orig = btn.textContent; btn.textContent = "Starting…";
         try {
           // Started, not awaited: a run over many entries outlasts a request. The activity toast says when it's done.
-          await startAutomation(id);
+          await startAutomation(id, inputs);
           btn.textContent = "Started ✓";
           btn.title = "Running in the background — the activity toast and Runs show how it goes.";
           setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 4000);
@@ -1807,6 +1914,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   $("wf-cancel").addEventListener("click", closeBuilder);
   $("wf-save").addEventListener("click", save);
   $("wf-trigger-type").addEventListener("change", syncTriggerType);
+  $("wf-sched-kind").addEventListener("change", () => { syncScheduleKind(); revalidate(); });
+  $("wf-add-input").addEventListener("click", () => { $("wf-inputs").appendChild(inputRow()); revalidate(); });
   $("wf-add-condition").addEventListener("click", () => { $("wf-conditions").appendChild(conditionRow()); revalidate(); });
   $("wf-add-action").addEventListener("click", () => { $("wf-actions").appendChild(actionRow()); revalidate(); });
   $("wf-target-on").addEventListener("change", () => { syncTargetBody(); revalidate(); });
@@ -2029,6 +2138,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
 
   /* Builder rows (conditions + steps) */
   .toolbar-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; }
+  .workflows-page :global(.input-grid) { display: grid; grid-template-columns: 1fr 1.4fr 1.3fr auto auto; gap: 8px; align-items: center; }
+  .workflows-page :global(.input-row .i-options) { margin-top: 8px; }
+  @media (max-width: 640px) { .workflows-page :global(.input-grid) { grid-template-columns: 1fr 1fr; } }
+  :global(dialog.run-inputs) { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: inherit; padding: 20px; width: min(440px, calc(100vw - 32px)); }
+  :global(dialog.run-inputs form) { display: flex; flex-direction: column; gap: 12px; }
+  :global(dialog.run-inputs h3) { margin: 0; }
+  :global(.run-inputs-actions) { display: flex; justify-content: flex-end; gap: 10px; }
   .workflows-page :global(.rows) { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
   .workflows-page :global(.row) { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--bg); }
   .workflows-page :global(.cond-row) { display: grid; grid-template-columns: 1.5fr 0.9fr 1.3fr auto; gap: 8px; align-items: center; }

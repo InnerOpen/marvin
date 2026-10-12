@@ -62,8 +62,11 @@ export async function runAutomation(id: string, authToken?: string) {
 
 /** Start an automation now and don't wait for it (the Run button): a run over many entries outlasts a request.
  *  Progress shows in the activity toasts and the workflow's Runs. */
-export async function startAutomation(id: string): Promise<{ status: string; ok: boolean }> {
-  return fetchApi(`/api/automations/${encodeURIComponent(id)}/run?background=true`, { method: "POST" });
+export async function startAutomation(id: string, inputs?: Record<string, unknown>): Promise<{ status: string; ok: boolean }> {
+  return fetchApi(`/api/automations/${encodeURIComponent(id)}/run?background=true`, {
+    method: "POST",
+    ...(inputs ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ inputs }) } : {}),
+  });
 }
 
 /** A sample event a dry run can test against: a logged event, or one built for an entry. */

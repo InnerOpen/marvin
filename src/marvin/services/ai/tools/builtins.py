@@ -805,7 +805,10 @@ def get_asset(ctx: ToolContext, args: dict) -> str:
 
 
 def _workflow_ref(auto) -> dict:
-    return {"name": auto.name, "slug": auto.slug, "enabled": bool(auto.enabled), "trigger": auto.trigger_type}
+    from marvin.services.automation.inputs import describe
+
+    ref = {"name": auto.name, "slug": auto.slug, "enabled": bool(auto.enabled), "trigger": auto.trigger_type}
+    return {**ref, "inputs": inputs} if (inputs := describe(auto)) else ref
 
 
 def _find_workflow(session, group_id, ref: str):
@@ -851,11 +854,16 @@ def list_workflows(ctx: ToolContext, _args: dict) -> str:
         "the site, reindex search, or run a content pipeline. Runs it now, skipping the workflow's "
         "trigger/condition gates (like pressing Run). Returns whether it completed. Names match "
         "case-insensitively; when nothing matches the error lists the workflows that exist — pick the "
-        "right one (or ask the user) rather than guessing again."
+        "right one (or ask the user) rather than guessing again. A workflow with run inputs (list_workflows shows "
+        "them: name, type text|number|choice|entry, options, required) takes them in `inputs` — an entry input is "
+        "an entry's slug or id, and the run acts on that entry."
     ),
     input_schema={
         "type": "object",
-        "properties": {"workflow": {"type": "string", "description": "workflow slug, name, or id"}},
+        "properties": {
+            "workflow": {"type": "string", "description": "workflow slug, name, or id"},
+            "inputs": {"type": "object", "description": "the workflow's run inputs, by name (see list_workflows)"},
+        },
         "required": ["workflow"],
     },
     # ADMIN, like POST /automations/{id}/run: a workflow runs with its definer's role and can call
@@ -879,17 +887,22 @@ def run_workflow(ctx: ToolContext, args: dict) -> str:
     if not auto.enabled:
         return json.dumps({"error": f"workflow '{auto.slug}' is disabled"})
 
+    from marvin.services.automation.inputs import RunInputError, describe
     from marvin.services.automation.recorder import ExecutionRecorder
 
     user_id = ctx.user.id if ctx.user else None
     # Recorded like the Run button, so a run started from chat or MCP shows under the workflow's Runs.
-    res = run_automation_now(
-        ctx.session,
-        ctx.group_id,
-        auto,
-        user_id=user_id,
-        logger=ctx.logger,
-        recorder=ExecutionRecorder(ctx.session, ctx.group_id),
-        trigger_kind="chat",
-    )
+    try:
+        res = run_automation_now(
+            ctx.session,
+            ctx.group_id,
+            auto,
+            user_id=user_id,
+            logger=ctx.logger,
+            recorder=ExecutionRecorder(ctx.session, ctx.group_id),
+            trigger_kind="chat",
+            inputs=args.get("inputs") if isinstance(args.get("inputs"), dict) else None,
+        )
+    except RunInputError as e:
+        return json.dumps({"error": str(e), "inputs": describe(auto)})
     return json.dumps({"workflow": auto.slug, "ok": res.get("ok"), "result": res.get("result")})

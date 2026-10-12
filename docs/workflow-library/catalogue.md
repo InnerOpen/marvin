@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-107 recipes: **68** verified-current, **11** supported-after-configuration, **8** needs-adapter, **20** needs-engine-capability.
+107 recipes: **69** verified-current, **11** supported-after-configuration, **8** needs-adapter, **19** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -52,6 +52,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [color-moodboard](../../src/marvin/services/automation/recipes/color-moodboard.json) — Color moodboard | verified-current | `manual` | — | content mutation, paid call |
 | [soundtrack-brief](../../src/marvin/services/automation/recipes/soundtrack-brief.json) — Soundtrack brief | verified-current | `manual` | — | content mutation, paid call |
 | [alternate-universe-cover](../../src/marvin/services/automation/recipes/alternate-universe-cover.json) — Alternate universe cover | verified-current | `entry_published` | openai_images integration | content mutation, paid call |
+| [surprise-remix-button](../../src/marvin/services/automation/recipes/surprise-remix-button.json) — Surprise remix button | verified-current | `manual` | — | content mutation, paid call |
 | [fictional-debate-club](../../src/marvin/services/automation/recipes/fictional-debate-club.json) — Fictional debate club | verified-current | `manual` | — | content mutation, paid call |
 | [client-handoff](../../src/marvin/services/automation/recipes/client-handoff.json) — Client handoff | verified-current | `entry_updated` | outgoing webhook | content mutation, external post |
 | [resource-availability-watch](../../src/marvin/services/automation/recipes/resource-availability-watch.json) — Resource availability watch | verified-current | `schedule` | an integration that can notify (Slack or Apprise) | external post, external read |
@@ -118,7 +119,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | sandbox |
 | `workshop-field-guide` — Workshop field guide | needs-engine-capability | `manual` | iterate-aggregate, media-adapters |
 | `time-capsule` — Time capsule | needs-engine-capability | `entry_updated` | snapshots, waits |
-| `surprise-remix-button` — Surprise remix button | needs-engine-capability | `manual` | manual-params |
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox |
 | `intake-triage` — Intake triage | needs-engine-capability | `form_submission_received` | form-classification |
 | `archive-packager` — Archive packager | needs-adapter | `manual` | media-adapters, collection-scope, iterate-aggregate |
@@ -362,10 +362,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `time-capsule` — **Time capsule** · needs-engine-capability · `entry_updated`  
   Capture approved project snapshot → schedule retrospective draft
   - Blocked by: `snapshots` (capture the version); `waits` (months later)
-- `surprise-remix-button` — **Surprise remix button** · needs-engine-capability · `manual`  
-  Manual run → choose allowed transformation → save new draft
-  - A manual run has no entry; today a target query selects the set, and every row runs the same steps.
-  - Blocked by: `manual-params` (pick the entry and the transformation at run time)
+- [surprise-remix-button](../../src/marvin/services/automation/recipes/surprise-remix-button.json) — **Surprise remix button** · verified-current · `manual`  
+  Run it, pick an entry and one of the remixes you set up (a haiku, a fairy tale…): an AI retells the entry in that form as a new draft.
+  - Run inputs: the Run button asks for the entry and the remix; the agent's run_workflow passes them as `inputs`.
 - [fictional-debate-club](../../src/marvin/services/automation/recipes/fictional-debate-club.json) — **Fictional debate club** · verified-current · `manual`  
   Run it on your published entries: each gets a short, clearly fictional dialogue between viewpoints you choose, as a new draft.
   - A custom AI step, then a create step: the new entry is a draft for a person to edit and publish.
@@ -546,9 +545,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `comments` | Comment events | P2 | 1 | comment_added/updated/deleted have an emitter that carries entry_id and the comment text, are triggerable, and hydrate `entry.*`. |
 | `custom-events` | Custom emit_event names | P2 | 1 | A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies. |
 | `custom-operation` | Free-form AI operation | P0 | 1 | Delivered 2026-10-11: an operation step `op: "custom"` carries its own prompt (${…} templates) and output_schema (a JSON Schema object); `see` adds the item, its attachments, images, the workspace persona; the answer is checked (one retry) and is the step output; write_back maps it onto the entry (summary, tags, metadata.<key>), asset or resource; budget, approval mode and min_role apply as for built-in operations. Named, reusable workspace operations are a later phase. |
-| `manual-params` | Manual / MCP run parameters | P1 | 1 | A manual or mcp trigger declares typed inputs; the Run dialog and the MCP tool collect them; steps read `${input.*}`; the run records them. |
 | `relative-dates` | Relative dates and cron schedules | P1 | 1 | Delivered 2026-10-12: every date key of a query (created/updated/published_after|before) takes a relative date (-7d, -12h, -2w, +3d, now, today), read when the run starts; an unreadable date fails the query instead of widening it. Cron schedules compute next_run_at in their time zone and fire (services/cron.py). |
 | `snapshots` | Entity snapshots and restore | P2 | 1 | A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable. |
 | `workflow-approvals` | Approval step inside a workflow | P1 | 1 | Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice. |
 | `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 0 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Delivered 2026-10-12: `checksum` (and `exclude`) in an asset query; `asset.checksum` in a run. Derived-asset lineage is part of media-adapters. |
 | `branches` | Conditional steps (if/else) | P0 | 0 | Delivered 2026-10-11: any step takes `when` conditions evaluated against steps.* / previous.* (same operators); false records it as skipped (not failed), later references read None, and the dry run shows the verdicts. |
+| `manual-params` | Manual / MCP run parameters | P1 | 0 | Delivered 2026-10-12: a manual trigger's `inputs` (name, label, type text | number | choice | entry, options, required, default) — asked by the Run button's form, passed in the run API's body or run_workflow's `inputs`, checked against the declarations, read as ${input.<name>}; an entry input is the entry the run acts on. |

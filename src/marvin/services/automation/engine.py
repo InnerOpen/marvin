@@ -266,6 +266,7 @@ def _site_context(session, group_id) -> dict:
 # What a template (`${…}`) can read in a run, by namespace — the workflow authoring guide lists these
 # (services/automation/authoring.py); test_workflow_authoring checks them against the contexts built here.
 TEMPLATE_NAMESPACES: dict[str, str] = {
+    "input": "a manual run's inputs, by name (the trigger's `inputs`: what the Run form, the API or run_workflow passed)",
     "event": (
         "the triggering event: event_type, entry_id, entity_type, entity_id, payload.<key> (an incoming webhook's body), "
         "before / after / changed_fields (entry_updated), automation_slug (chained / on_error), webhook_slug, "
@@ -924,22 +925,32 @@ def run_automation_now(
     recorder=None,
     dry_run: bool = False,
     trigger_kind: str = "manual",
+    inputs: dict | None = None,
 ) -> dict:
     """Run one automation on demand (the Manual trigger / Run button) — skips the trigger + condition
     gates (the human explicitly asked for it). No event, so `$event.*` resolves to None; best for
     automations whose steps don't need a specific entry (webhook, handler, reindex, …).
     ``trigger_kind`` says who asked (manual, schedule, chat) on the run's lifecycle events.
 
+    ``inputs`` are a manual trigger's run inputs (services/automation/inputs.py), checked against its declarations
+    (RunInputError says what's wrong) and bound as ``${input.<name>}``; an entry input binds ``entry`` like an event's.
+
     ``dry_run=True`` evaluates the target + conditions and resolves each action's inputs but executes
     nothing (no AI call, no mutation, no webhook POST). It records nothing to the execution history and
     fires no ``automation_ran`` event; instead it returns ``plan`` — the resolved per-step preview.
     """
+    from .inputs import resolve as resolve_inputs
+
+    values, entry_id = resolve_inputs(session, group_id, automation, inputs, dry_run=dry_run)
     context: dict = {
-        "event": {"event_type": "manual", "user_id": str(user_id) if user_id else None},
+        "event": {"event_type": "manual", "user_id": str(user_id) if user_id else None, **({"entry_id": entry_id} if entry_id else {})},
         "previous": {},
         "depth": 0,
         "site": _site_context(session, group_id),
+        "input": values,
     }
+    if entry_id and (entry_ctx := _entry_context(session, group_id, entry_id)):
+        context["entry"] = entry_ctx
     # A dry run captures the resolved plan in memory and persists nothing; a real run uses the caller's
     # recorder (or none).
     dry_recorder = CollectingRecorder() if dry_run else None

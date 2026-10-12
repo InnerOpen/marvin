@@ -1,0 +1,63 @@
+{
+  "name": "Surprise remix button",
+  "definition": {
+    "trigger": {
+      "type": "manual",
+      "inputs": [
+        {
+          "name": "piece",
+          "label": "Which entry",
+          "type": "entry"
+        },
+        {
+          "name": "remix",
+          "label": "Remix it as",
+          "type": "choice",
+          "options": "{{remixes}}"
+        }
+      ]
+    },
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "remix",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Retell “${entry.title}” as ${input.remix}. It's a playful remix: keep its facts, change only the form. Give it a title.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.remix.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.remix.output.body}"
+        },
+        "metadata": {
+          "remix_of": "${entry.slug}",
+          "remix": "${input.remix}"
+        },
+        "status": "draft"
+      }
+    ]
+  }
+}

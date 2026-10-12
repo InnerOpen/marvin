@@ -13,7 +13,7 @@ A workflow (an "automation" in the API) is a trigger, optional conditions and up
 | `trigger.type` | Fires when | Extra keys |
 |---|---|---|
 | `event` | A listed workspace event occurs | `event` (name) |
-| `manual` | You press **Run** or call `POST …/run` | |
+| `manual` | You press **Run** or call `POST …/run` | It can ask for inputs when it runs — see [Run inputs](#run-inputs) |
 | `schedule` | A scheduler task fires; saving upserts a `run_automation` task (`wf-<id>`), deleted again when the trigger changes | `schedule_type: "interval"`, `schedule_config: {"interval_seconds": n}` |
 | `chained` | Another workflow finishes (`automation_ran`) | `automation`: slug/id, or `any` |
 | `on_error` | Another workflow fails (`automation_failed`) | `automation` |
@@ -152,6 +152,27 @@ in, and calls nothing.
 
 Workflow Library recipes that use it: **Community question**, **Marvin margin notes**, **Soundtrack brief**,
 **Resource attachment notes** and **Asset attachment social kit**.
+
+### Run inputs
+
+A manual workflow can ask for what it needs when it runs: **Ask when it runs** under the trigger (`trigger.inputs`).
+Each input has a `name` (steps read it as `${input.<name>}`), a `label`, a `type` and whether it's `required`:
+
+| type | The Run form shows | Notes |
+|---|---|---|
+| `text` | a text box | up to 2,000 characters |
+| `number` | a number box | `"3"` arrives as 3 |
+| `choice` | a list of `options` | anything else is refused — the list is the only choices |
+| `entry` | the entry's slug or id | the run works on that entry: `${entry.*}`, entry steps and a step's `see: ["item"]`, as if the entry had triggered it (one per workflow) |
+
+**Run** opens a small form with them; the API takes them in the body (`POST /api/automations/{id}/run` with
+`{"inputs": {"piece": "brass-lantern", "remix": "a haiku"}}`), and the agent's `run_workflow` tool takes `inputs`
+(`list_workflows` shows each workflow's). A missing required input, an unknown name or a value that doesn't fit is
+refused (400) with what to fix; a default fills an empty one. A dry run fills a missing one with a stand-in
+(`‹name›`). The Workflow Library's **Surprise remix button** asks for an entry and one of the remixes you set up.
+
+The schedule trigger can also be set **At set times (cron)** in the editor — an expression (`0 9 * * 1`, Mondays at
+9:00) and a time zone; before, the editor only offered "every N minutes/hours/days" and re-saved a cron schedule as daily.
 
 ### Using one step's result in another
 
@@ -449,7 +470,7 @@ All routes need workspace ADMIN or OWNER. See [API reference](../api/index.md).
 | `GET /api/automations/options` | Trigger types, event catalog, operators, condition fields per trigger, step kinds, AI operations, webhooks, incoming webhooks, other workflows, and the definition JSON Schema. |
 | `POST /api/automations/validate` | `issues[]` with `level` `error` or `warning`, `where`, `index`. |
 | `POST /api/automations/preview` | Resolve a `target` query with an optional test `payload`; returns `matches` (capped, after conditions), `total`, `capped`. |
-| `POST /api/automations/{id}/run` | Manual run; responds when the run finishes (`409` when disabled) — or, with `?background=true`, at once with `{"status": "started"}` while the run goes on (what the **Run** button does). With `?dry_run=true` it returns `plan` and records nothing. For an event-triggered workflow the dry run also takes `entry_id` or `event_id` (an event log row) and returns `sample`, `trigger_matched`, `conditions` (each with `field`, `op`, `value`, `actual`, `expected`, `pass`, or a nested `group`), `conditions_pass` and `would_fire`. |
+| `POST /api/automations/{id}/run` | Manual run, with an optional body `{"inputs": {…}}` (its [run inputs](#run-inputs); `400` says which doesn't fit); responds when the run finishes (`409` when disabled) — or, with `?background=true`, at once with `{"status": "started"}` while the run goes on (what the **Run** button does). With `?dry_run=true` it returns `plan` and records nothing. For an event-triggered workflow the dry run also takes `entry_id` or `event_id` (an event log row) and returns `sample`, `trigger_matched`, `conditions` (each with `field`, `op`, `value`, `actual`, `expected`, `pass`, or a nested `group`), `conditions_pass` and `would_fire`. |
 | `GET /api/automations/{id}/samples?limit=` | The dry run's candidate samples: recent logged events the trigger fires on, then uncovered entries (default 10, at most 25), each with `kind`, `id`, `label`, `occurred_at`, `synthesized`, `conditions_pass`. Empty for a workflow no event triggers. |
 | `GET /api/automations/{id}/executions?limit=` · `GET …/executions/{execution_id}` | Run history (default 25, at most 100); detail includes per-step records and the definition snapshot. |
 
@@ -461,7 +482,7 @@ A workflow is `enabled: false` when created. A disabled workflow does not run fr
 
 ## Since
 
-`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12). Linked items in queries (`entries`, `asset`, `resource`, `entry`, `role`, `exclude`, `checksum`, sort `position`), `only_invalid`, `asset.checksum` and **Check a web address** (`fetch`): unreleased (2026-10-12). Step ids and the result key in the editor, dry-run stand-ins for AI answers, and unchanged Set metadata / Set fields saving nothing: unreleased (2026-10-12).
+`form_submission_received` as a trigger: v1.0.0-rc.51 (`8f1443d1`). `auth_scheme`: rc.50 (`a65ba7d0`). `entry.summary` and `entry.data.*`: rc.52 (`433e949e`). Response `body`, `set_metadata` and metadata targeting: rc.59 (`1380e92e`). `entity_query`: rc.60 (`65ffb648`). Raw-URL `method` and templated stored URLs: rc.61 (`b88e4035`). Builder fixes: rc.63 (`57956e71`). `set_data`, the integration step, `entry.metadata` and list indexes in paths: rc.111. `entry.image`: rc.119. Full entry context per query row and **Fields equal**: rc.129. Typed values for checkbox and number fields: rc.131. The shared entry query (`where`, `sort`, date filters): rc.138. Unknown `where` ops match nothing, and `run_workflow` runs appear under **Runs**: rc.139. Site build and deploy events from `emit_event`: rc.144. `{{SLUG}}` in integration step args: rc.145. AI limits on operation steps: rc.146. Site events as notification subscriptions: rc.151; as workflow triggers: rc.152. `automation_started` and the shared `execution_id`: rc.165. Dry run against a sample event, with the condition checklist and `GET …/samples`: rc.173. A refused publish fails the entry step with the reason: rc.175. `${site.url}`: rc.177. Each event's subject, a run's trigger (`trigger_entity_*`) and step summaries in `automation_ran` / `automation_failed`, `$event.entity_type` / `$event.entity_id`: rc.178. `if_none: skip` and `${entry.url}`: rc.179. `on_failure`, `request_review` and an integration error's `${error.code}`: rc.193. Integration error policies (`integration_errors`, `handled` / `handling` / `retry_attempt` on run events), a workflow never re-triggering itself, and option pickers in the **Run integration** step: rc.197. A step's `when` (if/else), an operation step's `write_back` field map, custom AI steps (`op: "custom"`), **Create an entry** (`create`) and **Wait for approval** (`approval`, migration `5c2e8a91d4f7`): unreleased (2026-10-11). **Process an image** (`media`), generated images kept as assets, `attach_as`, `asset.derived_from`, the `role` on `asset_attached_to_entry`, and `gt` / `gte` / `lt` / `lte`: unreleased (2026-10-12). **Render a template** (`render`): unreleased (2026-10-12). **Gather items** (`collect`), relative query dates, lists of pictures in a render, and local times across the admin: unreleased (2026-10-12). Linked items in queries (`entries`, `asset`, `resource`, `entry`, `role`, `exclude`, `checksum`, sort `position`), `only_invalid`, `asset.checksum` and **Check a web address** (`fetch`): unreleased (2026-10-12). Step ids and the result key in the editor, dry-run stand-ins for AI answers, and unchanged Set metadata / Set fields saving nothing: unreleased (2026-10-12). Run inputs (`trigger.inputs`, `${input.*}`) and cron in the editor's schedule: unreleased (2026-10-12).
 
 ## Related
 

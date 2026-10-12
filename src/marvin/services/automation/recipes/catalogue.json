@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 68,
+    "verified-current": 69,
     "needs-adapter": 8,
-    "needs-engine-capability": 20,
+    "needs-engine-capability": 19,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -157,7 +157,7 @@
       "name": "Manual / MCP run parameters",
       "priority": "P1",
       "capabilities_md": "Manual invocation",
-      "acceptance": "A manual or mcp trigger declares typed inputs; the Run dialog and the MCP tool collect them; steps read `${input.*}`; the run records them."
+      "acceptance": "Delivered 2026-10-12: a manual trigger's `inputs` (name, label, type text | number | choice | entry, options, required, default) — asked by the Run button's form, passed in the run API's body or run_workflow's `inputs`, checked against the declarations, read as ${input.<name>}; an entry input is the entry the run acts on."
     },
     "metrics": {
       "name": "Metrics windows and experiments",
@@ -5720,7 +5720,7 @@
     {
       "id": "surprise-remix-button",
       "title": "Surprise remix button",
-      "outcome": "Manual run → choose allowed transformation → save new draft",
+      "outcome": "Run it, pick an entry and one of the remixes you set up (a haiku, a fairy tale…): an AI retells the entry in that form as a new draft.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -5734,34 +5734,76 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "surprise-remix-button.json",
+      "vars": "surprise-remix-button.vars.json",
+      "setup_variables": [
         {
-          "capability": "manual-params",
-          "name": "Manual / MCP run parameters",
-          "priority": "P1",
-          "acceptance": "A manual or mcp trigger declares typed inputs; the Run dialog and the MCP tool collect them; steps read `${input.*}`; the run records them.",
-          "why": "pick the entry and the transformation at run time"
+          "name": "remixes",
+          "type": "list",
+          "description": "The forms the Run form offers — the only ones allowed.",
+          "example": [
+            "a haiku",
+            "a fairy tale",
+            "a recipe card",
+            "a breaking news flash"
+          ]
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the remix is drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per run), marked metadata.remix_of."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "A remix that isn't in the list, or an entry that isn't there, is refused before anything runs.",
+      "dependencies": [],
       "notes": [
-        "A manual run has no entry; today a target query selects the set, and every row runs the same steps."
+        "Run inputs: the Run button asks for the entry and the remix; the agent's run_workflow passes them as `inputs`."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_surprise_remix_button"
       },
       "brief": {
         "flow": "Manual run → choose allowed transformation → save new draft",

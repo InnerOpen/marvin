@@ -373,6 +373,7 @@ def ws(db_session, monkeypatch):
         "resource_type": "supplier",
         "unavailable_text": "sold out",
         "notes_body_field": "body",
+        "remixes": ["a haiku", "a limerick"],
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1737,6 +1738,26 @@ class TestExecution:
         assert sent["title"] == "1 “Article” entries don't pass its rules now"
         assert "- Missing its body — Field 'body': Required field is missing or null" in sent["body"]
         assert "Complete piece" not in sent["body"]
+
+    def test_surprise_remix_button(self, ws):
+        from marvin.services.automation.inputs import RunInputError
+
+        row = _install(ws, "surprise-remix-button")
+        lantern = _entry(ws, "article", "Brass lantern", status="published", data={"body": "Cut, soldered, lit."})
+        ws.ai.reply_text(json.dumps({"title": "Lantern, in five lines", "body": "A sheet of brass, a careful cut..."}))
+
+        with pytest.raises(RunInputError, match="one of a haiku, a limerick"):  # only the forms set up
+            run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, inputs={"piece": lantern.slug, "remix": "a sonnet"})
+        self._run_with(ws, row, {"piece": lantern.slug, "remix": "a limerick"})
+
+        prompt = ws.ai.last_request()
+        assert "Brass lantern" in prompt and "as a limerick" in prompt
+        (draft,) = self._issues(ws)
+        assert (draft.title, draft.status, draft.metadata_json["remix_of"]) == ("Lantern, in five lines", "draft", lantern.slug)
+
+    def _run_with(self, ws, row, inputs):
+        recorder = ExecutionRecorder(ws.session, ws.gid)
+        assert run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=recorder, inputs=inputs)["ok"]
 
     # ── reading the web (a fetch step; the web is faked at the guarded client) ──
     def test_broken_link_patrol(self, ws, monkeypatch):

@@ -196,8 +196,9 @@ def test_template_namespaces_are_what_a_run_can_read(ws):
         {"event_type": "resource_created", "resource_id": str(tool.id)},
     ):
         seen |= set(match_context(ws.session, ws.gid, event_ctx))
-    # A run adds step outputs (`steps`) and, in on_failure steps, the failure (`error`); `depth` is plumbing.
-    assert seen - {"depth"} | {"steps", "error"} == set(TEMPLATE_NAMESPACES)
+    # A run adds step outputs (`steps`), in on_failure steps the failure (`error`) and, in a manual run, its inputs
+    # (`input`); `depth` is plumbing.
+    assert seen - {"depth"} | {"steps", "error", "input"} == set(TEMPLATE_NAMESPACES)
     for key in _entry_context(ws.session, ws.gid, entry["id"]):
         assert key in TEMPLATE_NAMESPACES["entry"], key
     for kind, row in (("asset", photo), ("resource", tool)):

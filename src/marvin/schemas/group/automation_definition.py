@@ -47,10 +47,42 @@ class EventTrigger(_DefnBase):
     event: str
 
 
+class RunInput(_DefnBase):
+    """One thing the person (or agent) running a manual workflow fills in, read as ${input.<name>}. `type`: text, number,
+    choice (one of `options`) or entry (an entry's id or slug — the run acts on it: ${entry.*}, entry steps)."""
+
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]{0,39}$")
+    label: str | None = None
+    type: Literal["text", "number", "choice", "entry"] = "text"
+    options: list[str] | None = None
+    required: bool = True
+    default: str | float | None = None
+    description: str | None = None
+
+    @model_validator(mode="after")
+    def _choice_has_options(self):
+        if self.type == "choice" and not self.options:
+            raise ValueError(f"input “{self.name}” is a choice: give it options")
+        if self.type == "choice" and self.default is not None and str(self.default) not in self.options:
+            raise ValueError(f"input “{self.name}”: its default isn't one of its options")
+        return self
+
+
 class ManualTrigger(_DefnBase):
-    """Runs only when someone presses Run (or the run_workflow tool or the API runs it)."""
+    """Runs only when someone presses Run (or the run_workflow tool or the API runs it). `inputs` are what the run asks
+    for — ${input.<name>}; an `entry` input is the entry the run acts on."""
 
     type: Literal["manual"]
+    inputs: list[RunInput] | None = None
+
+    @model_validator(mode="after")
+    def _inputs_are_distinct(self):
+        names = [i.name for i in self.inputs or []]
+        if len(names) != len(set(names)):
+            raise ValueError("two run inputs have the same name")
+        if sum(i.type == "entry" for i in self.inputs or []) > 1:
+            raise ValueError("a run acts on one entry: at most one input of type entry")
+        return self
 
 
 class ScheduleTrigger(_DefnBase):

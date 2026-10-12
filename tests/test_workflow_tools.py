@@ -96,11 +96,12 @@ def test_run_workflow_matches_case_insensitively_by_name_or_slug(workspace, monk
     import marvin.services.automation.engine as engine
 
     ran = []
-    monkeypatch.setattr(
-        engine,
-        "run_automation_now",
-        lambda s, g, auto, user_id=None, logger=None, recorder=None, trigger_kind=None: ran.append(auto.slug) or {"ok": True, "result": "done"},
-    )
+
+    def fake_run(session, group_id, auto, **kwargs):
+        ran.append(auto.slug)
+        return {"ok": True, "result": "done"}
+
+    monkeypatch.setattr(engine, "run_automation_now", fake_run)
     assert json.loads(run_workflow(workspace, {"workflow": "SUMMARIZE PUBLISHED BENCH NOTES"}))["ok"] is True
     assert json.loads(run_workflow(workspace, {"workflow": "Summarize-Bench-Notes"}))["workflow"] == "summarize-bench-notes"
     assert ran == ["summarize-bench-notes"] * 2
