@@ -575,6 +575,9 @@ class _StepRunner:
         resume = self._resume(action_index, on_failure)
         if resume:
             self.context["_resume"] = resume
+        # Which step of which run this is — a create step keys its entry on it, so the same event handled twice
+        # doesn't create two (services/automation/actions/entry.py).
+        self.context["_step"] = {"workflow": _run_key(self.automation), "index": action_index, "target": self.target_index, "on_failure": on_failure}
         try:
             out = self.run_action(
                 self.session, self.group_id, action, self.context, user_id=self.user_id, authorizer_role=self.authorizer_role, dry_run=self.dry_run
@@ -597,6 +600,7 @@ class _StepRunner:
             return e
         finally:
             self.context.pop("_resume", None)
+            self.context.pop("_step", None)
         if action.get("kind") == "integration" and not self.dry_run and not on_failure:
             from marvin.services.integrations import errors
 

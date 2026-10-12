@@ -349,7 +349,7 @@ def _actions(detail: bool) -> dict:
     return {
         "kinds": kinds,
         "entry_ops": entry_ops,
-        "entry_ops_note": entry_ops_note,
+        "entry_ops_note": entry_ops_note + (CREATE_NOTE if detail else ""),
         "asset_resource_ops": _item_ops(detail),
         "max_steps": MAX_ACTIONS,
         "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}.",
@@ -357,6 +357,10 @@ def _actions(detail: bool) -> dict:
     }
 
 
+CREATE_NOTE = (
+    " create makes a new entry: entry_type (slug), title, optional data (the type's fields) and metadata, status draft|inbox "
+    "(publish with a following publish step on ${steps.<id>.output.entry_id}); output entry_id/slug; once per event."
+)
 WHEN_NOTE = (
     "Any step may carry `when` (conditions, same shape and ops as `conditions`): it runs only if they hold at that point, "
     "reading ${steps.<id>.output.*} / previous.* too; false records it as skipped, not failed, and its output reads as None. "
@@ -754,6 +758,16 @@ def _entry_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:
         bad("metadata", "set_metadata needs `metadata`: the keys to merge into the entry's metadata.")
     if op == "set_data" and not step.get("data"):
         bad("data", "set_data needs `data`: the entry type's field keys and their new values.")
+    if op == "create":
+        ref = step.get("entry_type")
+        known = {t["slug"]: t for t in refs.entry_types}
+        if isinstance(ref, str) and not _templated(ref):
+            if ref not in known:
+                bad("entry_type", f"No entry type “{ref}” here. Entry types: {_close(ref, list(known))}.")
+            else:
+                unknown = sorted(k for k in (step.get("data") or {}) if k not in known[ref]["fields"])
+                if unknown:
+                    bad("data", f"“{ref}” has no field {', '.join(unknown)}. Its fields: {', '.join(known[ref]['fields']) or '(none)'}.")
 
 
 def draft_issues(session, group_id, definition: dict) -> list[dict]:

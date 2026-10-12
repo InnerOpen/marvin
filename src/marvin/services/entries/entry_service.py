@@ -139,11 +139,12 @@ class EntryService:
         return self._event_bus
 
     # ── Writes ────────────────────────────────────────────────────────────────
-    def create(self, data_dict: dict):
-        """Create an entry and emit `entry_created`. `data_dict` should already carry created_by."""
+    def create(self, data_dict: dict, *, reaction_depth: int = 0):
+        """Create an entry and emit `entry_created` (at `reaction_depth`: a workflow's create chains at depth+1).
+        `data_dict` should already carry created_by."""
         entry = self.repos.entries.create(data_dict)
         names = self._names(entry)
-        self._emit(entry, EventTypes.entry_created, EventOperation.create, f"Entry '{entry.title}' created", names)
+        self._emit(entry, EventTypes.entry_created, EventOperation.create, f"Entry '{entry.title}' created", names, reaction_depth=reaction_depth)
         return entry
 
     def update(self, entry_id, data, *, reaction_depth: int = 0):

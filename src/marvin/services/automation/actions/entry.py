@@ -65,7 +65,14 @@ REVIEW_OPS = ("request_review",)
 REVIEW_STATUS = "needs_review"
 REVIEW_REASONS_KEY = "review_reasons"
 
-ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS, *REVIEW_OPS)
+# Make a new entry (`entry_type`, `title`, `data`, `metadata`, `status`). Only inbox or draft: publishing goes through
+# a following publish step, which checks the type's completeness rules. The run + step key in CREATED_KEY means the same
+# event handled twice finds the entry it already made instead of making a second.
+CREATE_OPS = ("create",)
+CREATE_STATUSES = ("inbox", "draft")
+CREATED_KEY = "automation_created"
+
+ALL_OPS = (*ENTRY_OPS, *COLLECTION_OPS, *METADATA_OPS, *DATA_OPS, *REVIEW_OPS, *CREATE_OPS)
 
 # What each op sends (through EntryService), from the entry's usual starting point: every write sends
 # entry_updated, a status op its transition too. The Events hub lists a workflow with these steps as a
@@ -82,6 +89,7 @@ OP_SENDS: dict[str, tuple[str, ...]] = {
     "set_metadata": ("entry_updated",),
     "set_data": ("entry_updated",),
     "request_review": ("entry_updated",),
+    "create": ("entry_created",),
 }
 
 # Ops that also act on an asset or a resource (`entity_type`), and what each sends there — one event, no
@@ -200,6 +208,8 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
 
     require_role(ROLE_OWNER if authorizer_role is None else authorizer_role, ENTRY_ACTION_MIN_ROLE, f"entry action '{op}'")
 
+    if op in CREATE_OPS:
+        return _create_entry(session, group_id, action, context, user_id=user_id, dry_run=dry_run)
     entity_type = action.get("entity_type") or (subject_kind(context) if op in ITEM_OPS else None) or "entry"
     if entity_type != "entry":
         return _run_item_op(session, group_id, entity_type, op, action, context, user_id=user_id, dry_run=dry_run)
@@ -284,6 +294,77 @@ def run_entry_action(session, group_id, action: dict, context: dict, *, user_id=
             "would_set_status": _would_set_status(session, op, entity_id),
         }
     return _set_status(session, group_id, entity_id, op, user_id=user_id, depth=depth)
+
+
+def _create_key(context: dict) -> str | None:
+    """This step of this run: the event's correlation id, the workflow, the target row and the step. None without a
+    correlation id (nothing to tell two deliveries of one event apart by)."""
+    from marvin.services.event_bus_service.correlation import current_correlation_id
+
+    correlation = (context.get("event") or {}).get("correlation_id") or current_correlation_id.get()
+    step = context.get("_step") or {}
+    if not correlation or not step:
+        return None
+    return f"{correlation}:{step.get('workflow')}:{step.get('target')}:{step.get('index')}{':on_failure' if step.get('on_failure') else ''}"
+
+
+def _entry_type_by_slug(session, group_id, slug: str):
+    from marvin.db.models.platform.entry_types import EntryTypes
+
+    rows = session.query(EntryTypes).filter(EntryTypes.slug == slug, (EntryTypes.group_id == group_id) | (EntryTypes.group_id.is_(None))).all()
+    return next((t for t in rows if t.group_id == group_id), rows[0] if rows else None)  # the workspace's own first
+
+
+def _create_entry(session, group_id, action: dict, context: dict, *, user_id, dry_run: bool) -> dict:
+    """Make a new entry: typed and validated against its entry type's schema, `entry_created` sent at depth+1. The same
+    step of the same run (an event handled twice) returns the entry it made before (`created: false`)."""
+    from fastapi import HTTPException
+
+    from marvin.db.models.platform.entries import Entries
+    from marvin.repos.repository_factory import AllRepositories
+    from marvin.services.entries import EntryService
+
+    type_slug = str(interpolate(action.get("entry_type") or "", context) or "").strip()
+    entry_type = _entry_type_by_slug(session, group_id, type_slug)
+    if entry_type is None:
+        raise AutomationActionError(f"entry create: no entry type “{type_slug}” in this workspace")
+    title = str(interpolate(action.get("title") or "", context) or "").strip()
+    if not title:
+        raise AutomationActionError("entry create: the title resolved to empty")
+    status = action.get("status") or "draft"
+    if status not in CREATE_STATUSES:
+        raise AutomationActionError(f"entry create: status must be {' or '.join(CREATE_STATUSES)} (publish with a following step)")
+    data = _json_ready(interpolate(action.get("data") or {}, context))
+    data = _typed_like_schema({k: v for k, v in (data or {}).items() if v is not None and v != ""}, entry_type)
+    metadata = _json_ready(interpolate(action.get("metadata") or {}, context))
+    metadata = {k: v for k, v in (metadata or {}).items() if v is not None and v != ""}
+    key = _create_key(context)
+    if key:
+        metadata[CREATED_KEY] = key
+        made = session.query(Entries).filter(Entries.group_id == group_id, Entries.metadata_json[CREATED_KEY].as_string() == key).first()
+        if made is not None:
+            return {"op": "create", "entry_id": str(made.id), "slug": made.slug, "created": False}
+    if dry_run:
+        try:
+            AllRepositories(session, group_id=group_id).entries._validate_content(entry_type.id, data)
+        except HTTPException as e:
+            raise AutomationActionError(f"entry create rejected: {e.detail}") from e
+        return {"dry_run": True, "kind": "entry", "op": "create", "entry_type": entry_type.slug, "title": title, "status": status, "data": data}
+    svc = EntryService(session, group_id, actor_id=user_id, integration_id="automation")
+    payload = {
+        "entry_type_id": entry_type.id,
+        "title": title,
+        "status": status,
+        "data_json": data,
+        "metadata_json": metadata or None,
+        "created_by": user_id,
+    }
+    try:
+        entry = svc.create(payload, reaction_depth=int(context.get("depth", 0)) + 1)
+    except HTTPException as e:  # the type's schema refused the fields
+        session.rollback()
+        raise AutomationActionError(f"entry create rejected: {e.detail}") from e
+    return {"op": "create", "entry_id": str(entry.id), "slug": entry.slug, "created": True, "status": status}
 
 
 def _set_status(session, group_id, entity_id, op: str, *, user_id, depth: int) -> dict:

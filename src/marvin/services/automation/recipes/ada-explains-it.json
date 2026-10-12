@@ -1,0 +1,54 @@
+{
+  "name": "Ada explains it",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "ada",
+        "op": "custom",
+        "prompt": "Explain “${entry.title}” warmly and plainly, the way a patient friend would over tea, for someone with no technical background. Keep every fact right and leave out what you can't explain simply. Give it a title.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 5
+            },
+            "explanation": {
+              "type": "string",
+              "minLength": 120
+            }
+          },
+          "required": [
+            "title",
+            "explanation"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "id": "draft",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.ada.output.title}",
+        "data": {
+          "{{body_field}}": "${steps.ada.output.explanation}\n\n— An adaptation of “${entry.title}” (${entry.url}), written by AI and reviewed before publishing."
+        },
+        "metadata": {
+          "adaptation_of": "${entry.id}"
+        }
+      }
+    ]
+  }
+}

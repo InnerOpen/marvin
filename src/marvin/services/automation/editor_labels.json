@@ -35,7 +35,8 @@
     "remove_from_collection": "Remove from collection",
     "set_metadata": "Set metadata",
     "set_data": "Set fields",
-    "request_review": "Send to review"
+    "request_review": "Send to review",
+    "create": "Create an entry"
   },
   "conditionOps": {
     "eq": "equals",

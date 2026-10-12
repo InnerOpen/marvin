@@ -198,7 +198,8 @@ class OperationAction(_StepBase):
 
 class EntryAction(_StepBase):
     """Changes an entry without AI: a status op, collection membership, a metadata/data write or a review
-    request. `trash` / `restore` also act on an asset or a resource (`entity_type`; unset, the kind of the
+    request — or `create` makes one (`entry_type` slug, `title`, `data`, `metadata`, `status` inbox|draft; output
+    entry_id/slug). `trash` / `restore` also act on an asset or a resource (`entity_type`; unset, the kind of the
     target's or the triggering item): `entity_slug` / `entity_id`, else the current one — never `entity_query`."""
 
     kind: Literal["entry"]
@@ -213,6 +214,7 @@ class EntryAction(_StepBase):
         "set_metadata",
         "set_data",
         "request_review",
+        "create",
     ]
     entity_type: Literal["entry", "asset", "resource"] = "entry"  # trash / restore also act on an asset or resource
     entity_id: str | None = None
@@ -224,7 +226,21 @@ class EntryAction(_StepBase):
     metadata: dict[str, Any] | None = None  # for set_metadata: keys merged into metadata_json (values may be templates)
     data: dict[str, Any] | None = None  # for set_data: schema fields merged into data_json (validated; values may be templates)
     reason: str | None = None  # for request_review: why it needs review, added to metadata_json.review_reasons (may be a template)
+    entry_type: str | None = None  # for create: the new entry's type (a slug; may be a template)
+    title: str | None = None  # for create (may be a template)
+    status: Literal["inbox", "draft"] | None = None  # for create: default draft; publishing is a following publish step
     id: str | None = None
+
+    @model_validator(mode="after")
+    def _create_shape(self):
+        if self.op == "create":
+            if not (self.entry_type or "").strip() or not (self.title or "").strip():
+                raise ValueError("create needs an entry_type (slug) and a title")
+            if self.entity_id or self.entity_slug or self.entity_query:
+                raise ValueError("create makes a new entry: drop entity_id / entity_slug / entity_query")
+        elif self.entry_type is not None or self.title is not None or self.status is not None:
+            raise ValueError("entry_type, title and status go with op create only")
+        return self
 
     # Shapes that can only fail at run time are refused here, so the REST write gate (422) and an agent's draft
     # name them with their path (actions[0].entity_type) — see services/automation/actions/entry.py.

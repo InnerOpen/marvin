@@ -249,6 +249,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { installLogoFallback, markHtml } from "@/lib/integrationLogo";
   import { getArg, hintedInputs, optionsHint, setArg } from "@/lib/integrationOptions";
   import { optionPicker } from "@/lib/integrationOptionPicker";
+  import { fetchApi } from "@/lib/api/client";
   import { ANSWER_KINDS, type AnswerField, fieldsFromSchema, SEE_LABELS, schemaFromFields } from "@/lib/customStep";
   import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
   import { describeSaveError } from "@/lib/saveError";
@@ -373,8 +374,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COLLECTION_OPS = new Set(["add_to_collection", "remove_from_collection"]);
   // Trash / restore also act on an asset or a resource (entity_type); every other op is entries only.
   const ITEM_OPS = new Set(["trash", "restore"]);
-  const METADATA_OPS = new Set(["set_metadata"]);
-  const DATA_OPS = new Set(["set_data"]);
+  const METADATA_OPS = new Set(["set_metadata", "create"]);
+  const DATA_OPS = new Set(["set_data", "create"]);
+  const CREATE_OPS = new Set(["create"]); // makes a new entry: no target, its type/title/status instead
   const REVIEW_OPS = new Set(["request_review"]);
   const TARGET_MODE_HINTS: Record<string, string> = {
     default: "Acts on the triggering item (or each item a Run-on target matches).",
@@ -411,6 +413,21 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <button type="button" class="icon-btn" title="Remove">✕</button>`;
     row.querySelector(".icon-btn")!.addEventListener("click", () => { row.remove(); revalidate(); });
     return row;
+  }
+
+  // The workspace's entry types, for "Create an entry" — loaded once, on first use, into a datalist.
+  let entryTypesLoaded = false;
+  async function loadEntryTypes() {
+    if (entryTypesLoaded) return;
+    entryTypesLoaded = true;
+    try {
+      const types: any[] = await fetchApi("/api/platform/entry-types");
+      const dl = document.createElement("datalist");
+      dl.id = "wf-entry-types";
+      dl.innerHTML = (Array.isArray(types) ? types : (types as any)?.items ?? [])
+        .map((t: any) => `<option value="${esc(t.slug)}">${esc(t.name)}</option>`).join("");
+      document.body.appendChild(dl);
+    } catch { entryTypesLoaded = false; } // free text still works
   }
 
   // ── A step's `when`: condition rows like the workflow's own, or JSON for a grouped one ({any}, {not}…) ──
@@ -717,11 +734,20 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           </select></label>
         <div class="a-meta-wrap tf" ${METADATA_OPS.has(a.op) ? "" : "hidden"}><span>Metadata to set <span class="muted">(merged into the entry's metadata)</span></span></div>
         <div class="a-data-wrap tf" ${DATA_OPS.has(a.op) ? "" : "hidden"}><span>Fields to set <span class="muted">(field keys of the entry type and their new values — validated; checkbox and number values may be typed as text)</span></span></div>
+        <div class="a-create-wrap" ${CREATE_OPS.has(a.op) ? "" : "hidden"}>
+          <label class="tf"><span>Entry type <span class="muted">(its slug)</span></span>
+            <input class="input a-entry-type" list="wf-entry-types" placeholder="e.g. article" value="${esc(a.entry_type ?? "")}" /></label>
+          <label class="tf"><span>Title <span class="muted">(templates allowed, e.g. Follow-up: \${entry.title})</span></span>
+            <input class="input a-title" value="${esc(a.title ?? "")}" /></label>
+          <label class="tf"><span>Status</span>
+            <select class="input a-status">${["draft", "inbox"].map((v) => `<option ${(a.status ?? "draft") === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
+          <span class="hint small">Later steps read the new entry as <code>\${steps.&lt;step id&gt;.output.entry_id}</code>; to publish it, add a Publish step with that as its target. The same event handled twice makes it once.</span>
+        </div>
         <label class="a-collection-wrap tf" ${COLLECTION_OPS.has(a.op) ? "" : "hidden"}><span>Collection</span>
           <input class="input a-collection" placeholder="slug or name — e.g. featured" value="${esc(a.collection_slug ?? "")}" /></label>
         <label class="a-reason-wrap tf" ${REVIEW_OPS.has(a.op) ? "" : "hidden"}><span>Reason <span class="muted">(optional — shown with the entry in the review queue)</span></span>
           <input class="input a-reason" placeholder="e.g. Refused: \${error.message}" value="${esc(a.reason ?? "")}" /></label>
-        <div class="a-target-wrap tf"><span>Target entry</span>
+        <div class="a-target-wrap tf" ${CREATE_OPS.has(a.op) ? "hidden" : ""}><span>Target entry</span>
           <select class="input a-target-mode">
             ${modeOpt("default", "Triggering entry (default)")}
             ${modeOpt("slug", "By slug")}
@@ -742,7 +768,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         wrap.querySelector(".a-reason-wrap")!.toggleAttribute("hidden", !REVIEW_OPS.has(opSel.value));
         wrap.querySelector(".a-meta-wrap")!.toggleAttribute("hidden", !METADATA_OPS.has(opSel.value));
         wrap.querySelector(".a-data-wrap")!.toggleAttribute("hidden", !DATA_OPS.has(opSel.value));
+        wrap.querySelector(".a-create-wrap")!.toggleAttribute("hidden", !CREATE_OPS.has(opSel.value));
+        wrap.querySelector(".a-target-wrap")!.toggleAttribute("hidden", CREATE_OPS.has(opSel.value));
+        if (CREATE_OPS.has(opSel.value)) loadEntryTypes();
       });
+      if (CREATE_OPS.has(a.op)) loadEntryTypes();
       const modeSel = wrap.querySelector(".a-target-mode") as HTMLSelectElement;
       modeSel.addEventListener("change", () => {
         wrap.querySelector(".a-entity-slug")!.toggleAttribute("hidden", modeSel.value !== "slug");
@@ -858,6 +888,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         setOrDrop("metadata", METADATA_OPS.has(op) && Object.keys(metadata).length ? metadata : null);
         const data = readKv(r.querySelector(".a-data-wrap"));
         setOrDrop("data", DATA_OPS.has(op) && Object.keys(data).length ? data : null);
+        const creates = CREATE_OPS.has(op);
+        setOrDrop("entry_type", creates ? field(".a-entry-type")?.value.trim() : null);
+        setOrDrop("title", creates ? field(".a-title")?.value.trim() : null);
+        setOrDrop("status", creates ? field(".a-status")?.value : null);
+        if (creates) { delete step.entity_slug; delete step.entity_query; delete step.if_none; }
         return step;
       }
       if (kind === "emit_event") {

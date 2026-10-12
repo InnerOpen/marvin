@@ -15,8 +15,8 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 31,
-    "needs-engine-capability": 49,
+    "verified-current": 35,
+    "needs-engine-capability": 45,
     "needs-adapter": 16,
     "supported-after-configuration": 11
   },
@@ -25,7 +25,7 @@
       "name": "Create-entry action",
       "priority": "P0",
       "capabilities_md": "Field updates and entity creation",
-      "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step)."
+      "acceptance": "Delivered 2026-10-11: an entry step `op: \"create\"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created)."
     },
     "custom-operation": {
       "name": "Free-form AI operation",
@@ -647,13 +647,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "a translated draft is a new entry"
-        },
-        {
           "capability": "workflow-approvals",
           "name": "Approval step inside a workflow",
           "priority": "P1",
@@ -850,13 +843,6 @@
           "priority": "P1",
           "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
           "why": "`published_after: -7d` and a weekly cron"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the draft issue"
         }
       ],
       "notes": [
@@ -914,13 +900,6 @@
           "priority": "P1",
           "acceptance": "A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry.",
           "why": "no step can GET a URL and read the status"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "repair notes are entries"
         },
         {
           "capability": "iterate-aggregate",
@@ -1532,13 +1511,6 @@
           "priority": "P1",
           "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
           "why": "`published_before: -365d` in the target"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "a refreshed draft beside the original"
         }
       ],
       "notes": [
@@ -1563,7 +1535,7 @@
     {
       "id": "one-entry-many-voices",
       "title": "One entry, many voices",
-      "outcome": "Publication → draft LinkedIn, short-post and community versions preserving meaning",
+      "outcome": "A published entry gets a LinkedIn version, a short post and a community post written in its voice, saved together as a new draft to edit.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
@@ -1578,34 +1550,73 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "one-entry-many-voices.json",
+      "vars": "one-entry-many-voices.vars.json",
+      "setup_variables": [
         {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "drafts as entries (or a `social_drafts` metadata convention)"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which published entries get versions written.",
+          "example": "article"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the new draft is made as.",
+          "example": "article"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's field for the draft's text.",
+          "example": "body"
         }
       ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per event)."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error or a draft the entry type refuses fails the run before anything is created; the run is recorded and the `workflow_failed` alert fires (if enabled).",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): `improve-writing` proposes one rewrite of one field (no write-back); its output can be stored with set_metadata."
+        "A custom AI step, then a create step: the new entry is a draft for a person to edit and publish."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_one_entry_many_voices"
       },
       "brief": {
         "flow": "Publication → draft LinkedIn, short-post and community versions preserving meaning",
@@ -1860,7 +1871,7 @@
     {
       "id": "behind-the-scenes-diary",
       "title": "Behind the scenes diary",
-      "outcome": "Project update → turn process photos and notes into a workshop post",
+      "outcome": "A published project update — its notes and process photos — becomes a draft behind-the-scenes workshop post.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
@@ -1871,36 +1882,77 @@
       "target_entity": "entry",
       "trigger": {
         "type": "event",
-        "event": "entry_updated",
+        "event": "entry_published",
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "behind-the-scenes-diary.json",
+      "vars": "behind-the-scenes-diary.vars.json",
+      "setup_variables": [
         {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the post"
+          "name": "update_entry_type",
+          "type": "entry_type_slug",
+          "description": "Your project-update entry type: publishing one starts the post.",
+          "example": "project-update"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the new draft is made as.",
+          "example": "article"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's field for the draft's text.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per event)."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget. Needs a model that can see images.",
+      "failure_behaviour": "An AI error or a draft the entry type refuses fails the run before anything is created; the run is recorded and the `workflow_failed` alert fires (if enabled).",
+      "dependencies": [],
+      "notes": [
+        "A custom AI step, then a create step: the new entry is a draft for a person to edit and publish."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_behind_the_scenes_diary"
       },
       "brief": {
         "flow": "Project update → turn process photos and notes into a workshop post",
@@ -2337,13 +2389,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "drafts"
-        },
-        {
           "capability": "joins",
           "name": "Parallel branches and joins",
           "priority": "P1",
@@ -2410,13 +2455,6 @@
           "priority": "P1",
           "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
           "why": "openai_images.generate requires approval"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the post as a draft"
         }
       ],
       "notes": [
@@ -2481,13 +2519,6 @@
           "priority": "P1",
           "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
           "why": "date arithmetic in templates"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "reminder drafts"
         }
       ],
       "notes": [],
@@ -2557,13 +2588,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "render the carousel"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the recap"
         }
       ],
       "notes": [],
@@ -3409,13 +3433,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "render the comparison"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the entry"
         }
       ],
       "notes": [],
@@ -3532,13 +3549,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "OCR / PDF text extraction"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "notes"
         }
       ],
       "notes": [],
@@ -4025,7 +4035,7 @@
     {
       "id": "ada-explains-it",
       "title": "Ada explains it",
-      "outcome": "Technical article → warm folksy explanation as a clearly marked adaptation",
+      "outcome": "A published technical article gets a warm, plain-language explanation drafted as a new entry, clearly marked as an AI adaptation.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -4040,32 +4050,73 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "ada-explains-it.json",
+      "vars": "ada-explains-it.vars.json",
+      "setup_variables": [
         {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the adaptation as its own draft"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which technical articles get an explanation drafted when published.",
+          "example": "article"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the new draft is made as.",
+          "example": "article"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's field for the draft's text.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per event)."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error or a draft the entry type refuses fails the run before anything is created; the run is recorded and the `workflow_failed` alert fires (if enabled).",
+      "dependencies": [],
+      "notes": [
+        "A custom AI step, then a create step: the new entry is a draft for a person to edit and publish."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_ada_explains_it"
       },
       "brief": {
         "flow": "Technical article → warm folksy explanation as a clearly marked adaptation",
@@ -4221,13 +4272,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "a badge entry"
-        },
-        {
           "capability": "custom-events",
           "name": "Custom emit_event names",
           "priority": "P2",
@@ -4345,13 +4389,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "one entry per branch"
-        },
         {
           "capability": "sandbox",
           "name": "Schema validation / sandbox handler",
@@ -4729,13 +4766,6 @@
           "priority": "P1",
           "acceptance": "`{\"kind\": \"wait\", \"until\": \"${entry.data.event_date} - 7d\"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once.",
           "why": "months later"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the retrospective"
         }
       ],
       "notes": [],
@@ -4790,13 +4820,6 @@
           "priority": "P1",
           "acceptance": "A manual or mcp trigger declares typed inputs; the Run dialog and the MCP tool collect them; steps read `${input.*}`; the run records them.",
           "why": "pick the entry and the transformation at run time"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the remix as a new draft"
         }
       ],
       "notes": [
@@ -4820,7 +4843,7 @@
     {
       "id": "fictional-debate-club",
       "title": "Fictional debate club",
-      "outcome": "Entry → draft clearly fictional dialogue between configured viewpoints",
+      "outcome": "Run it on your published entries: each gets a short, clearly fictional dialogue between viewpoints you choose, as a new draft.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -4834,32 +4857,77 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "fictional-debate-club.json",
+      "vars": "fictional-debate-club.vars.json",
+      "setup_variables": [
         {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the dialogue as a draft"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which published entries the debates are about (run it, it goes through each).",
+          "example": "article"
+        },
+        {
+          "name": "viewpoints",
+          "type": "text",
+          "description": "Who argues — two to four viewpoints.",
+          "example": "a hopeful maker, a sceptical accountant"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the new draft is made as.",
+          "example": "article"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's field for the draft's text.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (once per event)."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error or a draft the entry type refuses fails the run before anything is created; the run is recorded and the `workflow_failed` alert fires (if enabled).",
+      "dependencies": [],
+      "notes": [
+        "A custom AI step, then a create step: the new entry is a draft for a person to edit and publish."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_fictional_debate_club"
       },
       "brief": {
         "flow": "Entry → draft clearly fictional dialogue between configured viewpoints",
@@ -5168,13 +5236,6 @@
           "priority": "P1",
           "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
           "why": "linked outcomes"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the draft"
         }
       ],
       "notes": [],
@@ -5229,13 +5290,6 @@
           "priority": "P1",
           "acceptance": "A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup).",
           "why": "read the collection"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "backlog items"
         }
       ],
       "notes": [
@@ -5357,13 +5411,6 @@
           "priority": "P1",
           "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
           "why": "since the last release"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the draft"
         }
       ],
       "notes": [],
@@ -5688,13 +5735,6 @@
           "priority": "P1",
           "acceptance": "`updated_before: \"-30d\"` (and `now`-relative `${…}` arithmetic) is accepted by entries/query.py `_when` and shown resolved in the preview; `schedule_type: cron` computes `next_run_at` with its timezone (croniter) and fires on the tick.",
           "why": "`updated_before: -14d`"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "or set_data onto the project"
         }
       ],
       "notes": [
@@ -6282,7 +6322,7 @@
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
+          "acceptance": "Delivered 2026-10-11: an entry step `op: \"create\"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created).",
           "why": "to draft the announcement"
         }
       ],
@@ -6424,7 +6464,7 @@
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
+          "acceptance": "Delivered 2026-10-11: an entry step `op: \"create\"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created).",
           "why": "to open a repair task entry"
         }
       ],
@@ -7292,7 +7332,7 @@
           "capability": "create-entry",
           "name": "Create-entry action",
           "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
+          "acceptance": "Delivered 2026-10-11: an entry step `op: \"create\"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created).",
           "why": "a roundup draft"
         }
       ],
@@ -7441,13 +7481,6 @@
           "priority": "P1",
           "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
           "why": "one report over the type's entries"
-        },
-        {
-          "capability": "create-entry",
-          "name": "Create-entry action",
-          "priority": "P0",
-          "acceptance": "An entry step `{\"op\": \"create\", \"entry_type\": …, \"title\": …, \"data\": {…}, \"status\": \"draft\"}` creates a schema-validated entry, returns `entry_id`/`slug` as step output, emits entry_created at depth+1, previews in a dry run, and never duplicates on a retried run (idempotency key = run + step).",
-          "why": "the report"
         }
       ],
       "notes": [

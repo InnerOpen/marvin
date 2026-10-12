@@ -305,6 +305,9 @@ def ws(db_session, monkeypatch):
         "voice": "a weary robot",
         "note_key": "resource_note",
         "caption_style": "warm and plain",
+        "draft_entry_type": "newsletter-issue",
+        "update_entry_type": "article",
+        "viewpoints": "a hopeful maker, a sceptical accountant",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -933,6 +936,84 @@ class TestExecution:
         assert meta["social_crops"] == {"square": "the red boat", "story": "mast to water", "asset_id": str(photo.id)}
         ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
         ws.session.commit()
+
+    # ── custom AI step + create a draft ──
+    def _drafts(self, ws, key):
+        from marvin.db.models.platform import Entries
+
+        return [e for e in ws.session.query(Entries).filter(Entries.group_id == ws.gid).all() if key in (e.metadata_json or {})]
+
+    def test_one_entry_many_voices(self, ws):
+        _install(ws, "one-entry-many-voices")
+        article = _entry(ws, "article", "Engraving brass", status="published", data={"body": "Brass, step by step."})
+        answer = {
+            "linkedin": "Ten years of brass taught me patience. " * 2,
+            "short_post": "Brass, patiently.",
+            "community": "What's the first thing you'd engrave? " * 2,
+        }
+        ws.ai.reply_text(json.dumps(answer))
+        ws.ai.reply_text(json.dumps(answer))
+
+        _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id="pub-voices")
+        _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id="pub-voices")  # the same event again
+
+        second = _runs(ws, "one-entry-many-voices")[-1]
+        assert second.status == "success" and second.actions[1].output_snapshot["created"] is False  # found, not made twice
+
+        (draft,) = self._drafts(ws, "voices_of")
+        assert (draft.title, draft.status) == ("Voices: Engraving brass", "draft") and draft.entry_type_id == ws.types["newsletter-issue"]
+        assert draft.data_json["body"].startswith("LinkedIn:\nTen years") and "Short post:\nBrass, patiently." in draft.data_json["body"]
+
+    def test_behind_the_scenes_diary(self, ws, monkeypatch):
+        from marvin.db.models.platform import Assets
+        from marvin.db.models.platform.entry_assets import EntryAssets
+
+        _install(ws, "behind-the-scenes-diary")
+        update = _entry(ws, "article", "Week 3 on the loom", status="published", data={"body": "Warped the loom; broke two threads."})
+        photo = _asset(ws, "loom", mime="image/jpeg")
+        ws.session.add(EntryAssets(entry_id=update.id, asset_id=photo.id, position=0))
+        ws.session.commit()
+        monkeypatch.setattr(
+            "marvin.services.storage.provider_factory.provider_for",
+            lambda name: SimpleNamespace(get=lambda key: __import__("io").BytesIO(b"\xff\xd8jpeg")),
+        )
+        ws.ai.reply_text(json.dumps({"title": "Warping the loom", "body": "This week the loom went from bare frame to warped and ready. " * 2}))
+
+        _fire(ws, "entry_published", _entry_doc(update), entity=update.id, entity_type="entry", correlation_id="pub-diary")
+
+        assert "image" in ws.ai.last_request().lower()  # the process photo went to the AI
+        (draft,) = self._drafts(ws, "diary_of")
+        assert draft.title == "Warping the loom" and draft.data_json["body"].startswith("This week the loom")
+        ws.session.query(EntryAssets).filter(EntryAssets.asset_id == photo.id).delete(synchronize_session=False)
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    def test_ada_explains_it(self, ws):
+        _install(ws, "ada-explains-it")
+        article = _entry(ws, "article", "Vector clocks", status="published", data={"body": "Lamport timestamps and beyond."})
+        ws.ai.reply_text(
+            json.dumps({"title": "Who spoke first?", "explanation": "Imagine friends passing notes in class, each numbering theirs. " * 3})
+        )
+
+        _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id="pub-ada")
+
+        (draft,) = self._drafts(ws, "adaptation_of")
+        assert draft.title == "Who spoke first?" and "An adaptation of “Vector clocks”" in draft.data_json["body"]
+        assert "written by AI" in draft.data_json["body"]
+
+    def test_fictional_debate_club(self, ws):
+        row = _install(ws, "fictional-debate-club")
+        _entry(ws, "article", "Hand tools or power tools", status="published", data={"body": "x"})
+        _entry(ws, "article", "Still a draft", data={"body": "x"})  # not published: not debated
+        ws.ai.reply_text(
+            json.dumps({"title": "The bench debate", "dialogue": "MAKER: The chisel listens. ACCOUNTANT: The router invoices faster. " * 3})
+        )
+
+        result = run_automation_now(ws.session, ws.gid, row, recorder=ExecutionRecorder(ws.session, ws.gid))
+
+        assert result["ran"] == 1 and "a sceptical accountant" in ws.ai.last_request()
+        (draft,) = self._drafts(ws, "debate_on")
+        assert draft.data_json["body"].startswith("A fictional debate — the speakers are made up.")
 
     def test_summarise_and_feature_on_publish(self, ws):
         from marvin.db.models.platform.entry_collections import EntryCollections

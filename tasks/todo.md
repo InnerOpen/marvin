@@ -721,6 +721,17 @@ fields ↔ JSON Schema, `frontend/src/lib/customStep.ts`), write-back maps kept 
 **Only run this step when…** on every step. Matcher: `exists` with `"false"` typed as text now means must-not-exist.
 
 
+**C. Create-entry step (P0, 23 recipes) — DONE 2026-10-11, Jared: "Continue"**
+- [x] Entry step `{"op": "create", "entry_type": "<slug>", "title": …, "data": {…}, "metadata": {…}, "status": "draft"|"inbox"}`
+      (templates allowed; status inbox|draft only — publishing is a following `publish` step); fields typed and validated
+      against the type's schema; output `{entry_id, slug, created}`; `entry_created` at depth+1 (EntryService.create).
+- [x] No duplicates: key = event correlation id + workflow + target + step, kept in `metadata.automation_created`; the
+      same key again returns that entry (`created: false`). Dry run previews (and validates the fields).
+- [x] Validator: entry type exists here, field keys are the type's; editor: "Create an entry" with type, title, status,
+      fields, metadata; guide/docs; catalogue recount; recipes that now need nothing else become runnable (+ tests).
+      Review: 4 recipes runnable (one-entry-many-voices, behind-the-scenes-diary — trigger changed to a published project
+      update, since update diffs don't track typed fields — ada-explains-it, fictional-debate-club); 35 verified, 61 blocked.
+
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
 Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to
