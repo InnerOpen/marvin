@@ -6,7 +6,7 @@ condition operators, action kinds) so the UI is backend-driven rather than hardc
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import UUID4, ConfigDict
 
@@ -407,3 +407,28 @@ class RecipeConfigureResult(_MarvinModel):
     name: str
     definition: dict
     issues: list[AutomationValidationIssue] = []
+
+
+# ── Approval steps (services/automation/approvals.py) ──────────────────────────
+class WorkflowApprovalRead(_MarvinModel):
+    """A workflow run waiting at an Approval step (or the decision on one)."""
+
+    id: UUID4
+    automation_id: UUID4
+    automation_name: str | None = None
+    automation_slug: str | None = None
+    message: str
+    approvers: str  # editor | admin — who may decide
+    status: str  # pending | approved | denied | expired | stale
+    entry_id: UUID4 | None = None
+    entry_title: str | None = None
+    created_at: datetime | None = None
+    expires_at: datetime
+    decided_by: UUID4 | None = None
+    decided_at: datetime | None = None
+    note: str | None = None
+
+
+class WorkflowApprovalDecision(_MarvinModel):
+    decision: Literal["approve", "deny"]
+    note: str | None = None

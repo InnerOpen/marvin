@@ -280,11 +280,24 @@ def awaiting_count(session: Session, user_id) -> int:
 
 
 def badge_counts(session: Session, user) -> dict:
-    """The installed app's icon count: the current workspace's inbox plus the person's approvals waiting anywhere."""
+    """The installed app's icon count: the current workspace's inbox, plus the person's approvals waiting anywhere and
+    the current workspace's workflow runs waiting for an approval they may give."""
     group_id = getattr(user, "active_group_id", None) or getattr(user, "group_id", None)
     inbox = (inbox_count(session, group_id) or 0) if group_id else 0
-    approvals = awaiting_count(session, user.id)
+    approvals = awaiting_count(session, user.id) + (_workflow_approvals(session, group_id, user) if group_id else 0)
     return {"inbox": inbox, "approvals": approvals, "count": inbox + approvals}
+
+
+def _workflow_approvals(session: Session, group_id, user) -> int:
+    from marvin.services.automation import approvals
+    from marvin.services.automation.authz import ROLE_EDITOR, resolve_authorizer_role
+
+    try:
+        role = resolve_authorizer_role(session, group_id, user.id)
+        return approvals.count_pending(session, group_id, role) if role >= ROLE_EDITOR else 0
+    except Exception:  # noqa: BLE001 — the badge is a nicety
+        session.rollback()
+        return 0
 
 
 def inbox_count(session: Session, group_id) -> int | None:

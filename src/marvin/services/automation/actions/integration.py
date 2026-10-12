@@ -74,8 +74,10 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     declared = _declared_action(provider, key)
     if declared is None:
         raise AutomationActionError(f"provider '{row.provider}' has no action '{key}'")
-    if getattr(declared, "requires_approval", False):
-        raise AutomationActionError(f"'{row.provider}.{key}' requires approval and cannot run from a workflow")
+    # An action that needs a person's approval runs only in a run resumed `approved` at an approval step (a dry run
+    # previews it after one) — services/automation/approvals.py.
+    if getattr(declared, "requires_approval", False) and not (context.get("_approved") is True or (dry_run and context.get("_approval_ahead"))):
+        raise AutomationActionError(f"'{row.provider}.{key}' requires approval: put an Approval step before it (it runs once approved)")
     if dry_run:
         return {"dry_run": True, "kind": "integration", "integration": slug, "action": key, "args": args}
     from marvin.services.integrations.arg_secrets import MissingSecretError, resolve_arg_secrets

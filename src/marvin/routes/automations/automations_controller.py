@@ -36,6 +36,8 @@ from marvin.schemas.group.automation import (
     IntegrationRetryRead,
     RecipeConfigureRequest,
     RecipeConfigureResult,
+    WorkflowApprovalDecision,
+    WorkflowApprovalRead,
     WorkflowLibraryRead,
     WorkflowLibraryRefs,
     WorkflowRecipe,
@@ -125,6 +127,39 @@ def _library_recipe(item: dict, refs, uses: dict[str, list[dict]] | None = None)
         missing=recipes.missing_prerequisites(item, refs),
         in_use=(uses or {}).get(item["id"], []),
         source=item.get("source"),
+    )
+
+
+def _rank(user, group_id) -> int:
+    """The caller's workspace role as the rank approval steps compare (a role-bypassing platform admin counts as OWNER)."""
+    from marvin.db.models.users.roles import WORKSPACE_ROLE_HIERARCHY
+    from marvin.routes._base.checks import _bypasses_workspace_roles
+    from marvin.services.automation.authz import ROLE_OWNER
+
+    return ROLE_OWNER if _bypasses_workspace_roles(user) else WORKSPACE_ROLE_HIERARCHY.get(user.get_workspace_role(group_id), 0)
+
+
+def _approval_read(session, row) -> WorkflowApprovalRead:
+    from marvin.db.models.platform.entries import Entries
+    from marvin.services.automation.authz import ROLE_ADMIN
+
+    automation = session.get(WorkspaceAutomationModel, row.automation_id)
+    entry = session.get(Entries, row.entry_id) if row.entry_id else None
+    return WorkflowApprovalRead(
+        id=row.id,
+        automation_id=row.automation_id,
+        automation_name=getattr(automation, "name", None),
+        automation_slug=getattr(automation, "slug", None),
+        message=row.message,
+        approvers="admin" if row.min_role >= ROLE_ADMIN else "editor",
+        status=row.status,
+        entry_id=row.entry_id,
+        entry_title=getattr(entry, "title", None),
+        created_at=row.created_at,
+        expires_at=row.expires_at,
+        decided_by=row.decided_by,
+        decided_at=row.decided_at,
+        note=row.note,
     )
 
 
@@ -276,6 +311,36 @@ class AutomationsController(BaseUserController):
             definition=definition,
             issues=draft_issues(self.session, self.group_id, definition),
         )
+
+    # ── Approval steps: runs waiting for a person (services/automation/approvals.py) ──
+    @router.get("/approvals", response_model=list[WorkflowApprovalRead], summary="Workflow runs waiting for approval")
+    def list_approvals(self) -> list[WorkflowApprovalRead]:
+        """The runs in this workspace waiting at an Approval step that you may decide (your role is at least the step's
+        `approvers`), oldest first. EDITOR and above."""
+        from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.routes._base.checks import require_workspace_role
+        from marvin.services.automation import approvals
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        role = _rank(self.user, self.group_id)
+        return [_approval_read(self.session, row) for row in approvals.pending(self.session, self.group_id, role)]
+
+    @router.post("/approvals/{approval_id}/decide", response_model=WorkflowApprovalRead, summary="Approve or deny a waiting run")
+    def decide_approval(self, approval_id: UUID4, data: WorkflowApprovalDecision) -> WorkflowApprovalRead:
+        """Approve or deny; the run goes on from the next step with `${steps.<id>.output.decision}` (approved, denied — or
+        stale when the entry changed after it was asked). 403 below the step's role; 404 unknown; 409 already decided
+        or expired."""
+        from marvin.db.models.users.roles import WorkspaceRole
+        from marvin.routes._base.checks import require_workspace_role
+        from marvin.services.automation import approvals
+
+        require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
+        role = _rank(self.user, self.group_id)
+        try:
+            row = approvals.decide(self.session, self.group_id, approval_id, data.decision, user_id=self.user.id, role=role, note=data.note)
+        except approvals.ApprovalError as e:
+            raise HTTPException(status_code=e.status, detail=str(e)) from e
+        return _approval_read(self.session, row)
 
     @router.post("/validate", response_model=AutomationValidateResult, summary="Validate an automation definition")
     def validate(self, data: AutomationValidateRequest) -> AutomationValidateResult:

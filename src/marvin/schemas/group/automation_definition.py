@@ -273,6 +273,19 @@ class EmitEventAction(_StepBase):
     id: str | None = None
 
 
+class ApprovalAction(_StepBase):
+    """Waits for a person to approve or deny. The run parks here, `approvers` (members at that workspace role or above)
+    are asked `message`, and the run goes on from the next step once one decides — or when it expires — with
+    ${steps.<id>.output.decision}: approved | denied | expired | stale (the entry changed after it was asked). An
+    integration action that requires approval may follow it (it runs only when approved)."""
+
+    kind: Literal["approval"]
+    message: str  # what the approvers are asked (templates allowed)
+    approvers: Literal["editor", "admin"] = "editor"
+    expires_in_hours: int = Field(default=72, ge=1, le=720)
+    id: str | None = None
+
+
 class HandlerAction(_StepBase):
     """Runs an allowlisted internal job (`task`), e.g. request_site_rebuild."""
 
@@ -320,10 +333,11 @@ ACTION_MODELS: dict[str, type[_DefnBase]] = {
     "handler": HandlerAction,
     "webhook": WebhookAction,
     "integration": IntegrationAction,
+    "approval": ApprovalAction,
 }
 
 Action = Annotated[
-    OperationAction | EntryAction | EmitEventAction | HandlerAction | WebhookAction | IntegrationAction,
+    OperationAction | EntryAction | EmitEventAction | HandlerAction | WebhookAction | IntegrationAction | ApprovalAction,
     Field(discriminator="kind"),
 ]
 
@@ -366,6 +380,13 @@ class AutomationDefinition(_DefnBase):
     # workflow out: its integration steps fail as plain failures (the connection's admin alert still
     # fires). A workflow with on_failure steps runs those instead of the policy either way.
     integration_errors: Literal["policy", "fail"] | None = None
+
+    @field_validator("on_failure")
+    @classmethod
+    def _no_waiting_on_failure(cls, steps):
+        if steps and any(getattr(s, "kind", None) == "approval" for s in steps):
+            raise ValueError("an approval step can't run in on_failure: the failed run ends there")
+        return steps
 
     @model_validator(mode="before")
     @classmethod

@@ -1,0 +1,61 @@
+{
+  "name": "Featured collection curator",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "suggest",
+        "op": "custom",
+        "prompt": "Does “${entry.title}” belong in the collection “{{collection_slug}}” ({{collection_purpose}})? Say yes only if it clearly fits, and why in one sentence.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "fits": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 5
+            }
+          },
+          "required": [
+            "fits",
+            "reason"
+          ]
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Add “${entry.title}” to {{collection_slug}}? ${steps.suggest.output.reason}",
+        "approvers": "editor",
+        "when": {
+          "field": "steps.suggest.output.fits",
+          "op": "eq",
+          "value": true
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "add_to_collection",
+        "collection_slug": "{{collection_slug}}",
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

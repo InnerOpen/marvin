@@ -308,6 +308,10 @@ def ws(db_session, monkeypatch):
         "draft_entry_type": "newsletter-issue",
         "update_entry_type": "article",
         "viewpoints": "a hopeful maker, a sceptical accountant",
+        "language": "Spanish",
+        "collection_purpose": "our best pieces",
+        "notes_entry_type": "newsletter-issue",
+        "task_entry_type": "article",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1015,6 +1019,57 @@ class TestExecution:
         (draft,) = self._drafts(ws, "debate_on")
         assert draft.data_json["body"].startswith("A fictional debate — the speakers are made up.")
 
+    # ── approval steps ──
+    def _decide(self, ws, decision="approve"):
+        from marvin.services.automation import approvals
+        from marvin.services.automation.authz import ROLE_EDITOR
+
+        (waiting,) = approvals.pending(ws.session, ws.gid, ROLE_EDITOR)
+        return approvals.decide(ws.session, ws.gid, waiting.id, decision, user_id=ws.uid, role=ROLE_EDITOR)
+
+    def test_translation_desk(self, ws):
+        _install(ws, "translation-desk")
+        article = _entry(ws, "article", "Engraving brass", status="published", data={"body": "Brass, step by step."})
+        ws.ai.reply_text(json.dumps({"title": "Grabado en latón", "body": "Latón, paso a paso, con paciencia y buenas herramientas."}))
+
+        _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry", correlation_id="pub-translate")
+        (draft,) = self._drafts(ws, "translation_of")
+        assert (draft.title, draft.status, draft.metadata_json["language"]) == ("Grabado en latón", "draft", "Spanish")
+        self._decide(ws)
+
+        assert _reload(ws, draft).status == "published"
+
+    def test_featured_collection_curator(self, ws):
+        from marvin.db.models.platform.entry_collections import EntryCollections
+        from marvin.services.automation import approvals
+        from marvin.services.automation.authz import ROLE_EDITOR
+
+        _install(ws, "featured-collection-curator")
+        weak = _entry(ws, "article", "Shop closed Monday", status="published", data={"body": "x"})
+        ws.ai.reply_text(json.dumps({"fits": False, "reason": "A notice, not a piece."}))
+        _fire(ws, "entry_published", _entry_doc(weak), entity=weak.id, entity_type="entry", correlation_id="pub-weak")
+        assert approvals.pending(ws.session, ws.gid, ROLE_EDITOR) == []  # nothing to ask
+
+        strong = _entry(ws, "article", "Engraving brass", status="published", data={"body": "x"})
+        ws.ai.reply_text(json.dumps({"fits": True, "reason": "A thorough guide readers keep coming back to."}))
+        _fire(ws, "entry_published", _entry_doc(strong), entity=strong.id, entity_type="entry", correlation_id="pub-strong")
+        self._decide(ws)
+
+        assert ws.session.query(EntryCollections).filter_by(entry_id=strong.id).count() == 1
+        assert ws.session.query(EntryCollections).filter_by(entry_id=weak.id).count() == 0
+
+    def test_meeting_notes_to_tasks(self, ws):
+        _install(ws, "meeting-notes-to-tasks")
+        notes = _entry(ws, "newsletter-issue", "Monday sync", data={"body": "Ada will email the venue by Friday."})
+        ws.ai.reply_text(json.dumps({"count": 1, "tasks_markdown": "- Ada: email the venue by Friday (“Ada will email the venue by Friday.”)"}))
+
+        _fire(ws, "entry_created", _entry_doc(notes), entity=notes.id, entity_type="entry", correlation_id="notes-1")
+        assert self._drafts(ws, "tasks_from") == []  # waits for an editor
+        self._decide(ws)
+
+        (tasks,) = self._drafts(ws, "tasks_from")
+        assert tasks.title == "Tasks from Monday sync" and tasks.data_json["body"].startswith("- Ada: email the venue")
+
     def test_summarise_and_feature_on_publish(self, ws):
         from marvin.db.models.platform.entry_collections import EntryCollections
 
@@ -1091,7 +1146,7 @@ def test_guide_offers_the_recipes_this_workspace_can_run(ws):
     assert one["definition"] == recipes.load_recipe("newsletter-delivery")["definition"] and "newsletter_integration" in one["setup_variables"]
     assert "{{" in json.dumps(one["definition"]) and "${entry.title}" in json.dumps(one["definition"])
     overview = authoring_guide(ws.session, ws.gid)["examples"]
-    assert sorted(overview["available"]) == WORKFLOW_RECIPES and overview["available"][0] in overview
+    assert sorted(overview["available"]) == WORKFLOW_RECIPES and "recipe=<id>" in overview["note"]  # ids only; one in full on request
 
     # Disconnect Buttondown: the newsletter recipe is no longer offered, and asking for it says why.
     ws.session.query(IntegrationModel).filter_by(group_id=ws.gid, slug="newsletter").update({"enabled": False})

@@ -1704,6 +1704,37 @@ CATALOG: list[CatalogEntry] = [
             EventVariable("shared_with", "Who it was shared with", "jsmith", type="username"),
         ],
     ),
+    # ── Workflows: approval steps ───────────────────────────────────────────
+    CatalogEntry(
+        event_type="workflow_approval_requested",
+        name="Workflow Approval Requested",
+        description="A workflow run is waiting at an Approval step; the approvers are told and decide in Automation → Approvals.",
+        category="Automation",
+        sent_by=["A workflow run reaching an Approval step"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("approval_id", "The waiting approval", "3c9a…", type="string"),
+            EventVariable("automation_name", "The workflow's name", "Publish with sign-off", type="name"),
+            EventVariable("automation_slug", "The workflow's slug", "publish-with-sign-off"),
+            EventVariable("message", "What the approvers are asked", "Publish “Spring menu”?"),
+            EventVariable("entry_id", "The entry the run acts on, if any", "8b1d…", type="string"),
+            EventVariable("expires_at", "When it expires (the run then goes on as expired)", "2026-10-14T12:00:00"),
+        ],
+    ),
+    CatalogEntry(
+        event_type="workflow_approval_decided",
+        name="Workflow Approval Decided",
+        description="A waiting workflow run was approved, denied, expired, or found stale (the entry changed after it was asked) — and went on.",
+        category="Automation",
+        sent_by=["Approving or denying in Automation → Approvals", "Expiring approvals left waiting (hourly)"],
+        variables=COMMON_VARS
+        + [
+            EventVariable("approval_id", "The approval", "3c9a…", type="string"),
+            EventVariable("automation_name", "The workflow's name", "Publish with sign-off", type="name"),
+            EventVariable("status", "approved | denied | expired | stale", "approved"),
+            EventVariable("note", "The decider's note, if any", ""),
+        ],
+    ),
     # ── AI: ask-first approvals ──────────────────────────────────────────────
     CatalogEntry(
         event_type="approval_requested",

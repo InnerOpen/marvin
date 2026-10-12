@@ -393,7 +393,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   const COND_OP_LABELS: Record<string, string> = WORKFLOW_LABELS.conditionOps;
   // Most-useful-first (backend returns kinds alphabetically). New steps default to the first
   // available — an AI operation when AI is on, otherwise the first non-AI kind.
-  const KIND_ORDER = ["operation", "entry", "handler", "webhook", "integration", "emit_event"];
+  const KIND_ORDER = ["operation", "entry", "approval", "handler", "webhook", "integration", "emit_event"];
   const orderedKinds = (): string[] => {
     const avail = OPTIONS.actionKinds || [];
     return KIND_ORDER.filter((k) => avail.includes(k)).concat(avail.filter((k: string) => !KIND_ORDER.includes(k)));
@@ -798,6 +798,16 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       });
     } else if (kind === "integration") {
       integrationFields(wrap, a);
+    } else if (kind === "approval") {
+      const hours = Number(a.expires_in_hours ?? 72);
+      wrap.innerHTML = `
+        <label class="tf"><span>Ask <span class="muted">(what the approvers decide — templates allowed, e.g. Publish “\${entry.title}”?)</span></span>
+          <input class="input a-message" value="${esc(a.message ?? "")}" placeholder="e.g. Feature \${entry.title} on the home page?" /></label>
+        <label class="tf"><span>Who may decide</span>
+          <select class="input a-approvers">${[["editor", "Editors and above"], ["admin", "Admins and above"]].map(([v, l]) => `<option value="${v}" ${(a.approvers ?? "editor") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+        <label class="tf"><span>Expires after (hours) <span class="muted">— then the run goes on as expired</span></span>
+          <input class="input a-expires" type="number" min="1" max="720" value="${Number.isFinite(hours) ? hours : 72}" /></label>
+        <span class="hint small">The run waits here; they're told (push, and Automation → Approvals). It goes on from the next step once one decides, with <code>\${steps.&lt;step id&gt;.output.decision}</code>: approved, denied, expired or stale (the entry changed after it was asked) — use “Only run this step when…” on the steps after it. Give this step an id.</span>`;
     } else if (kind === "handler") {
       wrap.innerHTML = `<input class="input a-task" list="wf-handlers" placeholder="request_site_rebuild" value="${esc(a.task ?? "")}" /><span class="hint small">An internal task to run (e.g. request_site_rebuild, ai_reindex_embeddings).</span>`;
     } else if (kind === "webhook") {
@@ -903,6 +913,15 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
             if (value) step[key] = value;
           }
         }
+        return step;
+      }
+      if (kind === "approval") {
+        const message = field(".a-message")?.value.trim();
+        if (!message) return null;
+        step.message = message;
+        step.approvers = field(".a-approvers")?.value || "editor";
+        const hours = Number(field(".a-expires")?.value);
+        step.expires_in_hours = Number.isFinite(hours) && hours >= 1 ? Math.min(Math.round(hours), 720) : 72;
         return step;
       }
       if (kind === "handler") {
@@ -1308,7 +1327,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   }
   // ✓ ran, – skipped (its `when` was false), ✗ failed.
   function stepMark(status: string): string {
-    return status === "success" ? "✓" : status === "skipped" ? "–" : "✗";
+    return status === "success" ? "✓" : status === "skipped" ? "–" : status === "waiting" ? "⏸" : "✗";
   }
   function execActionRow(a: any): string {
     const ent = a.targetEntityId ? ` <span class="muted">→ ${esc(String(a.targetEntityId).slice(0, 8))}</span>` : "";
@@ -1726,6 +1745,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.status-partial) { color: #d9a441; }
   .workflows-page :global(.status-running) { color: var(--muted); }
   .workflows-page :global(.status-skipped) { color: var(--muted); }
+  .workflows-page :global(.status-waiting) { color: #d9a441; }
+  .workflows-page :global(.status-resumed) { color: var(--muted); }
   .workflows-page :global(.a-when) { margin-top: 6px; }
   .workflows-page :global(.a-when summary) { cursor: pointer; color: var(--muted); }
   .workflows-page :global(.af-row) { display: grid; grid-template-columns: 1fr 140px 2fr auto; gap: 6px; margin-bottom: 6px; }

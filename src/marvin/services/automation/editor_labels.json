@@ -23,7 +23,8 @@
     "emit_event": "Emit event",
     "handler": "Run task",
     "webhook": "Call webhook",
-    "integration": "Run integration"
+    "integration": "Run integration",
+    "approval": "Wait for approval"
   },
   "entryOps": {
     "publish": "Publish",

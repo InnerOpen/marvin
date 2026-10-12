@@ -732,6 +732,28 @@ fields ↔ JSON Schema, `frontend/src/lib/customStep.ts`), write-back maps kept 
       Review: 4 recipes runnable (one-entry-many-voices, behind-the-scenes-diary — trigger changed to a published project
       update, since update diffs don't track typed fields — ada-explains-it, fictional-debate-club); 35 verified, 61 blocked.
 
+**D. Approval step (P1, 18 recipes; 5 alone) — slice 1 DONE 2026-10-11, Jared: "Continue with the approval step"**
+Step `{"kind": "approval", "id": "ok", "message": "Publish “${entry.title}”?", "approvers": "editor"|"admin",
+"expires_in_hours": 72}`. Slice 1:
+- [x] Table `workflow_approvals` (automation, parked execution, step/target index, message, min role, status
+      pending|approved|denied|expired|stale, run snapshot — event, entry, steps, previous, target — entry id + version
+      (update_at), expires_at, decided_by/at, note). The run parks: step recorded `waiting`, execution `waiting`, the rest
+      of the pipeline stops.
+- [x] Decide: `GET /api/automations/approvals` (pending, for EDITOR+), `POST /api/automations/approvals/{id}/decide`
+      {decision approve|deny, note} by a member at the step's role. Resume like run_retry: new execution
+      (retry_of = the parked one), steps from the snapshot + `steps.<id>.output = {decision, decided_by, note}`, from the
+      next step. Approve on an entry that changed since → decision `stale` (nothing approved is applied to other content).
+- [x] Expiry: hourly tick → `expired`, resumed the same way (a workflow can act on it with `when`).
+- [x] Integration actions that require approval may run in a run resumed with `approved` (runtime), and the validator
+      accepts them only after an approval step (today: refused/hidden).
+- [x] Events `workflow_approval_requested` / `workflow_approval_decided`; push to the approvers (link to the page);
+      app-icon badge counts them. Page Automation → Approvals with Approve / Deny; run view marks `waiting`.
+- [x] Editor "Wait for approval" step; guide/docs; catalogue recount; the 5 approval-only recipes (+ tests).
+Review (slice 1): runnable now — translation-desk, featured-collection-curator, meeting-notes-to-tasks; milestone-celebration
+and alternate-universe-cover moved to media-adapters (openai_images returns image data; keeping it as an asset is an
+adapter). 38 verified, 58 blocked. The guide overview now lists recipe ids only (it grew with every recipe).
+Slice 2: one-tap Approve/Deny on the push (push_action_tokens for workflow approvals, SW route by kind).
+
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
 Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to

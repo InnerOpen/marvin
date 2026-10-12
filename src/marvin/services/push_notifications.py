@@ -41,7 +41,9 @@ ACTIVITY_TITLES = {
     "entry_scheduled_publish_blocked": "Scheduled publish waiting",
 }
 TRASH_SOON = "trash_auto_empty_soon"
-EVENT_TYPES = frozenset(ACTIVITY_TITLES) | {APPROVAL_REQUESTED, TRASH_SOON}
+WORKFLOW_APPROVAL = "workflow_approval_requested"
+WORKFLOW_APPROVALS_PATH = "/automation/approvals"
+EVENT_TYPES = frozenset(ACTIVITY_TITLES) | {APPROVAL_REQUESTED, TRASH_SOON, WORKFLOW_APPROVAL}
 
 
 def wants(group_id, event) -> bool:
@@ -146,6 +148,12 @@ def deliver(session: Session, group_id, event) -> web_push.SendResult:
         return _send(session, group_id, [owner], web_push.APPROVALS, message)
     from marvin.db.models.users.roles import WorkspaceRole
 
+    if name == WORKFLOW_APPROVAL:
+        from marvin.services.automation.authz import ROLE_ADMIN
+
+        floor = WorkspaceRole.ADMIN if int(data.get("min_role") or 0) >= ROLE_ADMIN else WorkspaceRole.EDITOR
+        approvers = web_push.workspace_member_ids(session, group_id, floor)
+        return _send(session, group_id, approvers, web_push.APPROVALS, workflow_approval_message(data))
     if name == TRASH_SOON:
         admins = web_push.workspace_member_ids(session, group_id, WorkspaceRole.ADMIN)
         return _send(session, group_id, admins, web_push.TRASH_REMINDERS, trash_message(session, group_id, data))
@@ -155,6 +163,18 @@ def deliver(session: Session, group_id, event) -> web_push.SendResult:
     actor = str(getattr(event, "user_id", None) or "")
     people = [u for u in web_push.workspace_member_ids(session, group_id, WorkspaceRole.EDITOR) if str(u) != actor]
     return _send(session, group_id, people, web_push.ACTIVITY, activity_message(session, group_id, event, data))
+
+
+def workflow_approval_message(data: dict) -> web_push.PushMessage:
+    """A workflow run waiting at an Approval step — to everyone who may decide it; the tap opens Automation → Approvals."""
+    workflow = data.get("automation_name") or "A workflow"
+    return web_push.PushMessage(
+        title="Waiting for your approval",
+        body=f"{workflow}: {data.get('message') or ''}".strip(),
+        url=WORKFLOW_APPROVALS_PATH,
+        tag=f"workflow-approval:{data.get('approval_id')}",
+        urgency="high",
+    )
 
 
 def _send(session: Session, group_id, people, category: str, message: web_push.PushMessage) -> web_push.SendResult:

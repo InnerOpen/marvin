@@ -1,0 +1,68 @@
+{
+  "name": "Meeting notes to tasks",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_created"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{notes_entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "extract",
+        "op": "custom",
+        "prompt": "List the commitments made in these meeting notes: who will do what, by when if said. Quote the line each comes from. Only real commitments — no ideas or maybes.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "tasks_markdown": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "count",
+            "tasks_markdown"
+          ]
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Make a task list from “${entry.title}” (${steps.extract.output.count} commitments)?",
+        "approvers": "editor",
+        "when": {
+          "field": "steps.extract.output.count",
+          "op": "neq",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{task_entry_type}}",
+        "title": "Tasks from ${entry.title}",
+        "data": {
+          "{{body_field}}": "${steps.extract.output.tasks_markdown}"
+        },
+        "metadata": {
+          "tasks_from": "${entry.id}"
+        },
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

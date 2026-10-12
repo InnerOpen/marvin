@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 35,
-    "needs-engine-capability": 45,
+    "verified-current": 38,
     "needs-adapter": 16,
+    "needs-engine-capability": 42,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -61,7 +61,7 @@
       "name": "Approval step inside a workflow",
       "priority": "P1",
       "capabilities_md": "Durable approvals",
-      "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step."
+      "acceptance": "Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice."
     },
     "waits": {
       "name": "Durable waits and delays",
@@ -618,7 +618,7 @@
     {
       "id": "translation-desk",
       "title": "Translation desk",
-      "outcome": "Publication → generate linked translated drafts → route to reviewers",
+      "outcome": "A published entry gets a translation drafted as a new entry; an editor reviews it and, once approved, it is published.",
       "category": "Publishing and editorial",
       "category_slug": "publishing",
       "tags": [
@@ -633,34 +633,76 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "translation-desk.json",
+      "vars": "translation-desk.vars.json",
+      "setup_variables": [
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "reviewer routing with a decision"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which published entries get a translation (the draft is made as the same type).",
+          "example": "article"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's field for the text.",
+          "example": "body"
+        },
+        {
+          "name": "language",
+          "type": "text",
+          "description": "The language to translate into.",
+          "example": "Spanish"
         }
       ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "entry",
+          "approval"
+        ],
+        "entry_ops": [
+          "create",
+          "publish",
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Changes content only after an editor approves."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "The run waits at the approval step until an editor decides (or it expires); an AI error fails the run before anything is asked.",
+      "dependencies": [],
       "notes": [
-        "Linking translations needs a relationship field or metadata convention (`translation_of`) — set_metadata can record it once the draft exists."
+        "An approval step parks the run; Automation → Approvals and a push ask the editors; the steps after it read ${steps.ok.output.decision}."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_translation_desk"
       },
       "brief": {
         "flow": "Publication → generate linked translated drafts → route to reviewers",
@@ -965,13 +1007,6 @@
           "priority": "P1",
           "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset. Derived-asset lineage is part of media-adapters.",
           "why": "a target query for the entries linked to the triggering resource (has_resources is only true/false)"
-        },
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "a person accepts the proposal"
         }
       ],
       "notes": [],
@@ -1175,7 +1210,7 @@
     {
       "id": "featured-collection-curator",
       "title": "Featured collection curator",
-      "outcome": "Publication → suggest topic collections → update approved collections",
+      "outcome": "When the AI thinks a published entry fits a collection, an editor is asked; once approved it is added.",
       "category": "Publishing and editorial",
       "category_slug": "publishing",
       "tags": [
@@ -1190,34 +1225,74 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "featured-collection-curator.json",
+      "vars": "featured-collection-curator.vars.json",
+      "setup_variables": [
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "a person approves before add_to_collection"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "Which published entries are considered.",
+          "example": "article"
+        },
+        {
+          "name": "collection_slug",
+          "type": "collection_slug",
+          "description": "The collection an editor approves additions to.",
+          "example": "featured"
+        },
+        {
+          "name": "collection_purpose",
+          "type": "text",
+          "description": "What belongs in it, in a few words (the AI decides against this).",
+          "example": "our best, most useful pieces"
         }
       ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "approval",
+          "entry"
+        ],
+        "entry_ops": [
+          "add_to_collection"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Changes content only after an editor approves."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "The run waits at the approval step until an editor decides (or it expires); an AI error fails the run before anything is asked.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): a fixed rule is possible today: entry_published + conditions on `entry.data.<topic>` + `add_to_collection`."
+        "An approval step parks the run; Automation → Approvals and a push ask the editors; the steps after it read ${steps.ok.output.decision}."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_featured_collection_curator"
       },
       "brief": {
         "flow": "Publication → suggest topic collections → update approved collections",
@@ -1671,13 +1746,6 @@
           "priority": "P1",
           "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
           "why": "queue a draft"
-        },
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "openai_images.generate requires approval"
         }
       ],
       "notes": [],
@@ -2147,13 +2215,6 @@
           "priority": "P2",
           "acceptance": "comment_added/updated/deleted have an emitter that carries entry_id and the comment text, are triggerable, and hydrate `entry.*`.",
           "why": "no comment events are ever sent"
-        },
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "wait for approval"
         }
       ],
       "notes": [
@@ -2394,13 +2455,6 @@
           "priority": "P1",
           "acceptance": "Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics.",
           "why": "assemble in parallel"
-        },
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "image generation requires approval"
         }
       ],
       "notes": [],
@@ -2450,11 +2504,11 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
+          "capability": "media-adapters",
+          "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "openai_images.generate requires approval"
+          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "why": "openai_images.generate returns image data; keeping it as an asset (with lineage) is a media adapter"
         }
       ],
       "notes": [
@@ -2998,13 +3052,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)"
-        },
-        {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
@@ -3065,13 +3112,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "focal-point crop"
-        },
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "preview before saving"
         }
       ],
       "notes": [],
@@ -3177,13 +3217,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)"
-        },
-        {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
@@ -3243,20 +3276,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)"
-        },
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "a choice among three"
-        },
         {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
@@ -3373,13 +3392,6 @@
           "priority": "P1",
           "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
           "why": "masking"
-        },
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "approve the redaction"
         }
       ],
       "notes": [],
@@ -3850,13 +3862,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)"
-        },
-        {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
@@ -3917,13 +3922,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)"
-        },
         {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
@@ -4158,13 +4156,6 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)"
-        },
-        {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
           "priority": "P1",
@@ -4327,13 +4318,6 @@
       "cost_notes": null,
       "failure_behaviour": null,
       "dependencies": [
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "select a caption"
-        },
         {
           "capability": "media-adapters",
           "name": "Image, file and audio processing adapters",
@@ -4694,18 +4678,11 @@
       "failure_behaviour": null,
       "dependencies": [
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
+          "capability": "media-adapters",
+          "name": "Image, file and audio processing adapters",
           "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "`openai_images.generate` is requires_approval and is refused by the integration step (actions/integration.py)"
-        },
-        {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "review and pick"
+          "acceptance": "SDK capabilities for resize/crop/convert/OCR/render/TTS/zip exist as integration actions with declared input/output schemas; outputs are stored as derived assets with lineage; originals are never modified.",
+          "why": "openai_images.generate returns image data; keeping it as an asset (with lineage) is a media adapter"
         }
       ],
       "notes": [],
@@ -5314,7 +5291,7 @@
     {
       "id": "meeting-notes-to-tasks",
       "title": "Meeting notes to tasks",
-      "outcome": "Notes entry → extract commitments with evidence → draft tasks",
+      "outcome": "New meeting notes have their commitments pulled out; once an editor approves, they become a draft task list.",
       "category": "Operations and knowledge",
       "category_slug": "operations",
       "tags": [
@@ -5329,34 +5306,75 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "meeting-notes-to-tasks.json",
+      "vars": "meeting-notes-to-tasks.vars.json",
+      "setup_variables": [
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "A step parks the run durably, notifies approvers (reusing the Approve/Deny push used for agent approvals), resumes with `${steps.<id>.output.decision}`, expires, and re-checks the entry's version before applying; integration actions marked requires_approval may run after an approval step.",
-          "why": "approve before creating"
+          "name": "notes_entry_type",
+          "type": "entry_type_slug",
+          "description": "Your meeting-notes entry type.",
+          "example": "meeting-notes"
+        },
+        {
+          "name": "task_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the task list is drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "That type's field for the list.",
+          "example": "body"
         }
       ],
+      "requires": {
+        "trigger": "event:entry_created",
+        "action_kinds": [
+          "operation",
+          "approval",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "neq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Changes content only after an editor approves."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget.",
+      "failure_behaviour": "The run waits at the approval step until an editor decides (or it expires); an AI error fails the run before anything is asked.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): the task half exists: editorial-task-maker shows n8n `trigger_workflow` creating tasks from templated data."
+        "An approval step parks the run; Automation → Approvals and a push ask the editors; the steps after it read ${steps.ok.output.decision}."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_meeting_notes_to_tasks"
       },
       "brief": {
         "flow": "Notes entry → extract commitments with evidence → draft tasks",

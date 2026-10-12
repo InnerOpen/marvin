@@ -111,8 +111,8 @@ def automation_operations(session, group_id) -> list | None:
 
 
 def _integration_actions(provider_slug: str) -> list[dict] | None:
-    """A provider's actions a workflow can run (approval-gated ones can't run unattended); None when the
-    provider isn't installed."""
+    """A provider's actions a workflow can run — an approval-gated one (`requires_approval`) only after an approval
+    step; None when the provider isn't installed."""
     from marvin.services.integrations import INTEGRATIONS_AVAILABLE
 
     if not INTEGRATIONS_AVAILABLE:
@@ -125,8 +125,6 @@ def _integration_actions(provider_slug: str) -> list[dict] | None:
         return None
     out = []
     for a in getattr(provider, "actions", ()) or ():
-        if getattr(a, "requires_approval", False):
-            continue
         schema = a.input_schema or {}
         props = schema.get("properties") or {}
         out.append(
@@ -137,6 +135,7 @@ def _integration_actions(provider_slug: str) -> list[dict] | None:
                 "args": {k: (v.get("type") if isinstance(v, dict) else None) or "any" for k, v in props.items()},
                 "required": list(schema.get("required") or []),
                 "capability": getattr(a, "capability", None),
+                **({"requires_approval": True} if getattr(a, "requires_approval", False) else {}),
             }
         )
     return out
@@ -334,8 +333,13 @@ def _actions(detail: bool) -> dict:
 
     kinds = {kind: {"description": _doc(model), **_fields(model, skip=("kind",))} for kind, model in ACTION_MODELS.items()}
     if not detail:  # the first sentence and the field names; section="actions" has the rest and the types
+        shared = {"id", "when"}  # every step takes them: said once below, not per kind
         kinds = {
-            k: {"description": _first_sentence(v["description"]), "required": list(v["required"]), "optional": list(v["optional"])}
+            k: {
+                "description": _first_sentence(v["description"]),
+                "required": list(v["required"]),
+                "optional": [f for f in v["optional"] if f not in shared],
+            }
             for k, v in kinds.items()
         }
     entry_ops: dict[str, Any] = {}
@@ -352,7 +356,7 @@ def _actions(detail: bool) -> dict:
         "entry_ops_note": entry_ops_note + (CREATE_NOTE if detail else ""),
         "asset_resource_ops": _item_ops(detail),
         "max_steps": MAX_ACTIONS,
-        "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}.",
+        "step_id": "Give a step an `id` to read its output later as ${steps.<id>.output.<key>}; any step takes `when` (run only if).",
         **({"when": WHEN_NOTE} if detail else {}),
     }
 
@@ -457,8 +461,11 @@ def _examples(refs: WorkspaceRefs, detail: bool, recipe: str | None) -> dict:
                 for r in offered
             ],
         }
-    first = recipes.example(offered[0]) if offered else None
-    return {"note": _EXAMPLES_NOTE, "available": [r["id"] for r in offered], **({first["recipe"]: first} if first else {})}
+    # Ids only: the list grows with every recipe, and the overview has a size budget. One recipe in full is a call away.
+    return {
+        "note": _EXAMPLES_NOTE + " section='examples' lists them with their outcomes; recipe=<id> shows one in full.",
+        "available": [r["id"] for r in offered],
+    }
 
 
 _EXAMPLES_NOTE = (
@@ -614,9 +621,11 @@ def reference_issues(session, group_id, definition: dict, refs: WorkspaceRefs | 
     _condition_issues(definition.get("conditions"), "conditions", issues)
     subject = subject_of(definition)
     for list_key, where in (("actions", "action"), ("on_failure", "on_failure")):
+        after_approval = False  # an approval-gated integration action is accepted after an approval step only
         for i, step in enumerate(definition.get(list_key) or []):
             if isinstance(step, dict):
-                _step_issues(step, f"{list_key}[{i}]", where, refs, issues, subject)
+                _step_issues(step, f"{list_key}[{i}]", where, refs, issues, subject, after_approval=after_approval and list_key == "actions")
+                after_approval = after_approval or step.get("kind") == "approval"
     return issues
 
 
@@ -694,7 +703,9 @@ def _condition_issues(node: Any, path: str, issues: _Issues) -> None:
             issues.add(f"{path}.op", "condition", f"Unknown condition operator “{node.get('op')}”. Operators: {', '.join(_OPS)}.")
 
 
-def _step_issues(step: dict, path: str, where: str, refs: WorkspaceRefs, issues: _Issues, subject: str = "entry") -> None:
+def _step_issues(
+    step: dict, path: str, where: str, refs: WorkspaceRefs, issues: _Issues, subject: str = "entry", *, after_approval: bool = False
+) -> None:
     def bad(key: str, message: str) -> None:
         issues.add(f"{path}.{key}" if key else path, where, message)
 
@@ -743,6 +754,8 @@ def _step_issues(step: dict, path: str, where: str, refs: WorkspaceRefs, issues:
         elif row["actions"] is not None and key not in {a["action"] for a in row["actions"]}:
             actions = ", ".join(a["action"] for a in row["actions"]) or "(none)"
             bad("action", f"“{slug}” has no action “{key}” a workflow can run. Actions: {actions}.")
+        elif row["actions"] is not None and not after_approval and any(a["action"] == key and a.get("requires_approval") for a in row["actions"]):
+            bad("action", f"“{slug}.{key}” needs a person's approval: put an Approval step before it (it runs once approved).")
 
 
 def _entry_step_issues(step: dict, refs: WorkspaceRefs, bad) -> None:

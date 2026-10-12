@@ -355,6 +355,7 @@ async def start_scheduler() -> None:
     # Register hourly tasks
     SchedulerRegistry.register_hourly(
         scheduler_tasks.expire_parked_runs,
+        scheduler_tasks.expire_workflow_approvals,
         scheduler_tasks.empty_expired_trash,
         scheduler_tasks.remind_trash_auto_empty,
         scheduler_tasks.check_unpriced_models,

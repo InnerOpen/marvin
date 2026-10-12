@@ -22,6 +22,7 @@ from marvin.services.event_bus_service.correlation import correlation_scope, cur
 
 from .actions import AutomationActionError, IntegrationStepError
 from .actions import run_action as _registry_run_action
+from .actions.approval import PARK
 from .authz import resolve_authorizer_role
 from .matcher import explain, matches
 from .recorder import CollectingRecorder, NullRecorder
@@ -392,7 +393,7 @@ def _run_targets(
             context=base_context,
         )
 
-    ran, ok_all, steps_ok, steps_failed = 0, True, 0, 0
+    ran, ok_all, steps_ok, steps_failed, parked = 0, True, 0, 0, 0
     # What each step did, across every target — the run's automation_ran / automation_failed names them.
     step_log: list[dict] = []
     base_context["_step_log"] = step_log
@@ -418,9 +419,10 @@ def _run_targets(
         ok_all = ok_all and ok
         steps_ok += s_ok
         steps_failed += s_failed
+        parked += int(ctx.pop("_parked", 0) or 0)
         ran += 1
 
-    status = "success" if ok_all else ("partial" if steps_ok else "failed")
+    status = _run_status(ok_all, steps_ok, parked)
     recorder.finish(
         exec_id,
         status=status,
@@ -431,6 +433,13 @@ def _run_targets(
         handled=not ok_all and run_handled(step_log),
     )
     return ran, ok_all, run_id
+
+
+def _run_status(ok: bool, steps_ok: int, parked: int = 0) -> str:
+    """success | partial | failed — or waiting, when every step that ran succeeded and a target waits at an approval."""
+    if not ok:
+        return "partial" if steps_ok else "failed"
+    return "waiting" if parked else "success"
 
 
 def _trigger_matches(trig: dict, event_ctx: dict) -> bool:
@@ -559,6 +568,8 @@ class _StepRunner:
     gated: bool = True
     trigger_kind: str | None = None
     error_mode: str = "policy"
+    parked: bool = False
+    """The run is waiting at an approval step: the rest of the pipeline doesn't run now (services/automation/approvals.py)."""
     """How a failed integration step is handled: "policy" (the provider's error policy) or "connection"
     (only its connection-level notify — the workflow has on_failure steps or opted out)."""
 
@@ -601,6 +612,8 @@ class _StepRunner:
         finally:
             self.context.pop("_resume", None)
             self.context.pop("_step", None)
+        if not self.dry_run and isinstance(out, dict) and PARK in out:
+            return self._park(action, action_index, record, out[PARK], started)
         if action.get("kind") == "integration" and not self.dry_run and not on_failure:
             from marvin.services.integrations import errors
 
@@ -626,6 +639,37 @@ class _StepRunner:
         self.context["steps"][str(action_index)] = step_entry
         if action.get("id"):
             self.context["steps"][str(action["id"])] = step_entry  # $steps.<id>.output.*
+        return None
+
+    def _park(self, action: dict, action_index: int, record: dict, spec: dict, started: datetime) -> AutomationActionError | None:
+        """Park the run at an approval step: keep what it needs to go on, tell the approvers, record the step as
+        waiting. The pipeline stops after it (``parked``); a decision resumes it (resume_after_approval)."""
+        from .approvals import park
+
+        try:
+            row = park(
+                self.session,
+                self.group_id,
+                self.automation,
+                self.context,
+                exec_id=self.exec_id,
+                step_index=action_index,
+                target_index=self.target_index,
+                step_id=action.get("id"),
+                spec=spec,
+                run={"target_ref": self.target_ref, "gated": self.gated, "trigger_kind": self.trigger_kind},
+            )
+        except AutomationActionError as e:
+            self.recorder.action(self.exec_id, **record, status="failed", error=str(e), duration_ms=_ms_since(started))
+            if self.step_log is not None:
+                self.step_log.append(step_summary(self.session, action, error=str(e)))
+            return e
+        out = {"approval_id": str(row.id), "message": row.message, "approvers": spec.get("approvers"), "expires_at": row.expires_at.isoformat()}
+        self.recorder.action(self.exec_id, **record, status="waiting", output=out, duration_ms=_ms_since(started))
+        if self.step_log is not None:
+            self.step_log.append({**step_summary(self.session, action, output=out), "outcome": "waiting"})
+        self.parked = True
+        self.context["_parked"] = int(self.context.get("_parked") or 0) + 1
         return None
 
     def _skipped(self, action: dict, record: dict, when, started: datetime, on_failure: bool) -> None:
@@ -740,6 +784,8 @@ def _run_pipeline(
         if action_index < start_at:
             continue
         error = step.run(action, action_index)
+        if step.parked:  # waiting for a person: the steps after this one run when it is decided
+            return True, action_index - start_at + 1, 0
         if error is not None:
             context["_error"] = str(error)
             _run_on_failure(step, defn.get("on_failure") or [], error, action, action_index, first_index=len(actions))
@@ -982,7 +1028,7 @@ def run_retry(
             start_at=row.step_index,
             resume_from=snap,
         )
-        status = "success" if ok else ("partial" if steps_ok else "failed")
+        status = _run_status(ok, steps_ok, int(context.pop("_parked", 0) or 0))
         recorder.finish(
             exec_id,
             status=status,
@@ -1006,3 +1052,110 @@ def run_retry(
         if ok or row.status not in RETRY_LIVE:
             _announce(session, group_id, automation, ok, context["depth"], user_id, context, run_id=exec_id or uuid4(), retry_attempt=attempt)
     return "succeeded" if row.status == "succeeded" else "failed"
+
+
+def resume_after_approval(session, row, *, logger=None, run_action: Callable = _registry_run_action, recorder=None) -> str:
+    """Go on with a run that waited at an approval step, now settled (services/automation/approvals.py): rebuild it
+    from its snapshot and the entry as it is now, give the step its output (decision, who, note) and run the steps
+    after it — a new run pointing back at the one that parked. Conditions aren't checked again: a person decided.
+    Returns the run's status, or ``not resumed`` (the workflow is gone, switched off, or its steps changed)."""
+    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.db.models.users.users import Users
+
+    from .recorder import ExecutionRecorder
+
+    automation = session.get(WorkspaceAutomationModel, row.automation_id)
+    defn = (automation.definition or {}) if automation is not None else {}
+    actions = (defn.get("actions") or [])[:MAX_ACTIONS]
+    step = actions[row.step_index] if row.step_index < len(actions) else {}
+    if automation is None or not automation.enabled or step.get("kind") != "approval":
+        if logger:
+            logger.info("approval %s settled %s; its workflow is gone, off or changed — nothing more runs", row.id, row.status)
+        return "not resumed"
+    recorder = recorder or ExecutionRecorder(session, row.group_id)
+    group_id = row.group_id
+
+    snap = row.snapshot or {}
+    event = dict(snap.get("event") or {})
+    context: dict = {"event": event, "previous": {}, "depth": int(event.get("reaction_depth", 0) or 0), "site": _site_context(session, group_id)}
+    entry_ctx = _entry_context(session, group_id, row.entry_id) if row.entry_id else None
+    if entry_ctx is None:
+        entry_ctx = snap.get("entry")
+    if entry_ctx:
+        context["entry"] = entry_ctx
+    context.update(_item_contexts(session, group_id, event))
+    decider = session.get(Users, row.decided_by) if row.decided_by else None
+    output = {
+        "decision": row.status,
+        "approved": row.status == "approved",
+        "decided_by": str(row.decided_by) if row.decided_by else None,
+        "decided_by_name": getattr(decider, "full_name", None) or getattr(decider, "username", None),
+        "note": row.note,
+        "approval_id": str(row.id),
+    }
+    steps = dict(snap.get("steps") or {})
+    steps[str(row.step_index)] = {"output": output}
+    if row.step_id:
+        steps[str(row.step_id)] = {"output": output}
+    # An approved run may call integration actions that require approval (actions/integration.py) — only this one.
+    context["_approved"] = row.status == "approved"
+    user_id = row.decided_by or event.get("user_id")
+    step_log: list[dict] = []
+    context["_step_log"] = step_log
+    with correlation_scope(event.get("correlation_id")), _running_scope(automation):
+        exec_id = recorder.start(
+            automation,
+            automation.trigger_type or "event",
+            targets_matched=1,
+            capped=False,
+            user_id=user_id,
+            correlation_id=current_correlation_id.get(),
+            retry_of_id=row.execution_id,
+        )
+        recorder.action(
+            exec_id,
+            target_index=row.target_index,
+            target_ref=snap.get("target_ref"),
+            action_index=row.step_index,
+            action=step,
+            status="success",
+            output=output,
+            duration_ms=0,
+        )
+        ok, steps_ok, steps_failed = _run_pipeline(
+            session,
+            group_id,
+            automation,
+            context,
+            user_id=user_id,
+            authorizer_role=resolve_authorizer_role(session, group_id, getattr(automation, "created_by", None)),
+            logger=logger,
+            run_action=run_action,
+            recorder=recorder,
+            exec_id=exec_id,
+            target_index=row.target_index,
+            target_ref=snap.get("target_ref"),
+            step_log=step_log,
+            gated=bool(snap.get("gated", True)),
+            trigger_kind=snap.get("trigger_kind"),
+            start_at=row.step_index + 1,
+            resume_from={"steps": steps, "previous": output},
+        )
+        status = _run_status(ok, steps_ok + 1, int(context.pop("_parked", 0) or 0))
+        recorder.finish(
+            exec_id,
+            status=status,
+            error=context.get("_error"),
+            targets_run=1,
+            steps_ok=steps_ok + 1,
+            steps_failed=steps_failed,
+            handled=not ok and run_handled(step_log),
+        )
+        row.resumed_execution_id = exec_id if exec_id is not None and not isinstance(exec_id, str) else None
+        parked = session.get(AutomationExecutionModel, row.execution_id) if row.execution_id else None
+        if parked is not None and parked.status == "waiting":
+            parked.status = "resumed"  # the run that waited is over; the one above carries on
+        session.commit()
+        _announce(session, group_id, automation, ok, context["depth"], user_id, context, run_id=exec_id or uuid4())
+    return status

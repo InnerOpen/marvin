@@ -459,6 +459,10 @@ class EventTypes(EventTypeBase):
     """A Flavor B automation finished running (its pipeline completed) — for chained triggers."""
     automation_failed = auto()
     """A Flavor B automation's pipeline failed a step — for on-error triggers."""
+    workflow_approval_requested = auto()
+    """A workflow run is waiting at an Approval step — the approvers are told (push, Automation → Approvals)."""
+    workflow_approval_decided = auto()
+    """A waiting workflow run was approved, denied, expired or found stale — and went on."""
     automation_enabled = auto()
     """A workflow was switched on — from its page, the API, or an agent with the admin's approval."""
     automation_disabled = auto()
@@ -1427,6 +1431,27 @@ class EventAIOperationData(EventDocumentDataBase):
     """The workspace the operation ran in."""
     workspace_name: str | None = None
     """The human-readable name of the workspace."""
+
+
+class EventWorkflowApprovalData(EventDocumentDataBase):
+    """Data payload for a workflow run waiting at an Approval step (workflow_approval_requested) and its outcome
+    (workflow_approval_decided)."""
+
+    document_type: EventDocumentTypeBase = EventDocumentType.generic
+    operation: EventOperationBase = EventOperation.info
+    approval_id: UUID4
+    automation_id: UUID4
+    automation_name: str | None = None
+    automation_slug: str | None = None
+    message: str
+    """What the approvers are asked."""
+    min_role: int
+    """Who may decide: a member at this workspace role rank or above."""
+    status: str
+    """pending | approved | denied | expired | stale"""
+    entry_id: UUID4 | None = None
+    expires_at: str | None = None
+    note: str | None = None
 
 
 class EventAIApprovalData(EventDocumentDataBase):

@@ -1,0 +1,87 @@
+{
+  "name": "Translation desk",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "translate",
+        "op": "custom",
+        "prompt": "Translate “${entry.title}” and its text into {{language}}. Keep the meaning, tone and formatting; translate, don't summarise.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 2
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "id": "draft",
+        "op": "create",
+        "entry_type": "{{entry_type}}",
+        "title": "${steps.translate.output.title}",
+        "data": {
+          "{{body_field}}": "${steps.translate.output.body}"
+        },
+        "metadata": {
+          "translation_of": "${entry.id}",
+          "language": "{{language}}"
+        }
+      },
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Review the {{language}} translation of “${entry.title}” (draft: ${steps.draft.output.slug}) — publish it?",
+        "approvers": "editor",
+        "expires_in_hours": 168
+      },
+      {
+        "kind": "entry",
+        "op": "publish",
+        "entity_id": "${steps.draft.output.entry_id}",
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "entity_id": "${steps.draft.output.entry_id}",
+        "metadata": {
+          "translation_review": "${steps.ok.output.decision}"
+        },
+        "when": {
+          "not": {
+            "field": "steps.ok.output.decision",
+            "op": "eq",
+            "value": "approved"
+          }
+        }
+      }
+    ]
+  }
+}

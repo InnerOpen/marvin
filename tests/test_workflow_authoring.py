@@ -137,7 +137,7 @@ def test_guide_names_this_workspaces_references(ws):
     assert "featured" in work["collections"]
     assert ws.et["slug"] in work["entry_types"]
     shop = next(i for i in work["integrations"] if i["slug"] == "shop")
-    assert shop["actions"] == ["create_listing"]  # refund needs approval: a workflow can't run it
+    assert shop["actions"] == ["create_listing", "refund"]  # refund needs approval: listed, runnable after an approval step
     assert "generate-summary" in work["operations"]
     assert "request_site_rebuild" in work["handlers"]
 
@@ -283,7 +283,7 @@ def test_the_incidents_invented_json_is_refused_with_useful_issues(ws):
         ({**GOOD, "target": {"query": {"status": "drafts"}}}, "target.query.status", "draft"),
         ({**GOOD, "actions": [{"kind": "entry", "op": "add_to_collection", "collection_slug": "featurd"}]}, "actions[0].collection_slug", "featured"),
         ({**GOOD, "actions": [{"kind": "entry", "op": "publish", "entity_type": "asset"}]}, "actions[0].entity_type", "trash"),
-        ({**GOOD, "actions": [{"kind": "integration", "integration": "shop", "action": "refund"}]}, "actions[0].action", "create_listing"),
+        ({**GOOD, "actions": [{"kind": "integration", "integration": "shop", "action": "refund"}]}, "actions[0].action", "put an Approval step before it"),
         ({**GOOD, "actions": [{"kind": "integration", "integration": "square", "action": "x"}]}, "actions[0].integration", "shop"),
         ({**GOOD, "actions": [{"kind": "handler", "task": "prune_event_logs"}]}, "actions[0].task", "request_site_rebuild"),
         ({**GOOD, "actions": [{"kind": "operation", "op": "summarise"}]}, "actions[0].op", "generate-summary"),
