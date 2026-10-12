@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.263 (2026-10-12)
+
+### Bug Fixes
+
+- **workflows**: Create an entry shows its type, title and status before the fields
+  ([`911273e`](https://github.com/InnerOpen/marvin/commit/911273eb23ca0d826cffbbc3ad313120ce52b624))
+
+
 ## v1.0.0-rc.262 (2026-10-12)
 
 ### Features
