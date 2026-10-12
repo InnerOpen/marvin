@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.273 (2026-10-12)
+
+### Features
+
+- **workflows**: Render a template — cards, quotes, posters, trading cards, memes, comics, front
+  pages as images
+  ([`be1f0d3`](https://github.com/InnerOpen/marvin/commit/be1f0d3929b306b8aa1d3b4e9b0db847e0b528b9))
+
+
 ## v1.0.0-rc.272 (2026-10-12)
 
 ### Features
