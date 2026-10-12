@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.285 (2026-10-12)
+
+### Features
+
+- **workflows**: ZIP archives and printed PDFs — Archive packager, Workshop field guide
+  ([`3b9bdfc`](https://github.com/InnerOpen/marvin/commit/3b9bdfc78dd3d4950c09cdc265a2f76f38f4a79e))
+
+
 ## v1.0.0-rc.284 (2026-10-12)
 
 ### Features
