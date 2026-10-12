@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.269 (2026-10-12)
+
+### Features
+
+- **workflows**: Process an image — a step that makes images from images; generated images kept as
+  assets
+  ([`8e9f851`](https://github.com/InnerOpen/marvin/commit/8e9f851968f90605d6745dcb6ce4d4868b0d8bba))
+
+
 ## v1.0.0-rc.268 (2026-10-12)
 
 ### Bug Fixes
