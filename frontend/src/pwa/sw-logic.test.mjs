@@ -165,6 +165,28 @@ describe("Approve / Deny on an AI approval", () => {
     assert.equal(approvalRequest("deny", data, ORIGIN).url, `${ORIGIN}/api/self/push/approvals/${ID}/deny`);
   });
 
+  test("a waiting workflow's buttons post to its own route, and its confirmation points at Approvals", () => {
+    const data = { url: `${ORIGIN}/automation/approvals`, approval: { id: ID, token: TOKEN, kind: "workflow" } };
+    assert.equal(
+      approvalRequest("approve", data, ORIGIN).url,
+      `${ORIGIN}/api/self/push/workflow-approvals/${ID}/approve`,
+    );
+    assert.deepEqual(approvalOf(data.approval), { id: ID, token: TOKEN, kind: "workflow" });
+    assert.deepEqual(approvalOf({ id: ID, token: TOKEN, kind: "other" }), { id: ID, token: TOKEN }); // unknown kind: an agent's
+    const failed = approvalOutcome(
+      "approve",
+      false,
+      { detail: "This one needs a look first." },
+      data.url,
+      ORIGIN,
+      "",
+      null,
+      "workflow",
+    );
+    assert.equal(failed.options.body, "Opening Approvals to decide there.");
+    assert.equal(failed.open, true);
+  });
+
   test("a plain tap, an unknown button or no approval opens the page instead", () => {
     const data = { approval: { id: ID, token: TOKEN } };
     assert.equal(approvalRequest("", data, ORIGIN), null);

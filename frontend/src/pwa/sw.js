@@ -155,7 +155,7 @@ async function openIn(workspace, target) {
 
 // Approve / Deny on an AI approval (Chromium): the token in the notification decides it, then a confirmation
 // replaces the notification; when it can't (expired, decided already…), the conversation opens instead.
-async function decide(action, request, target, tag, workspace) {
+async function decide(action, request, target, tag, workspace, kind) {
   let ok = false;
   let body = null;
   try {
@@ -165,7 +165,7 @@ async function decide(action, request, target, tag, workspace) {
   } catch {
     body = { detail: "No connection to Marvin." };
   }
-  const outcome = approvalOutcome(action, ok, body, target, self.location.origin, tag, workspace);
+  const outcome = approvalOutcome(action, ok, body, target, self.location.origin, tag, workspace, kind);
   const work = [self.registration.showNotification(outcome.title, outcome.options)];
   if (outcome.badge !== null && "setAppBadge" in self.navigator) {
     work.push(self.navigator.setAppBadge(outcome.badge).catch(() => {}));
@@ -181,7 +181,16 @@ self.addEventListener("notificationclick", (event) => {
   const request = approvalRequest(event.action, data, self.location.origin);
   const workspace = workspaceOf(data.workspace);
   event.waitUntil(
-    request ? decide(event.action, request, target, event.notification.tag, workspace) : openIn(workspace, target),
+    request
+      ? decide(
+          event.action,
+          request,
+          target,
+          event.notification.tag,
+          workspace,
+          approvalOf(data.approval)?.kind ?? null,
+        )
+      : openIn(workspace, target),
   );
 });
 

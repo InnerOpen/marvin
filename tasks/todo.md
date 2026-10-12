@@ -752,7 +752,11 @@ Step `{"kind": "approval", "id": "ok", "message": "Publish “${entry.title}”?
 Review (slice 1): runnable now — translation-desk, featured-collection-curator, meeting-notes-to-tasks; milestone-celebration
 and alternate-universe-cover moved to media-adapters (openai_images returns image data; keeping it as an asset is an
 adapter). 38 verified, 58 blocked. The guide overview now lists recipe ids only (it grew with every recipe).
-Slice 2: one-tap Approve/Deny on the push (push_action_tokens for workflow approvals, SW route by kind).
+Slice 2 — DONE 2026-10-11 ("do slice 2"): one-tap Approve/Deny on a waiting workflow's push. push_action_tokens gets
+`workflow_approval_id` (thread_id nullable, migration `7d4b1e93a0c6`); a token per approver, minted only when every step
+after the approval can be undone (entry ops trash/restore/archive/add/remove collection/request_review/create — the
+agent rule), checked again on the tap; `POST /api/self/push/workflow-approvals/{id}/{decision}` decides as that person
+at their role now; the SW routes by `approval.kind`. Push category renamed "Approvals".
 
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 

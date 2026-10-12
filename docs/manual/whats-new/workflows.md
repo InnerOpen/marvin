@@ -150,6 +150,11 @@ They **Approve** or **Deny**, optionally with a note, and the run goes on from t
 `${steps.<id>.output.decision}` (`approved`, `denied`, `expired` or `stale`), `decided_by`, `decided_by_name` and
 `note`: give the step an `id` and use **Only run this step when…** on the steps after it.
 
+- **One tap:** on Chrome and Android the notification has **Approve** and **Deny** buttons when every step after the
+  approval can be undone in Marvin (trash, restore, archive, add to or remove from a collection, send to review, create
+  a draft). Anything else — publishing, setting fields or metadata, an integration, a webhook, an AI step — gets no
+  buttons: the tap opens Approvals so the person looks first. Each approver's buttons work once, for 15 minutes, as
+  them and at their role now; afterwards the run is decided in Approvals.
 - **Expired:** if nobody decides within `expires_in_hours`, the run goes on with `expired` (checked hourly).
 - **Stale:** approving an entry that has changed since the question was asked gives `stale`, not `approved` — what was
   approved is not what would be acted on.

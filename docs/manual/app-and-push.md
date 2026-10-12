@@ -35,7 +35,7 @@ Push is off until the server has VAPID keys (see [Setting up push](#setting-up-p
   | Kind | What sends it | Who can get it |
   |---|---|---|
   | Workspace activity | A form submission (not one flagged as spam) and a scheduled publish that's waiting — what the bell flags for a person | Editors, admins and owners of the workspace; never whoever caused it |
-  | AI approvals | An agent run that stopped to ask before it acts ("ask first") | Only the person whose run it is; the notification opens the Ask thread to decide, or has [Approve and Deny](#approve-or-deny-from-the-notification) buttons |
+  | Approvals | An agent run that stopped to ask before it acts ("ask first"), or a workflow run waiting at a [Wait for approval](whats-new/workflows.md#wait-for-approval) step | An agent's: only the person whose run it is; the notification opens the Ask thread, or has [Approve and Deny](#approve-or-deny-from-the-notification) buttons. A workflow's: every member at the step's role (editors, or admins); it opens Automation → Approvals, or has Approve and Deny when every step after the approval can be undone |
   | Workspace alerts | The **Push** channel of Settings → Automation → Notifications | Owners and admins |
   | Trash reminders | The day before the Trash's auto-empty deletes items forever: "*Workspace*: 14 items will be deleted forever tomorrow", opening the Trash. At most one a day per workspace | Owners and admins |
   | Platform alerts | The **Push** channel of Admin → Platform alerts | Super admins |

@@ -171,3 +171,46 @@ def decide_from_notification(
         badge=push_actions.badge_counts(session, user)["count"],
         workspace=str(claim.thread.group_id),
     )
+
+
+@public_router.post(
+    "/workflow-approvals/{approval_id}/{decision}",
+    response_model=PushApprovalResult,
+    summary="Approve or Deny a Waiting Workflow from a Notification",
+)
+def decide_workflow_from_notification(
+    approval_id: UUID4,
+    decision: Literal["approve", "deny"],
+    data: PushApprovalAction,
+    session: Session = Depends(generate_session),
+) -> PushApprovalResult:
+    """The Approve / Deny buttons of a waiting workflow run's notification: the token it carries, no session. Decides
+    as the person it was sent to, at their role now — the same decision Automation → Approvals makes."""
+    from marvin.repos.all_repositories import get_repositories
+    from marvin.services.automation import approvals
+    from marvin.services.automation.authz import resolve_authorizer_role
+    from marvin.services.push_notifications import WORKFLOW_APPROVALS_PATH
+
+    try:
+        claim = push_actions.claim_workflow(session, approval_id, data.token, decision)
+    except push_actions.Refused as e:
+        logger.info(f"Push action refused for workflow approval {approval_id}: {e.message}")
+        raise HTTPException(status_code=e.status, detail=e.message) from e
+    group_id = claim.approval.group_id
+    user = get_repositories(session, group_id=None).users.get_one(claim.user_id, "id", any_case=False)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You're no longer a member of that workspace.")
+    try:
+        row = approvals.decide(
+            session, group_id, claim.approval.id, decision, user_id=user.id, role=resolve_authorizer_role(session, group_id, user.id)
+        )
+    except approvals.ApprovalError as e:
+        raise HTTPException(status_code=e.status, detail=str(e)) from e
+    logger.info(f"Push action: {decision} workflow approval {row.id} by user {user.id} → {row.status}")
+    return PushApprovalResult(
+        decision=decision,
+        message=push_actions.workflow_confirmation(row.status),
+        url=WORKFLOW_APPROVALS_PATH,
+        badge=push_actions.badge_counts(session, user)["count"],
+        workspace=str(group_id),
+    )

@@ -101,13 +101,15 @@ export function switchRequest(workspace, current) {
   };
 }
 
-/** A push's `approval` ({id, token}) when it is well-formed, else null: no buttons. */
+/** The approval kind of a waiting workflow run (Automation → Approvals); without it, an agent's approval. */
+export const WORKFLOW_APPROVAL = "workflow";
+
+/** A push's `approval` ({id, token, kind?}) when it is well-formed, else null: no buttons. */
 export function approvalOf(value) {
   if (!value || typeof value !== "object") return null;
-  const { id, token } = value;
-  return typeof id === "string" && UUID.test(id) && typeof token === "string" && TOKEN.test(token)
-    ? { id, token }
-    : null;
+  const { id, token, kind } = value;
+  if (!(typeof id === "string" && UUID.test(id) && typeof token === "string" && TOKEN.test(token))) return null;
+  return kind === WORKFLOW_APPROVAL ? { id, token, kind } : { id, token };
 }
 
 /** The notification a push payload shows ({title, body, url, tag, badge, approval, workspace} from the server; anything else ignored). */
@@ -123,7 +125,11 @@ export function notificationFromPush(payload, origin) {
       body: text(data.body, 240),
       icon: "/icons/icon-192.png",
       badge: "/icons/badge-72.png",
-      data: { url: safeTarget(data.url, origin), ...(approval ? { approval } : {}), ...(workspace ? { workspace } : {}) },
+      data: {
+        url: safeTarget(data.url, origin),
+        ...(approval ? { approval } : {}),
+        ...(workspace ? { workspace } : {}),
+      },
       ...(tag ? { tag, renotify: true } : {}),
       ...(approval ? { actions: APPROVAL_ACTIONS } : {}),
     },
@@ -139,8 +145,9 @@ export function notificationFromPush(payload, origin) {
 export function approvalRequest(action, data, origin) {
   const approval = approvalOf(data?.approval);
   if (!approval || !APPROVAL_ACTIONS.some((a) => a.action === action)) return null;
+  const route = approval.kind === WORKFLOW_APPROVAL ? "workflow-approvals" : "approvals";
   return {
-    url: `${origin}/api/self/push/approvals/${approval.id}/${action}`,
+    url: `${origin}/api/self/push/${route}/${approval.id}/${action}`,
     init: {
       method: "POST",
       credentials: "omit",
@@ -155,7 +162,16 @@ export function approvalRequest(action, data, origin) {
  * why not — then (`open`) the conversation, so the person can decide there. Replaces the approval's
  * notification (same tag); tapping it opens the conversation.
  */
-export function approvalOutcome(action, ok, body, fallbackUrl, origin, tag = "", fallbackWorkspace = null) {
+export function approvalOutcome(
+  action,
+  ok,
+  body,
+  fallbackUrl,
+  origin,
+  tag = "",
+  fallbackWorkspace = null,
+  kind = null,
+) {
   const answer = body && typeof body === "object" ? body : {};
   const url = safeTarget(typeof answer.url === "string" ? answer.url : fallbackUrl, origin);
   const workspace = workspaceOf(answer.workspace) ?? workspaceOf(fallbackWorkspace);
@@ -167,7 +183,14 @@ export function approvalOutcome(action, ok, body, fallbackUrl, origin, tag = "",
   return {
     title,
     options: {
-      body: ok ? "The results are in the conversation." : "Opening the conversation to decide there.",
+      body:
+        kind === WORKFLOW_APPROVAL
+          ? ok
+            ? "Tap to see your approvals."
+            : "Opening Approvals to decide there."
+          : ok
+            ? "The results are in the conversation."
+            : "Opening the conversation to decide there.",
       icon: "/icons/icon-192.png",
       badge: "/icons/badge-72.png",
       data: { url, ...(workspace ? { workspace } : {}) },

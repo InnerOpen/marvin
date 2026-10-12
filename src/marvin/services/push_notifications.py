@@ -152,8 +152,7 @@ def deliver(session: Session, group_id, event) -> web_push.SendResult:
         from marvin.services.automation.authz import ROLE_ADMIN
 
         floor = WorkspaceRole.ADMIN if int(data.get("min_role") or 0) >= ROLE_ADMIN else WorkspaceRole.EDITOR
-        approvers = web_push.workspace_member_ids(session, group_id, floor)
-        return _send(session, group_id, approvers, web_push.APPROVALS, workflow_approval_message(data))
+        return _send_workflow_approval(session, group_id, web_push.workspace_member_ids(session, group_id, floor), data)
     if name == TRASH_SOON:
         admins = web_push.workspace_member_ids(session, group_id, WorkspaceRole.ADMIN)
         return _send(session, group_id, admins, web_push.TRASH_REMINDERS, trash_message(session, group_id, data))
@@ -163,6 +162,24 @@ def deliver(session: Session, group_id, event) -> web_push.SendResult:
     actor = str(getattr(event, "user_id", None) or "")
     people = [u for u in web_push.workspace_member_ids(session, group_id, WorkspaceRole.EDITOR) if str(u) != actor]
     return _send(session, group_id, people, web_push.ACTIVITY, activity_message(session, group_id, event, data))
+
+
+def _send_workflow_approval(session: Session, group_id, approvers, data: dict) -> web_push.SendResult:
+    """One push per approver: each carries that person's own one-tap token (when every step after the approval can be
+    undone — services/push_actions.py) and their own badge."""
+    from marvin.db.models.groups.workflow_approvals import WorkflowApprovalModel
+    from marvin.services import push_actions
+
+    row = session.get(WorkflowApprovalModel, data.get("approval_id")) if data.get("approval_id") else None
+    total = web_push.SendResult()
+    for user in web_push.push_ready_users(session, approvers, web_push.APPROVALS):
+        message = workflow_approval_message(data)
+        token = push_actions.mint_workflow(session, row, user.id)
+        if token:
+            message.approval = {"id": str(row.id), "token": token, "kind": push_actions.WORKFLOW_KIND}
+        message.badge = _badge(session, user.id)
+        total.add(_send(session, group_id, [user.id], web_push.APPROVALS, message))
+    return total
 
 
 def workflow_approval_message(data: dict) -> web_push.PushMessage:

@@ -58,7 +58,7 @@ CATEGORIES: tuple[PushCategory, ...] = (
         "Workspace activity",
         "What the bell flags for a person: a form submission, a scheduled publish that's waiting. For editors and above.",
     ),
-    PushCategory(APPROVALS, "AI approvals", "An agent you asked is waiting for your OK before it acts."),
+    PushCategory(APPROVALS, "Approvals", "An agent you asked, or a workflow, is waiting for your OK before it acts."),
     PushCategory(
         WORKSPACE_ALERTS,
         "Workspace alerts",
@@ -168,7 +168,8 @@ class PushMessage:
     """very-low | low | normal | high — how eagerly a phone wakes for it."""
     ttl: int = TTL_S
     approval: dict | None = None
-    """``{id, token}``: the Approve / Deny buttons of an AI approval (services/push_actions.py), else none."""
+    """``{id, token, kind?}``: the Approve / Deny buttons of an approval (services/push_actions.py), else none; ``kind``
+    "workflow" for a waiting workflow run."""
     workspace: str | None = None
     """The workspace (group id) the notification is about: tapping it switches to that workspace first."""
 
@@ -182,6 +183,8 @@ class PushMessage:
             data["workspace"] = str(self.workspace)
         if self.approval and self.approval.get("id") and self.approval.get("token"):
             data["approval"] = {"id": str(self.approval["id"]), "token": str(self.approval["token"])}
+            if self.approval.get("kind"):  # "workflow": a waiting workflow run, decided on its own route
+                data["approval"]["kind"] = str(self.approval["kind"])
         return json.dumps(data, separators=(",", ":"), ensure_ascii=False)
 
 

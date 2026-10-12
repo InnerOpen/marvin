@@ -311,3 +311,106 @@ def inbox_count(session: Session, group_id) -> int | None:
     except Exception:  # noqa: BLE001 — the badge is a nicety
         session.rollback()
         return None
+
+
+# --------------------------------------------------------------------------------------------------
+# Workflow approvals (services/automation/approvals.py)
+# --------------------------------------------------------------------------------------------------
+
+WORKFLOW_KIND = "workflow"
+"""The push's ``approval.kind`` for a waiting workflow run: the service worker posts it to its own route."""
+UNDOABLE_STEPS = frozenset({"trash", "restore", "archive", "add_to_collection", "remove_from_collection", "request_review", "create"})
+"""Entry-step ops whose effect a person can undo in Marvin: restore or unarchive, remove from (or add back to) a
+collection, take it out of review, trash a draft that was made. Publishing (it goes public), writing fields or
+metadata (it overwrites), integrations, webhooks, events, jobs and AI calls are not."""
+WORKFLOW_NEEDS_A_LOOK = "This one needs a look first. Open Approvals to decide."
+
+
+def workflow_restorable(session: Session, row) -> bool:
+    """Whether one tap may decide this waiting run: every step after the approval step is an entry step whose effect
+    can be undone (UNDOABLE_STEPS) — the same rule as an agent's approval. Read from the workflow as it is now."""
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+
+    automation = session.get(WorkspaceAutomationModel, row.automation_id)
+    steps = ((automation.definition or {}).get("actions") or [])[row.step_index + 1 :] if automation is not None else None
+    if steps is None:
+        return False
+    return all(isinstance(s, dict) and s.get("kind") == "entry" and s.get("op") in UNDOABLE_STEPS for s in steps)
+
+
+def mint_workflow(session: Session, row, user_id) -> str | None:
+    """A token for the push asking ``user_id`` about waiting run ``row`` — or None when one tap mustn't decide it
+    (not waiting, or a step after it can't be undone). Commits."""
+    from marvin.db.models.groups.workflow_approvals import APPROVAL_PENDING
+    from marvin.db.models.users.push_action_tokens import PushActionTokenModel
+
+    if row is None or row.status != APPROVAL_PENDING or not workflow_restorable(session, row):
+        return None
+    now = _now()
+    session.query(PushActionTokenModel).filter(PushActionTokenModel.expires_at < now - timedelta(hours=1)).delete(synchronize_session=False)
+    token = secrets.token_urlsafe(32)
+    session.add(
+        PushActionTokenModel(
+            session=session,
+            user_id=user_id,
+            workflow_approval_id=row.id,
+            parked_at=WORKFLOW_KIND,
+            token_hash=_hash(token),
+            expires_at=min(now + TOKEN_TTL, row.expires_at),
+        )
+    )
+    session.commit()
+    return token
+
+
+@dataclass
+class WorkflowClaim:
+    approval: object
+    user_id: uuid.UUID
+
+
+def claim_workflow(session: Session, approval_id, token: str, decision: str) -> WorkflowClaim:
+    """Check ``token`` against waiting run ``approval_id`` and use it up. Raises ``Refused`` like ``claim``: unknown
+    or another approval's (404), used or decided already (409), expired (410), a step that can't be undone (403),
+    too many attempts (429). Commits."""
+    from marvin.db.models.groups.workflow_approvals import APPROVAL_PENDING, WorkflowApprovalModel
+    from marvin.db.models.users.push_action_tokens import PushActionTokenModel
+    from marvin.services.security.rate_limit_service import RateLimitService
+
+    approval = _uuid(approval_id)
+    if decision not in DECISIONS or approval is None or not isinstance(token, str) or not token or len(token) > MAX_TOKEN:
+        raise Refused(404, INVALID)
+    attempts, minutes = RATE_LIMIT
+    if not RateLimitService(session).check_subject_limit(approval, "push-action", attempts, minutes):
+        raise Refused(429, "Too many attempts. Open Approvals to decide.")
+    row = session.query(PushActionTokenModel).filter_by(token_hash=_hash(token)).first()
+    if row is None or _uuid(row.workflow_approval_id) != approval:
+        raise Refused(404, INVALID)
+    if row.used_at is not None:
+        raise Refused(409, DECIDED)
+    if row.expires_at <= _now():
+        raise Refused(410, "This button expired. Open Approvals to decide.")
+    waiting = session.get(WorkflowApprovalModel, row.workflow_approval_id)
+    if waiting is None or waiting.status != APPROVAL_PENDING:
+        raise Refused(409, DECIDED)
+    if not workflow_restorable(session, waiting):  # the workflow changed since the push
+        raise Refused(403, WORKFLOW_NEEDS_A_LOOK)
+    used = session.execute(
+        update(PushActionTokenModel)
+        .where(PushActionTokenModel.id == row.id, PushActionTokenModel.used_at.is_(None))
+        .values(used_at=_now())
+        .execution_options(synchronize_session=False)
+    )
+    session.commit()
+    if used.rowcount != 1:
+        raise Refused(409, DECIDED)
+    return WorkflowClaim(approval=waiting, user_id=_uuid(row.user_id))
+
+
+def workflow_confirmation(outcome: str) -> str:
+    """The confirmation notification's line for a decided workflow run."""
+    return {
+        "approved": "Approved — the workflow went on.",
+        "denied": "Denied — the workflow went on without it.",
+        "stale": "The entry changed since you were asked — nothing was approved.",
+    }.get(outcome, f"Decided: {outcome}.")
