@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.268 (2026-10-12)
+
+### Bug Fixes
+
+- **workflows**: One run of a workflow on an entry at a time — no more double Square listings
+  ([`2c9dd5b`](https://github.com/InnerOpen/marvin/commit/2c9dd5bbb3e023b35d8ed7c386be35083333fbfe))
+
+
 ## v1.0.0-rc.267 (2026-10-12)
 
 ### Bug Fixes
