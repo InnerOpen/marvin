@@ -42,3 +42,11 @@ const text = typeof value === "object" ? JSON.stringify(value, null, 2) : String
 ) : (
   text
 )}
+
+<style>
+  .asset-refs a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+</style>

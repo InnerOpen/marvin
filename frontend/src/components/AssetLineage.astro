@@ -39,6 +39,12 @@ if (lineage?.sourceId && authToken) {
     color: var(--muted);
     font-size: 0.875rem;
   }
+  /* Links site-wide inherit the text colour; here they must read as links (the source picture, the workflow). */
+  .asset-lineage a {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
   .asset-lineage-prompt {
     display: block;
     margin-top: 0.25rem;
