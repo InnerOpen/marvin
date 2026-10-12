@@ -8,7 +8,7 @@ process.env.TZ = "America/Chicago";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import { formatLocalDateTime, fromDatetimeLocalValue, hasPassed, toDatetimeLocalValue } from "./localDatetime.ts";
+import { formatLocalDateTime, formatTimestamp, parseUtc, fromDatetimeLocalValue, hasPassed, toDatetimeLocalValue } from "./localDatetime.ts";
 
 describe("toDatetimeLocalValue", () => {
   test("shows a UTC timestamp as the viewer's wall-clock time", () => {
@@ -75,4 +75,18 @@ describe("hasPassed", () => {
     assert.equal(hasPassed(null, now), false);
     assert.equal(hasPassed("not a date", now), false);
   });
+});
+
+test("a timestamp in a given zone, for the server's UTC fallback", () => {
+  const iso = "2026-10-12T18:45:17Z";
+  assert.match(formatTimestamp(iso, "datetime", "UTC"), /6:45/);
+  assert.match(formatTimestamp(iso, "datetime", "America/New_York"), /2:45/);
+  assert.match(formatTimestamp(iso, "short-date", "UTC"), /Oct\s+12/);
+  assert.equal(formatTimestamp("not a date"), "");
+});
+
+test("a zone-less server timestamp is UTC, not local", () => {
+  assert.equal(parseUtc("2026-10-12T18:45:17.247863").toISOString(), "2026-10-12T18:45:17.247Z");
+  assert.equal(parseUtc("2026-10-12T18:45:17+02:00").toISOString(), "2026-10-12T16:45:17.000Z");
+  assert.equal(parseUtc(""), null);
 });

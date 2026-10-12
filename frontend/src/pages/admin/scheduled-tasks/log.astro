@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import type { ScheduledTaskExecutionLogRead } from "@/lib/api/admin/scheduledTasks";
 import { getGlobalLog, listAllTasks } from "@/lib/api/admin/scheduledTasks";
@@ -25,13 +26,6 @@ try {
 }
 
 const filteredLogs = filter === "all" ? logs : logs.filter((l) => l.status === filter);
-
-function formatDate(isoStr: string): string {
-  if (!isoStr) return "—";
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, "$1");
-  const d = new Date(normalized);
-  return Number.isNaN(d.getTime()) ? isoStr : d.toLocaleString();
-}
 
 function statusClass(status: string): string {
   if (status === "success") return "success";
@@ -88,7 +82,7 @@ function statusClass(status: string): string {
                       <button class="expand-btn" data-target={`details-${i}`} aria-label="Toggle details">▶</button>
                     )}
                   </td>
-                  <td class="nowrap">{formatDate(log.executedAt)}</td>
+                  <td class="nowrap"><LocalTime iso={log.executedAt} /></td>
                   <td class="mono task-id">
                     {log.taskId
                       ? <a href={`/admin/scheduled-tasks/${log.taskId}`} title={taskInfo?.name}>{log.taskId.slice(0, 8)}…</a>

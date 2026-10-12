@@ -1,0 +1,21 @@
+---
+/**
+ * A UTC timestamp shown in the viewer's time zone. The server can't know the zone, so it writes the UTC time (marked
+ * "UTC") into a `<time data-local-time>`; LocalTimeScript (in both layouts) rewrites it in the browser. Use this for
+ * any date a page renders on the server — `new Date(iso).toLocaleString()` there shows the server's zone (UTC).
+ */
+import { formatTimestamp, parseUtc, type TimestampFormat } from "@/lib/localDatetime";
+
+interface Props {
+  iso: string | null | undefined;
+  format?: TimestampFormat;
+  /** Shown when there is no (valid) timestamp. */
+  fallback?: string;
+}
+
+const { iso, format = "datetime", fallback = "—" } = Astro.props;
+const utc = formatTimestamp(iso, format, "UTC");
+const withZone = format === "datetime" || format === "time" ? `${utc} UTC` : utc;
+---
+
+{utc ? <time datetime={parseUtc(iso)!.toISOString()} data-local-time={format} title={`${formatTimestamp(iso, "datetime", "UTC")} UTC`}>{withZone}</time> : fallback}

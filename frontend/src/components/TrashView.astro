@@ -6,6 +6,7 @@
  * one as a draft; services/entries/trash.py); an asset or resource comes back as it was (services/trash.py).
  * A trashed asset's file stays in storage until it is deleted forever.
  */
+import LocalTime from "@/components/LocalTime.astro";
 import type { AssetRead } from "@/lib/api/assets";
 import type { EntryRead } from "@/lib/api/entries";
 import type { ResourceRead } from "@/lib/api/resources";
@@ -33,20 +34,13 @@ const label = (status: string) => status.replace("_", " ");
 const metaOf = (entry: EntryRead) => (entry.metadataJson ?? null) as Record<string, unknown> | null;
 const trashedOn = (item: unknown) => ((item as { trashedAt?: string | null }).trashedAt ?? null) as string | null;
 
-function fmtDate(d?: string | null): string {
-  if (!d) return "";
-  try {
-    return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return "";
-  }
-}
-
 interface Row {
   id: string;
   title: string;
   href: string;
   sub: string[];
+  /** When it went to the Trash (ISO), shown as a local date after `sub`. */
+  trashed: string | null;
   allowed: boolean;
 }
 interface Tab {
@@ -69,7 +63,8 @@ const tabs: Tab[] = [
         id: entry.id,
         title: entry.title || "Untitled",
         href: `/workspace/entries/${entry.id}`,
-        sub: [typeMap.get(entry.entryTypeId) ?? "", `Restores to ${label(restoresTo(meta))}`, when ? `Trashed ${fmtDate(when)}` : ""],
+        sub: [typeMap.get(entry.entryTypeId) ?? "", `Restores to ${label(restoresTo(meta))}`],
+        trashed: when ?? null,
         allowed: mayChange(entry),
       };
     }),
@@ -83,7 +78,8 @@ const tabs: Tab[] = [
       id: asset.id,
       title: asset.name || asset.originalFilename || "Untitled",
       href: `/workspace/assets/${asset.id}`,
-      sub: [asset.assetType ?? "", asset.originalFilename ?? "", trashedOn(asset) ? `Trashed ${fmtDate(trashedOn(asset))}` : ""],
+      sub: [asset.assetType ?? "", asset.originalFilename ?? ""],
+      trashed: trashedOn(asset),
       allowed: mayChangeItems,
     })),
   },
@@ -96,7 +92,8 @@ const tabs: Tab[] = [
       id: resource.id,
       title: resource.name || "Untitled",
       href: `/workspace/resources/${resource.id}`,
-      sub: [resource.resourceType ?? "", trashedOn(resource) ? `Trashed ${fmtDate(trashedOn(resource))}` : ""],
+      sub: [resource.resourceType ?? ""],
+      trashed: trashedOn(resource),
       allowed: mayChangeItems,
     })),
   },
@@ -172,7 +169,7 @@ const countOf = (key: string) => tabs.find((tab) => tab.key === key)?.rows.lengt
               <input type="checkbox" class="trash-pick" value={row.id} disabled={!row.allowed} aria-label={`Select ${row.title}`} />
               <a class="trash-main" href={row.href}>
                 <span class="trash-title">{row.title}</span>
-                <span class="trash-sub">{row.sub.filter(Boolean).map((part) => <span>{part}</span>)}</span>
+                <span class="trash-sub">{row.sub.filter(Boolean).map((part) => <span>{part}</span>)}{row.trashed && <span>Trashed <LocalTime iso={row.trashed} format="date" /></span>}</span>
               </a>
               {row.allowed && (
                 <span class="trash-row-actions">

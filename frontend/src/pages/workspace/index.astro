@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { getCurrentWorkspace } from "@/lib/api/workspaces";
@@ -51,8 +52,8 @@ const aiSuggestions: number = attention.aiSuggestions ?? attention.ai_suggestion
 const failures: number = attention.failures ?? 0;
 const attentionTotal = inbox + drafts + needsReview + aiSuggestions + failures;
 
-/** Compact "3m ago" / "2h ago" / "5d ago" from an ISO timestamp. */
-function relTime(iso?: string | null): string {
+/** Compact "3m ago" / "2h ago" / "5d ago" from an ISO timestamp; null once it is older than that (show the date). */
+function relTime(iso?: string | null): string | null {
   if (!iso) return "";
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
@@ -64,7 +65,7 @@ function relTime(iso?: string | null): string {
   if (hrs < 24) return `${hrs}h ago`;
   const days = Math.floor(hrs / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
+  return null;
 }
 ---
 
@@ -152,7 +153,7 @@ function relTime(iso?: string | null): string {
                         <a class="activity-meta activity-link" href={entityLink}>{entityLabel}</a>
                       ) : entityLabel && <span class="activity-meta">{entityLabel}</span>}
                     </div>
-                    <time class="activity-time">{relTime(ev.occurredAt ?? ev.occurred_at)}</time>
+                    <span class="activity-time">{relTime(ev.occurredAt ?? ev.occurred_at) ?? <LocalTime iso={ev.occurredAt ?? ev.occurred_at} format="date" />}</span>
                   </li>
                 );
               })}

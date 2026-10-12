@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
@@ -29,14 +30,6 @@ try {
 
 const taskMap = new Map(tasks.map((t: any) => [t.id, t]));
 const filteredLogs = filter === "all" ? logs : logs.filter((l: any) => l.status === filter);
-
-function formatDate(isoStr: string): string {
-  if (!isoStr) return "—";
-  // Truncate microseconds to milliseconds for JS Date compatibility
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, "$1");
-  const d = new Date(normalized);
-  return Number.isNaN(d.getTime()) ? isoStr : d.toLocaleString();
-}
 
 function statusClass(status: string): string {
   if (status === "success") return "success";
@@ -104,7 +97,7 @@ function statusClass(status: string): string {
                       <button class="expand-btn" data-target={`details-${i}`} aria-label="Toggle details">▶</button>
                     )}
                   </td>
-                  <td class="nowrap">{formatDate(executedAt)}</td>
+                  <td class="nowrap"><LocalTime iso={executedAt} /></td>
                   <td>
                     {task
                       ? <a href={`/workspace/scheduled-tasks/${taskId}`} class="task-link">{task.name}</a>

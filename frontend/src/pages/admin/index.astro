@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { BACKUP_STALE_DAYS, formatAge, summarizeBackups, summarizeTasks } from "@/lib/admin/overview";
 import { listAdminEvents } from "@/lib/api/admin/events";
@@ -81,7 +82,6 @@ const failedPlugins = plugins ? plugins.filter((p) => !p.ok).length : 0;
 const providerCount = plugins ? plugins.reduce((sum, p) => sum + p.providers.length, 0) : 0;
 
 const readinessLabel = ready === null ? NO_DATA : ready ? "Ready" : "Unavailable";
-const fmtDate = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 ---
 
@@ -127,7 +127,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
           {backupSummary === null ? NO_DATA : backupSummary.latestAt ? formatAge(backupSummary.latestAt) : "None yet"}
         </div>
         <ul class="status-details">
-          {backupSummary?.latestAt && <li>{fmtDate(backupSummary.latestAt)}</li>}
+          {backupSummary?.latestAt && <li><LocalTime iso={backupSummary.latestAt} /></li>}
           {backupSummary && backupSummary.state !== "fresh" && (
             <li>{backupSummary.state === "none" ? "No backup has been taken" : `Older than ${BACKUP_STALE_DAYS} days`}</li>
           )}

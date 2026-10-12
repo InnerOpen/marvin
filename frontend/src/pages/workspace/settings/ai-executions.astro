@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { canManageCurrentWorkspace } from "@/lib/api/workspaces";
@@ -40,11 +41,10 @@ function getField(row: any, camel: string, snake: string) {
 
 const filteredExecutions = filter === "all" ? executions : executions.filter((e: any) => e.status === filter);
 
-function formatDate(isoStr: string): string {
-  if (!isoStr) return "—";
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, "$1");
-  const d = new Date(normalized);
-  return Number.isNaN(d.getTime()) ? isoStr : d.toLocaleString();
+/** What an agent run did, from the tool names it recorded (metadata.tools; older runs: the logged steps). */
+function toolsUsed(meta: any, output: any): string[] {
+  const names: unknown[] = Array.isArray(meta?.tools) ? meta.tools : Array.isArray(output?.steps) ? output.steps.map((s: any) => s?.tool) : [];
+  return [...new Set(names.filter((n): n is string => typeof n === "string" && !!n))].map((n) => n.replace(/_/g, " "));
 }
 
 function statusClass(status: string): string {
@@ -142,6 +142,7 @@ function formatDuration(ms: number | null): string {
             const entityId = getField(exec, 'entityId', 'entity_id');
             const triggerType = getField(exec, 'triggerType', 'trigger_type');
             const hasDetails = !!(errorMsg || outputJson || entityType);
+            const tools = toolsUsed(getField(exec, 'metadataJson', 'metadata_json'), outputJson);
             return (
               <>
                 <tr class:list={['log-row', { 'has-details': hasDetails }]}>
@@ -150,8 +151,11 @@ function formatDuration(ms: number | null): string {
                       <button class="expand-btn" data-target={`detail-${i}`}>▶</button>
                     )}
                   </td>
-                  <td class="nowrap">{formatDate(createdAt)}</td>
-                  <td><code class="op-badge" title={operationSlug}>{operationLabel}</code></td>
+                  <td class="nowrap"><LocalTime iso={createdAt} /></td>
+                  <td>
+                    <code class="op-badge" title={operationSlug}>{operationLabel}</code>
+                    {tools.length > 0 && <div class="tools-used">used {tools.slice(0, 4).join(", ")}{tools.length > 4 ? ` +${tools.length - 4} more` : ""}</div>}
+                  </td>
                   <td>
                     <span class="model-cell">
                       <span class="muted">{providerType}</span>
@@ -219,6 +223,7 @@ function formatDuration(ms: number | null): string {
 </script>
 
 <style>
+  .tools-used { margin-top: 2px; font-size: 0.75rem; color: var(--muted); }
   .page-header {
     margin-bottom: 24px;
     padding-bottom: 20px;

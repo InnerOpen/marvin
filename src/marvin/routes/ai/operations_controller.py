@@ -2167,6 +2167,7 @@ class AIOperationsController(BaseUserController):
         execution.output_json = (
             {"answer": result.answer, "steps": [{"tool": s.tool, "arguments": s.arguments} for s in steps]} if log_outputs else {"steps": len(steps)}
         )
+        execution.metadata_json = _with_tools_used(execution.metadata_json, steps)
         sources = extract_sources(steps)
         handoffs, child_referrals = extract_handoffs(steps)
         referrals = [*referrals, *child_referrals]
@@ -2242,7 +2243,7 @@ class AIOperationsController(BaseUserController):
             append_turn(self.session, thread, "user", body.message, meta=self._user_turn_meta(body))
         execution.status = EXECUTION_STATUS_AWAITING
         self._account_execution(execution, result, provider, model, start)
-        execution.metadata_json = {**(execution.metadata_json or {}), "thread_id": str(thread.id)}
+        execution.metadata_json = _with_tools_used({**(execution.metadata_json or {}), "thread_id": str(thread.id)}, steps)
         park_thread(
             self.session,
             thread,
@@ -3460,3 +3461,14 @@ class AIOperationsController(BaseUserController):
             )
         except Exception as e:
             self.logger.error(f"Failed to dispatch AI budget event: {e}", exc_info=True)
+
+
+def _with_tools_used(metadata: dict | None, steps) -> dict:
+    """A run's metadata plus `tools`: the names of the tools it used, in first-use order — what the AI Executions list
+    says the run did ("used draft workflow, find entries"). Names only, kept whatever the output-logging policy."""
+    names: list[str] = []
+    for step in steps:
+        tool = getattr(step, "tool", None)
+        if tool and tool not in names:
+            names.append(tool)
+    return {**(metadata or {}), "tools": names}

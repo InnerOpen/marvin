@@ -2,6 +2,7 @@
 // Automation → Approvals: workflow runs waiting at an Approval step that you may decide. Approve or Deny (with an
 // optional note) and the run goes on from the next step with ${steps.<id>.output.decision}. Editors and above; a step
 // may ask for admins. Backend: routes/automations/automations_controller.py, services/automation/approvals.py.
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { listApprovals, type WorkflowApproval } from "@/lib/api/workflowApprovals";
@@ -17,7 +18,6 @@ try {
   if (isForbidden(e)) restricted = true;
   else error = e instanceof Error ? e.message : String(e);
 }
-const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString() : "");
 ---
 
 <AppLayout crumb="automation.approvals" restrictedNote={restricted ? "Approvals are for editors and above." : null}>
@@ -36,7 +36,7 @@ const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString() : ""
         <p class="meta">
           {a.automationName ?? "A workflow"}
           {a.entryId && (<> · <a href={`/workspace/entries/${a.entryId}`}>{a.entryTitle ?? "the entry"}</a></>)}
-          {" "}· asked {when(a.createdAt)} · expires {when(a.expiresAt)}
+          {" "}· asked <LocalTime iso={a.createdAt} fallback="" /> · expires <LocalTime iso={a.expiresAt} fallback="" />
           {a.approvers === "admin" && <span class="badge">admins</span>}
         </p>
         <div class="decide">

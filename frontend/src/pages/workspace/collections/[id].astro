@@ -8,6 +8,7 @@ import {
   getCollectionMembers,
 } from "@/lib/api/collections";
 import type { CollectionRead, EntryRead } from "@/lib/api/entries";
+import LocalTime from "@/components/LocalTime.astro";
 import TrashView from "@/components/TrashView.astro";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import type { AssetRead } from "@/lib/api/assets";
@@ -83,15 +84,6 @@ const statusMeta: Record<string, { label: string; cls: string }> = {
   archived: { label: "Archived", cls: "s-archived" },
   trashed: { label: "In Trash", cls: "s-archived" },
 };
-
-function fmtDate(d?: string | null): string {
-  if (!d) return "";
-  try {
-    return new Date(d).toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  } catch {
-    return "";
-  }
-}
 ---
 
 <AppLayout
@@ -164,7 +156,7 @@ function fmtDate(d?: string | null): string {
                       <span class="inbox-type">{typeMap.get(entry.entryTypeId)}</span>
                     )}
                     <span class={`status-pill ${s.cls}`}>{s.label}</span>
-                    <span class="inbox-date">{fmtDate(entry.updateAt ?? entry.createdAt)}</span>
+                    <span class="inbox-date"><LocalTime iso={entry.updateAt ?? entry.createdAt} format="short-date" fallback="" /></span>
                   </span>
                 </a>
               </li>

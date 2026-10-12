@@ -1,5 +1,6 @@
 ---
 import IntegrationMark from "@/components/IntegrationMark.astro";
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import type { IntegrationWithHealth, ProviderActionInfo, ProviderInfo } from "@/lib/api/integrations";
@@ -88,10 +89,6 @@ const focus = focusedCategory(Astro.url.searchParams.get("category"), [
 const connectedGroups = groupByCategory(integrations, (it) => providerCategory(it.provider));
 const catalogGroups = groupByCategory(providers, (p) => p.category, focus);
 
-function when(iso: string | null | undefined): string {
-  return iso ? new Date(iso).toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" }) : "";
-}
-
 function statusMeta(status: string): { text: string; cls: string } {
   if (status === "ok") return { text: "Connected", cls: "ok" };
   if (status === "error") return { text: "Error", cls: "err" };
@@ -165,7 +162,7 @@ function statusMeta(status: string): { text: string; cls: string } {
                         <p class="attention-line">
                           <code>{a.code}</code> {a.message}
                           <span class="attention-count">
-                            {" "}· {a.count} {a.count === 1 ? "failure" : "failures"} since {when(a.firstAt)}
+                            {" "}· {a.count} {a.count === 1 ? "failure" : "failures"} since <LocalTime iso={a.firstAt} fallback="" />
                           </span>
                         </p>
                       ))}

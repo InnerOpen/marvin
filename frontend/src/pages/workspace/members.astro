@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import type { WorkspaceRole } from "@/lib/api/types";
@@ -203,7 +204,7 @@ const ownerCount = members.filter((m) => m.workspaceRole === "OWNER").length;
                 <strong>Invitation Token</strong>
                 <span class="invitation-meta">
                   {token.usesLeft} {token.usesLeft === 1 ? 'use' : 'uses'} remaining
-                  {(token.createdAt || token.created_at) && ` • Created ${new Date(token.createdAt || token.created_at).toLocaleDateString()}`}
+                  {(token.createdAt || token.created_at) && (<> • Created <LocalTime iso={token.createdAt || token.created_at} format="date" /></>)}
                 </span>
               </div>
             </div>

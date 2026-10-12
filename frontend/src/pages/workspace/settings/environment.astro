@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
@@ -123,7 +124,6 @@ function fmtRelative(isoStr: string | null | undefined): string {
           </div>
           {variables.map((v: any) => {
             const upd = v.updateAt ?? v.update_at;
-            const updStr = upd ? new Date(upd.replace(/(\.\d{3})\d+/, '$1')).toLocaleDateString() : '—';
             return (
             <div class="env-row var-row" data-id={v.id} data-type="variable">
               <div>
@@ -145,7 +145,7 @@ function fmtRelative(isoStr: string | null | undefined): string {
                   data-id={v.id}
                 />
               </div>
-              <div class="env-updated">{updStr}</div>
+              <div class="env-updated"><LocalTime iso={upd} format="date" /></div>
               <div class="env-actions">
                 <button class="button secondary small save-var-btn" data-id={v.id} style="display:none">Save</button>
                 <button class="button secondary small danger" data-action="delete-var" data-id={v.id} data-name={v.name}>Delete</button>
@@ -213,7 +213,6 @@ function fmtRelative(isoStr: string | null | undefined): string {
           </div>
           {secrets.map((s: any) => {
             const upd = s.updateAt ?? s.update_at;
-            const updStr = upd ? new Date(upd.replace(/(\.\d{3})\d+/, '$1')).toLocaleDateString() : '—';
             return (
             <div class="env-row sec-row">
               <div>
@@ -230,7 +229,7 @@ function fmtRelative(isoStr: string | null | undefined): string {
                 <span class="masked">••••••••</span>
                 <button class="button secondary small rotate-btn" data-id={s.id} data-name={s.name}>Rotate</button>
               </div>
-              <div class="env-updated">{updStr}</div>
+              <div class="env-updated"><LocalTime iso={upd} format="date" /></div>
               <div class="env-actions">
                 <button class="button secondary small danger" data-action="delete-sec" data-id={s.id} data-name={s.name}>Delete</button>
               </div>

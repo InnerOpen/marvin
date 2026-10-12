@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuditSettings, getExcludedEventTypes } from "@/lib/api/auditSettings";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
@@ -54,13 +55,6 @@ const auditGroups = auditSettings ? groupByCategory(auditSettings) : [];
 
 function fld(row: any, camel: string, snake: string) {
   return row[camel] ?? row[snake];
-}
-
-function formatDate(isoStr: string): string {
-  if (!isoStr) return "—";
-  const normalized = isoStr.replace(/(\.\d{3})\d+/, "$1");
-  const d = new Date(normalized);
-  return Number.isNaN(d.getTime()) ? isoStr : d.toLocaleString();
 }
 
 // Legacy rows stored the enum ordinal; new rows store the name. Prettify both.
@@ -250,7 +244,7 @@ const presentStatuses = STATUS_ORDER.filter((st) =>
                         <td class="expand-cell">
                           <button class="expand-btn" data-target={`detail-${i}`} data-event-id={eventId}>▶</button>
                         </td>
-                        <td class="nowrap muted">{formatDate(occurredAt)}</td>
+                        <td class="nowrap muted"><LocalTime iso={occurredAt} /></td>
                         <td class="nowrap">
                           <span class={`status-pill s-${status}`}>
                             <span class={`status-dot s-${status}`}></span>

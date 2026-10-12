@@ -1,5 +1,6 @@
 ---
 import ApiTokenRevealModal from "@/components/ApiTokenRevealModal.astro";
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { getAuthToken } from "@/lib/api/client";
 import { createSdkClient } from "@/lib/sdk";
@@ -15,14 +16,15 @@ try {
   error = e instanceof Error ? e.message : String(e);
 }
 
-function formatDate(date: string | null | undefined): string {
+/** "Never" / "Today" / "Nd ago" for recent dates; null when the caller should show the absolute date. */
+function relativeDate(date: string | null | undefined): string | null {
   if (!date) return "Never";
   const d = new Date(date);
   const now = new Date();
   const diff = Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24));
   if (diff === 0) return "Today";
   if (diff < 7) return `${diff}d ago`;
-  return d.toLocaleDateString();
+  return null;
 }
 ---
 
@@ -53,9 +55,9 @@ function formatDate(date: string | null | undefined): string {
               <strong>{token.name}</strong>
               {token.description && <p class="token-desc">{token.description}</p>}
               <div class="token-meta">
-                <span>Last used: {formatDate(token.lastUsedAt)}</span>
+                <span>Last used: {relativeDate(token.lastUsedAt) ?? <LocalTime iso={token.lastUsedAt} format="date" />}</span>
                 <span>•</span>
-                <span>Created: {formatDate(token.createdAt)}</span>
+                <span>Created: {relativeDate(token.createdAt) ?? <LocalTime iso={token.createdAt} format="date" />}</span>
                 {!token.enabled && <span class="token-revoked"> • Revoked</span>}
               </div>
             </div>

@@ -40,3 +40,35 @@ export function hasPassed(iso: string | null | undefined, now: Date = new Date()
   const d = new Date(iso);
   return !Number.isNaN(d.getTime()) && d.getTime() <= now.getTime();
 }
+
+/** How a timestamp is shown: a date and time (default), the date, a short "Oct 3", or the time. */
+export type TimestampFormat = "datetime" | "date" | "short-date" | "time";
+
+const FORMATS: Record<TimestampFormat, Intl.DateTimeFormatOptions> = {
+  datetime: { dateStyle: "medium", timeStyle: "short" },
+  date: { dateStyle: "medium" },
+  "short-date": { month: "short", day: "numeric" },
+  time: { timeStyle: "short" },
+};
+
+/**
+ * A UTC timestamp in a time zone — the viewer's when `timeZone` is left out. A server-rendered page passes "UTC" (it
+ * can't know the viewer's zone) and the layout's script rewrites each `<time data-local-time>` in the browser.
+ */
+export function formatTimestamp(iso: string | null | undefined, format: TimestampFormat = "datetime", timeZone?: string): string {
+  const d = parseUtc(iso);
+  if (!d) return "";
+  return d.toLocaleString(undefined, { ...(FORMATS[format] ?? FORMATS.datetime), ...(timeZone ? { timeZone } : {}) });
+}
+
+/**
+ * A server timestamp as a Date. The API writes UTC without a zone ("2026-10-12T18:45:17.247863"), which a browser would
+ * read as local time — so a zone-less date-time is taken as UTC, and microseconds are cut to what Date reads.
+ */
+export function parseUtc(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  let text = String(iso).trim().replace(/(\.\d{3})\d+/, "$1");
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(text)) text += "Z";
+  const d = new Date(text);
+  return Number.isNaN(d.getTime()) ? null : d;
+}

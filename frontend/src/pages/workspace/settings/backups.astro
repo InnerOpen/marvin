@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import type { WorkspaceRole } from "@/lib/api/types";
@@ -56,10 +57,6 @@ function fmtSize(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / k ** i).toFixed(1)} ${sizes[i]}`;
 }
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-}
 ---
 
 <AppLayout crumb="settings.backups" adminOnly={adminOnly}>
@@ -100,7 +97,7 @@ function fmtDate(iso: string): string {
                 <tr>
                   <td class="filename-cell">{b.filename}</td>
                   <td class="num-cell">{fmtSize(b.size)}</td>
-                  <td class="num-cell">{fmtDate(b.created_at)}</td>
+                  <td class="num-cell"><LocalTime iso={b.created_at} /></td>
                   <td class="action-cell">
                     <a
                       href={`/api/platform/workspace/backups/${encodeURIComponent(b.filename)}`}

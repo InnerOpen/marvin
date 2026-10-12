@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { requireAdmin } from "@/lib/auth";
@@ -33,10 +34,6 @@ function fmtSize(bytes: number): string {
     sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${(bytes / k ** i).toFixed(1)} ${sizes[i]}`;
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 ---
 
@@ -142,7 +139,7 @@ function fmtDate(iso: string): string {
                 <td class="slug-cell">{b.workspace_slug}</td>
                 <td class="filename-cell">{b.filename}</td>
                 <td class="num-cell">{fmtSize(b.size)}</td>
-                <td class="num-cell">{fmtDate(b.created_at)}</td>
+                <td class="num-cell"><LocalTime iso={b.created_at} /></td>
                 <td class="action-cell">
                   <a
                     href={`/api/admin/backups/${encodeURIComponent(b.filename)}`}

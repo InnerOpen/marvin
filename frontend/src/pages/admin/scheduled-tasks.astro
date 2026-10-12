@@ -1,4 +1,5 @@
 ---
+import LocalTime from "@/components/LocalTime.astro";
 import AdminLayout from "@/layouts/AdminLayout.astro";
 import type { ScheduledTaskRead } from "@/lib/api/admin/scheduledTasks";
 import { listAllTasks } from "@/lib/api/admin/scheduledTasks";
@@ -90,9 +91,7 @@ function formatSchedule(task: ScheduledTaskRead): string {
               <div class="meta-item">
                 <span class="meta-label">Next Run</span>
                 <span class="meta-value">
-                  {task.nextRunAt
-                    ? new Date(task.nextRunAt).toLocaleString()
-                    : 'Not scheduled'}
+                  <LocalTime iso={task.nextRunAt} fallback="Not scheduled" />
                 </span>
               </div>
             </div>

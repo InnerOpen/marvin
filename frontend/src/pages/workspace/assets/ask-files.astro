@@ -2,6 +2,7 @@
 // Ask files: files attached to chat questions in the bubble or on the Ask page. They live here, not in the Assets
 // library (backend services/assets/scope.py), until moved there — from this page, by the agent's move_to_assets,
 // or by attaching one to an entry. Deleting their conversation moves them to the Trash.
+import LocalTime from "@/components/LocalTime.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
 import { fetchApi, getAuthToken } from "@/lib/api/client";
 import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
@@ -21,7 +22,6 @@ try {
 const via: Record<string, string> = { bubble: "Bubble", ask_page: "Ask page" };
 const size = (bytes: number | null | undefined) =>
   !bytes ? "—" : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-const when = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleString() : "—");
 ---
 
 <AppLayout title="Ask files">
@@ -55,7 +55,7 @@ const when = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleSt
             <td>{file.mimeType}</td>
             <td>{size(file.fileSize)}</td>
             <td>{via[file.metadataJson?.attachedVia] ?? "Ask"}</td>
-            <td>{when(file.createdAt)}</td>
+            <td><LocalTime iso={file.createdAt} /></td>
             <td>
               <div class="actions">
                 {access.canAuthor && (
