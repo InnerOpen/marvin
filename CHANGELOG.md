@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.271 (2026-10-12)
+
+### Features
+
+- **assets**: The library folds versions under their original and filters on the server
+  ([`9932dde`](https://github.com/InnerOpen/marvin/commit/9932ddea9dad89b237fe1674b1a23b24184495dd))
+
+
 ## v1.0.0-rc.270 (2026-10-12)
 
 ### Performance Improvements
