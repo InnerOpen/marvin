@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.281 (2026-10-12)
+
+### Bug Fixes
+
+- **security**: The guarded HTTP client connects to the address it checked (DNS rebinding)
+  ([`62d93fb`](https://github.com/InnerOpen/marvin/commit/62d93fbb75e87dc2cb53de04bde4d08f02cb204a))
+
+
 ## v1.0.0-rc.280 (2026-10-12)
 
 ### Bug Fixes
