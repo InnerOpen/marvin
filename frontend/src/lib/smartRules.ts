@@ -23,6 +23,8 @@ export interface BuilderState {
   where: Condition[];
   assetTypes: string[];
   mimeTypes: string[];
+  origins: string[];
+  madeFrom: string[];
   resourceTypes: string[];
   tags: string[];
   createdWithinDays: number | null;
@@ -36,6 +38,8 @@ export type ParseResult =
 /** The publish lifecycle, in order (schemas/platform/entries.py ENTRY_STATUSES). */
 export const ENTRY_STATUSES = ["inbox", "processing", "draft", "needs_review", "approved", "published", "archived"];
 export const ASSET_TYPES = ["image", "document", "video", "audio", "archive", "svg", "other"];
+/** Where an asset came from (Assets.origin): an upload, a version made from another asset, a generated image. */
+export const ASSET_ORIGINS = ["upload", "derived", "generated"];
 /** Same ops as a workflow query's `where` (services/entries/query.py WHERE_OPS). */
 export const WHERE_OPS = ["eq", "neq", "in", "contains", "exists", "missing", "gt", "gte", "lt", "lte"];
 export const VALUELESS_OPS = new Set(["exists", "missing"]);
@@ -45,7 +49,7 @@ const UNIVERSAL_KEYS = ["tags", "created_within_days", "match"];
 /** The keys the builder owns for each target; everything else in the JSON is left alone. */
 export const BUILDER_KEYS: Record<TargetType, string[]> = {
   entry: ["entry_types", "statuses", "published_within_days", "where", ...UNIVERSAL_KEYS],
-  asset: ["asset_types", "mime_types", ...UNIVERSAL_KEYS],
+  asset: ["asset_types", "mime_types", "origins", "made_from", ...UNIVERSAL_KEYS],
   resource: ["resource_types", ...UNIVERSAL_KEYS],
 };
 
@@ -75,6 +79,8 @@ export function stateFromRules(rules: Rules | null | undefined): BuilderState {
     where,
     assetTypes: strings(r.asset_types),
     mimeTypes: strings(r.mime_types),
+    origins: strings(r.origins),
+    madeFrom: strings(r.made_from),
     resourceTypes: strings(r.resource_types),
     tags: strings(r.tags),
     createdWithinDays: days(r.created_within_days),
@@ -129,6 +135,8 @@ export function rulesFromState(state: BuilderState, target: TargetType, base: Ru
   } else if (target === "asset") {
     set("asset_types", state.assetTypes);
     set("mime_types", state.mimeTypes);
+    set("origins", state.origins);
+    set("made_from", state.madeFrom);
   } else {
     set("resource_types", state.resourceTypes);
   }

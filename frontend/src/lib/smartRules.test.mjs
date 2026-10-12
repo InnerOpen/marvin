@@ -57,6 +57,13 @@ describe("rules round trip through the builder", () => {
     assert.deepEqual(rulesFromState(res, "resource"), { resource_types: ["fabric"] });
   });
 
+  test("an asset target's origin and made-from rules round-trip", () => {
+    const rules = { origins: ["derived"], made_from: ["harbour-at-dawn"], match: "any" };
+    const state = stateFromRules(rules);
+    assert.deepEqual([state.origins, state.madeFrom], [["derived"], ["harbour-at-dawn"]]);
+    assert.deepEqual(rulesFromState(state, "asset"), rules);
+  });
+
   test("field conditions without a field are dropped, and exists/missing carry no value", () => {
     const state = {
       ...stateFromRules({}),

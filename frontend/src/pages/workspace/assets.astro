@@ -152,6 +152,10 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
               All
             </button>
+            <button class="toggle-btn" id="view-grid" title="Thumbnails">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="4" height="4" rx="1"/><rect x="6" y="1" width="4" height="4" rx="1"/><rect x="11" y="1" width="4" height="4" rx="1"/><rect x="1" y="6" width="4" height="4" rx="1"/><rect x="6" y="6" width="4" height="4" rx="1"/><rect x="11" y="6" width="4" height="4" rx="1"/><rect x="1" y="11" width="4" height="4" rx="1"/><rect x="6" y="11" width="4" height="4" rx="1"/><rect x="11" y="11" width="4" height="4" rx="1"/></svg>
+              Grid
+            </button>
             <button class="toggle-btn" id="view-grouped" title="Group by type">
               <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="14" height="3" rx="1"/><rect x="3" y="5.5" width="12" height="2" rx="0.5" opacity="0.6"/><rect x="3" y="8.5" width="12" height="2" rx="0.5" opacity="0.6"/><rect x="1" y="12" width="14" height="3" rx="1"/></svg>
               Types
@@ -177,6 +181,31 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div id="grid-view" class="view-section" style="display:none;">
+            <ul class="asset-grid">
+              {rows.map((asset: any) => (
+                <li class="asset-card" data-in-trash={view.status === "trashed" ? "" : undefined}>
+                  <a class="thumb" href={view.status === "trashed" ? `/workspace/assets/${asset.id}` : `/workspace/assets/${asset.id}/view`} title={asset.name}>
+                    {asset.publicUrl && getMimeCategory(asset.mimeType) === "image" ? (
+                      <img src={asset.publicUrl} alt={asset.altText ?? asset.name} loading="lazy" style={`object-position: ${asset.focalPoint ?? "50% 50%"}`} />
+                    ) : (
+                      <span class="file-icon">📎</span>
+                    )}
+                  </a>
+                  <div class="card-name" title={asset.name}>{asset.name}</div>
+                  <div class="card-meta">
+                    {asset.width && asset.height ? `${asset.width}×${asset.height}` : asset.mimeType}
+                    {asset.origin === "derived" && <span class="card-badge">Version</span>}
+                    {asset.origin === "generated" && <span class="card-badge">Generated</span>}
+                    {asset.versionsCount > 0 && (
+                      <a class="card-badge versions" href={viewHref(view, { source: asset.id, versions: false })}>{asset.versionsCount} {asset.versionsCount === 1 ? "version" : "versions"}</a>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
           </div>
 
           <div id="grouped-view" class="view-section" style="display:none;">
@@ -219,24 +248,30 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
 <script>
   const tableView = document.getElementById('table-view');
   const groupedView = document.getElementById('grouped-view');
+  const gridView = document.getElementById('grid-view');
+  const viewGridBtn = document.getElementById('view-grid');
   const viewTableBtn = document.getElementById('view-table');
   const viewGroupedBtn = document.getElementById('view-grouped');
 
-  function setView(view: 'table' | 'grouped') {
-    if (!tableView || !groupedView) return;
+  type View = 'table' | 'grid' | 'grouped';
+  function setView(view: View) {
+    if (!tableView || !groupedView || !gridView) return;
     tableView.style.display = view === 'table' ? '' : 'none';
+    gridView.style.display = view === 'grid' ? '' : 'none';
     groupedView.style.display = view === 'grouped' ? '' : 'none';
     viewTableBtn?.classList.toggle('active', view === 'table');
+    viewGridBtn?.classList.toggle('active', view === 'grid');
     viewGroupedBtn?.classList.toggle('active', view === 'grouped');
     try { localStorage.setItem('assets-view', view); } catch { /* a private window: the choice just isn't kept */ }
   }
 
   viewTableBtn?.addEventListener('click', () => setView('table'));
   viewGroupedBtn?.addEventListener('click', () => setView('grouped'));
+  viewGridBtn?.addEventListener('click', () => setView('grid'));
 
   let savedView: string | null = null;
   try { savedView = localStorage.getItem('assets-view'); } catch { /* as above */ }
-  if (savedView === 'table' || savedView === 'grouped') setView(savedView);
+  if (savedView === 'table' || savedView === 'grid' || savedView === 'grouped') setView(savedView);
 
   // The filters are a GET form: a choice reloads the list from the server (search on Enter).
   const filters = document.getElementById('asset-filters') as HTMLFormElement | null;
@@ -244,6 +279,63 @@ const opt = (value: string, label: string, current: string) => ({ value, label, 
 </script>
 
 <style>
+  .asset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 1rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .asset-card {
+    min-width: 0;
+  }
+  .asset-card .thumb {
+    display: grid;
+    place-items: center;
+    aspect-ratio: 1;
+    overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: var(--panel, var(--bg));
+  }
+  .asset-card[data-in-trash] .thumb {
+    opacity: 0.5;
+  }
+  .asset-card img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .asset-card .file-icon {
+    font-size: 2rem;
+  }
+  .card-name {
+    margin-top: 0.35rem;
+    font-size: 0.875rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    align-items: center;
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  .card-badge {
+    padding: 0 0.35rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .card-badge.versions {
+    color: var(--accent, inherit);
+  }
+
   .asset-filters {
     display: flex;
     flex-wrap: wrap;

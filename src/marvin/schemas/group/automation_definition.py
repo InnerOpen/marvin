@@ -311,7 +311,7 @@ class WebhookAction(_StepBase):
 class IntegrationAction(_StepBase):
     """Runs a connected integration's action (`integration`: its slug, `action`: the action key) with `args` — or,
     with `capability` instead of `action`, whichever of its actions offers that (`notify`: `title`, `body`). An image.*
-    action's pictures are kept as assets (output `images: [{asset}]`); `attach_as` links them to the run's entry."""
+    action's pictures are kept as assets (output `images: [{asset}]`); `attach_as` links them to the run's entry, `tags` tags them."""
 
     kind: Literal["integration"]
     integration: str  # the workspace integration's slug
@@ -321,6 +321,7 @@ class IntegrationAction(_StepBase):
     # An image.* action's pictures are kept as assets (output `images: [{asset}]`); attach_as links them to the run's
     # entry in this role.
     attach_as: str | None = None
+    tags: list[str] | None = None  # …and these tags put on them
     id: str | None = None
 
     @model_validator(mode="after")
@@ -363,6 +364,7 @@ class MediaAction(_StepBase):
     preset: str | None = None  # grade: a colour preset (built-in or the workspace's)
     colors: int | None = Field(default=None, ge=1, le=16)  # palette: how many (default 5)
     attach_as: str | None = None  # link the new asset to the run's entry in this role
+    tags: list[str] | None = None  # tag the new asset (e.g. web-sizes), so the library and smart collections can find them
     id: str | None = None
 
     @model_validator(mode="after")
@@ -387,8 +389,8 @@ class MediaAction(_StepBase):
             raise ValueError("convert needs a format: jpeg, png or webp")
         if self.op == "grade" and not (self.preset or "").strip():
             raise ValueError("grade needs a preset")
-        if self.op in ("inspect", "palette") and self.attach_as:
-            raise ValueError(f"{self.op} makes no image, so there is nothing to attach_as")
+        if self.op in ("inspect", "palette") and (self.attach_as or self.tags):
+            raise ValueError(f"{self.op} makes no image, so there is nothing to attach_as or tag")
         return self
 
 

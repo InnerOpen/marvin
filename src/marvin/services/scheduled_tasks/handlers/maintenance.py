@@ -222,7 +222,11 @@ class RemoveOrphanedAssetsHandler(ScheduledTaskHandler):
             if task.group_id:
                 live_q = live_q.filter(Assets.group_id == task.group_id)
             live = {row[0] for row in live_q.all()}
-            orphans = [a for a in all_assets if a.id not in linked_ids and a.source_asset_id not in live]
+            # …and an original whose version an entry uses (a hero's web size) is in use itself.
+            in_use_originals = {
+                row[0] for row in session.query(Assets.source_asset_id).filter(Assets.id.in_(linked_ids), Assets.source_asset_id.isnot(None))
+            }
+            orphans = [a for a in all_assets if a.id not in linked_ids and a.source_asset_id not in live and a.id not in in_use_originals]
             count = len(orphans)
 
             if auto_delete:

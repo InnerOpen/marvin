@@ -75,7 +75,19 @@ def run_media_action(session, group_id, action: dict, context: dict, *, user_id=
     entry_id = subject_entry_id(context) if attach_as else None
     if attach_as and entry_id is None:
         raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
-    return _derive(session, group_id, op, args, src, context, user_id=user_id, attach_as=attach_as, entry_id=entry_id, dry_run=dry_run)
+    return _derive(
+        session,
+        group_id,
+        op,
+        args,
+        src,
+        context,
+        user_id=user_id,
+        attach_as=attach_as,
+        entry_id=entry_id,
+        dry_run=dry_run,
+        action_tags=action.get("tags"),
+    )
 
 
 # ── Reading the source ───────────────────────────────────────────────────────
@@ -216,7 +228,7 @@ def _canonical(args: dict) -> str:
     return ",".join(f"{k}={args[k]}" for k in sorted(args) if args[k] is not None)
 
 
-def _derive(session, group_id, op: str, args: dict, src, context: dict, *, user_id, attach_as, entry_id, dry_run: bool) -> dict:
+def _derive(session, group_id, op: str, args: dict, src, context: dict, *, user_id, attach_as, entry_id, dry_run: bool, action_tags=None) -> dict:
     from marvin.db.models.platform.assets import Assets
 
     if op == "crop" and args["focus"] == "subject":
@@ -256,6 +268,8 @@ def _derive(session, group_id, op: str, args: dict, src, context: dict, *, user_
     else:
         asset, reused = _store(session, group_id, op, planned, src, produced, slug, context, user_id=user_id), False
     out.update(asset=asset_ref(asset), reused=reused)
+    if tags := tag_names(action_tags, context):
+        out["tags"] = tag_asset(session, group_id, asset, tags)
     if attach_as:
         out["attached"] = attach(session, group_id, entry_id, asset, attach_as, context, user_id=user_id)
     return out
@@ -370,6 +384,24 @@ def run_lineage(context: dict) -> dict:
     return {k: v for k, v in found.items() if v not in (None, "")}
 
 
+def tag_names(raw, context: dict) -> list[str]:
+    """A step's `tags` (templates allowed), blanks dropped."""
+    values = interpolate(raw or [], context)
+    values = values if isinstance(values, list) else [values]
+    return [str(v).strip() for v in values if v not in (None, "") and str(v).strip()]
+
+
+def tag_asset(session, group_id, asset, tags: list[str]) -> list[str]:
+    """Put these tags on an asset (find-or-create by slug, added to what it has) and re-sync its smart collections."""
+    from marvin.repos.all_repositories import get_repositories
+
+    repo = get_repositories(session, group_id=group_id).assets
+    repo.apply_fields(asset.id, {"tags": tags})
+    repo._resync_membership(asset.id)
+    session.refresh(asset)
+    return sorted(t.slug for t in asset.tags)
+
+
 def attach(session, group_id, entry_id, asset, role: str, context: dict, *, user_id) -> str:
     """Link the asset to the run's entry in ``role`` (once): "attached" (sends asset_attached_to_entry) or "exists"."""
     from marvin.services.entries import EntryService
@@ -476,7 +508,9 @@ def returns_images(declared) -> bool:
     return str(getattr(declared, "capability", None) or "").startswith("image.")
 
 
-def keep_generated_images(session, group_id, result: dict, *, generated_by: str, args: dict, context: dict, user_id, attach_as=None) -> dict:
+def keep_generated_images(
+    session, group_id, result: dict, *, generated_by: str, args: dict, context: dict, user_id, attach_as=None, tags=None
+) -> dict:
     """Save each image in an `image.*` action's result as an asset and put a reference in its place, before the output
     reaches the run (so a run's snapshot holds ids, not megabytes of base64). The canonical shapes:
     `images: [{image_b64 | url}]` (image.generate) and a top-level `image_b64 | url` (image.edit, image.upscale).
@@ -496,8 +530,10 @@ def keep_generated_images(session, group_id, result: dict, *, generated_by: str,
         out["images"] = [{**_without_image(item), "asset": keep.one(item)} if _has_image(item) else item for item in images]
     if _has_image(result):
         out = {**_without_image(out), "asset": keep.one(result)}
-    if role:
-        for ref in keep.kept:
+    for ref in keep.kept:
+        if names := tag_names(tags, context):
+            ref["tags"] = tag_asset(session, group_id, keep.rows[ref["id"]], names)
+        if role:
             ref["attached"] = attach(session, group_id, entry_id, keep.rows[ref["id"]], role, context, user_id=user_id)
     return out
 

@@ -107,6 +107,14 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
         <span class="sr-label">MIME types <span class="form-help">exact, comma-separated</span></span>
         <input class="sr-input" id="sr-mime-types" placeholder="e.g. image/svg+xml, application/pdf" />
       </label>
+      <div class="sr-row" data-target="asset">
+        <span class="sr-label">Came from <span class="form-help">derived: a version made from another image</span></span>
+        <div class="sr-chips" id="sr-origins"></div>
+      </div>
+      <label class="sr-row" data-target="asset">
+        <span class="sr-label">Made from <span class="form-help">the versions of these assets — slugs, comma-separated</span></span>
+        <input class="sr-input" id="sr-made-from" placeholder="e.g. harbour-at-dawn" />
+      </label>
       <label class="sr-row" data-target="resource">
         <span class="sr-label">Resource types <span class="form-help">comma-separated</span></span>
         <input class="sr-input" id="sr-resource-types" placeholder="e.g. fabric, tool, supplier" />
@@ -149,6 +157,8 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
         <ul data-target="asset" hidden>
           <li><code>asset_types</code> — <code>["image", "document", "video", "audio", "archive", "svg", "other"]</code></li>
           <li><code>mime_types</code> — exact MIME types, e.g. <code>["image/svg+xml"]</code></li>
+          <li><code>origins</code> — <code>["upload", "derived", "generated"]</code> (derived: a version a workflow made from another image)</li>
+          <li><code>made_from</code> — the versions made from these assets, by slug or id</li>
         </ul>
         <ul data-target="resource" hidden>
           <li><code>resource_types</code> — resource-type values, e.g. <code>["fabric", "tool", "supplier"]</code></li>
@@ -176,6 +186,7 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
 <script>
   import { previewSmartRules, type SmartRulesPreview } from "@/lib/api/collections";
   import {
+    ASSET_ORIGINS,
     ASSET_TYPES,
     type BuilderState,
     type Condition,
@@ -296,6 +307,8 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
     renderChips("sr-asset-types", plain(ASSET_TYPES), state.assetTypes);
     renderChips("sr-tags", vocab.tags ?? [], state.tags);
     ($<HTMLInputElement>("sr-mime-types")!).value = state.mimeTypes.join(", ");
+    renderChips("sr-origins", plain(ASSET_ORIGINS), state.origins);
+    ($<HTMLInputElement>("sr-made-from")!).value = state.madeFrom.join(", ");
     ($<HTMLInputElement>("sr-resource-types")!).value = state.resourceTypes.join(", ");
     ($<HTMLInputElement>("sr-published-days")!).value = state.publishedWithinDays?.toString() ?? "";
     ($<HTMLInputElement>("sr-created-days")!).value = state.createdWithinDays?.toString() ?? "";
@@ -326,6 +339,8 @@ const vocabJson = JSON.stringify({ entryTypes, tags }).replace(/</g, "\\u003c");
       where,
       assetTypes: checkedValues("sr-asset-types"),
       mimeTypes: splitList(($<HTMLInputElement>("sr-mime-types")!).value),
+      origins: checkedValues("sr-origins"),
+      madeFrom: splitList(($<HTMLInputElement>("sr-made-from")!).value),
       resourceTypes: splitList(($<HTMLInputElement>("sr-resource-types")!).value),
       tags: checkedValues("sr-tags"),
       createdWithinDays: num("sr-created-days"),

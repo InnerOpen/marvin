@@ -380,8 +380,8 @@ MEDIA_NOTE = (
     "derived_from + the workflow (no asset_uploaded is sent; asset.derived_from tells derivatives apart). format/quality "
     "re-encode any of them. inspect outputs width, height, orientation, aspect, sharpness (Laplacian variance: blurry is "
     "low, roughly under 100); palette outputs colors ['#rrggbb']. attach_as (needs an entry run) links the new asset to "
-    "the entry in that role. An integration action with an image.* capability (openai_images.generate) keeps its pictures "
-    "the same way — output images: [{asset}] — and takes attach_as too."
+    "the entry in that role; tags tags the new asset. An integration action with an image.* capability (openai_images.generate) "
+    "keeps its pictures the same way — output images: [{asset}] — and takes attach_as and tags too."
 )
 CREATE_NOTE = (
     " create makes a new entry: entry_type (slug), title, optional data (the type's fields) and metadata, status draft|inbox "
@@ -778,10 +778,11 @@ def _step_issues(
             bad("action", f"“{slug}” has no action “{key}” a workflow can run. Actions: {actions}.")
         elif row["actions"] is not None and not after_approval and any(a["action"] == key and a.get("requires_approval") for a in row["actions"]):
             bad("action", f"“{slug}.{key}” needs a person's approval: put an Approval step before it (it runs once approved).")
-        elif step.get("attach_as") and row["actions"] is not None:
+        elif (step.get("attach_as") or step.get("tags")) and row["actions"] is not None:
             declared = next((a for a in row["actions"] if a["action"] == key), None)
             if declared is not None and not str(declared.get("capability") or "").startswith("image."):
-                bad("attach_as", f"attach_as goes with an action that makes images; “{slug}.{key}” doesn't.")
+                field_name = "attach_as" if step.get("attach_as") else "tags"
+                bad(field_name, f"{field_name} goes with an action that makes images; “{slug}.{key}” doesn't.")
     elif kind == "media":
         preset = step.get("preset")
         if step.get("op") == "grade" and isinstance(preset, str) and not _templated(preset) and preset not in refs.grade_presets:

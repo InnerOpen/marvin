@@ -111,14 +111,22 @@ def _emit(session, group_id, kind, row, event_type, operation, message, *, actor
 
 
 # ── Trash / restore ───────────────────────────────────────────────────────────
-def trash(session, group_id, kind: str, item_id, *, actor_id=None, event_bus=None, reaction_depth: int = 0):
-    """Move an asset or resource to the Trash and emit ``<kind>_trashed``. Already trashed → returned as is,
-    nothing emitted. None if it doesn't exist in this workspace."""
+# An asset's versions (crops, sizes, conversions a media step made from it) go to the Trash with it and come back
+# with it; each one records which original took it there, so restoring the original doesn't restore a version that
+# was trashed on its own before.
+TRASHED_WITH = "trashed_with"
+
+
+def trash(session, group_id, kind: str, item_id, *, actor_id=None, event_bus=None, reaction_depth: int = 0, with_original=None):
+    """Move an asset or resource to the Trash and emit ``<kind>_trashed`` — an asset's versions too. Already trashed →
+    returned as is, nothing emitted. None if it doesn't exist in this workspace."""
     row = _get(session, group_id, kind, item_id)
     if row is None or is_trashed(row):
         return row
     row.trashed_at = datetime.now(UTC)
     row.trashed_by = actor_id
+    if with_original is not None:
+        row.metadata_json = {**(row.metadata_json or {}), TRASHED_WITH: str(with_original)}
     session.commit()
     trashed, _ = _EVENTS[kind]
     label = "Asset" if kind == ASSET else "Resource"
@@ -126,7 +134,23 @@ def trash(session, group_id, kind: str, item_id, *, actor_id=None, event_bus=Non
         session, group_id, kind, row, trashed, EventOperation.update, f"{label} '{row.name}' moved to the Trash",
         actor_id=actor_id, event_bus=event_bus, reaction_depth=reaction_depth,
     )  # fmt: skip
+    if kind == ASSET:
+        for version_id in _version_ids(session, group_id, row.id, trashed=False):
+            trash(session, group_id, ASSET, version_id, actor_id=actor_id, event_bus=event_bus, reaction_depth=reaction_depth, with_original=row.id)
     return row
+
+
+def _version_ids(session, group_id, original_id, *, trashed: bool) -> list:
+    """The assets made from ``original_id`` — in the Trash or not. Going to the Trash, one an entry uses (a hero's
+    web sizes on a published page) stays: it stands on its own once its original is gone."""
+    from marvin.db.models.platform.assets import Assets
+    from marvin.db.models.platform.entry_assets import EntryAssets
+
+    q = session.query(Assets.id).filter(Assets.group_id == group_id, Assets.source_asset_id == original_id)
+    q = q.filter(Assets.trashed_at.isnot(None) if trashed else Assets.trashed_at.is_(None))
+    if not trashed:
+        q = q.filter(Assets.id.not_in(session.query(EntryAssets.asset_id)))
+    return [r[0] for r in q.all()]
 
 
 def restore(session, group_id, kind: str, item_id, *, actor_id=None, event_bus=None, reaction_depth: int = 0):
@@ -137,6 +161,8 @@ def restore(session, group_id, kind: str, item_id, *, actor_id=None, event_bus=N
         return row
     row.trashed_at = None
     row.trashed_by = None
+    if TRASHED_WITH in (row.metadata_json or {}):
+        row.metadata_json = {k: v for k, v in row.metadata_json.items() if k != TRASHED_WITH}
     session.commit()
     _, restored = _EVENTS[kind]
     label = "Asset" if kind == ASSET else "Resource"
@@ -144,6 +170,11 @@ def restore(session, group_id, kind: str, item_id, *, actor_id=None, event_bus=N
         session, group_id, kind, row, restored, EventOperation.update, f"{label} '{row.name}' restored from the Trash",
         actor_id=actor_id, event_bus=event_bus, reaction_depth=reaction_depth,
     )  # fmt: skip
+    if kind == ASSET:
+        for version_id in _version_ids(session, group_id, row.id, trashed=True):
+            version = _get(session, group_id, ASSET, version_id)
+            if (version.metadata_json or {}).get(TRASHED_WITH) == str(row.id):  # trashed with it, not on its own
+                restore(session, group_id, ASSET, version_id, actor_id=actor_id, event_bus=event_bus, reaction_depth=reaction_depth)
     return row
 
 

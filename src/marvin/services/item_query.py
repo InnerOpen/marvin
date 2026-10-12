@@ -14,14 +14,16 @@ check ``unknown_keys`` first):
 - ``tags`` — carrying ANY of these tags (slug or name).
 - ``collection`` / ``collections`` — in any of these collections (slug or name).
 - ``unattached`` — true: attached to no entry; false: attached to at least one. A link to an entry in the
-  Trash still counts as attached, so restoring that entry never finds its image gone. A version made from an
+  Trash still counts as attached, so restoring that entry never finds its image gone. An original one of whose
+  versions an entry uses counts as attached. A version made from an
   original still in the library is never "unattached": it goes with its original, so a cleanup of unattached
   images can't sweep a crop pack — unless the spec asks for versions itself (``versions: true`` or ``source``).
 - ``created_after`` / ``created_before`` — ISO dates or datetimes (UTC).
 - ``trashed`` — true: only items in the Trash (the Trash's side, for a restore).
 - ``origin`` / ``origins`` — assets only: upload, derived (made from another asset) or generated (by an integration).
 - ``versions`` — assets only: false leaves out versions of an original that is still in the library (the library's
-  folded view); true keeps only versions. ``source`` — the versions made from this asset (id or slug).
+  folded view); true keeps only versions; all keeps both. Unset means both here, but a workflow's asset target
+  defaults to false (services/automation/selector.py). ``source`` — the versions made from this asset (id or slug).
 
 Items in the Trash are left out unless ``trashed`` asks for them (the key, or the ``trashed=True`` argument). A
 filter naming a tag or collection that doesn't exist matches nothing and says so in the note — dropping it
@@ -66,7 +68,8 @@ KEY_NOTES: dict[str, dict[str, str]] = {
                 "mime_types": "MIME types, any of",
                 "origin": f"one of {', '.join(ORIGINS)} (`origins`: a list) — derived: made from another asset",
                 "origins": "origins, any of",
-                "versions": "false: leave out versions of an original still in the library; true: only versions",
+                "versions": "false: leave out versions of an original still in the library; true: only versions; all: both "
+                "(a workflow's asset target leaves them out unless it sets versions, source or origin derived)",
                 "source": "the versions made from this asset (id or slug)",
             }
             if kind == ASSET
@@ -158,6 +161,10 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
         if unattached is None:
             return nothing, f"unattached is true or false, not {spec['unattached']!r}"
         linked = model.id.in_(session.query(getattr(entry_link, fk)))
+        if kind == ASSET:  # an original whose version an entry uses (a hero's web sizes) is in use too
+            # (NOT IN over a column with NULLs matches nothing, so the originals' NULL sources are left out.)
+            used_sources = sa.select(Assets.source_asset_id).where(Assets.source_asset_id.isnot(None), Assets.id.in_(sa.select(EntryAssets.asset_id)))
+            linked = linked | model.id.in_(used_sources)
         q = q.filter(~linked if unattached else linked)
         if unattached and kind == ASSET and not (as_bool(str(spec.get("versions"))) is True or spec.get("source")):
             q = q.filter(sa.or_(Assets.source_asset_id.is_(None), Assets.source_asset_id.not_in(live_originals(group_id))))
@@ -190,10 +197,10 @@ def _asset_lineage(session, group_id, q, spec: dict):
         if bad := [o for o in origins if o not in ORIGINS]:
             return q, f"origin is one of {', '.join(ORIGINS)}, not {', '.join(map(str, bad))}"
         q = q.filter(Assets.origin.in_(origins))
-    if spec.get("versions") is not None:
+    if spec.get("versions") is not None and str(spec["versions"]).lower() != "all":  # "all": originals and versions
         versions = as_bool(str(spec["versions"]))
         if versions is None:
-            return q, f"versions is true or false, not {spec['versions']!r}"
+            return q, f"versions is true, false or all, not {spec['versions']!r}"
         if versions:
             q = q.filter(Assets.source_asset_id.isnot(None))
         else:  # a version whose original is gone or in the Trash stands on its own

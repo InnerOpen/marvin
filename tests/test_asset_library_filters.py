@@ -69,7 +69,7 @@ def test_a_lineage_filter_that_cannot_match_says_why(db_session, workspace, libr
     s, gid = db_session, workspace.gid
     assert "origin is one of" in item_query.run(s, gid, item_query.ASSET, {"origin": "scanned"}).note
     assert "no asset 'nope'" in item_query.run(s, gid, item_query.ASSET, {"source": "nope"}).note
-    assert "true or false" in item_query.run(s, gid, item_query.ASSET, {"versions": "maybe"}).note
+    assert "true, false or all" in item_query.run(s, gid, item_query.ASSET, {"versions": "maybe"}).note
 
 
 def test_the_list_filters_on_the_server_and_counts_versions(workspace, library):
@@ -129,3 +129,87 @@ def test_the_orphaned_assets_job_leaves_versions_of_a_live_original(db_session, 
     task = SimpleNamespace(task_config={"age_days": 0, "auto_delete": False}, group_id=workspace.gid)
     summary = RemoveOrphanedAssetsHandler().execute(task, None)
     assert summary.startswith("4 orphaned assets")  # harbour, pier crop, drawn cover, manual — not harbour's two versions
+
+
+@pytest.mark.parametrize(
+    ("query", "names"),
+    [
+        ({"asset_type": "image"}, {"harbour", "pier crop", "drawn cover"}),  # originals only, by default
+        ({"asset_type": "image", "versions": "all"}, {"harbour", "harbour small", "harbour square", "pier crop", "drawn cover"}),
+        ({"versions": True}, {"harbour small", "harbour square", "pier crop"}),
+        ({"origin": "derived"}, {"harbour small", "harbour square", "pier crop"}),
+        ({"source": "harbour"}, {"harbour small", "harbour square"}),
+    ],
+)
+def test_a_workflows_asset_target_runs_on_originals_unless_it_asks(db_session, workspace, library, query, names):
+    from marvin.services.automation.selector import resolve_target_entities
+
+    if "source" in query:
+        query = {"source": library["harbour"].slug}
+    rows, total = resolve_target_entities(db_session, workspace.gid, {"entity": "asset", "query": query}, {})
+    assert {r.name for r in rows} == names and total == len(names)
+
+
+def test_smart_collection_rules_read_origin_and_made_from(db_session, workspace, library):
+    from marvin.services.collections.smart_collections import matches_rules
+
+    harbour, small, drawn = library["harbour"], library["small"], library["drawn"]
+    assert matches_rules(drawn, {"origins": ["generated"]}, "asset") and not matches_rules(harbour, {"origins": ["generated"]}, "asset")
+    assert matches_rules(small, {"made_from": [harbour.slug]}, "asset") and matches_rules(small, {"made_from": [str(harbour.id)]}, "asset")
+    assert not matches_rules(harbour, {"made_from": [harbour.slug]}, "asset")  # the original isn't its own version
+
+
+def _link(s, entry_id, asset):
+    from marvin.db.models.platform.entry_assets import EntryAssets
+
+    s.add(EntryAssets(entry_id=entry_id, asset_id=asset.id, role="hero-800", position=0))
+    s.commit()
+
+
+def _an_entry(s, gid):
+    from marvin.db.models.platform import Entries, EntryTypes
+
+    et = EntryTypes(session=s, group_id=gid, name="Note", slug=f"note-{uuid.uuid4().hex[:6]}", schema_json={"fields": []})
+    s.add(et)
+    s.flush()
+    entry = Entries(session=s, group_id=gid, entry_type_id=et.id, title="N", slug=f"n-{uuid.uuid4().hex[:6]}", status="draft")
+    s.add(entry)
+    s.commit()
+    return entry
+
+
+def test_versions_go_to_the_trash_and_come_back_with_their_original(db_session, workspace, library, monkeypatch):
+    from marvin.services import trash
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: None)
+    s, gid = db_session, workspace.gid
+    harbour, small, square = library["harbour"], library["small"], library["square"]
+    trash.trash(s, gid, trash.ASSET, square.id)  # trashed on its own first
+    trash.restore(s, gid, trash.ASSET, square.id)
+    trash.trash(s, gid, trash.ASSET, small.id)  # on its own: stays in the Trash when harbour comes back
+
+    trash.trash(s, gid, trash.ASSET, harbour.id)
+    s.expire_all()
+    assert all(trash.is_trashed(a) for a in (harbour, small, square))
+    assert square.metadata_json.get(trash.TRASHED_WITH) == str(harbour.id) and trash.TRASHED_WITH not in (small.metadata_json or {})
+
+    trash.restore(s, gid, trash.ASSET, harbour.id)
+    s.expire_all()
+    assert not trash.is_trashed(harbour) and not trash.is_trashed(square) and trash.is_trashed(small)
+    assert trash.TRASHED_WITH not in (square.metadata_json or {})
+
+
+def test_a_version_an_entry_uses_stays_and_keeps_its_original_in_use(db_session, workspace, library, monkeypatch):
+    from marvin.services import trash
+    from marvin.services.event_bus_service.event_bus_service import EventBusService
+
+    monkeypatch.setattr(EventBusService, "dispatch", lambda self, **kw: None)
+    s, gid = db_session, workspace.gid
+    harbour, small, square = library["harbour"], library["small"], library["square"]
+    _link(s, _an_entry(s, gid).id, small)
+
+    assert _names({"asset_type": "image", "unattached": True}, s, gid) == {"pier crop", "drawn cover"}  # harbour's web size is on a page
+    trash.trash(s, gid, trash.ASSET, harbour.id)
+    s.expire_all()
+    assert trash.is_trashed(square) and not trash.is_trashed(small)  # the used version stands on its own

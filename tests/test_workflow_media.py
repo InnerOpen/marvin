@@ -540,3 +540,16 @@ def test_a_media_workflow_on_entries_drafts_cleanly(ws):
         ],
     }
     assert draft_issues(ws.session, ws.gid, definition) == []
+
+
+def test_a_media_step_tags_what_it_makes(media):
+    photo = _stored(media, "harbour", _png((800, 600)))
+    _workflow(
+        media, {"trigger": ON_UPLOAD, "actions": [{"kind": "media", "op": "convert", "format": "webp", "tags": ["web-sizes", "${asset.name}"]}]}
+    )
+
+    _fire(media, "asset_uploaded", {"asset_id": str(photo.id)}, entity=photo.id, entity_type="asset")
+
+    (copy,) = _derivatives(media, photo)
+    assert sorted(t.slug for t in copy.tags) == ["harbour", "web-sizes"]
+    assert _last_run(media).actions[0].output_snapshot["tags"] == ["harbour", "web-sizes"]

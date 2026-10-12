@@ -48,9 +48,25 @@ def resolve_target_entities(session, group_id, target: dict, context: dict, *, c
     if entity in ITEM_ENTITIES:
         from marvin.services import item_query
 
-        result = item_query.run(session, group_id, entity, query if isinstance(query, dict) else {}, limit=limit)
+        query = query if isinstance(query, dict) else {}
+        if entity == "asset":
+            query = originals_unless_asked(query)
+        result = item_query.run(session, group_id, entity, query, limit=limit)
         return result.rows, result.total
     return [], 0
+
+
+def originals_unless_asked(query: dict) -> dict:
+    """An asset target runs on originals: versions of an original still in the library (crops, sizes, conversions a
+    media step made) are left out — a bulk job ("grade everything tagged brand") means the originals, and running it
+    on versions makes copies of copies. The query asks for versions with `versions` (true: only versions), `source`
+    (one asset's versions) or `origin: derived`."""
+    from marvin.services.entries.query import _as_list
+
+    origins = set(_as_list(query.get("origin")) + _as_list(query.get("origins")))
+    if "versions" in query or query.get("source") or "derived" in origins:
+        return query
+    return {**query, "versions": False}
 
 
 def entity_ref(entity, kind: str = "entry") -> dict:

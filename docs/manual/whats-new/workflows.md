@@ -76,7 +76,7 @@ With **Assets** or **Resources**, the target is `{"entity": "asset", "query": {�
 | `asset_type` / `asset_types` | assets only: `image`, `svg`, `document`, `video`, `audio`, `archive`, `other` (**Asset type**) |
 | `mime_type` / `mime_types` | assets only: exact MIME type, e.g. `image/svg+xml` (**MIME type**) |
 | `origin` / `origins` | assets only: `upload`, `derived` (made from another asset by a media step or recipe), `generated` (an image an integration made) |
-| `versions` | assets only: `false` leaves out versions of an original still in the library; `true` keeps only versions |
+| `versions` | assets only: `false` leaves out versions of an original still in the library; `true` keeps only versions; `all` keeps both (**Versions**). A workflow's asset target runs on **originals only** unless it sets `versions`, `source` or `origin: derived` — so a bulk job never makes copies of copies |
 | `source` | assets only: the versions made from this asset (id or slug) |
 | `resource_type` / `resource_types` | resources only: the resource's type, e.g. `supplier` (**Resource type**) |
 
@@ -173,6 +173,7 @@ step made, or `role:<role>` — the run's entry's picture in that role (`role:he
   re-run, a retry or the same event twice reuses it (`reused: true`) instead of making a copy. One you moved to the
   Trash isn't brought back: the step fails until it is restored or deleted.
 - **Output:** `asset` (`id`, `slug`, `name`, `url`, `width`, `height`, `mime_type`), `source_id`, `reused`.
+- **Tag it** (`tags`, templates allowed) tags the new asset — the same picture made again keeps its tags.
 - **Attach as** (`attach_as`) links the new asset to the run's entry in that role (`asset_attached_to_entry`, which now
   carries the `role`). It needs a run about an entry — an entry event, `asset_attached_to_entry`, or an entry query.
 - **No loops:** a new picture made here sends no `asset_uploaded`, so an "image added → resize" workflow doesn't
@@ -196,7 +197,7 @@ keeps each picture as an asset before the result reaches the run: the output's `
 after the step's `name` argument, else "<workflow> — <entry title>", and records how it was made: `generated_by`
 (`<provider>.<action>`), the `prompt`, the `model`, the entry it was made for, and the run. A picture returned as a
 link is fetched through Marvin's guarded client (public hosts only, 20 MB at most); the upload size and type limits
-apply. **Attach as** (`attach_as`) on the step links the pictures to the run's entry in that role. Because the run now
+apply. **Attach as** (`attach_as`) on the step links the pictures to the run's entry in that role, and `tags` tags them. Because the run now
 carries references instead of image data, it can wait for approval *after* generating ("use this cover?") and be
 retried. The same event handled twice keeps one set of pictures.
 

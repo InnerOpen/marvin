@@ -63,7 +63,13 @@ original is gone or in the Trash stands on its own. Cleanups leave versions with
 longer count a version of an original still in the library. Assets carry `origin` and `sourceAssetId`
 (`GET /api/platform/assets` takes `q`, `asset_type`, `origin`, `tag`, `collection`, `unattached`, `versions`, `source`,
 `sort` and returns `versionsCount`); the asset query and the agent's `list_assets` take `origin`, `versions` and
-`source`. Migration `d00dff591ea6` fills origin and source in from existing lineage. Unreleased (2026-10-12).
+`source`. Migration `d00dff591ea6` fills origin and source in from existing lineage. A **Grid** view shows thumbnails.
+A workflow's asset target runs on **originals only** unless it asks for versions (**Versions**: originals and
+versions, or only versions). Smart collections of assets take **Came from** (`origins`) and **Made from**
+(`made_from`), and a new upload or version joins matching ones at once. A **Process an image** step (and an
+image-making integration step) can **tag** what it makes. Moving an image to the Trash takes its versions with it,
+and restoring it brings back those that went with it — except a version an entry uses (a hero's web size on a
+page), which stays; an original with a version in use doesn't count as unattached. Unreleased (2026-10-12).
 
 ## Media embeds
 

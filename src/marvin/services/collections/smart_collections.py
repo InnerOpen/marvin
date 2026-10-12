@@ -58,7 +58,7 @@ TARGET_TYPES = ("entry", "asset", "resource")
 _UNIVERSAL_KEYS = ("tags", "created_within_days", "match")
 RULE_KEYS = {
     "entry": ("entry_types", "statuses", "published_within_days", "where", *_UNIVERSAL_KEYS),
-    "asset": ("asset_types", "mime_types", *_UNIVERSAL_KEYS),
+    "asset": ("asset_types", "mime_types", "origins", "made_from", *_UNIVERSAL_KEYS),
     "resource": ("resource_types", *_UNIVERSAL_KEYS),
 }
 """The rule keys each target type reads; anything else in ``smart_rules`` is ignored."""
@@ -96,13 +96,31 @@ def _within_days(value, days) -> bool:
     return value >= datetime.now(UTC) - timedelta(days=days)
 
 
+def _made_from(item, refs) -> bool:
+    """Whether ``item`` is a version made from one of ``refs`` (asset ids or slugs)."""
+    source_id = getattr(item, "source_asset_id", None)
+    if source_id is None:
+        return False
+    refs = {str(r) for r in (refs if isinstance(refs, list) else [refs])}
+    if str(source_id) in refs:
+        return True
+    from sqlalchemy.orm import object_session
+
+    from marvin.db.models.platform.assets import Assets
+
+    session = object_session(item)
+    slug = session.query(Assets.slug).filter(Assets.id == source_id).scalar() if session is not None else None
+    return slug in refs
+
+
 def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
     """Return True if ``item`` satisfies a smart collection's ``rules`` for ``target_type``.
 
     Dimensions are type-specific except ``tags`` (universal, matched on slugs):
       entry    → entry_types (entry_type.slug), statuses (status), published_within_days (published_at),
                  where (field conditions, one dimension each)
-      asset    → asset_types (asset_type), mime_types (mime_type, exact e.g. image/svg+xml)
+      asset    → asset_types (asset_type), mime_types (mime_type, exact e.g. image/svg+xml), origins (origin: upload |
+                 derived | generated), made_from (the versions made from these assets, by id or slug)
       resource → resource_types (resource_type)
     ``tags`` and ``created_within_days`` are universal. An empty/None rule set — or one with no recognized dimension — matches nothing.
     An Ask file (a chat attachment, services/assets/scope.py) is in no collection until it's moved to the library.
@@ -134,6 +152,12 @@ def matches_rules(item, rules: dict | None, target_type: str = "entry") -> bool:
         mime_types = rules.get("mime_types")
         if mime_types:  # exact MIME (e.g. "image/svg+xml") — finer than the asset_type bucket
             dimensions.append(getattr(item, "mime_type", None) in mime_types)
+        origins = rules.get("origins")
+        if origins:  # where it came from: an upload, a version made from another asset, a generated image
+            dimensions.append((getattr(item, "origin", None) or "upload") in origins)
+        made_from = rules.get("made_from")
+        if made_from:
+            dimensions.append(_made_from(item, made_from))
     elif target_type == "resource":
         resource_types = rules.get("resource_types")
         if resource_types:

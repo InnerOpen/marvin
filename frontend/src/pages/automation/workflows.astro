@@ -147,6 +147,13 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
               <label class="tf"><span id="wf-t-text-label">Title contains</span><input class="input" id="wf-t-text" placeholder="any" /></label>
               <label class="tf"><span>In collection</span><input class="input" id="wf-t-collection" placeholder="any — slug or name" /></label>
               <label class="tf" data-for="asset resource"><span>Tagged</span><input class="input" id="wf-t-tags" placeholder="any — tags, comma-separated" /></label>
+              <label class="tf" data-for="asset"><span>Versions</span>
+                <select class="input" id="wf-t-versions" title="Versions are the crops, sizes, conversions and grades a media step made from another image">
+                  <option value="">originals only</option>
+                  <option value="all">originals and versions</option>
+                  <option value="true">only versions</option>
+                </select>
+              </label>
               <label class="tf" data-for="asset resource"><span>Used by an entry</span>
                 <select class="input" id="wf-t-unattached">
                   <option value="">either</option>
@@ -624,7 +631,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <textarea class="input mono a-int-args" rows="4" spellcheck="false" placeholder='{"slug": "\${event.entry.slug}"}'>${esc(a.args && Object.keys(a.args).length ? JSON.stringify(a.args, null, 2) : "")}</textarea>
       <span class="hint small">Runs one action of a workspace integration. To use its result in a later step, add an <code>"id"</code> to this step in the JSON view, then read <code>\${steps.&lt;id&gt;.output…}</code>.</span>
       <label class="tf"><span>Attach as <span class="muted">(actions that make images: link each picture to the entry in this role, e.g. cover-variant)</span></span>
-        <input class="input a-int-attach" placeholder="leave blank to only keep them in Assets" value="${esc(a.attach_as ?? "")}" /></label>`;
+        <input class="input a-int-attach" placeholder="leave blank to only keep them in Assets" value="${esc(a.attach_as ?? "")}" /></label>
+      <label class="tf"><span>Tag them <span class="muted">(actions that make images; comma-separated)</span></span>
+        <input class="input a-int-tags" placeholder="e.g. generated, cover-ideas" value="${esc((a.tags ?? []).join(", "))}" /></label>`;
     const slugInput = wrap.querySelector(".a-integration") as HTMLInputElement;
     const actionInput = wrap.querySelector(".a-int-action") as HTMLInputElement;
     const argsInput = wrap.querySelector(".a-int-args") as HTMLTextAreaElement;
@@ -702,6 +711,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       ${num("colors", "How many colours", "1–16, default 5")}
       <label class="tf a-m-attach-wrap"><span>Attach as <span class="muted">(link the new picture to the entry in this role, e.g. square — needs a run about an entry)</span></span>
         <input class="input a-m-attach" value="${esc(a.attach_as ?? "")}" /></label>
+      <label class="tf a-m-tags-wrap"><span>Tag it <span class="muted">(comma-separated, e.g. web-sizes — find them in the library and smart collections)</span></span>
+        <input class="input a-m-tags" value="${esc((a.tags ?? []).join(", "))}" /></label>
       <span class="hint small a-m-hint"></span>`;
     const opSel = wrap.querySelector(".a-media-op") as HTMLSelectElement;
     const srcSel = wrap.querySelector(".a-media-source") as HTMLSelectElement;
@@ -711,6 +722,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       const makes = MEDIA_OPS.find((o) => o.op === op)?.makesImage;
       wrap.querySelectorAll<HTMLElement>(".a-m-field").forEach((el) => { el.hidden = !OP_FIELDS[op].includes(el.dataset.field!); });
       (wrap.querySelector(".a-m-attach-wrap") as HTMLElement).hidden = !makes;
+      (wrap.querySelector(".a-m-tags-wrap") as HTMLElement).hidden = !makes;
       (wrap.querySelector(".a-m-hint") as HTMLElement).innerHTML = makes
         ? "Saves a new asset (the original is never changed) and reuses it when the same picture gets the same treatment again. Later steps read <code>\${steps.&lt;step id&gt;.output.asset.id}</code>; give this step an id."
         : "Reads the picture and writes nothing. Later steps (and “Only run this step when…”) read <code>\${steps.&lt;step id&gt;.output…}</code>, e.g. <code>steps.check.output.sharpness</code> is less than 60.";
@@ -975,7 +987,10 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         } catch (e: any) {
           throw new Error(`Step ${i + 1}: ${e.message}`);
         }
-        setOrDrop("attach_as", MEDIA_OPS.find((o) => o.op === op)?.makesImage ? field(".a-m-attach")?.value.trim() : null);
+        const makes = MEDIA_OPS.find((o) => o.op === op)?.makesImage;
+        setOrDrop("attach_as", makes ? field(".a-m-attach")?.value.trim() : null);
+        const tags = (field(".a-m-tags")?.value ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+        setOrDrop("tags", makes && tags.length ? tags : null);
         return step;
       }
       if (kind === "approval") {
@@ -1000,6 +1015,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         step.integration = integration;
         if (key) step.action = key; // else it names a capability (notify), kept from the JSON
         setOrDrop("attach_as", field(".a-int-attach")?.value.trim());
+        const intTags = (field(".a-int-tags")?.value ?? "").split(",").map((t) => t.trim()).filter(Boolean);
+        setOrDrop("tags", intTags.length ? intTags : null);
         const rawArgs = field(".a-int-args")!.value.trim();
         setOrDrop("args", rawArgs ? parseJsonObject(rawArgs, `Step ${i + 1} arguments`) : null);
         return step;
@@ -1052,6 +1069,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       setOrDrop("unattached", unattached ? unattached === "true" : null);
       setOrDrop("trashed", ($("wf-t-trashed") as HTMLInputElement).checked);
       if (entity === "asset") {
+        const versions = ($("wf-t-versions") as HTMLSelectElement).value;
+        setOrDrop("versions", versions === "true" ? true : versions || null); // unset: originals only (the target default)
         setOrDrop("asset_type", ($("wf-t-asset-type") as HTMLSelectElement).value);
         setOrDrop("mime_type", ($("wf-t-mime") as HTMLInputElement).value.trim());
       } else {
@@ -1165,6 +1184,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     ($("wf-t-resource-type") as HTMLInputElement).value = tq.resource_type ?? "";
     ($("wf-t-tags") as HTMLInputElement).value = Array.isArray(tq.tags) ? tq.tags.join(", ") : tq.tags ?? "";
     ($("wf-t-unattached") as HTMLSelectElement).value = typeof tq.unattached === "boolean" ? String(tq.unattached) : "";
+    ($("wf-t-versions") as HTMLSelectElement).value = tq.versions === true || tq.versions === "true" ? "true" : tq.versions === "all" ? "all" : "";
     ($("wf-t-trashed") as HTMLInputElement).checked = !!tq.trashed;
     ($("wf-t-type") as HTMLInputElement).value = tq.entry_type ?? "";
     ($("wf-t-status") as HTMLSelectElement).value = tq.status ?? "";
@@ -1357,6 +1377,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     if (q.resource_type) parts.push(q.resource_type);
     if (q.status) parts.push(q.status);
     if (q.trashed) parts.push("in the Trash");
+    if (t?.entity === "asset") parts.push(q.versions === "all" ? "with versions" : q.versions === true ? "versions only" : "originals");
     if (q.unattached === true) parts.push("unattached");
     else if (q.unattached === false) parts.push("attached");
     if (Array.isArray(q.tags) && q.tags.length) parts.push(`tagged ${q.tags.join(", ")}`);

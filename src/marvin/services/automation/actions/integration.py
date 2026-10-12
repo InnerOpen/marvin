@@ -137,7 +137,15 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     if keeps_images:
         made_by = f"{row.provider}.{key}"
         out = keep_generated_images(
-            session, group_id, out, generated_by=made_by, args=plain_args, context=context, user_id=user_id, attach_as=action.get("attach_as")
+            session,
+            group_id,
+            out,
+            generated_by=made_by,
+            args=plain_args,
+            context=context,
+            user_id=user_id,
+            attach_as=action.get("attach_as"),
+            tags=action.get("tags"),
         )
     return out
 

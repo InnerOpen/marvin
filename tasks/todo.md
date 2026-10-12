@@ -815,6 +815,18 @@ SDK `f5f3c21` (types + assets.list(params)) for other callers. Full suite 4279 p
 Later (Jared to decide): grid view, smart-collection rule keys origin/source, tags on media steps, trash versions with
 their original.
 
+**G. Originals by default + library 4-6 (2026-10-12, Jared: "seems like a good idea… go to 4-6 when resolved")**
+- [x] A workflow's asset target runs on originals unless it asks (`versions` true|all, `source`, `origin: derived`) —
+      `selector.originals_unless_asked`; editor **Versions** select on asset targets; `versions: "all"` in the query.
+- [x] 4. Library **Grid** view (thumbnails, version/generated badges, "N versions").
+- [x] 5. Smart collections (assets): `origins` (**Came from**) and `made_from` (**Made from**); new uploads and
+      versions join matching asset collections at once (they waited for the nightly resync).
+- [x] 6. `tags` on a media step and on an image-making integration step; an image's versions go to the Trash with it
+      and come back with it (`metadata.trashed_with`), except a version an entry uses; an original whose version an
+      entry uses counts as attached (query + orphaned-assets job).
+Review: tests in test_asset_library_filters / test_workflow_media; no route schema change (no SDK). Docs: what's new,
+workflows, collections, trash.
+
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
 Today a plugin brings actions, blueprints and capabilities, but not Workflow Library recipes (core JSON only) or how-to

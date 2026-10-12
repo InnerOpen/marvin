@@ -24,6 +24,8 @@ Every workspace also gets six locked **system** collections (`inbox`, `drafts`, 
 | `where` | entry | field conditions, `[{"field": key, "op": op, "value": v}]`; each condition is one dimension |
 | `asset_types` | asset | asset type bucket, e.g. `image` |
 | `mime_types` | asset | exact MIME type, e.g. `image/svg+xml` |
+| `origins` | asset | where it came from: `upload`, `derived` (a version a workflow made from another image), `generated` (**Came from**) |
+| `made_from` | asset | the versions made from these assets, by slug or id (**Made from**) |
 | `resource_types` | resource | resource type |
 | `created_within_days` | any | `created_at` within the last N days |
 | `tags` | any | tag slugs; matches when the item carries at least one |
@@ -82,7 +84,7 @@ None. The resync cadence is the system task's interval (daily); an admin can adj
 
 ## Since
 
-Builder, **Run Query**, `where` and `POST /preview`: rc.169. A scheduled publish joins matching smart collections at once (it fires the usual entry events): rc.171. **Visible to sites**, and private collections ignored by the entries `collection` filter: rc.186. Rolling windows: rc.82 (`142eb6e9`). No default "Recent": rc.83 (`921047ad`). Asset/resource targets, `mime_types` and `tags` predate this release.
+Builder, **Run Query**, `where` and `POST /preview`: rc.169. A scheduled publish joins matching smart collections at once (it fires the usual entry events): rc.171. **Visible to sites**, and private collections ignored by the entries `collection` filter: rc.186. Rolling windows: rc.82 (`142eb6e9`). No default "Recent": rc.83 (`921047ad`). Asset/resource targets, `mime_types` and `tags` predate this release. `origins`, `made_from`, and new assets joining matching asset collections when they are uploaded or made (not only at the nightly resync): unreleased (2026-10-12).
 
 ## Related
 
