@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.274 (2026-10-12)
+
+### Bug Fixes
+
+- **workflows**: A media step takes the URL an asset is served at — ${entry.image} works as a
+  picture
+  ([`d62208e`](https://github.com/InnerOpen/marvin/commit/d62208e7f388aa56305001e864faee360669b2ba))
+
+
 ## v1.0.0-rc.273 (2026-10-12)
 
 ### Features
