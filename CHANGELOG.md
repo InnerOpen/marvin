@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.280 (2026-10-12)
+
+### Bug Fixes
+
+- **ui**: An asset's "Made from" and metadata links look like links
+  ([`66ef747`](https://github.com/InnerOpen/marvin/commit/66ef747483e49f5105edee9010243834819f5701))
+
+
 ## v1.0.0-rc.279 (2026-10-12)
 
 ### Bug Fixes
