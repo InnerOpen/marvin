@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.284 (2026-10-12)
+
+### Features
+
+- **workflows**: Media slice 3 — a document's text, PDF pages as pictures, faces and personal
+  details blurred
+  ([`58e99a1`](https://github.com/InnerOpen/marvin/commit/58e99a1c27de961be48a314746c3cec671ae7c9c))
+
+
 ## v1.0.0-rc.283 (2026-10-12)
 
 ### Features
