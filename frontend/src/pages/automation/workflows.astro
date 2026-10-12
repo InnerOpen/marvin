@@ -732,8 +732,6 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
             ${[["", "The current item (Run-on match or trigger)"], ["entry", "Entry"], ["asset", "Asset"], ["resource", "Resource"]]
               .map(([v, label]) => `<option value="${v}" ${(a.entity_type ?? "") === v ? "selected" : ""}>${label}</option>`).join("")}
           </select></label>
-        <div class="a-meta-wrap tf" ${METADATA_OPS.has(a.op) ? "" : "hidden"}><span>Metadata to set <span class="muted">(merged into the entry's metadata)</span></span></div>
-        <div class="a-data-wrap tf" ${DATA_OPS.has(a.op) ? "" : "hidden"}><span>Fields to set <span class="muted">(field keys of the entry type and their new values — validated; checkbox and number values may be typed as text)</span></span></div>
         <div class="a-create-wrap" ${CREATE_OPS.has(a.op) ? "" : "hidden"}>
           <label class="tf"><span>Entry type <span class="muted">(its slug)</span></span>
             <input class="input a-entry-type" list="wf-entry-types" placeholder="e.g. article" value="${esc(a.entry_type ?? "")}" /></label>
@@ -743,6 +741,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
             <select class="input a-status">${["draft", "inbox"].map((v) => `<option ${(a.status ?? "draft") === v ? "selected" : ""}>${v}</option>`).join("")}</select></label>
           <span class="hint small">Later steps read the new entry as <code>\${steps.&lt;step id&gt;.output.entry_id}</code>; to publish it, add a Publish step with that as its target. The same event handled twice makes it once.</span>
         </div>
+        <div class="a-meta-wrap tf" ${METADATA_OPS.has(a.op) ? "" : "hidden"}><span>Metadata to set <span class="muted">(merged into the entry's metadata)</span></span></div>
+        <div class="a-data-wrap tf" ${DATA_OPS.has(a.op) ? "" : "hidden"}><span>Fields to set <span class="muted">(field keys of the entry type and their new values — validated; checkbox and number values may be typed as text)</span></span></div>
         <label class="a-collection-wrap tf" ${COLLECTION_OPS.has(a.op) ? "" : "hidden"}><span>Collection</span>
           <input class="input a-collection" placeholder="slug or name — e.g. featured" value="${esc(a.collection_slug ?? "")}" /></label>
         <label class="a-reason-wrap tf" ${REVIEW_OPS.has(a.op) ? "" : "hidden"}><span>Reason <span class="muted">(optional — shown with the entry in the review queue)</span></span>
