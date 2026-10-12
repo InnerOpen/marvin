@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.262 (2026-10-12)
+
+### Features
+
+- **workflows**: Create an entry — a workflow step that makes a draft, once per event; four recipes
+  run
+  ([`add56c0`](https://github.com/InnerOpen/marvin/commit/add56c068f61cd95be87db59cbf842eb77ef4d63))
+
+
 ## v1.0.0-rc.261 (2026-10-11)
 
 ### Build System
