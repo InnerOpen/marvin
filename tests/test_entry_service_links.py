@@ -306,11 +306,6 @@ def test_recipe_roles_for_entry_reads_declared_roles(db_session, workspace):
 
 
 def test_import_asset_ssrf_fence_blocks_internal_hosts():
-    # The SSRF guard rejects non-public targets before any fetch happens (IP literals need no DNS).
-    from marvin.services.ai.tools.builtins_actions import _public_url_error
-
-    assert "http" in _public_url_error("file:///etc/passwd")
-    assert "non-public" in _public_url_error("http://127.0.0.1/x")  # loopback
-    assert "non-public" in _public_url_error("http://10.0.0.5/x")  # private
-    assert "non-public" in _public_url_error("http://169.254.169.254/x")  # cloud metadata (link-local)
-    assert "non-public" in _public_url_error("http://[::1]/x")  # IPv6 loopback
+    # The guarded client refuses non-public targets before connecting (IP literals need no DNS).
+    for url in ("http://127.0.0.1/x", "http://10.0.0.5/x", "http://169.254.169.254/x", "http://[::1]/x"):
+        assert "non-public" in _import({"url": url})["error"], url

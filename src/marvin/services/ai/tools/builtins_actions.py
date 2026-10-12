@@ -352,35 +352,6 @@ _MAX_IMPORT_BYTES = 20 * 1024 * 1024  # 20 MB
 _MAX_IMPORT_BATCH = 24  # ceiling on images ingested in one call
 
 
-def _public_url_error(url: str) -> str | None:
-    """SSRF fence: reject a fetch URL that isn't http(s) or whose host resolves to a non-public
-    address (loopback / private / link-local / reserved — e.g. 127.0.0.1, 169.254.169.254, 10.x).
-    Returns an error string, or None if the URL is safe to fetch. Callers must also disable redirect
-    following so a public host can't 302 into an internal one."""
-    import ipaddress
-    import socket
-    from urllib.parse import urlparse
-
-    parsed = urlparse(str(url))
-    if parsed.scheme not in ("http", "https"):
-        return "url must be http(s)"
-    host = parsed.hostname
-    if not host:
-        return "url has no host"
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror as e:
-        return f"could not resolve host: {e}"
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            continue
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
-            return "url resolves to a non-public address — blocked"
-    return None
-
-
 def _recipe_roles_for_entry(ctx: ToolContext, entry_id) -> list:
     """The entry type's declared asset roles (e.g. [hero, gallery]) for role-by-position attach."""
     from marvin.db.models.platform.entries import Entries
@@ -397,7 +368,7 @@ def _recipe_roles_for_entry(ctx: ToolContext, entry_id) -> list:
 
 def _ingest_one_image(ctx: ToolContext, spec: dict):
     """Fetch/decode a single image spec ({url|data, filename?, name?, alt_text?}) and store it as an
-    asset. Returns (asset, None) on success or (None, error_string). Applies the SSRF fence + size cap."""
+    asset. Returns (asset, None) on success or (None, error_string). Applies the SSRF guard + size cap (the guarded HTTP client)."""
     import base64
     import io
     import os
@@ -405,21 +376,21 @@ def _ingest_one_image(ctx: ToolContext, spec: dict):
 
     url, data = spec.get("url"), spec.get("data")
     if url:
-        ssrf = _public_url_error(url)
-        if ssrf:
-            return None, ssrf
-        try:
-            import httpx
+        # The guarded client: public hosts only, pinned to the address it checked (redirects too), the size capped
+        # while reading — not after downloading everything.
+        from marvin.services.integrations.http_client import MarvinHttpHelper, SsrfError
 
-            # follow_redirects=False so a public host can't 302 the request into an internal address
-            # (the SSRF fence only validated the initial host). A redirect is reported, not chased.
-            resp = httpx.get(str(url), timeout=15.0, follow_redirects=False)
-            if resp.is_redirect:
-                return None, "url redirects — provide the direct image URL"
-            resp.raise_for_status()
-            raw = resp.content
-        except Exception as e:  # noqa: BLE001
+        try:
+            resp = MarvinHttpHelper(max_bytes=_MAX_IMPORT_BYTES).get(str(url), timeout=15)
+        except SsrfError as e:
+            return None, f"url blocked: {e}"
+        except ValueError:  # the size cap
+            return None, f"image too large (max {_MAX_IMPORT_BYTES} bytes)"
+        except Exception as e:  # noqa: BLE001 — DNS, refused, timeout: the URL is the problem
             return None, f"could not fetch url: {e}"
+        if not resp.ok:
+            return None, f"could not fetch url: HTTP {resp.status_code}"
+        raw = resp.content
         filename = os.path.basename(str(url).split("?")[0]) or "imported"
     elif data:
         try:

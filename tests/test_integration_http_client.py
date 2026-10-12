@@ -167,3 +167,58 @@ def test_what_counts_as_a_network_blip():
     assert blip(urllib.error.URLError(TimeoutError()))
     assert not blip(ConnectionRefusedError()) and not blip(urllib.error.URLError(socket.gaierror())) and not blip(ValueError("HTTP 401"))
     assert not blip(None)
+
+
+# ── DNS rebinding: a connection goes to the address that was checked ─────────
+def _dns(monkeypatch, *answers: list[str]) -> list[str]:
+    """getaddrinfo answering call n with answers[n] (the last one repeats) — a rebinding DNS server can say "public"
+    to the check and "127.0.0.1" to the connect. Returns the hosts looked up."""
+    import socket
+
+    from marvin.services.integrations import http_client
+
+    lookups: list[str] = []
+
+    def getaddrinfo(host, port, *args, **kwargs):
+        lookups.append(host)
+        addresses = answers[min(len(lookups), len(answers)) - 1]
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", (a, port)) for a in addresses]
+
+    monkeypatch.setattr(http_client.socket, "getaddrinfo", getaddrinfo)
+    return lookups
+
+
+def _no_network(monkeypatch) -> list[tuple]:
+    """Record where the client dials, then refuse — no real connection is made."""
+    from marvin.services.integrations import http_client
+
+    dialled: list[tuple] = []
+
+    def create_connection(address, *args, **kwargs):
+        dialled.append(address)
+        raise ConnectionRefusedError("test: no network")
+
+    monkeypatch.setattr(http_client.socket, "create_connection", create_connection)
+    return dialled
+
+
+@pytest.mark.parametrize(("url", "port"), [("http://rebind.example/x", 80), ("https://rebind.example/x", 443)])
+def test_a_connection_dials_the_address_it_checked_after_one_lookup(monkeypatch, url, port):
+    lookups = _dns(monkeypatch, ["93.184.216.34"], ["127.0.0.1"])  # public to the first lookup, internal to a second
+    dialled = _no_network(monkeypatch)
+
+    with pytest.raises(Exception, match="no network"):
+        MarvinHttpHelper().post(url, json={})
+
+    assert lookups == ["rebind.example"] and dialled == [("93.184.216.34", port)]
+
+
+@pytest.mark.parametrize("answer", [["10.0.0.7"], ["93.184.216.34", "169.254.169.254"]])
+def test_a_host_with_any_private_address_is_refused_before_dialling(monkeypatch, answer):
+    _dns(monkeypatch, answer)
+    dialled = _no_network(monkeypatch)
+
+    with pytest.raises(SsrfError):
+        MarvinHttpHelper().post("https://internal.example/x", json={})
+
+    assert dialled == []

@@ -3,8 +3,11 @@
 Also core's own guarded client for outbound fetches that aren't integrations (media-embed oEmbed
 lookups), so it must import without the optional ``marvin_integration_sdk``.
 
-Enforces timeouts, a response-size cap (INTEGRATION_HTTP_MAX_BYTES), and an SSRF guard (refuses to call private/loopback/
-link-local/reserved hosts, and re-checks on redirect). Providers get safe outbound HTTP for free.
+Enforces timeouts, a response-size cap (INTEGRATION_HTTP_MAX_BYTES), and an SSRF guard: every connection — the first and
+each redirect's — resolves its host once, refuses it unless every address is public (not private, loopback, link-local,
+reserved…), and connects to exactly the address it checked. Checking one lookup and connecting by a second would let a
+hostile DNS server answer "public" then "127.0.0.1" (DNS rebinding). TLS still verifies the host's own name. The client
+uses no proxy: the guard must see the real host. Providers get safe outbound HTTP for free.
 """
 
 import http.client
@@ -54,31 +57,71 @@ class SsrfError(ValueError):
     """Raised when a request target is not a permitted public host."""
 
 
+def _is_public_ip(address: str) -> bool:
+    ip = ipaddress.ip_address(address.split("%")[0])  # an IPv6 scope (fe80::1%eth0) isn't part of the address
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+
+
 def _host_is_public(host: str) -> bool:
-    """True only if every address the host resolves to is a global/public IP."""
+    """True only if every address the host resolves to is a global/public IP (a check before a request made elsewhere,
+    e.g. web push; requests through this client are pinned by ``_public_address`` instead)."""
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror:
         return False
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
-            return False
-    return True
+    return all(_is_public_ip(info[4][0]) for info in infos)
+
+
+def _public_address(host: str, port: int) -> str:
+    """The one address to connect to: ``host`` resolved once, refused unless every address it has is public."""
+    infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)  # gaierror → urllib's URLError, as before
+    addresses = [info[4][0] for info in infos]
+    if not addresses or not all(_is_public_ip(a) for a in addresses):
+        raise SsrfError(f"Refusing to call non-public host {host!r}.")
+    return addresses[0]
+
+
+def _pinned_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None, **kwargs):
+    """http.client's socket factory, pinned: connect to the address that was checked, not to a fresh lookup."""
+    host, port = address
+    return socket.create_connection((_public_address(host, port), port), timeout, source_address, **kwargs)
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = _pinned_connection
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """The socket is pinned; TLS still wraps it with server_hostname = the host's name, so its certificate is checked."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._create_connection = _pinned_connection
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    def http_open(self, req):
+        return self.do_open(_PinnedHTTPConnection, req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
 
 
 def _guard(url: str) -> None:
+    """The URL's shape: http(s) with a host. Whether the host is public is checked as it connects (``_public_address``)."""
     parsed = urlparse(url)
     if parsed.scheme not in ("http", "https"):
         raise SsrfError(f"Only http(s) URLs are allowed (got {parsed.scheme!r}).")
     if not parsed.hostname:
         raise SsrfError("URL has no host.")
-    if not _host_is_public(parsed.hostname):
-        raise SsrfError(f"Refusing to call non-public host {parsed.hostname!r}.")
 
 
 class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Re-run the SSRF guard on every redirect target — a redirect must not smuggle in a private host."""
+    """A redirect must stay http(s); its host is checked when it connects, like the first one."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         _guard(newurl)
@@ -110,7 +153,9 @@ class MarvinHttpHelper:
     """Implements ``marvin_integration_sdk.http.HttpHelper``."""
 
     def __init__(self, max_bytes: int | None = None) -> None:
-        self._opener = urllib.request.build_opener(_GuardedRedirectHandler())
+        self._opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}), _GuardedRedirectHandler(), _PinnedHTTPHandler(), _PinnedHTTPSHandler()
+        )
         self._max_bytes = get_app_settings().INTEGRATION_HTTP_MAX_BYTES if max_bytes is None else max_bytes
 
     def _send(self, req: urllib.request.Request, timeout: float) -> Response:
