@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.267 (2026-10-12)
+
+### Bug Fixes
+
+- **workflows**: List an entry type once when the workspace has its own copy of a built-in
+  ([`2983f24`](https://github.com/InnerOpen/marvin/commit/2983f24ace7eb9a819a9e446ec0908a16bfc280a))
+
+
 ## v1.0.0-rc.266 (2026-10-12)
 
 ### Bug Fixes
