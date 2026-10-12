@@ -13,6 +13,7 @@ import type {
   AutomationValidateResult,
 } from "@inneropen/marvin-sdk/platform";
 import { createSdkClient } from "../sdk";
+import { fetchApi } from "./client";
 import { getApiUrl } from "./config";
 
 export type { Automation, AutomationCreate, AutomationOptions, AutomationUpdate };
@@ -59,6 +60,12 @@ export async function runAutomation(id: string, authToken?: string) {
   return createSdkClient(authToken).automations.run(id);
 }
 
+/** Start an automation now and don't wait for it (the Run button): a run over many entries outlasts a request.
+ *  Progress shows in the activity toasts and the workflow's Runs. */
+export async function startAutomation(id: string): Promise<{ status: string; ok: boolean }> {
+  return fetchApi(`/api/automations/${encodeURIComponent(id)}/run?background=true`, { method: "POST" });
+}
+
 /** A sample event a dry run can test against: a logged event, or one built for an entry. */
 export interface DryRunSample {
   kind: "event" | "entry";
@@ -73,7 +80,11 @@ export interface DryRunSample {
 // Not in the SDK yet (picking a dry run's sample, listing candidates): a cookie-authed fetch like
 // the SDK client's.
 async function automationsApi<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(getApiUrl(path), { credentials: "include", headers: { Accept: "application/json" }, ...init });
+  const res = await fetch(getApiUrl(path), {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+    ...init,
+  });
   if (!res.ok) {
     let detail: unknown = res.statusText;
     try {
@@ -95,7 +106,9 @@ export async function dryRunAutomation(id: string, sample?: Pick<DryRunSample, "
   if (!sample) return createSdkClient(authToken).automations.dryRun(id);
   const param = sample.kind === "entry" ? "entry_id" : "event_id";
   const query = new URLSearchParams({ dry_run: "true", [param]: sample.id });
-  return automationsApi<Record<string, unknown>>(`/api/automations/${encodeURIComponent(id)}/run?${query}`, { method: "POST" });
+  return automationsApi<Record<string, unknown>>(`/api/automations/${encodeURIComponent(id)}/run?${query}`, {
+    method: "POST",
+  });
 }
 
 /** Recent events (then entries) an event-triggered workflow's dry run can test against. */

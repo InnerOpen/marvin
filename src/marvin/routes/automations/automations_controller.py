@@ -8,7 +8,7 @@ action kinds, and the operations available as actions — so the UI is backend-d
 from contextlib import contextmanager
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, status
 from pydantic import UUID4
 
 from marvin.db.models.groups.automations import WorkspaceAutomationModel
@@ -128,6 +128,25 @@ def _library_recipe(item: dict, refs, uses: dict[str, list[dict]] | None = None)
         in_use=(uses or {}).get(item["id"], []),
         source=item.get("source"),
     )
+
+
+def _run_in_background(group_id, automation_id, user_id) -> None:
+    """A Run-button run that answered first: in its own session, after the response. A failure is logged and lands in
+    the workflow's Runs and the automation_failed event like any run's."""
+    from marvin.core.root_logger import get_logger
+    from marvin.db.db_setup import session_context
+    from marvin.services.automation.engine import run_automation_now
+    from marvin.services.automation.recorder import ExecutionRecorder
+
+    logger = get_logger(__name__)
+    try:
+        with session_context() as session:
+            row = session.get(WorkspaceAutomationModel, automation_id)
+            if row is None or str(row.group_id) != str(group_id) or not row.enabled:
+                return
+            run_automation_now(session, group_id, row, user_id=user_id, logger=logger, recorder=ExecutionRecorder(session, group_id))
+    except Exception as e:  # noqa: BLE001 — a background run must never take the worker down
+        logger.error(f"background run of workflow {automation_id} failed: {e}", exc_info=True)
 
 
 def _rank(user, group_id) -> int:
@@ -460,9 +479,21 @@ class AutomationsController(BaseUserController):
         return {"event_type": trigger_event(row), "samples": [s.describe() for s in samples]}
 
     @router.post("/{automation_id}/run", summary="Run an automation now (manual trigger)")
-    def run_automation(self, automation_id: UUID4, dry_run: bool = False, entry_id: UUID4 | None = None, event_id: UUID4 | None = None) -> dict:
+    def run_automation(
+        self,
+        automation_id: UUID4,
+        bg_tasks: BackgroundTasks,
+        dry_run: bool = False,
+        entry_id: UUID4 | None = None,
+        event_id: UUID4 | None = None,
+        background: bool = False,
+    ) -> dict:
         """Run the automation's steps immediately — the Manual trigger / Run button. Skips the
         trigger + condition gates (the caller asked for it explicitly).
+
+        ``background=true`` starts the run after answering (``{"status": "started"}``) instead of waiting for it — for a
+        run over many entries (re-listing a shop) that would outlast the request. Its progress is the usual
+        automation_started / automation_ran events (the activity toasts) and the workflow's Runs.
 
         ``dry_run=true`` resolves the target + each action's inputs but executes nothing (no AI call,
         no mutation, no webhook POST) and records nothing — it returns ``plan``, the resolved per-step
@@ -492,6 +523,9 @@ class AutomationsController(BaseUserController):
 
         if dry_run and (entry_id or event_id or trigger_event(row)):
             return {"status": "dry_run", **self._dry_run_with_sample(row, entry_id=entry_id, event_id=event_id)}
+        if background and not dry_run:
+            bg_tasks.add_task(_run_in_background, self.group_id, row.id, self.user.id)
+            return {"status": "started", "ok": True}
         try:
             res = run_automation_now(
                 self.session,

@@ -237,7 +237,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     createAutomation,
     updateAutomation,
     deleteAutomation,
-    runAutomation,
+    startAutomation,
     dryRunAutomation,
     listDryRunSamples,
     validateAutomation,
@@ -1528,13 +1528,17 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       }
       card.querySelector(".js-run")!.addEventListener("click", async (e) => {
         const btn = e.currentTarget as HTMLButtonElement;
-        btn.disabled = true; const orig = btn.textContent; btn.textContent = "Running…";
+        btn.disabled = true; const orig = btn.textContent; btn.textContent = "Starting…";
         try {
-          const res = await runAutomation(id);
-          alert(res.ok ? "Workflow ran." : "Workflow ran with errors — check the Event Log.");
+          // Started, not awaited: a run over many entries outlasts a request. The activity toast says when it's done.
+          await startAutomation(id);
+          btn.textContent = "Started ✓";
+          btn.title = "Running in the background — the activity toast and Runs show how it goes.";
+          setTimeout(() => { btn.disabled = false; btn.textContent = orig; }, 4000);
         } catch (err: any) {
           alert(err?.message || "Run failed.");
-        } finally { btn.disabled = false; btn.textContent = orig; }
+          btn.disabled = false; btn.textContent = orig;
+        }
       });
       card.querySelector(".js-dryrun")!.addEventListener("click", async (e) => {
         const btn = e.currentTarget as HTMLButtonElement;
