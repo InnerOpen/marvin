@@ -20,6 +20,8 @@ check ``unknown_keys`` first):
   images can't sweep a crop pack — unless the spec asks for versions itself (``versions: true`` or ``source``).
 - ``entry`` — attached to this entry (id or slug), in the entry's own order; ``role`` — assets only: attached in this
   role (``hero``), to that entry or, without ``entry``, to any.
+- ``exclude`` — leave this item out (id or slug): "the others", e.g. ``${asset.id}`` in a run about that asset.
+- ``checksum`` — assets only: exactly this file (its sha256), e.g. ``${asset.checksum}`` to find a re-upload.
 - ``created_after`` / ``created_before`` — ISO dates or datetimes (UTC), or relative (``-7d``).
 - ``trashed`` — true: only items in the Trash (the Trash's side, for a restore).
 - ``origin`` / ``origins`` — assets only: upload, derived (made from another asset) or generated (by an integration).
@@ -39,9 +41,9 @@ from marvin.services.automation.matcher import as_bool
 from marvin.services.entries.query import _as_list, _when
 
 ASSET, RESOURCE = "asset", "resource"
-_COMMON = ("text", "query", "tags", "collection", "collections", "unattached", "entry", "created_after", "created_before", "trashed")
+_COMMON = ("text", "query", "tags", "collection", "collections", "unattached", "entry", "exclude", "created_after", "created_before", "trashed")
 KEYS = {
-    ASSET: (*_COMMON, "asset_type", "asset_types", "mime_type", "mime_types", "origin", "origins", "versions", "source", "role"),
+    ASSET: (*_COMMON, "asset_type", "asset_types", "mime_type", "mime_types", "origin", "origins", "versions", "source", "role", "checksum"),
     RESOURCE: (*_COMMON, "resource_type", "resource_types"),
 }
 
@@ -60,6 +62,7 @@ KEY_NOTES: dict[str, dict[str, str]] = {
         "unattached": "true: attached to no entry (an asset's versions of an original still in the library don't count); "
         "false: attached to at least one",
         "entry": "attached to this entry (id or slug), in its order",
+        "exclude": "leave this one out (id or slug), e.g. ${asset.id}",
         "created_after": "ISO date/datetime (UTC) or relative: -7d, -12h, -2w, now, today; also created_before",
         "created_before": "a date, as created_after",
         "trashed": "true: only items in the Trash (left out otherwise) — a `restore` target",
@@ -75,6 +78,7 @@ KEY_NOTES: dict[str, dict[str, str]] = {
                 "(a workflow's asset target leaves them out unless it sets versions, source or origin derived)",
                 "source": "the versions made from this asset (id or slug)",
                 "role": "attached in this role (e.g. hero), to `entry` or to any entry",
+                "checksum": "exactly this file (sha256), e.g. ${asset.checksum}",
             }
             if kind == ASSET
             else {"resource_type": "the resource's type, e.g. supplier (`resource_types`: a list)", "resource_types": "resource types, any of"}
@@ -160,6 +164,10 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
             return nothing, f"no such collection(s) in this workspace: {', '.join(collections)}"
         q = q.filter(model.id.in_(session.query(getattr(coll_link, fk)).filter(coll_link.collection_id.in_(coll_ids))))
 
+    q, note = _exclude_and_checksum(q, model, kind, spec)
+    if note:
+        return nothing, note
+
     if "entry" in spec or (kind == ASSET and "role" in spec):
         q, note = _attached_to(session, group_id, q, model, entry_link, fk, spec)
         if note:
@@ -183,6 +191,23 @@ def build(session, group_id, kind: str, spec: dict | None, *, trashed: bool = Fa
             if (at := _when(spec[key])) is None:
                 return nothing, f"{key} is not a date: {spec[key]!r} (an ISO date, or relative like -7d, -12h, -2w, now, today)"
             q = q.filter(keep(at))
+    return q, None
+
+
+def _exclude_and_checksum(q, model, kind: str, spec: dict):
+    """exclude (one item left out) / checksum (assets: exactly this file). Present but empty matches nothing."""
+    from marvin.services.entries.query import _uuids
+
+    if "exclude" in spec:
+        ref = str(spec["exclude"] or "").strip()
+        if not ref:
+            return q, "exclude has no value"
+        q = q.filter(~((model.slug == ref) | model.id.in_(_uuids([ref]))))
+    if kind == ASSET and "checksum" in spec:
+        checksum = str(spec["checksum"] or "").strip()
+        if not checksum:
+            return q, "checksum has no value"
+        q = q.filter(model.checksum == checksum)
     return q, None
 
 

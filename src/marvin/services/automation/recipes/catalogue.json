@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 65,
+    "verified-current": 68,
     "needs-adapter": 8,
-    "needs-engine-capability": 23,
+    "needs-engine-capability": 20,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -55,7 +55,7 @@
       "name": "Assets and resources as workflow subjects",
       "priority": "P1",
       "capabilities_md": "Assets and resources",
-      "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Left: an asset target query by checksum. Derived-asset lineage is part of media-adapters."
+      "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Delivered 2026-10-12: `checksum` (and `exclude`) in an asset query; `asset.checksum` in a run. Derived-asset lineage is part of media-adapters."
     },
     "workflow-approvals": {
       "name": "Approval step inside a workflow",
@@ -1121,7 +1121,7 @@
     {
       "id": "living-resource-collection",
       "title": "Living resource collection",
-      "outcome": "Resource changes → locate referring entries → propose passage updates",
+      "outcome": "When a resource changes, the entries that use it are gathered and an AI drafts the passages that may now be out of date, with new wording.",
       "category": "Publishing and editorial",
       "category_slug": "publishing",
       "tags": [
@@ -1134,35 +1134,77 @@
         "type": "event",
         "event": "resource_updated",
         "builtin_event": true,
-        "custom_event": false,
-        "note": "resource_updated is triggerable but carries no entity: `$event.entity_id` is null and no `resource.*` context is loaded."
+        "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "living-resource-collection.json",
+      "vars": "living-resource-collection.vars.json",
+      "setup_variables": [
         {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset. Derived-asset lineage is part of media-adapters.",
-          "why": "a target query for the entries linked to the triggering resource (has_resources is only true/false)"
+          "name": "body_field",
+          "type": "field_key",
+          "description": "The text field of the entries that use resources, for the AI to read.",
+          "example": "body"
+        },
+        {
+          "name": "notes_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the suggested edits are drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "notes_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:resource_updated",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per change to a resource that entries use (none when nothing uses it)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry of suggested edits (once per event); the entries themselves aren't changed."
+        }
+      ],
+      "cost_notes": "One AI call per change to a used resource, from the workspace's monthly AI budget.",
+      "failure_behaviour": "An AI error fails the run before the draft is made.",
+      "dependencies": [],
+      "notes": [
+        "Up to 20 entries using the resource (`resource: ${resource.id}`), with their text.",
+        "Every save of a resource is a change: one draft per save while entries use it."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_living_resource_collection"
       },
       "brief": {
         "flow": "Resource changes → locate referring entries → propose passage updates",
@@ -4316,7 +4358,7 @@
     {
       "id": "duplicate-asset-scout",
       "title": "Duplicate asset scout",
-      "outcome": "Upload → compare hashes or similarity → suggest existing asset",
+      "outcome": "When a file is uploaded that's already in the library (the same bytes), a notification names the existing copy.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -4330,34 +4372,71 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "duplicate-asset-scout.json",
+      "vars": "duplicate-asset-scout.vars.json",
+      "setup_variables": [
         {
-          "capability": "asset-resource-targets",
-          "name": "Assets and resources as workflow subjects",
-          "priority": "P1",
-          "acceptance": "Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Left: an asset target query by checksum; a target query for the entries linked to a given resource or asset. Derived-asset lineage is part of media-adapters.",
-          "why": "an asset target query by checksum"
+          "name": "notify_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+          "example": "alerts"
         }
       ],
+      "requires": {
+        "trigger": "event:asset_uploaded",
+        "action_kinds": [
+          "collect",
+          "integration"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "exists",
+          "gt"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "capability": "notify",
+            "examples": "Slack or Apprise"
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "Slack or Apprise",
+          "purpose": "Where the alert goes.",
+          "referenced_by": "actions[1].integration",
+          "create": "Settings → Integrations"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "external_post",
+          "description": "Sends one notification per re-uploaded file."
+        }
+      ],
+      "cost_notes": "Free: no AI.",
+      "failure_behaviour": "A notifier error fails the run; nothing is moved or deleted either way.",
+      "dependencies": [],
       "notes": [
-        "Assets already store a `checksum`; a query key for it would make this a one-step recipe."
+        "Same file = same sha256 checksum; a resized or re-saved copy isn't the same file.",
+        "It only tells you: keep the copy, or move it to the Trash yourself."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "integration:notify"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_duplicate_asset_scout"
       },
       "brief": {
         "flow": "Upload → compare hashes or similarity → suggest existing asset",
@@ -8611,7 +8690,7 @@
     {
       "id": "entry-schema-impact-report",
       "title": "Entry schema impact report",
-      "outcome": "Find impacted entries and report validation changes before migration",
+      "outcome": "When an entry type's fields change, its entries that no longer pass its rules are listed in a notification, each with the rule it breaks.",
       "category": "Event-driven extensions",
       "category_slug": "events",
       "tags": [
@@ -8626,34 +8705,70 @@
         "custom_event": false,
         "note": "Triggerable; no entity, `$event.entry_type_slug` only."
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "entry-schema-impact-report.json",
+      "vars": "entry-schema-impact-report.vars.json",
+      "setup_variables": [
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "one report over the type's entries"
+          "name": "notify_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected integration that can send notifications — Slack, Apprise… (Settings → Integrations).",
+          "example": "alerts"
         }
       ],
+      "requires": {
+        "trigger": "event:entry_type_updated",
+        "action_kinds": [
+          "collect",
+          "integration"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "capability": "notify",
+            "examples": "Slack or Apprise"
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "Slack or Apprise",
+          "purpose": "Where the alert goes.",
+          "referenced_by": "actions[1].integration",
+          "create": "Settings → Integrations"
+        }
+      ],
+      "side_effects": [
+        {
+          "kind": "external_post",
+          "description": "Sends one notification when a change leaves entries breaking the rules."
+        }
+      ],
+      "cost_notes": "Free: no AI.",
+      "failure_behaviour": "A notifier error fails the run; entries are never changed.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): a target `{entry_type: \"${event.entry_type_slug}\"}` + `request_review` flags every entry of the type — a blunt instrument, no report."
+        "It checks the entries against the type as it is now (after the change), up to 1,000 of them; up to 50 are listed.",
+        "Those entries keep their content; saving one asks for the fix."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "integration:notify"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_entry_schema_impact_report"
       },
       "brief": {
         "flow": "Find impacted entries and report validation changes before migration",

@@ -9,6 +9,9 @@ Output: `rows` — each the same facts a run binds as `${entry.*}` / `${asset.*}
 useful ones, plus any extra `fields` paths) — `count` (rows returned), `total` (all that matched, before `limit`) and
 `text`, a plain list (one line per row, with any extra fields under it) to put straight into an AI prompt. A render
 step's `images` can take `rows` whole (a contact sheet). Reading only: it changes nothing, so a dry run runs it too.
+
+`only_invalid` (entries): keep only the entries that don't pass their type's current rules — each row gains `problem`
+(the first rule it breaks) — e.g. after an entry type's fields change. It checks up to CHECK_CAP matches.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from ..matcher import interpolate, resolve_path
 from .base import AutomationActionError, register_action
 
 DEFAULT_LIMIT = 25
+CHECK_CAP = 1000  # entries read to find the ones that break their type's rules (only_invalid)
 MAX_TEXT_CHARS = 4000  # one value in a row; a digest of long bodies stays a digest
 TEXT_FIELD_CHARS = 600  # an extra field as the `text` list shows it
 DEFAULT_FIELDS = {
@@ -38,9 +42,14 @@ def run_collect_action(session, group_id, action: dict, context: dict, *, user_i
         limit = max(1, min(int(action.get("limit") or DEFAULT_LIMIT), _cap()))
     except (TypeError, ValueError) as e:
         raise AutomationActionError("collect `limit` is a whole number") from e
-    rows, total = _query(session, group_id, entity, query, limit)
+    only_invalid = bool(action.get("only_invalid")) and entity == "entry"
+    rows, total = _query(session, group_id, entity, query, CHECK_CAP if only_invalid else limit)
+    problems: dict = {}
+    if only_invalid:
+        problems = {row.id: problem for row in rows if (problem := entry_problem(row))}
+        rows, total = [row for row in rows if row.id in problems][:limit], len(problems)
     extra = [str(f) for f in (action.get("fields") or []) if str(f).strip()]
-    facts = [_row(session, group_id, entity, row, extra) for row in rows]
+    facts = [_row(session, group_id, entity, row, extra) | ({"problem": problems[row.id]} if only_invalid else {}) for row in rows]
     return {"entity": entity, "count": len(facts), "total": total, "rows": facts, "text": _text(entity, facts, extra)}
 
 
@@ -64,6 +73,22 @@ def _query(session, group_id, entity: str, query: dict, limit: int) -> tuple[lis
     if result.note:
         raise AutomationActionError(f"collect: {result.note}")
     return result.rows, result.total
+
+
+def entry_problem(entry) -> str | None:
+    """The first rule of its type's current schema the entry breaks ("Field 'price': Required field is missing or
+    null"), or None when it passes (or the type has no fields)."""
+    from marvin.schemas.platform.entry_type_schema import EntryTypeSchemaDefinition
+    from marvin.services.content_validator import ContentValidationError, validate_entry_content
+
+    schema = (entry.entry_type.schema_json if entry.entry_type else None) or {}
+    if not schema.get("fields"):
+        return None
+    try:
+        validate_entry_content(EntryTypeSchemaDefinition.model_validate(schema), entry.data_json or {})
+    except ContentValidationError as e:
+        return str(e)
+    return None
 
 
 def _row(session, group_id, entity: str, row, extra: list[str]) -> dict:
@@ -100,7 +125,7 @@ def _text(entity: str, rows: list[dict], extra: list[str]) -> str:
     for row in rows:
         if entity == "entry":
             head = row.get("title") or row.get("slug") or ""
-            detail = row.get("summary")
+            detail = row.get("problem") or row.get("summary")
         elif entity == "asset":
             head = row.get("name") or row.get("slug") or ""
             size = f"{row['width']}×{row['height']}" if row.get("width") and row.get("height") else None

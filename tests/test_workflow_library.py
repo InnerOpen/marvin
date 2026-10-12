@@ -372,6 +372,7 @@ def ws(db_session, monkeypatch):
         "draft_body_field": "body",
         "resource_type": "supplier",
         "unavailable_text": "sold out",
+        "notes_body_field": "body",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1675,6 +1676,67 @@ class TestExecution:
         ws.session.query(EntryResources).filter_by(resource_id=supplier.id).delete()
         ws.session.delete(supplier)  # resources aren't swept with the workspace's entries
         ws.session.commit()
+
+    def test_living_resource_collection(self, ws):
+        from marvin.db.models.platform import Resources
+        from marvin.db.models.platform.entry_resources import EntryResources
+
+        _install(ws, "living-resource-collection")
+        supplier = _resource(ws, "Brass supply", description="Now ships 0.8 mm sheet only.", url="https://brass.example")
+        users = [
+            _entry(ws, "article", "Cutting the shade", status="published", data={"body": "I used the 0.5 mm sheet from Brass supply."}),
+            _entry(ws, "article", "Wiring day", data={"body": "Brass supply's thin sheet bends by hand."}),
+        ]
+        _entry(ws, "article", "Pattern drafting", data={"body": "Nothing about brass."})
+        unused = _resource(ws, "Canvas mill")
+        ws.session.add_all(EntryResources(entry_id=e.id, resource_id=supplier.id) for e in users)
+        ws.session.commit()
+        ws.ai.reply_text(json.dumps({"title": "Brass supply changed: 2 passages", "body": "“the 0.5 mm sheet” → “the 0.8 mm sheet”."}))
+
+        _fire(ws, "resource_updated", {"resource_id": str(unused.id)}, entity=unused.id, entity_type="resource", correlation_id="r0")
+        assert ws.ai.requests == []  # nothing uses it: no AI call, no draft
+        _fire(ws, "resource_updated", {"resource_id": str(supplier.id)}, entity=supplier.id, entity_type="resource", correlation_id="r1")
+
+        prompt = ws.ai.last_request()
+        assert "Now ships 0.8 mm sheet only." in prompt and "I used the 0.5 mm sheet" in prompt and "bends by hand" in prompt
+        assert "Nothing about brass" not in prompt
+        (draft,) = self._issues(ws)
+        assert (draft.title, draft.status) == ("Brass supply changed: 2 passages", "draft")
+        ws.session.query(EntryResources).filter(EntryResources.resource_id == supplier.id).delete()
+        ws.session.query(Resources).filter(Resources.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    def test_duplicate_asset_scout(self, ws):
+        from marvin.db.models.platform import Assets
+
+        _install(ws, "duplicate-asset-scout")
+        first, again, new = _asset(ws, "lantern-photo"), _asset(ws, "lantern-photo-copy"), _asset(ws, "coat-photo")
+        first.checksum = again.checksum = "a" * 64  # the same file, uploaded twice
+        ws.session.commit()
+
+        for asset in (new, again):
+            _fire(ws, "asset_uploaded", {"asset_id": str(asset.id)}, entity=asset.id, entity_type="asset", correlation_id=f"up-{asset.slug}")
+
+        (sent,) = ws.providers["apprise"].calls  # the re-upload only
+        assert sent["title"] == "“lantern-photo-copy” is already in the library"
+        assert "lantern-photo" in sent["body"] and "lantern-photo-copy" not in sent["body"].split("\n")[1]  # the other one, not itself
+        assert first.id  # kept: the scout never trashes anything
+        ws.session.query(Assets).filter(Assets.group_id == ws.gid).delete(synchronize_session=False)
+        ws.session.commit()
+
+    def test_entry_schema_impact_report(self, ws):
+        _install(ws, "entry-schema-impact-report")
+        _entry(ws, "article", "Complete piece", status="published", data={"body": "All here."})
+        _entry(ws, "article", "Missing its body", status="published", data={"project": "lantern"})  # body is required
+        _entry(ws, "project", "A project", data={})  # another type: not checked
+        changed = {"entry_type_slug": "article", "entry_type_name": "Article", "entry_type_id": str(ws.types["article"])}
+
+        _fire(ws, "entry_type_updated", changed, correlation_id="et1")
+
+        (sent,) = ws.providers["apprise"].calls
+        assert sent["title"] == "1 “Article” entries don't pass its rules now"
+        assert "- Missing its body — Field 'body': Required field is missing or null" in sent["body"]
+        assert "Complete piece" not in sent["body"]
 
     # ── reading the web (a fetch step; the web is faked at the guarded client) ──
     def test_broken_link_patrol(self, ws, monkeypatch):

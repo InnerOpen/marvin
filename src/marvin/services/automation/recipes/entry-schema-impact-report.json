@@ -1,0 +1,35 @@
+{
+  "name": "Entry schema impact report",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_type_updated"
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "broken",
+        "entity": "entry",
+        "query": {
+          "entry_type": "${event.entry_type_slug}"
+        },
+        "only_invalid": true,
+        "limit": 50
+      },
+      {
+        "kind": "integration",
+        "integration": "{{notify_integration}}",
+        "capability": "notify",
+        "args": {
+          "title": "${steps.broken.output.total} “${event.entry_type_name}” entries don't pass its rules now",
+          "body": "After the change to “${event.entry_type_name}”, these entries break its rules (they keep their content; the next save asks for a fix):\n${steps.broken.output.text}"
+        },
+        "when": {
+          "field": "steps.broken.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

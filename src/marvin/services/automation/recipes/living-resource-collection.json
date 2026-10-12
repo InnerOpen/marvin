@@ -1,0 +1,67 @@
+{
+  "name": "Living resource collection",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "resource_updated"
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "uses",
+        "entity": "entry",
+        "query": {
+          "resource": "${resource.id}"
+        },
+        "fields": [
+          "data.{{body_field}}"
+        ],
+        "limit": 20
+      },
+      {
+        "kind": "operation",
+        "id": "edits",
+        "op": "custom",
+        "see": [],
+        "prompt": "The resource “${resource.name}” was just updated. What it says now: ${resource.description} (${resource.url})\n\nThese entries use it:\n${steps.uses.output.text}\n\nFor each entry, say whether a passage about this resource may now be out of date; quote the passage and suggest the new wording. Leave out the entries that need nothing. Use only what's here.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        },
+        "when": {
+          "field": "steps.uses.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{notes_entry_type}}",
+        "title": "${steps.edits.output.title}",
+        "data": {
+          "{{notes_body_field}}": "${steps.edits.output.body}"
+        },
+        "status": "draft",
+        "when": {
+          "field": "steps.uses.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

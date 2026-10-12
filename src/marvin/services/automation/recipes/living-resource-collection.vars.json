@@ -1,0 +1,20 @@
+{
+  "recipe": "living-resource-collection",
+  "variables": {
+    "body_field": {
+      "type": "field_key",
+      "description": "The text field of the entries that use resources, for the AI to read.",
+      "example": "body"
+    },
+    "notes_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type the suggested edits are drafted as.",
+      "example": "article"
+    },
+    "notes_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

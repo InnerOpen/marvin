@@ -741,6 +741,8 @@ def list_entry_types(ctx: ToolContext, _args: dict) -> str:
             "versions": {"type": "boolean", "description": "false: originals only (versions folded away); true: only versions"},
             "source": {"type": "string", "description": "the versions made from this asset (id or slug)"},
             "role": {"type": "string", "description": "only assets attached in this role (e.g. hero), to `entry` or any entry"},
+            "checksum": {"type": "string", "description": "exactly this file (sha256) — finds an earlier upload of the same file"},
+            "exclude": {"type": "string", "description": "leave this asset out (id or slug)"},
             "tags": {
                 "type": "array",
                 "items": {"type": "string"},

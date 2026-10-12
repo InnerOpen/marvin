@@ -189,7 +189,7 @@ def target_row_context(session, group_id, kind: str, row) -> dict:
 def _item_context(session, group_id, kind: str, item_id) -> dict | None:
     """The asset or resource facts conditions and actions reference (`asset.*` / `resource.*`): name, slug,
     its type, `tags`, `metadata`, `url` (an asset's public URL, a resource's link) and whether it is in the
-    Trash — plus an asset's file facts (filename, mime_type, file_size, width, height, alt_text)."""
+    Trash — plus an asset's file facts (filename, mime_type, file_size, width, height, alt_text, checksum)."""
     from marvin.services import trash
 
     row = session.get(trash.model(kind), item_id)
@@ -212,7 +212,7 @@ def _item_context(session, group_id, kind: str, item_id) -> dict | None:
             url = asset_public_url(row)
         except Exception:  # noqa: BLE001 — a missing file must never break the workflow context
             url = None
-        file = {k: getattr(row, k, None) for k in ("mime_type", "file_size", "width", "height", "alt_text")}
+        file = {k: getattr(row, k, None) for k in ("mime_type", "file_size", "width", "height", "alt_text", "checksum")}
         # The asset it was made from (a media step's or the media pipeline's derivative), so a workflow can tell a
         # derivative from an original — `asset.derived_from` must not exist to act on originals only.
         derived_from = str(row.source_asset_id) if row.source_asset_id else ctx["metadata"].get("derived_from") or None
@@ -274,7 +274,7 @@ TEMPLATE_NAMESPACES: dict[str, str] = {
     "entry": "the entry the run acts on (the trigger's, or each target match): id, entry_type, status, title, slug, summary, "
     "data.<field>, metadata.<key>, image (featured image URL), url (its page on the site)",
     "asset": "the asset the run acts on (an asset event's, or each asset-target match): id, name, slug, asset_type, mime_type, "
-    "filename, file_size, width, height, alt_text, description, tags, metadata.<key>, url (its public URL), trashed, "
+    "filename, file_size, width, height, alt_text, checksum (sha256), description, tags, metadata.<key>, url (its public URL), trashed, "
     "derived_from (the id of the asset it was made from; None for an original), origin (upload | derived | generated)",
     "resource": "the resource the run acts on (a resource event's, or each resource-target match): id, name, slug, resource_type, "
     "description, url, external_id, tags, metadata.<key>, trashed",

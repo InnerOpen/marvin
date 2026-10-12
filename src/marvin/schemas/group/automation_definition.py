@@ -411,13 +411,15 @@ class CollectAction(_StepBase):
     """Gathers the entries, assets or resources a query matches into one output (many → one). For a digest, a report, a
     contact sheet: `entity` and `query` are a target's (dates may be relative: -7d, now); output `rows` (each
     like ${entry.*} / ${asset.*}, plus any extra `fields` paths such as data.body), `count`, `total`, and `text` — a ready
-    list for an AI prompt. Asset queries leave versions out unless they ask, as targets do."""
+    list for an AI prompt. Asset queries leave versions out unless they ask, as targets do. `only_invalid` (entries) keeps
+    the ones breaking their type's current rules, each with `problem`."""
 
     kind: Literal["collect"]
     entity: Literal["entry", "asset", "resource"] = "entry"
     query: dict[str, Any] = Field(default_factory=dict)
     fields: list[str] | None = None  # extra paths per row beyond the defaults, e.g. data.body, metadata.price
     limit: int = Field(default=25, ge=1, le=250)  # at most this many rows (the target cap)
+    only_invalid: bool = False  # entries: only those breaking their type's current rules, each with its `problem`
     id: str | None = None
 
 

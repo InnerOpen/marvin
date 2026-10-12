@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-107 recipes: **65** verified-current, **11** supported-after-configuration, **8** needs-adapter, **23** needs-engine-capability.
+107 recipes: **68** verified-current, **11** supported-after-configuration, **8** needs-adapter, **20** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -18,6 +18,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [series-index-keeper](../../src/marvin/services/automation/recipes/series-index-keeper.json) — Series index keeper | verified-current | `entry_published` | — | content mutation |
 | [weekly-digest](../../src/marvin/services/automation/recipes/weekly-digest.json) — Weekly digest | verified-current | `schedule` | — | content mutation, paid call |
 | [broken-link-patrol](../../src/marvin/services/automation/recipes/broken-link-patrol.json) — Broken link patrol | verified-current | `schedule` | an integration that can notify (Slack or Apprise) | content mutation, external post, external read |
+| [living-resource-collection](../../src/marvin/services/automation/recipes/living-resource-collection.json) — Living resource collection | verified-current | `resource_updated` | — | content mutation, paid call |
 | [content-refresh](../../src/marvin/services/automation/recipes/content-refresh.json) — Content refresh | verified-current | `entry_updated` | outgoing webhook | external post |
 | [featured-collection-curator](../../src/marvin/services/automation/recipes/featured-collection-curator.json) — Featured collection curator | verified-current | `entry_published` | — | content mutation, paid call |
 | [comment-discussion-starter](../../src/marvin/services/automation/recipes/comment-discussion-starter.json) — Comment discussion starter | verified-current | `entry_published` | outgoing webhook | content mutation, external post |
@@ -39,6 +40,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [contact-sheet-maker](../../src/marvin/services/automation/recipes/contact-sheet-maker.json) — Contact sheet maker | verified-current | `manual` | — | content mutation |
 | [file-format-converter](../../src/marvin/services/automation/recipes/file-format-converter.json) — File format converter (images) | verified-current | `asset_uploaded` | — | content mutation |
 | [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — Attribution companion | verified-current | `asset_attached_to_entry` | — | content mutation |
+| [duplicate-asset-scout](../../src/marvin/services/automation/recipes/duplicate-asset-scout.json) — Duplicate asset scout | verified-current | `asset_uploaded` | an integration that can notify (Slack or Apprise) | external post |
 | [image-prompt-archive](../../src/marvin/services/automation/recipes/image-prompt-archive.json) — Image prompt archive | verified-current | `asset_attached_to_entry` | — | content mutation |
 | [comic-strip-edition](../../src/marvin/services/automation/recipes/comic-strip-edition.json) — Comic strip edition | verified-current | `manual` | — | content mutation, paid call |
 | [marvin-margin-notes](../../src/marvin/services/automation/recipes/marvin-margin-notes.json) — Marvin margin notes | verified-current | `manual` | — | content mutation, paid call |
@@ -76,6 +78,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `agent-approval-inbox` — Agent approval inbox | supported-after-configuration | subscription: `approval_requested` | VAPID web push configured; approvers have the app installed with notifications on; native | notification |
 | [collection-welcome-mat](../../src/marvin/services/automation/recipes/collection-welcome-mat.json) — Collection welcome mat | verified-current | `entry_added_to_collection` | AI enabled with the `automation` source allowed | content mutation, paid call ⚠ |
 | [resource-attachment-notes](../../src/marvin/services/automation/recipes/resource-attachment-notes.json) — Resource attachment notes | verified-current | `entry_resource_attached` | — | content mutation, paid call |
+| [entry-schema-impact-report](../../src/marvin/services/automation/recipes/entry-schema-impact-report.json) — Entry schema impact report | verified-current | `entry_type_updated` | an integration that can notify (Slack or Apprise) | external post |
 | [asset-attachment-social-kit](../../src/marvin/services/automation/recipes/asset-attachment-social-kit.json) — Asset attachment social kit | verified-current | `asset_attached_to_entry` | — | content mutation, paid call |
 | `new-member-welcome` — New member welcome | supported-after-configuration | subscription: `member_added` | SMTP; email event subscription | email |
 | `api-token-rotation-notice` — API token rotation notice | supported-after-configuration | subscription: `api_client_token_rotated` | SMTP; email event subscription | email |
@@ -92,7 +95,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | Recipe | Status | Trigger | Blocked by |
 |---|---|---|---|
 | `audio-edition` — Audio edition | needs-adapter | `entry_published` | media-adapters |
-| `living-resource-collection` — Living resource collection | needs-engine-capability | `resource_updated` | asset-resource-targets |
 | `publication-release-gate` — Publication release gate | needs-engine-capability | `entry_updated` | joins |
 | `carousel-storyteller` — Carousel storyteller | needs-adapter | `entry_published` | social-adapters |
 | `thread-builder` — Thread builder | needs-engine-capability | `entry_published` | social-adapters |
@@ -112,7 +114,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `privacy-crop-desk` — Privacy crop desk | needs-engine-capability | `asset_uploaded` | media-adapters |
 | `ocr-notebook` — OCR notebook | needs-adapter | `asset_uploaded` | media-adapters |
 | `document-preview-factory` — Document preview factory | needs-adapter | `asset_uploaded` | media-adapters |
-| `duplicate-asset-scout` — Duplicate asset scout | needs-engine-capability | `asset_uploaded` | asset-resource-targets |
 | `achievement-cabinet` — Achievement cabinet | needs-engine-capability | `entry_updated` | custom-events |
 | `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | sandbox |
 | `workshop-field-guide` — Workshop field guide | needs-engine-capability | `manual` | iterate-aggregate, media-adapters |
@@ -121,7 +122,6 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox |
 | `intake-triage` — Intake triage | needs-engine-capability | `form_submission_received` | form-classification |
 | `archive-packager` — Archive packager | needs-adapter | `manual` | media-adapters, collection-scope, iterate-aggregate |
-| `entry-schema-impact-report` — Entry schema impact report | needs-engine-capability | `entry_type_updated` | iterate-aggregate |
 
 ## By category
 
@@ -166,9 +166,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   - Relative links (/articles/x) are checked against the workspace's site URL.
   - It doesn't take the entry offline: request_review would unpublish it.
   - It notifies every Monday while an entry still has broken links.
-- `living-resource-collection` — **Living resource collection** · needs-engine-capability · `resource_updated`  
-  Resource changes → locate referring entries → propose passage updates
-  - Blocked by: `asset-resource-targets` (a target query for the entries linked to the triggering resource (has_resources is only true/false))
+- [living-resource-collection](../../src/marvin/services/automation/recipes/living-resource-collection.json) — **Living resource collection** · verified-current · `resource_updated`  
+  When a resource changes, the entries that use it are gathered and an AI drafts the passages that may now be out of date, with new wording.
+  - Up to 20 entries using the resource (`resource: ${resource.id}`), with their text.
+  - Every save of a resource is a change: one draft per save while entries use it.
 - `publication-release-gate` — **Publication release gate** · needs-engine-capability · `entry_updated`  
   Wait until text, images and downloads pass checks → publish together
   - Possible today (partial): the publish gate already blocks on required fields, required asset roles and resource types (completeness rules); the editorial-approval-gate recipe uses it.
@@ -308,10 +309,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — **Attribution companion** · verified-current · `asset_attached_to_entry`  
   When an image with credit and licence metadata is attached to an entry, its credit line is recorded on the entry.
   - Reads the asset through `${asset.metadata.<key>}`: asset events bind the asset as they bind the entry.
-- `duplicate-asset-scout` — **Duplicate asset scout** · needs-engine-capability · `asset_uploaded`  
-  Upload → compare hashes or similarity → suggest existing asset
-  - Assets already store a `checksum`; a query key for it would make this a one-step recipe.
-  - Blocked by: `asset-resource-targets` (an asset target query by checksum)
+- [duplicate-asset-scout](../../src/marvin/services/automation/recipes/duplicate-asset-scout.json) — **Duplicate asset scout** · verified-current · `asset_uploaded`  
+  When a file is uploaded that's already in the library (the same bytes), a notification names the existing copy.
+  - Same file = same sha256 checksum; a resized or re-saved copy isn't the same file.
+  - It only tells you: keep the copy, or move it to the Trash yourself.
 - [image-prompt-archive](../../src/marvin/services/automation/recipes/image-prompt-archive.json) — **Image prompt archive** · verified-current · `asset_attached_to_entry`  
   When a generated picture is attached to an entry, the entry records the prompt, model and integration that made it (and the picture keeps them too).
   - Every image an integration step generates already carries generated_by, prompt, model and the run in its own metadata; this copies it onto the entry it illustrates.
@@ -480,10 +481,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [resource-attachment-notes](../../src/marvin/services/automation/recipes/resource-attachment-notes.json) — **Resource attachment notes** · verified-current · `entry_resource_attached`  
   When a resource is linked to an entry, the AI writes a short note on what it brings to that entry (material, technique, supplier), kept in the entry's metadata.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
-- `entry-schema-impact-report` — **Entry schema impact report** · needs-engine-capability · `entry_type_updated`  
-  Find impacted entries and report validation changes before migration
-  - Possible today (partial): a target `{entry_type: "${event.entry_type_slug}"}` + `request_review` flags every entry of the type — a blunt instrument, no report.
-  - Blocked by: `iterate-aggregate` (one report over the type's entries)
+- [entry-schema-impact-report](../../src/marvin/services/automation/recipes/entry-schema-impact-report.json) — **Entry schema impact report** · verified-current · `entry_type_updated`  
+  When an entry type's fields change, its entries that no longer pass its rules are listed in a notification, each with the rule it breaks.
+  - It checks the entries against the type as it is now (after the change), up to 1,000 of them; up to 50 are listed.
+  - Those entries keep their content; saving one asks for the fix.
 - [asset-attachment-social-kit](../../src/marvin/services/automation/recipes/asset-attachment-social-kit.json) — **Asset attachment social kit** · verified-current · `asset_attached_to_entry`  
   When an image is attached to an entry, the AI looks at it and drafts a social caption plus square and story crop suggestions, kept in the entry's metadata.
   - A custom AI step (`op: "custom"`): its own prompt and output fields; the answer is checked against them.
@@ -531,14 +532,13 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `social-adapters` | Social publishing adapters | P1 | 6 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
 | `waits` | Durable waits and delays | P1 | 4 | `{"kind": "wait", "until": "${entry.data.event_date} - 7d"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once. |
 | `create-entry` | Create-entry action | P0 | 3 | Delivered 2026-10-11: an entry step `op: "create"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created). |
-| `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 3 | Delivered 2026-10-12: a `collect` step ("Gather items") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Left: fanning one AI step out over the rows. |
 | `ops-triggers` | Operational events as workflow triggers | P2 | 3 | ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel. |
-| `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 2 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Left: an asset target query by checksum. Derived-asset lineage is part of media-adapters. |
 | `collection-scope` | Collection-scoped steps | P1 | 2 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; left: collection events carrying the set. |
 | `data-change-detection` | Data-field change detection | P1 | 2 | entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works. |
 | `fetch` | HTTP fetch step | P1 | 2 | Delivered 2026-10-12: a `fetch` step ("Check a web address") — `url`: GET/HEAD through the guarded client (public hosts, re-checked on redirects, 2 MB cap) → status, ok, content_type, title, text, json, and `find` phrases (any case) → found; `links`: the links in a text checked a few at a time → checked, broken, broken_count, text. A dead link is output, never a failed step; a dry run doesn't fetch. |
 | `form-classification` | Form-submission classification from workflows | P0 | 2 | The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches. |
 | `idempotency` | Per-step idempotency keys | P0 | 2 | A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once. |
+| `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 2 | Delivered 2026-10-12: a `collect` step ("Gather items") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Left: fanning one AI step out over the rows. |
 | `joins` | Parallel branches and joins | P1 | 2 | Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics. |
 | `member-email` | Member-addressed email | P2 | 2 | member_added carries the member's email (or email subscriptions accept recipient_type `member`), and member events are triggerable with the subject distinguished from the actor. |
 | `metrics` | Metrics windows and experiments | P2 | 2 | A step records a metric observation against a variant id and window; a report lists observations without causal claims. |
@@ -550,4 +550,5 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `relative-dates` | Relative dates and cron schedules | P1 | 1 | Delivered 2026-10-12: every date key of a query (created/updated/published_after|before) takes a relative date (-7d, -12h, -2w, +3d, now, today), read when the run starts; an unreadable date fails the query instead of widening it. Cron schedules compute next_run_at in their time zone and fire (services/cron.py). |
 | `snapshots` | Entity snapshots and restore | P2 | 1 | A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable. |
 | `workflow-approvals` | Approval step inside a workflow | P1 | 1 | Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice. |
+| `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 0 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Delivered 2026-10-12: `checksum` (and `exclude`) in an asset query; `asset.checksum` in a run. Derived-asset lineage is part of media-adapters. |
 | `branches` | Conditional steps (if/else) | P0 | 0 | Delivered 2026-10-11: any step takes `when` conditions evaluated against steps.* / previous.* (same operators); false records it as skipped (not failed), later references read None, and the dry run shows the verdicts. |
