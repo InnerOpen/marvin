@@ -9,6 +9,10 @@
   model: `regions` [{kind, box}], `count`. Reading only.
 * **redact** — a copy with those regions pixelated (`boxes` given, or found as find_sensitive does): a derived asset;
   none when there is nothing to blur (`count: 0`).
+* **zip** — `files` (a gather step's rows: an entry row brings the files attached to it, in its own folder with its
+  facts as entry.json; an asset row, id or slug is that file) and a manifest.json into a new ZIP asset, `name`d. The
+  same files and facts make the same ZIP once. Files in the Trash are left out; past the upload size cap the rest are
+  skipped and listed.
 """
 
 from __future__ import annotations
@@ -37,6 +41,8 @@ BOX_PADDING = 0.08  # each side of a region, as a share of its size: a blur that
 def run_document_op(session, group_id, op: str, action: dict, context: dict, *, user_id, dry_run: bool) -> dict:
     from .media import resolve_source
 
+    if op == "zip":
+        return _zip(session, group_id, action, context, user_id=user_id, dry_run=dry_run)
     src = resolve_source(session, group_id, action.get("source"), context)
     if op == "extract_text":
         return _extract_text(session, group_id, action, src, context, user_id=user_id, dry_run=dry_run)
@@ -345,4 +351,164 @@ def _store_redacted(session, group_id, src, data: bytes, boxes, args: dict, slug
         )
     except AssetRejected as e:
         raise AutomationActionError(f"the blurred copy of “{src.name}” can't be kept: {e}") from e
+    return session.get(Assets, read.id)
+
+
+# ── zip ──────────────────────────────────────────────────────────────────────
+MAX_ZIP_ITEMS = 250  # rows (entries or assets) in one archive — a gather step's cap
+MAX_ZIP_FILES = 500
+
+
+def _zip(session, group_id, action: dict, context: dict, *, user_id, dry_run: bool) -> dict:
+    """Bundle the files the rows name, plus manifest.json, into a ZIP asset (made from nothing: origin generated)."""
+    from slugify import slugify
+
+    from .media import _by_slug, _deliver
+
+    rows = interpolate(action.get("files"), context)
+    rows = rows if isinstance(rows, list) else [rows] if rows not in (None, "") else []
+    if not rows:
+        raise AutomationActionError("zip has nothing to bundle: give files (e.g. ${steps.<id>.output.rows})")
+    name = str(interpolate(action.get("name") or "", context) or "").strip() or "archive"
+    plan, items = _zip_plan(session, group_id, rows[:MAX_ZIP_ITEMS], context)
+    if not plan:
+        raise AutomationActionError("zip found no files to bundle (none attached, or all in the Trash)")
+    fingerprint = json.dumps({"files": [(path, str(a.id), a.checksum) for path, a in plan], "items": items}, sort_keys=True, default=str)
+    slug = f"{slugify(name)[:80] or 'archive'}--zip-{hashlib.sha256(fingerprint.encode()).hexdigest()[:8]}"
+    existing = _by_slug(session, group_id, slug)
+    if dry_run:
+        return {"dry_run": True, "kind": "media", "op": "zip", "files": len(plan), ("would_reuse" if existing else "would_create"): slug}
+    if existing is not None and existing.trashed_at is not None:
+        raise AutomationActionError(f"this archive was made before and is in the Trash ({slug}): restore it, or delete it to make it again")
+    skipped: list[str] = []
+    reused = existing is not None
+    if existing is None:
+        data, skipped = _zip_bytes(session, group_id, name, plan, items, context)
+        existing = _store_zip(session, group_id, name, data, slug, plan, context, user_id=user_id)
+    out = {"files": len(plan) - len(skipped), **({"skipped": skipped} if skipped else {})}
+    return _deliver(session, group_id, out, existing, reused, context, tags=action.get("tags"), attach_as=None, entry_id=None, user_id=user_id)
+
+
+def _zip_plan(session, group_id, rows: list, context: dict) -> tuple[list, list[dict]]:
+    """[(path in the archive, asset)] and the facts the manifest lists: an entry row's attached files go in a folder of
+    its own (with entry.json), an asset row's in files/. Each file once per folder."""
+    from marvin.db.models.platform.assets import Assets
+    from marvin.db.models.platform.entry_assets import EntryAssets
+
+    from .media import resolve_source
+
+    plan: list = []
+    items: list[dict] = []
+    seen: set = set()
+
+    def add(folder: str, asset) -> None:
+        if (folder, asset.id) in seen or asset.trashed_at is not None or len(plan) >= MAX_ZIP_FILES:
+            return
+        seen.add((folder, asset.id))
+        filename = _safe_name(asset.original_filename or f"{asset.slug}.{asset.extension or 'bin'}")
+        taken = {p for p, _ in plan}
+        path, n = f"{folder}/{filename}", 2
+        while path in taken:  # two files of the same name in one folder
+            stem, dot, ext = filename.rpartition(".")
+            path, n = f"{folder}/{stem or filename}-{n}{dot}{ext if stem else ''}", n + 1
+        plan.append((path, asset))
+
+    for row in rows:
+        if isinstance(row, dict) and ("entry_type" in row or "title" in row) and row.get("id"):
+            folder = _safe_name(str(row.get("slug") or row["id"]))
+            items.append({"kind": "entry", "folder": folder, **row})
+            links = (
+                session.query(Assets)
+                .join(EntryAssets, EntryAssets.asset_id == Assets.id)
+                .filter(EntryAssets.entry_id == row["id"], Assets.group_id == group_id)
+                .order_by(EntryAssets.position)
+                .all()
+            )
+            for asset in links:
+                add(folder, asset)
+        else:
+            ref = row.get("id") if isinstance(row, dict) else row
+            asset = resolve_source(session, group_id, str(ref), context)
+            items.append({"kind": "asset", "id": str(asset.id), "name": asset.name})
+            add("files", asset)
+    return plan, items
+
+
+def _safe_name(name: str) -> str:
+    """A file or folder name that can't climb out of the archive or hide (no slashes, no leading dots)."""
+    import re
+
+    cleaned = re.sub(r"[\\/:*?\"<>|\x00-\x1f]+", "-", name).strip(" .-")
+    return cleaned[:120] or "file"
+
+
+def _zip_bytes(session, group_id, name: str, plan: list, items: list[dict], context: dict) -> tuple[bytes, list[str]]:
+    import zipfile
+    from datetime import UTC, datetime
+
+    from marvin.core.config import get_app_settings
+
+    from .media import _read_bytes
+
+    limit = get_app_settings().ASSET_MAX_FILE_SIZE or 0
+    buf, skipped, total = io.BytesIO(), [], 0
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+        for item in items:
+            if item["kind"] == "entry":
+                facts = {k: v for k, v in item.items() if k not in ("kind", "folder")}
+                archive.writestr(f"{item['folder']}/entry.json", json.dumps(facts, indent=2, ensure_ascii=False, default=str))
+        listed = []
+        for path, asset in plan:
+            size = asset.file_size or 0
+            if limit and total + size > limit * 0.95:  # leave room for the manifest under the upload cap
+                skipped.append(path)
+                continue
+            data = _read_bytes(session, group_id, asset)
+            total += len(data)
+            # Pictures and archives are compressed already: stored as they are, the rest deflated.
+            kind = zipfile.ZIP_STORED if (asset.mime_type or "").startswith(("image/", "video/", "audio/")) else zipfile.ZIP_DEFLATED
+            archive.writestr(zipfile.ZipInfo(path, date_time=datetime.now(UTC).timetuple()[:6]), data, compress_type=kind)
+            listed.append(
+                {
+                    "path": path,
+                    "asset_id": str(asset.id),
+                    "name": asset.name,
+                    "mime_type": asset.mime_type,
+                    "size": len(data),
+                    "sha256": asset.checksum,
+                }
+            )
+        manifest = {
+            "name": name,
+            "made_at": datetime.now(UTC).isoformat(),
+            "workflow": (context.get("_step") or {}).get("workflow_slug"),
+            "items": [{k: v for k, v in i.items() if k != "kind"} | {"kind": i["kind"]} for i in items],
+            "files": listed,
+            **({"skipped": skipped} if skipped else {}),
+        }
+        archive.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False, default=str))
+    return buf.getvalue(), skipped
+
+
+def _store_zip(session, group_id, name: str, data: bytes, slug: str, plan: list, context: dict, *, user_id):
+    from marvin.db.models.platform.assets import Assets
+    from marvin.services.assets.asset_storage_service import AssetRejected
+
+    from .media import _storage, run_lineage, uploader
+
+    lineage = {"generated_by": "zip", "bundled": [str(a.id) for _, a in plan][:100], **run_lineage(context)}
+    try:
+        read = _storage(session, group_id).create_derivative(
+            source=None,
+            data=data,
+            group_id=group_id,
+            derivation="zip",
+            slug=slug,
+            name=f"{name} (archive)",
+            user_id=uploader(session, context, user_id),
+            extra_metadata=lineage,
+            extension="zip",
+        )
+    except (AssetRejected, ValueError) as e:
+        raise AutomationActionError(f"the archive can't be kept: {e}") from e
     return session.get(Assets, read.id)

@@ -1,0 +1,48 @@
+{
+  "name": "Archive packager",
+  "definition": {
+    "trigger": {
+      "type": "manual",
+      "inputs": [
+        {
+          "name": "collection",
+          "label": "Collection (its slug or name)",
+          "type": "text"
+        }
+      ]
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "set",
+        "entity": "entry",
+        "query": {
+          "collection": "${input.collection}",
+          "status": "published",
+          "sort": {
+            "by": "position"
+          }
+        },
+        "fields": [
+          "data.{{body_field}}"
+        ],
+        "limit": 250
+      },
+      {
+        "kind": "media",
+        "id": "zip",
+        "op": "zip",
+        "files": "${steps.set.output.rows}",
+        "name": "${input.collection}",
+        "tags": [
+          "archive"
+        ],
+        "when": {
+          "field": "steps.set.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}

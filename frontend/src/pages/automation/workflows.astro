@@ -725,6 +725,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         if (mediaOp === "find_sensitive") return ["count", "regions"];
         if (mediaOp === "pages") return ["asset.id", "assets", "page_count"];
         if (mediaOp === "redact") return ["count", "asset.id"];
+        if (mediaOp === "zip") return ["asset.id", "asset.url", "files"];
         return ["asset.id", "asset.url"];
       }
       case "approval":
@@ -872,13 +873,15 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <label class="tf a-m-field" data-field="focus"><span>Centre on</span><select class="input a-m-focus">${opt("center", "The middle", a.focus ?? "center")}${opt("subject", "The subject (asks the AI model; the middle without one)", a.focus)}</select></label>
       <label class="tf a-m-field" data-field="preset"><span>Preset</span><input class="input a-m-preset" list="wf-media-presets" placeholder="warm" value="${esc(a.preset ?? "")}" /></label>
       <datalist id="wf-media-presets">${GRADE_PRESETS.map((x) => `<option value="${x}"></option>`).join("")}</datalist>
-      <label class="tf a-m-field" data-field="format"><span>Format</span><select class="input a-m-format">${opt("", "Keep the picture's format", a.format ?? "")}${["jpeg", "png", "webp"].map((f) => opt(f, f.toUpperCase(), a.format)).join("")}</select></label>
+      <label class="tf a-m-field" data-field="format"><span>Format</span><select class="input a-m-format">${opt("", "Keep the picture's format (a printable template: PDF)", a.format ?? "")}${["jpeg", "png", "webp"].map((f) => opt(f, f.toUpperCase(), a.format)).join("")}${opt("pdf", "PDF — a render, printed", a.format)}</select></label>
       ${num("quality", "Quality", "1–100, default 90 (JPEG and WebP)")}
       ${num("colors", "How many colours", "1–16, default 5")}
       <label class="tf a-m-field" data-field="ocr"><span>Scanned pages and photos</span><select class="input a-m-ocr">${opt("auto", "Read them with the AI model (one call per page)", a.ocr ?? "auto")}${opt("never", "Skip them — the PDF's own text only (free)", a.ocr)}</select></label>
       ${num("page", "From page", "default 1")}
       ${num("count", "How many pages", "1–10, default 1")}
       <label class="tf a-m-field" data-field="find"><span>Look for <span class="muted">(comma-separated: face, plate, text — blank for all)</span></span><input class="input a-m-find" value="${esc((a.find ?? []).join(", "))}" /></label>
+      <label class="tf a-m-field" data-field="files"><span>Files <span class="muted">(a gather step's rows — entries bring their attached files — or assets: \${steps.&lt;id&gt;.output.rows})</span></span><input class="input a-m-files" value="${esc(typeof a.files === "string" ? a.files : "")}" /></label>
+      <label class="tf a-m-field" data-field="name"><span>Archive name <span class="muted">(templates allowed)</span></span><input class="input a-m-name" value="${esc(a.name ?? "")}" /></label>
       <label class="tf a-m-field" data-field="boxes"><span>What to blur <span class="muted">(blank: the AI model finds it; or an earlier step's \${steps.&lt;id&gt;.output.regions})</span></span><input class="input a-m-boxes" value="${esc(typeof a.boxes === "string" ? a.boxes : a.boxes ? JSON.stringify(a.boxes) : "")}" /></label>
       <label class="tf a-m-attach-wrap"><span>Attach as <span class="muted">(link the new picture to the entry in this role, e.g. square — needs a run about an entry)</span></span>
         <input class="input a-m-attach" value="${esc(a.attach_as ?? "")}" /></label>
@@ -918,7 +921,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         : "Reads the picture and writes nothing. Later steps (and “Only run this step when…”) read <code>\${steps.&lt;step id&gt;.output…}</code>, e.g. <code>steps.check.output.sharpness</code> is less than 60.";
       srcVal.hidden = srcSel.value === "current";
       (wrap.querySelector(".a-m-render") as HTMLElement).hidden = op !== "render";
-      (wrap.querySelector(".a-m-source-wrap") as HTMLElement).hidden = op === "render";
+      (wrap.querySelector(".a-m-source-wrap") as HTMLElement).hidden = op === "render" || op === "zip";
       srcVal.placeholder = srcSel.value === "step" ? "the earlier step's id, e.g. square" : srcSel.value === "role" ? "the role, e.g. hero" : "the asset's id or slug";
     };
     opSel.addEventListener("change", sync);
@@ -1202,6 +1205,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
             delete step.source;
             setOrDrop("fields", filledRows(readKv(r.querySelector(".a-m-fields-wrap"))));
             setOrDrop("images", filledRows(readKv(r.querySelector(".a-m-images-wrap"))));
+          } else if (op === "zip") {
+            delete step.source; delete step.fields; delete step.images;
           } else {
             delete step.fields; delete step.images;
             setOrDrop("source", sourceFromChoice((field(".a-media-source")?.value || "current") as SourceMode, field(".a-media-source-value")?.value ?? ""));

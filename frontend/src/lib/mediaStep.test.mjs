@@ -88,3 +88,10 @@ test("document and privacy ops: pages as numbers, what to look for as a list, bo
   assert.deepEqual(mediaFields("redact", { boxes: "[[0.1, 0.2, 0.3, 0.3]]" }), { boxes: [[0.1, 0.2, 0.3, 0.3]] });
   assert.deepEqual(mediaFields("redact", { boxes: "${steps.find.output.regions}" }), { boxes: "${steps.find.output.regions}" });
 });
+
+test("zip and printed PDFs: files needed; PDF only for a render", () => {
+  assert.deepEqual(mediaFields("zip", { files: "${steps.set.output.rows}", name: "Archive" }), { files: "${steps.set.output.rows}", name: "Archive" });
+  assert.throws(() => mediaFields("zip", {}), /zip needs files/);
+  assert.deepEqual(mediaFields("render", { template: "guide", format: "pdf" }), { template: "guide", format: "pdf" });
+  assert.throws(() => mediaFields("convert", { format: "pdf" }), /PDF is for a render/);
+});

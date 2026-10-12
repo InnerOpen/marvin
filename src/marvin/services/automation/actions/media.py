@@ -35,7 +35,7 @@ from .base import AutomationActionError, register_action
 DERIVE_OPS = ("resize", "crop", "convert", "grade")
 READ_OPS = ("inspect", "palette")
 RENDER = "render"  # a template filled with fields and pictures, screenshotted (services/ai/media/render.py)
-DOC_OPS = ("extract_text", "pages", "find_sensitive", "redact")  # PDFs, OCR and privacy blur (media_documents.py)
+DOC_OPS = ("extract_text", "pages", "find_sensitive", "redact", "zip")  # PDFs, OCR, privacy blur, ZIP (media_documents.py)
 OPS = (*DERIVE_OPS, *READ_OPS, RENDER, *DOC_OPS)
 # What each op takes beside source / attach_as / id / when: format and quality re-encode anything an op makes.
 OP_ARGS = MEDIA_OP_ARGS
@@ -485,6 +485,8 @@ def _render(session, group_id, action: dict, context: dict, *, user_id, dry_run:
     pictures = _render_pictures(session, group_id, action, context, manifest)
     source_html = render.template_html(template) if template else str(html)
     fmt, quality = action.get("format"), action.get("quality")
+    if fmt is None and manifest.get("paged"):
+        fmt = "pdf"  # a printable template is a PDF unless the step asks for a picture of its first page
     primary = _unwrap(next(iter(_flat(pictures)), None))
     attach_as = _attach_role(action, context)
     entry_id = subject_entry_id(context) if attach_as else None
@@ -496,7 +498,7 @@ def _render(session, group_id, action: dict, context: dict, *, user_id, dry_run:
         try:  # fill it in (a missing field shows now), but don't start a browser
             slots = dict.fromkeys(manifest.get("images") or {})
             slots |= {k: [{"src": "data:,", "label": r.label} for r in v] if isinstance(v, list) else "data:," for k, v in pictures.items()}
-            render.fill(source_html, fields=fields, images=slots, width=width, height=height)
+            render.fill(source_html, fields=fields, images=slots, width=width, height=height, paged=fmt == "pdf")
         except render.RenderError as e:
             raise AutomationActionError(str(e)) from e
         plan = {"dry_run": True, "kind": "media", "op": RENDER, "template": template or "custom", "size": f"{width}×{height}"}
@@ -665,12 +667,13 @@ def _store_render(session, group_id, template, source_html, fields, pictures, si
             images[name] = [{"src": _thumbnail(session, group_id, pic.row), "label": pic.label} for pic in value]
         else:
             images[name] = render.data_uri(_read_bytes(session, group_id, value), value.mime_type)
+    paged = encoding[0] == "pdf"
     try:
-        png = render.render(source_html, fields=fields, images=images, width=size[0], height=size[1])
-        data = ops.reencode(png, encoding[0], encoding[1])
+        made = render.render(source_html, fields=fields, images=images, width=size[0], height=size[1], paged=paged)
+        data = made if paged else ops.reencode(made, encoding[0], encoding[1])
     except render.RenderError as e:
         raise AutomationActionError(f"render: {e}") from e
-    fmt = ops.format_of(data)
+    extension = "pdf" if paged else ops.FORMATS[ops.format_of(data)][2]
     primary = _unwrap(next(iter(_flat(pictures)), None))
     label = (render.templates().get(template) or {}).get("label") or "Custom render"
     title = next((v for v in fields.values() if v.strip()), "") if fields else ""
@@ -688,7 +691,7 @@ def _store_render(session, group_id, template, source_html, fields, pictures, si
             name=f"{label}: {title[:80]}" if title else label,
             user_id=owner,
             extra_metadata=lineage,
-            extension=ops.FORMATS[fmt][2],
+            extension=extension,
         )
     except (AssetRejected, ValueError) as e:
         raise AutomationActionError(f"the render can't be kept: {e}") from e

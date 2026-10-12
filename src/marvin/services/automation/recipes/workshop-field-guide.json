@@ -1,0 +1,93 @@
+{
+  "name": "Workshop field guide",
+  "definition": {
+    "trigger": {
+      "type": "manual",
+      "inputs": [
+        {
+          "name": "project",
+          "label": "Which project",
+          "type": "entry"
+        }
+      ]
+    },
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "log",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{log_entry_type}}",
+          "data": {
+            "{{project_field}}": "${entry.slug}"
+          },
+          "sort": {
+            "by": "created_at",
+            "direction": "asc"
+          }
+        },
+        "fields": [
+          "data.{{body_field}}"
+        ],
+        "limit": 30
+      },
+      {
+        "kind": "collect",
+        "id": "pictures",
+        "entity": "asset",
+        "query": {
+          "entry": "${entry.id}",
+          "asset_type": "image"
+        },
+        "limit": 8
+      },
+      {
+        "kind": "operation",
+        "id": "guide",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Write a printable field guide for making “${entry.title}”, from the project and its log below: a one-paragraph introduction, then sections — ## Tools and materials (a - list), ## Steps (a numbered 1. list, one action each), ## Tips. Blank lines between paragraphs. Use only what's here.\n\nLog:\n${steps.log.output.text}",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "intro": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string",
+              "minLength": 80
+            }
+          },
+          "required": [
+            "title",
+            "intro",
+            "body"
+          ]
+        }
+      },
+      {
+        "kind": "media",
+        "id": "pdf",
+        "op": "render",
+        "template": "guide",
+        "fields": {
+          "title": "${steps.guide.output.title}",
+          "kicker": "{{kicker}}",
+          "intro": "${steps.guide.output.intro}",
+          "body": "${steps.guide.output.body}",
+          "footer": "{{footer}}"
+        },
+        "images": {
+          "figures": "${steps.pictures.output.rows}"
+        },
+        "attach_as": "field-guide"
+      }
+    ]
+  }
+}

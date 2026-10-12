@@ -14,6 +14,7 @@ export const MEDIA_OPS: { op: string; label: string; makesImage: boolean }[] = [
   { op: "pages", label: "Save PDF pages as pictures", makesImage: true },
   { op: "find_sensitive", label: "Find faces, plates and personal details", makesImage: false },
   { op: "redact", label: "Blur faces, plates and personal details", makesImage: true },
+  { op: "zip", label: "Bundle files into a ZIP (with a manifest)", makesImage: true },
 ];
 
 /** What each op takes besides the picture and Attach as (automation_definition.py: MEDIA_OP_ARGS). */
@@ -29,6 +30,7 @@ export const OP_FIELDS: Record<string, string[]> = {
   pages: ["page", "count", "width", "format", "quality"],
   find_sensitive: ["find"],
   redact: ["boxes", "find", "format", "quality"],
+  zip: ["files", "name"],
 };
 
 export const MEDIA_FIELDS = [
@@ -48,6 +50,8 @@ export const MEDIA_FIELDS = [
   "count",
   "find",
   "boxes",
+  "files",
+  "name",
 ];
 /** What find_sensitive / redact can look for (capability.SENSITIVE_KINDS). */
 export const SENSITIVE_KINDS = ["face", "plate", "text"];
@@ -136,6 +140,8 @@ export function mediaFields(op: string, values: Record<string, string | undefine
     }
   }
   if (op === "extract_text" && out.ocr === "auto") delete out.ocr; // the default
+  if (out.format === "pdf" && op !== "render") throw new Error("PDF is for a render (printed); pictures are JPEG, PNG or WebP");
+  if (op === "zip" && !out.files) throw new Error("zip needs files, e.g. ${steps.<id>.output.rows}");
   if (op === "resize" && !(out.width || out.height)) throw new Error("resize needs a width or a height");
   if (op === "resize" && out.fit === "cover" && !(out.width && out.height))
     throw new Error("“fill the box” needs both a width and a height");

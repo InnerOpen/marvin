@@ -9,6 +9,9 @@ request, no script — so a template can't reach the cluster's network or run co
 The screenshot is ``chromium-headless-shell --screenshot`` in a subprocess with its own temporary profile: a crash or
 a hang (``MEDIA_RENDER_TIMEOUT_SECONDS``) fails the step, never the worker. The full Chrome binary is not used: its
 "new" headless mode hangs on ``--screenshot`` without a display.
+
+A *paged* render (``print_pdf``) is printed instead (``--print-to-pdf``): width × height is the page, the content flows
+onto as many pages as it needs, and the result is a PDF — a printable guide, a handout.
 """
 
 from __future__ import annotations
@@ -66,8 +69,8 @@ def _jinja():
     return SandboxedEnvironment(autoescape=True, undefined=StrictUndefined)
 
 
-def fill(source_html: str, *, fields: dict, images: dict, width: int, height: int) -> str:
-    """The template filled in, wrapped in the locked-down document Chromium screenshots."""
+def fill(source_html: str, *, fields: dict, images: dict, width: int, height: int, paged: bool = False) -> str:
+    """The template filled in, wrapped in the locked-down document Chromium screenshots (or, ``paged``, prints)."""
     from jinja2 import TemplateError
 
     if len(source_html) > MAX_HTML_CHARS:
@@ -76,10 +79,15 @@ def fill(source_html: str, *, fields: dict, images: dict, width: int, height: in
         body = _jinja().from_string(source_html).render(fields=fields, images=images, width=width, height=height)
     except TemplateError as e:
         raise RenderError(f"the template couldn't be filled in: {e}") from e
+    page = (
+        f"@page{{size:{width}px {height}px;margin:0}}html,body{{margin:0;padding:0;width:{width}px}}"
+        if paged
+        else f"html,body{{margin:0;padding:0;width:{width}px;height:{height}px;overflow:hidden}}"
+    )
     return (
         '<!doctype html><html><head><meta charset="utf-8">'
         f'<meta http-equiv="Content-Security-Policy" content="{CSP}">'
-        f"<style>html,body{{margin:0;padding:0;width:{width}px;height:{height}px;overflow:hidden}}</style>"
+        f"<style>{page}</style>"
         f"</head><body>{body}</body></html>"
     )
 
@@ -107,6 +115,15 @@ def browser_path() -> str | None:
 
 def screenshot(document: str, width: int, height: int) -> bytes:
     """A PNG of ``document`` at exactly ``width`` × ``height``."""
+    return _browser(document, width, height, "out.png", f"--window-size={width},{height}", "--screenshot={out}")
+
+
+def print_pdf(document: str, width: int, height: int) -> bytes:
+    """``document`` printed to a PDF whose pages are ``width`` × ``height`` CSS px (A4 is 794 × 1123)."""
+    return _browser(document, width, height, "out.pdf", "--no-pdf-header-footer", "--print-to-pdf={out}")
+
+
+def _browser(document: str, width: int, height: int, out_name: str, *flags: str) -> bytes:
     from marvin.core.config import get_app_settings
 
     if not (0 < width <= MAX_SIDE and 0 < height <= MAX_SIDE):
@@ -116,7 +133,7 @@ def screenshot(document: str, width: int, height: int) -> bytes:
         raise RenderUnavailable("rendering needs headless Chromium (chromium-headless-shell), which this server doesn't have")
     timeout = get_app_settings().MEDIA_RENDER_TIMEOUT_SECONDS
     with tempfile.TemporaryDirectory(prefix="marvin-render-") as tmp:
-        page, out = Path(tmp) / "page.html", Path(tmp) / "out.png"
+        page, out = Path(tmp) / "page.html", Path(tmp) / out_name
         page.write_text(document, encoding="utf-8")
         args = [
             browser,
@@ -127,8 +144,7 @@ def screenshot(document: str, width: int, height: int) -> bytes:
             "--mute-audio",
             "--force-device-scale-factor=1",
             f"--user-data-dir={tmp}/profile",
-            f"--window-size={width},{height}",
-            f"--screenshot={out}",
+            *(flag.format(out=out) for flag in flags),
             page.as_uri(),
         ]
         env = {**os.environ, "HOME": tmp}  # an unprivileged container user may have no writable home
@@ -142,6 +158,7 @@ def screenshot(document: str, width: int, height: int) -> bytes:
         return out.read_bytes()
 
 
-def render(source_html: str, *, fields: dict, images: dict, width: int, height: int) -> bytes:
-    """Fill in a template and screenshot it: PNG bytes."""
-    return screenshot(fill(source_html, fields=fields, images=images, width=width, height=height), width, height)
+def render(source_html: str, *, fields: dict, images: dict, width: int, height: int, paged: bool = False) -> bytes:
+    """Fill in a template and screenshot it (PNG bytes) — or, ``paged``, print it (PDF bytes)."""
+    document = fill(source_html, fields=fields, images=images, width=width, height=height, paged=paged)
+    return print_pdf(document, width, height) if paged else screenshot(document, width, height)

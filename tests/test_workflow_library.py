@@ -379,6 +379,7 @@ def ws(db_session, monkeypatch):
         "preview_role": "preview",
         "cover_role": "cover",
         "find": ["face", "plate"],
+        "kicker": "Workshop field guide",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1413,6 +1414,57 @@ class TestExecution:
         (blurred,) = self._made_from(ws, street)
         assert blurred.metadata_json["media_op"] == "redact" and blurred.metadata_json["regions"] == 1  # a face; text isn't asked for
         assert [t.slug for t in blurred.tags] == ["blurred"] and len(vision.calls) == 1
+
+    def test_archive_packager(self, ws, store):
+        import zipfile
+
+        from marvin.db.models.platform import Assets, Collections, EntryAssets
+        from marvin.db.models.platform.entry_collections import EntryCollections
+        from tests.test_workflow_media_documents import _bytes_of
+
+        row = _install(ws, "archive-packager")
+        featured = ws.session.query(Collections).filter_by(group_id=ws.gid, slug="featured").one()
+        for order, title in enumerate(("Brass lantern", "Chore coat")):
+            entry = _entry(ws, "article", title, status="published", data={"body": f"All about the {title.lower()}."})
+            ws.session.add(EntryCollections(entry_id=entry.id, collection_id=featured.id, sort_order=order))
+            picture = self._picture_asset(ws, store, f"{entry.slug}-photo", _picture())
+            ws.session.add(EntryAssets(entry_id=entry.id, asset_id=picture.id, role="hero", position=0))
+        ws.session.commit()
+
+        self._run_with(ws, row, {"collection": "featured"})
+
+        (archive,) = [a for a in ws.session.query(Assets).filter(Assets.group_id == ws.gid) if a.mime_type == "application/zip"]
+        with zipfile.ZipFile(io.BytesIO(_bytes_of(ws, archive))) as z:
+            names = z.namelist()
+            manifest = json.loads(z.read("manifest.json"))
+        assert sum(n.endswith("entry.json") for n in names) == 2 and len(manifest["files"]) == 2
+        assert [i["title"] for i in manifest["items"]] == ["Brass lantern", "Chore coat"]  # the collection's order
+        assert [t.slug for t in archive.tags] == ["archive"]
+
+    @needs_browser
+    def test_workshop_field_guide(self, ws, store):
+        from marvin.services.ai.media import documents
+        from tests.test_workflow_media_documents import _bytes_of
+
+        row = _install(ws, "workshop-field-guide")
+        lantern = _entry(ws, "project", "Brass lantern", status="published", data={"stage": "complete"})
+        self._with_hero(ws, store, lantern)
+        for title, body in (("Cutting", "Cut the shade from 0.5 mm brass."), ("Wiring", "Soldered the leads.")):
+            _entry(ws, "article", title, status="published", data={"body": body, "project": lantern.slug})
+        guide = {
+            "title": "Making a brass lantern",
+            "intro": "A small lantern from one sheet of brass.",
+            "body": "## Tools and materials\n\n- Brass sheet\n- Snips\n\n## Steps\n\n1. Cut the shade.\n2. Solder the leads.\n\n## Tips\n\nGo slow.",
+        }
+        ws.ai.reply_text(json.dumps(guide))
+
+        self._run_with(ws, row, {"project": lantern.slug})
+
+        assert "Cut the shade from 0.5 mm brass." in ws.ai.last_request()  # the log
+        (link,) = self._role(ws, lantern, "field-guide")
+        assert link.asset.mime_type == "application/pdf"
+        first_page = documents.page_texts(_bytes_of(ws, link.asset))[0]
+        assert "Making a brass lantern" in first_page and "1. Cut the shade." in first_page and "Solder the leads." in first_page
 
     # ── rendered images (a media step's render op; needs headless Chromium) ──
     def _with_hero(self, ws, store, entry, size=(1200, 900)):

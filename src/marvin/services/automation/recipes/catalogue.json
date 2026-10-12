@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 72,
-    "needs-adapter": 6,
-    "needs-engine-capability": 18,
+    "verified-current": 74,
+    "needs-adapter": 5,
+    "needs-engine-capability": 17,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -79,7 +79,7 @@
       "name": "Image, file and audio processing adapters",
       "priority": "P1",
       "capabilities_md": "Provider adapters",
-      "acceptance": "Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: TTS, zip, PDF output, and provider-side image edits (background removal, scenes, variants)."
+      "acceptance": "Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Also 2026-10-12: zip (files + manifest.json) and printed renders (format pdf; the guide template). Left: TTS and provider-side image edits (background removal, scenes, variants)."
     },
     "fetch": {
       "name": "HTTP fetch step",
@@ -5422,7 +5422,7 @@
     {
       "id": "workshop-field-guide",
       "title": "Workshop field guide",
-      "outcome": "Process notes → illustrated tools and steps → printable guide",
+      "outcome": "Run it on a project: its log entries and pictures are gathered, an AI writes a guide (tools, numbered steps, tips) and it's printed to a multi-page A4 PDF attached to the project.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
@@ -5436,39 +5436,85 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "workshop-field-guide.json",
+      "vars": "workshop-field-guide.vars.json",
+      "setup_variables": [
         {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "many notes → one guide"
+          "name": "log_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries that log a project's progress (bench notes, updates).",
+          "example": "bench-note"
         },
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
-          "why": "PDF rendering"
+          "name": "project_field",
+          "type": "field_key",
+          "description": "Their field that names the project (its slug).",
+          "example": "project"
+        },
+        {
+          "name": "body_field",
+          "type": "field_key",
+          "description": "Their text field, for the AI to read.",
+          "example": "body"
+        },
+        {
+          "name": "kicker",
+          "type": "text",
+          "description": "A small heading above the title.",
+          "example": "Workshop field guide"
+        },
+        {
+          "name": "footer",
+          "type": "text",
+          "description": "A line at the bottom, e.g. the site.",
+          "example": "mashandburn.co"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "collect",
+          "operation",
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per run (two if the answer misses its fields)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves the PDF as a new asset attached to the project as field-guide (the same text and pictures make it once)."
+        }
+      ],
+      "cost_notes": "One AI call per run, from the workspace's monthly AI budget; printing is local.",
+      "failure_behaviour": "An AI error fails the run before the PDF is made.",
+      "dependencies": [],
+      "notes": [
+        "The printable guide template: ## headings, - lists and 1. steps in the body; the project's pictures at the end.",
+        "Run inputs: the Run button asks for the project."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell",
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_workshop_field_guide"
       },
       "brief": {
         "flow": "Process notes → illustrated tools and steps → printable guide",
@@ -6982,7 +7028,7 @@
     {
       "id": "archive-packager",
       "title": "Archive packager",
-      "outcome": "Collection → gather entries and permitted files → generate ZIP with manifest",
+      "outcome": "Run it with a collection: its published entries — each with its attached files and facts — are bundled in collection order into a ZIP with a manifest.",
       "category": "Operations and knowledge",
       "category_slug": "operations",
       "tags": [
@@ -6995,46 +7041,54 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "archive-packager.json",
+      "vars": "archive-packager.vars.json",
+      "setup_variables": [
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
-          "why": "zip + manifest"
-        },
-        {
-          "capability": "collection-scope",
-          "name": "Collection-scoped steps",
-          "priority": "P1",
-          "acceptance": "A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup).",
-          "why": "the collection's entries and files"
-        },
-        {
-          "capability": "iterate-aggregate",
-          "name": "Iterate / aggregate over a target set",
-          "priority": "P1",
-          "acceptance": "A target-selected set can be reduced into one output (`${target.rows}` / an aggregate step) so one step sees all rows, bounded by the target cap, with per-row errors recorded; a schedule trigger + target + aggregate step produces a digest payload in a dry run.",
-          "why": "many → one"
+          "name": "body_field",
+          "type": "field_key",
+          "description": "The entries' text field, kept in each entry's entry.json.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "collect",
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves the ZIP as a new asset tagged archive (the same entries and files make the same ZIP once)."
+        }
+      ],
+      "cost_notes": "Free: no AI.",
+      "failure_behaviour": "A collection with no published entries makes nothing; files in the Trash are left out; past the upload size cap the rest are skipped and listed in the manifest.",
+      "dependencies": [],
+      "notes": [
+        "Each entry is a folder: its files and entry.json (its facts and text); manifest.json lists everything.",
+        "Run inputs: the Run button asks for the collection."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_archive_packager"
       },
       "brief": {
         "flow": "Collection → gather entries and permitted files → generate ZIP with manifest",

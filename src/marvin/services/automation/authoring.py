@@ -419,7 +419,9 @@ MEDIA_NOTE = (
     "extract_text (a PDF or a picture → text with [page N] marks, pages [{page, text, method}]; a PDF's own text is free, a "
     "scanned page or a picture is read by the vision model, ocr: never skips that), pages (a PDF's pages as pictures: page, "
     "count ≤ 10, width → asset, assets), find_sensitive (vision: regions [{kind face|plate|text, box}], count; find limits "
-    "the kinds) and redact (a pixelated copy — boxes: ${steps.<id>.output.regions}, or it asks the model; count 0 makes nothing)."
+    "the kinds) and redact (a pixelated copy — boxes: ${steps.<id>.output.regions}, or it asks the model; count 0 makes nothing). "
+    "zip bundles files (a gather step's rows — entries bring their attached files — or assets) and a manifest.json into a "
+    "ZIP asset (name). render with format pdf prints the page instead (paged templates such as guide default to it)."
 )
 CREATE_NOTE = (
     " create makes a new entry: entry_type (slug), title, optional data (the type's fields) and metadata, status draft|inbox "

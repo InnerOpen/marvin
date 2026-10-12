@@ -901,9 +901,9 @@ guarded client resolves the host twice (check, then connect) — a DNS-rebinding
 - [x] `pages`: render PDF page(s) to images (pypdfium2) → derived assets with lineage (`attach_as`).
 - [x] `find_sensitive` + `redact`: vision model finds faces / plates / personal text (`image.detect_sensitive`) →
       pixelated copy; the recipe asks an editor first.
-- [ ] Render to PDF (Chromium --print-to-pdf) and a `zip` op (collect rows → files + manifest.json).
+- [x] Render to PDF (Chromium --print-to-pdf) and a `zip` op (collect rows → files + manifest.json).
 - [x] Recipes: ocr-notebook, document-preview-factory, privacy-crop-desk (72 verified, 24 blocked).
-- [ ] Recipes: workshop-field-guide, archive-packager.
+- [x] zip op + printed renders (format pdf, the guide template); recipes workshop-field-guide, archive-packager (74 verified).
 - [ ] Then the OpenAI Images plugin's `edit` action → background-remover, product-scene-studio, seasonal-variation.
 
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")

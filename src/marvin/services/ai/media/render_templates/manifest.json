@@ -283,5 +283,37 @@
         "list": true
       }
     }
+  },
+  "guide": {
+    "label": "Printable guide",
+    "description": "A titled, multi-page A4 guide (a PDF): an intro, sections (## headings, - lists, 1. steps) and pictures at the end.",
+    "width": 794,
+    "height": 1123,
+    "paged": true,
+    "fields": {
+      "title": {
+        "label": "Title",
+        "required": true
+      },
+      "kicker": {
+        "label": "Small heading above the title"
+      },
+      "intro": {
+        "label": "Introduction"
+      },
+      "body": {
+        "label": "Body (blank lines between paragraphs; ## headings, - lists, 1. steps)",
+        "required": true
+      },
+      "footer": {
+        "label": "Footer"
+      }
+    },
+    "images": {
+      "figures": {
+        "label": "Pictures (a list, e.g. a gather step's rows)",
+        "list": true
+      }
+    }
   }
 }

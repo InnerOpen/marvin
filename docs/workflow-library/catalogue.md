@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-107 recipes: **72** verified-current, **11** supported-after-configuration, **6** needs-adapter, **18** needs-engine-capability.
+107 recipes: **74** verified-current, **11** supported-after-configuration, **5** needs-adapter, **17** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -52,6 +52,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [trading-card-collection](../../src/marvin/services/automation/recipes/trading-card-collection.json) — Trading card collection | verified-current | `entry_updated` | — | content mutation, paid call |
 | [meme-workshop](../../src/marvin/services/automation/recipes/meme-workshop.json) — Meme workshop | verified-current | `manual` | — | content mutation, paid call |
 | [future-newspaper](../../src/marvin/services/automation/recipes/future-newspaper.json) — Future newspaper | verified-current | `manual` | — | content mutation, paid call |
+| [workshop-field-guide](../../src/marvin/services/automation/recipes/workshop-field-guide.json) — Workshop field guide | verified-current | `manual` | — | content mutation, paid call |
 | [color-moodboard](../../src/marvin/services/automation/recipes/color-moodboard.json) — Color moodboard | verified-current | `manual` | — | content mutation, paid call |
 | [soundtrack-brief](../../src/marvin/services/automation/recipes/soundtrack-brief.json) — Soundtrack brief | verified-current | `manual` | — | content mutation, paid call |
 | [alternate-universe-cover](../../src/marvin/services/automation/recipes/alternate-universe-cover.json) — Alternate universe cover | verified-current | `entry_published` | openai_images integration | content mutation, paid call |
@@ -65,6 +66,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [release-notes-compiler](../../src/marvin/services/automation/recipes/release-notes-compiler.json) — Release notes compiler | verified-current | `manual` | — | content mutation, paid call |
 | [failure-repair-desk](../../src/marvin/services/automation/recipes/failure-repair-desk.json) — Failure repair desk | verified-current | `on_error` (`automation_failed`) | — | content mutation |
 | [publication-ledger](../../src/marvin/services/automation/recipes/publication-ledger.json) — Publication ledger | verified-current | `entry_published` | — | content mutation |
+| [archive-packager](../../src/marvin/services/automation/recipes/archive-packager.json) — Archive packager | verified-current | `manual` | — | content mutation |
 | [personal-project-radar](../../src/marvin/services/automation/recipes/personal-project-radar.json) — Personal project radar | verified-current | `schedule` | — | content mutation, paid call |
 | [blocked-publication-rescue](../../src/marvin/services/automation/recipes/blocked-publication-rescue.json) — Blocked publication rescue | verified-current | `entry_scheduled_publish_blocked` | an integration that can notify (Slack or Apprise) | content mutation, notification |
 | [form-intake-desk](../../src/marvin/services/automation/recipes/form-intake-desk.json) — Form intake desk | verified-current | `form_submission_received` | an integration that can notify (Slack or Apprise); a submittable entry type (capabilities.submittable) — submissions are entries of that type | content mutation, notification |
@@ -117,11 +119,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `thumbnail-audition` — Thumbnail audition | needs-engine-capability | `manual` | workflow-approvals |
 | `achievement-cabinet` — Achievement cabinet | needs-engine-capability | `entry_updated` | custom-events |
 | `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | sandbox |
-| `workshop-field-guide` — Workshop field guide | needs-engine-capability | `manual` | iterate-aggregate, media-adapters |
 | `time-capsule` — Time capsule | needs-engine-capability | `entry_updated` | snapshots, waits |
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox |
 | `intake-triage` — Intake triage | needs-engine-capability | `form_submission_received` | form-classification |
-| `archive-packager` — Archive packager | needs-adapter | `manual` | media-adapters, collection-scope, iterate-aggregate |
 
 ## By category
 
@@ -348,9 +348,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [future-newspaper](../../src/marvin/services/automation/recipes/future-newspaper.json) — **Future newspaper** · verified-current · `manual`  
   Run by hand: each published project gets an imagined front page from ten years on — headline, deck and story written from the entry, under a banner that says it isn't real news.
   - The newspaper template always prints a banner saying the page is imagined.
-- `workshop-field-guide` — **Workshop field guide** · needs-engine-capability · `manual`  
-  Process notes → illustrated tools and steps → printable guide
-  - Blocked by: `iterate-aggregate` (many notes → one guide); `media-adapters` (PDF rendering)
+- [workshop-field-guide](../../src/marvin/services/automation/recipes/workshop-field-guide.json) — **Workshop field guide** · verified-current · `manual`  
+  Run it on a project: its log entries and pictures are gathered, an AI writes a guide (tools, numbered steps, tips) and it's printed to a multi-page A4 PDF attached to the project.
+  - The printable guide template: ## headings, - lists and 1. steps in the body; the project's pictures at the end.
+  - Run inputs: the Run button asks for the project.
 - [color-moodboard](../../src/marvin/services/automation/recipes/color-moodboard.json) — **Color moodboard** · verified-current · `manual`  
   Up to 12 tagged images become a collage, its main colours are read off, an AI writes short design notes, and all three are rendered as one moodboard.
   - The palette is read from the collage, so it weighs every picture.
@@ -411,9 +412,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   Every publication of the configured type records who published, the run's correlation id, the URL and slug in the entry's metadata; the run history holds the per-step record.
   - “Expose execution history” exists natively: GET /api/automations/{id}/executions (+ /{execution_id}) lists runs, steps, outputs and retry chains; `run` here is the correlation id shared with the event log.
   - There is no timestamp template; the run history and event log carry the time.
-- `archive-packager` — **Archive packager** · needs-adapter · `manual`  
-  Collection → gather entries and permitted files → generate ZIP with manifest
-  - Blocked by: `media-adapters` (zip + manifest); `collection-scope` (the collection's entries and files); `iterate-aggregate` (many → one)
+- [archive-packager](../../src/marvin/services/automation/recipes/archive-packager.json) — **Archive packager** · verified-current · `manual`  
+  Run it with a collection: its published entries — each with its attached files and facts — are bundled in collection order into a ZIP with a manifest.
+  - Each entry is a folder: its files and entry.json (its facts and text); manifest.json lists everything.
+  - Run inputs: the Run button asks for the collection.
 - [personal-project-radar](../../src/marvin/services/automation/recipes/personal-project-radar.json) — **Personal project radar** · verified-current · `schedule`  
   Every Monday, each project draft untouched for two weeks gets two or three small next actions from the AI, as a review request.
   - `updated_before: -14d` is a relative date, read when the run starts.
@@ -528,21 +530,20 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 
 | Id | Capability | Priority | Recipes blocked | Acceptance |
 |---|---|---|---|---|
-| `media-adapters` | Image, file and audio processing adapters | P1 | 6 | Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: TTS, zip, PDF output, and provider-side image edits (background removal, scenes, variants). |
 | `social-adapters` | Social publishing adapters | P1 | 6 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
+| `media-adapters` | Image, file and audio processing adapters | P1 | 4 | Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Also 2026-10-12: zip (files + manifest.json) and printed renders (format pdf; the guide template). Left: TTS and provider-side image edits (background removal, scenes, variants). |
 | `waits` | Durable waits and delays | P1 | 4 | `{"kind": "wait", "until": "${entry.data.event_date} - 7d"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once. |
 | `create-entry` | Create-entry action | P0 | 3 | Delivered 2026-10-11: an entry step `op: "create"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created). |
 | `ops-triggers` | Operational events as workflow triggers | P2 | 3 | ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel. |
-| `collection-scope` | Collection-scoped steps | P1 | 2 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; left: collection events carrying the set. |
 | `data-change-detection` | Data-field change detection | P1 | 2 | entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works. |
 | `fetch` | HTTP fetch step | P1 | 2 | Delivered 2026-10-12: a `fetch` step ("Check a web address") — `url`: GET/HEAD through the guarded client (public hosts, re-checked on redirects, 2 MB cap) → status, ok, content_type, title, text, json, and `find` phrases (any case) → found; `links`: the links in a text checked a few at a time → checked, broken, broken_count, text. A dead link is output, never a failed step; a dry run doesn't fetch. |
 | `form-classification` | Form-submission classification from workflows | P0 | 2 | The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches. |
 | `idempotency` | Per-step idempotency keys | P0 | 2 | A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once. |
-| `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 2 | Delivered 2026-10-12: a `collect` step ("Gather items") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Left: fanning one AI step out over the rows. |
 | `joins` | Parallel branches and joins | P1 | 2 | Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics. |
 | `member-email` | Member-addressed email | P2 | 2 | member_added carries the member's email (or email subscriptions accept recipient_type `member`), and member events are triggerable with the subject distinguished from the actor. |
 | `metrics` | Metrics windows and experiments | P2 | 2 | A step records a metric observation against a variant id and window; a report lists observations without causal claims. |
 | `sandbox` | Schema validation / sandbox handler | P2 | 2 | A step validates a fetched JSON document against a JSON schema and reports violations as output. |
+| `collection-scope` | Collection-scoped steps | P1 | 1 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; left: collection events carrying the set. |
 | `comments` | Comment events | P2 | 1 | comment_added/updated/deleted have an emitter that carries entry_id and the comment text, are triggerable, and hydrate `entry.*`. |
 | `custom-events` | Custom emit_event names | P2 | 1 | A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies. |
 | `custom-operation` | Free-form AI operation | P0 | 1 | Delivered 2026-10-11: an operation step `op: "custom"` carries its own prompt (${…} templates) and output_schema (a JSON Schema object); `see` adds the item, its attachments, images, the workspace persona; the answer is checked (one retry) and is the step output; write_back maps it onto the entry (summary, tags, metadata.<key>), asset or resource; budget, approval mode and min_role apply as for built-in operations. Named, reusable workspace operations are a later phase. |
@@ -551,4 +552,5 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `workflow-approvals` | Approval step inside a workflow | P1 | 1 | Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice. |
 | `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 0 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Delivered 2026-10-12: `checksum` (and `exclude`) in an asset query; `asset.checksum` in a run. Derived-asset lineage is part of media-adapters. |
 | `branches` | Conditional steps (if/else) | P0 | 0 | Delivered 2026-10-11: any step takes `when` conditions evaluated against steps.* / previous.* (same operators); false records it as skipped (not failed), later references read None, and the dry run shows the verdicts. |
+| `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 0 | Delivered 2026-10-12: a `collect` step ("Gather items") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Left: fanning one AI step out over the rows. |
 | `manual-params` | Manual / MCP run parameters | P1 | 0 | Delivered 2026-10-12: a manual trigger's `inputs` (name, label, type text | number | choice | entry, options, required, default) — asked by the Run button's form, passed in the run API's body or run_workflow's `inputs`, checked against the declarations, read as ${input.<name>}; an entry input is the entry the run acts on. |

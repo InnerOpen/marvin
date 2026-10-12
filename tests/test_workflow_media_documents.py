@@ -9,11 +9,13 @@ import uuid
 import pytest
 from PIL import Image
 
+from marvin.services.ai.media import render
 from marvin.services.automation.engine import run_automation_now
 from marvin.services.automation.recorder import ExecutionRecorder
 from tests.test_workflow_authoring import workspace, ws  # noqa: F401 — fixtures
 from tests.test_workflow_media import _derivatives, _entry, _last_run, _link, _png, _stored, _workflow, media  # noqa: F401
 
+needs_browser = pytest.mark.skipif(render.browser_path() is None, reason="no headless Chromium (chromium-headless-shell) here")
 
 def pdf(pages: list[str]) -> bytes:
     """A PDF with one line of Helvetica text per page ("" makes a page with no text layer, like a scan)."""
@@ -200,3 +202,73 @@ def test_the_validator_names_what_a_document_step_gets_wrong(ws, step, path):
 
     issues = draft_issues(ws.session, ws.gid, {"trigger": {"type": "manual"}, "actions": [step]})
     assert any(str(i.get("path", "")).startswith(path) for i in issues), issues
+
+
+# ── zip ──────────────────────────────────────────────────────────────────────
+def _bytes_of(ws, asset) -> bytes:
+    from marvin.repos.all_repositories import get_repositories
+    from marvin.services.assets.asset_storage_service import AssetStorageService
+    from marvin.services.storage.provider_factory import get_storage_provider
+
+    return AssetStorageService(get_repositories(ws.session, group_id=ws.gid), get_storage_provider()).read_bytes(asset)
+
+
+def _zip_of(ws, asset) -> dict:
+    import zipfile
+
+    with zipfile.ZipFile(io.BytesIO(_bytes_of(ws, asset))) as archive:
+        return {name: archive.read(name) for name in archive.namelist()}
+
+
+def test_zip_bundles_entries_with_their_files_and_a_manifest(media):
+    import json
+
+    from marvin.db.models.platform.assets import Assets
+
+    lantern, coat = _entry(media, "Brass lantern"), _entry(media, "Chore coat")
+    for entry, names in ((lantern, ("lit", "parts")), (coat, ("front",))):
+        for name in names:
+            _link(media, entry, _stored(media, name, _png()), name)
+    gone = _stored(media, "old", _png())
+    _link(media, coat, gone, "old")
+    gone.trashed_at = gone.created_at  # in the Trash: left out
+    loose = _stored(media, "sketch", _png())
+    media.session.commit()
+    rows = [{"id": str(e.id), "title": e.title, "slug": e.slug, "entry_type": "article"} for e in (lantern, coat)]
+    step = {"kind": "media", "op": "zip", "files": [*rows, loose.slug], "name": "Workshop archive"}
+
+    _, first = _run(media, step)
+    _, again = _run(media, step)
+
+    archive = media.session.query(Assets).filter_by(id=first.output_snapshot["asset"]["id"]).one()
+    files = _zip_of(media, archive)
+    folders = {name.split("/")[0] for name in files if "/" in name}
+    assert folders == {lantern.slug, coat.slug, "files"} and archive.mime_type == "application/zip" and archive.origin == "generated"
+    assert sum(name.endswith(".png") for name in files) == 4  # lit, parts, front, sketch — not the trashed one
+    assert json.loads(files[f"{lantern.slug}/entry.json"])["title"] == "Brass lantern"
+    manifest = json.loads(files["manifest.json"])
+    assert manifest["name"] == "Workshop archive" and len(manifest["files"]) == 4 and {i["kind"] for i in manifest["items"]} == {"entry", "asset"}
+    assert again.output_snapshot["reused"] is True and again.output_snapshot["asset"]["id"] == str(archive.id)
+
+
+def test_a_file_name_cant_climb_out_of_the_archive():
+    from marvin.services.automation.actions.media_documents import _safe_name
+
+    assert _safe_name("../../etc/passwd") == "etc-passwd" and _safe_name("..") == "file" and _safe_name("a:b?.png") == "a-b-.png"
+
+
+# ── a printed render ─────────────────────────────────────────────────────────
+@needs_browser
+def test_a_paged_template_prints_to_a_multi_page_pdf(media):
+    from marvin.db.models.platform.assets import Assets
+    from marvin.services.ai.media import documents
+
+    body = "## Tools\n\n- Brass sheet\n- Snips\n\n## Steps\n\n" + "\n".join(f"{n}. Step number {n} of the build." for n in range(1, 120))
+    step = {"kind": "media", "op": "render", "template": "guide", "fields": {"title": "Brass lantern", "body": body}}
+
+    result, ran = _run(media, step)
+
+    assert result["ok"], ran.error
+    guide = media.session.query(Assets).filter_by(id=ran.output_snapshot["asset"]["id"]).one()
+    texts = documents.page_texts(_bytes_of(media, guide))
+    assert guide.mime_type == "application/pdf" and len(texts) >= 2 and texts[0].startswith("Brass lantern")
