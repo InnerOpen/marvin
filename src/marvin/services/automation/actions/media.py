@@ -96,8 +96,9 @@ def run_media_action(session, group_id, action: dict, context: dict, *, user_id=
 
 # ── Reading the source ───────────────────────────────────────────────────────
 def resolve_source(session, group_id, ref, context: dict):
-    """The asset a step works on: an id or slug (templates allowed; default the run's asset), or `role:<role>` — the
-    run's entry's asset in that role, first by position. Not one in the Trash."""
+    """The asset a step works on: an id or slug (templates allowed; default the run's asset), the URL it is served at
+    (`${entry.image}`, `${asset.url}`), or `role:<role>` — the run's entry's asset in that role, first by position. Not
+    one in the Trash."""
     from marvin.db.models.platform.assets import Assets
 
     raw = interpolate(ref or DEFAULT_SOURCE, context)
@@ -108,6 +109,8 @@ def resolve_source(session, group_id, ref, context: dict):
         )
     if value.startswith(ROLE_PREFIX):
         row = _asset_in_role(session, group_id, value[len(ROLE_PREFIX) :].strip(), context)
+    elif "://" in value or value.startswith("/"):
+        row = _asset_by_url(session, group_id, value)
     else:
         row = None
         try:
@@ -119,6 +122,29 @@ def resolve_source(session, group_id, ref, context: dict):
     if row.trashed_at is not None:
         raise AutomationActionError(f"“{row.name}” is in the Trash")
     return row
+
+
+def _asset_by_url(session, group_id, url: str):
+    """One of this workspace's assets by the URL it is served at — what `${entry.image}` and `${asset.url}` give. The
+    URL ends in the asset's storage key (behind the storage's public domain, or the local `/assets/` path); any other
+    URL is refused: a media step works on the workspace's own files and never fetches the web."""
+    from urllib.parse import urlparse
+
+    from marvin.db.models.platform.assets import Assets
+
+    parts = [p for p in urlparse(url).path.split("/") if p]
+    keys = ["/".join(parts[i:]) for i in range(len(parts))]  # the key, behind however many path prefixes
+    rows = session.query(Assets).filter(Assets.group_id == group_id, (Assets.public_url == url) | Assets.storage_key.in_(keys or [""])).all()
+    if not rows:
+        raise AutomationActionError(
+            f"“{url}” isn't one of this workspace's assets — a media step only works on the workspace's own files "
+            "(an asset id or slug, ${entry.image}, ${asset.url}, ${steps.<id>.output.asset.id} or role:<role>)"
+        )
+
+    def closeness(row) -> tuple:  # its own public URL first, then the longest key the URL ends in
+        return (row.public_url != url, keys.index(row.storage_key) if row.storage_key in keys else len(keys))
+
+    return min(rows, key=closeness)
 
 
 def _asset_in_role(session, group_id, role: str, context: dict):

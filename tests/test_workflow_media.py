@@ -553,3 +553,16 @@ def test_a_media_step_tags_what_it_makes(media):
     (copy,) = _derivatives(media, photo)
     assert sorted(t.slug for t in copy.tags) == ["harbour", "web-sizes"]
     assert _last_run(media).actions[0].output_snapshot["tags"] == ["harbour", "web-sizes"]
+
+
+def test_a_source_may_be_the_url_the_asset_is_served_at(media):
+    from marvin.services.automation.actions.base import AutomationActionError
+    from marvin.services.automation.actions.media import resolve_source
+    from marvin.services.storage.provider_factory import asset_public_url
+
+    photo = _stored(media, "harbour", _png())
+    url = asset_public_url(photo)
+    assert resolve_source(media.session, media.gid, url, {}).id == photo.id
+    assert resolve_source(media.session, media.gid, "${asset.url}", {"asset": {"url": url}}).id == photo.id
+    with pytest.raises(AutomationActionError, match="isn't one of this workspace's assets"):
+        resolve_source(media.session, media.gid, "https://example.com/elsewhere.png", {})

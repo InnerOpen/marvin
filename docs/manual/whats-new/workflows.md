@@ -152,8 +152,10 @@ an image Marvin can process"). It needs no AI and no integration, and costs noth
 the workspace's AI model where the subject is.
 
 **Which picture** (`source`): by default the asset the run is about (`${asset.id}`: an `asset_*` event's, or each row of
-an asset query run). It can also be an asset's id or slug, `${steps.<id>.output.asset.id}` to work on what an earlier
-step made, or `role:<role>` — the run's entry's picture in that role (`role:hero`).
+an asset query run). It can also be an asset's id or slug, the URL it is served at (`${entry.image}` — the entry's
+main picture — or `${asset.url}`), `${steps.<id>.output.asset.id}` to work on what an earlier step made, or
+`role:<role>` — the run's entry's picture in that role (`role:hero`). A URL that isn't one of the workspace's own
+assets is refused; a media step never fetches the web.
 
 | `op` | Fields | Result |
 |---|---|---|

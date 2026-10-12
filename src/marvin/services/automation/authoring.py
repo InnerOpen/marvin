@@ -384,6 +384,7 @@ def _render_templates() -> dict:
 
 MEDIA_NOTE = (
     "A media step works on one image (jpeg, png, webp): source is an asset id or slug (default ${asset.id}), "
+    "${entry.image} for the entry's main picture (any of the workspace's own asset URLs works), "
     "${steps.<id>.output.asset.id} to chain, or role:<role> for the run's entry's image in that role. resize (width/height, "
     "fit inside|cover; never upscales), crop (aspect like 4:5; focus subject asks a vision model once per image per run, else centre — output "
     "focus_used), convert (format), grade (preset) save a NEW asset and output asset {id, slug, url, width, height}, "

@@ -47,7 +47,7 @@ export const SOURCE_LABELS: Record<SourceMode, string> = {
   current: "The asset this run is about",
   step: "The image an earlier step made",
   role: "The entry's image in a role",
-  asset: "A specific asset (id or slug)",
+  asset: "A specific asset (id, slug or URL — e.g. ${entry.image})",
 };
 
 const STEP_SOURCE = /^\$\{steps\.([^.}]+)\.output\.asset\.id\}$/;

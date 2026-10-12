@@ -704,7 +704,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         <label class="tf a-m-html-wrap"><span>HTML and CSS <span class="muted">— use {{ fields.name }} for text and {{ images.name }} as an image URL; no scripts or outside links (they're blocked)</span></span>
           <textarea class="input mono a-m-html" rows="8" spellcheck="false" placeholder="<div style=&quot;font: 60px sans-serif&quot;>{{ fields.title }}</div>">${esc(a.html ?? "")}</textarea></label>
         <div class="tf"><span>Text <span class="muted">(templates allowed, e.g. \${entry.title})</span></span><div class="a-m-fields-wrap"></div></div>
-        <div class="tf"><span>Pictures <span class="muted">(an asset id or slug, \${steps.&lt;id&gt;.output.asset.id}, or role:hero)</span></span><div class="a-m-images-wrap"></div></div>
+        <div class="tf"><span>Pictures <span class="muted">(\${entry.image} for the entry's main picture, role:hero, an asset id or slug, or \${steps.&lt;id&gt;.output.asset.id})</span></span><div class="a-m-images-wrap"></div></div>
       </div>
       <div class="tf a-m-source-wrap"><span>Which picture</span>
         <select class="input a-media-source">${(Object.entries(SOURCE_LABELS) as [SourceMode, string][]).map(([m, l]) => opt(m, l, src.mode)).join("")}</select>
