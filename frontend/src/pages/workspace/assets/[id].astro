@@ -1,6 +1,7 @@
 ---
 import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
 import AssetLineage from "@/components/AssetLineage.astro";
+import AssetMetaValue from "@/components/AssetMetaValue.astro";
 import AssetVersions from "@/components/AssetVersions.astro";
 import ItemTrashBanner from "@/components/ItemTrashBanner.astro";
 import SuggestionBanner from "@/components/SuggestionBanner.astro";
@@ -172,7 +173,7 @@ const showAiPanel = aiEnabled && isImage;
                     {Object.entries(asset.metadataJson).map(([key, value]) => (
                       <div class="metadata-preview-item">
                         <dt>{key}</dt>
-                        <dd>{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</dd>
+                        <dd><AssetMetaValue name={key} value={value} authToken={authToken} /></dd>
                       </div>
                     ))}
                   </dl>

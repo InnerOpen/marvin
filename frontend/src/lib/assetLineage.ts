@@ -56,3 +56,15 @@ export function lineageOf(metadata: unknown): Lineage | null {
     prompt: text("prompt"),
   };
 }
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The assets a metadata entry points at, so the asset pages can link them: `derived_from` (the picture a version was
+ *  made from) and `rendered_from` (a render's pictures: {name: id | [ids]}). Anything else, or a value that isn't an
+ *  asset id, gives none. */
+export function assetRefs(key: string, value: unknown): string[] {
+  if (key === "derived_from") return typeof value === "string" && UUID.test(value) ? [value] : [];
+  if (key !== "rendered_from" || !value || typeof value !== "object") return [];
+  const ids = Object.values(value as Record<string, unknown>).flat();
+  return [...new Set(ids.filter((id): id is string => typeof id === "string" && UUID.test(id)))];
+}

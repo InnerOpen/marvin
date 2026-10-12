@@ -1,6 +1,7 @@
 ---
 import type { PlatformAsset } from "@inneropen/marvin-sdk/platform";
 import AssetLineage from "@/components/AssetLineage.astro";
+import AssetMetaValue from "@/components/AssetMetaValue.astro";
 import AssetVersions from "@/components/AssetVersions.astro";
 import TagList from "@/components/TagList.astro";
 import AppLayout from "@/layouts/AppLayout.astro";
@@ -148,7 +149,7 @@ const isPdf = asset?.mimeType?.includes("pdf");
               {Object.entries(asset.metadataJson).map(([key, value]) => (
                 <div class="metadata-item">
                   <dt>{key}</dt>
-                  <dd>{typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}</dd>
+                  <dd><AssetMetaValue name={key} value={value} authToken={authToken} /></dd>
                 </div>
               ))}
             </dl>

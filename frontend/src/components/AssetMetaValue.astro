@@ -1,0 +1,44 @@
+---
+// One value of an asset's metadata list. The ones that name other assets — `derived_from` (what a version was made
+// from), `rendered_from` (a render's pictures) — link to them, by name; anything else shows as text.
+import { assetRefs } from "@/lib/assetLineage";
+import { createSdkClient } from "@/lib/sdk";
+
+interface Props {
+  name: string;
+  value: unknown;
+  authToken: string | null | undefined;
+}
+
+const MAX_NAMED = 12; // a contact sheet may have 48 tiles: name the first dozen, the rest by short id
+
+const { name, value, authToken } = Astro.props;
+const ids = assetRefs(name, value);
+const names = new Map<string, string>();
+if (ids.length && authToken) {
+  const sdk = createSdkClient(authToken);
+  await Promise.all(
+    ids.slice(0, MAX_NAMED).map(async (id) => {
+      try {
+        names.set(id, (await sdk.assets.get(id)).name);
+      } catch {
+        // gone or not readable here: the link keeps its short id
+      }
+    }),
+  );
+}
+const text = typeof value === "object" ? JSON.stringify(value, null, 2) : String(value);
+---
+
+{ids.length ? (
+  <span class="asset-refs">
+    {ids.map((id, i) => (
+      <>
+        {i > 0 && ", "}
+        <a href={`/workspace/assets/${id}/view`}>{names.get(id) ?? `${id.slice(0, 8)}…`}</a>
+      </>
+    ))}
+  </span>
+) : (
+  text
+)}

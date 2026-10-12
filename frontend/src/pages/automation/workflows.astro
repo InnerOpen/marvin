@@ -2028,6 +2028,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.inline #wf-sched-unit) { max-width: 140px; }
 
   /* Builder rows (conditions + steps) */
+  .toolbar-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: flex-end; }
   .workflows-page :global(.rows) { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
   .workflows-page :global(.row) { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--bg); }
   .workflows-page :global(.cond-row) { display: grid; grid-template-columns: 1.5fr 0.9fr 1.3fr auto; gap: 8px; align-items: center; }

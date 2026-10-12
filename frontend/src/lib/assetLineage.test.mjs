@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { describeDerivation, lineageOf } from "./assetLineage.ts";
+import { assetRefs, describeDerivation, lineageOf } from "./assetLineage.ts";
 
 test("a media step's derivation reads as words", () => {
   assert.equal(describeDerivation("media:resize:fit=inside,format=webp,width=800"), "resize webp, 800 wide");
@@ -37,4 +37,13 @@ test("a derivative and a generated image have a lineage; an original has none", 
   );
   assert.equal(lineageOf({ credit: "Ada" }), null);
   assert.equal(lineageOf(null), null);
+});
+
+test("assetRefs: the pictures a version or a render was made from, as links", () => {
+  const a = "3f1c2a4e-1b2c-4d5e-8f90-123456789abc";
+  const b = "9a8b7c6d-5e4f-4a3b-9c2d-0123456789ab";
+  assert.deepEqual(assetRefs("derived_from", a), [a]);
+  assert.deepEqual(assetRefs("rendered_from", { background: a, tiles: [b, a] }), [a, b]); // each once
+  assert.deepEqual(assetRefs("derived_from", "not-an-id"), []);
+  assert.deepEqual(assetRefs("workflow_id", a), []); // only the keys that name assets
 });
