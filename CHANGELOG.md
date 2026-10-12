@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.265 (2026-10-12)
+
+### Features
+
+- **workflows**: One-tap Approve / Deny on a waiting workflow's notification
+  ([`befe2ef`](https://github.com/InnerOpen/marvin/commit/befe2ef00a2b800c9898cd822b5055c8994587ad))
+
+
 ## v1.0.0-rc.264 (2026-10-12)
 
 ### Features
