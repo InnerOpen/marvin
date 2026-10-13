@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.309 (2026-10-13)
+
+### Bug Fixes
+
+- **ci**: Make the Postgres-only pipeline green
+  ([`e4743d5`](https://github.com/InnerOpen/marvin/commit/e4743d5aba428db3935ce0ec74ad58fecf7f3888))
+
+
 ## v1.0.0-rc.308 (2026-10-13)
 
 ### Chores
