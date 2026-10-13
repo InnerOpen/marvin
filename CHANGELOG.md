@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.310 (2026-10-13)
+
+### Bug Fixes
+
+- **ci**: Vault test job gets a Postgres service; Helm workflow runs on its own changes
+  ([`4744557`](https://github.com/InnerOpen/marvin/commit/47445575e98ec67159536b59688a1fcefaf902d7))
+
+
 ## v1.0.0-rc.309 (2026-10-13)
 
 ### Bug Fixes
