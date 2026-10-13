@@ -2417,11 +2417,14 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
     });
   });
 
-  // Per-field ✨ Improve — attached to prose textareas only. JSON editors and attachment
-  // metadata are structured, not prose; Summary already has its own Generate.
+  // Per-field ✨ Improve — attached to the entry form's prose textareas only. JSON editors and attachment
+  // metadata are structured, not prose; Summary already has its own Generate. Only the form's own fields
+  // (by `.form`, so Description's `form="entry-form"` counts): every textarea on the page also caught the
+  // Marvin chat's composer, and the button squeezed it to a sliver (2026-10-13, where AI is on).
   if (aiMenuBtn) {
     const SKIP_CLASS = ['data-json-editor', 'metadata-editor', 'attachment-metadata'];
     document.querySelectorAll<HTMLTextAreaElement>('textarea').forEach((field) => {
+      if (field.form?.id !== 'entry-form') return;
       if (field.id === 'summary') return;
       if (SKIP_CLASS.some((c) => field.classList.contains(c))) return;
 
