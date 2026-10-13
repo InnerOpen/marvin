@@ -197,7 +197,11 @@ class StatsController(BaseUserController):
         from marvin.routes.automations.automations_controller import _rank
 
         now = datetime.now(UTC)
-        approvals_count, approvals = dash.approvals_waiting(session, gid, _rank(self.user, gid))
+        try:  # a caller the role helpers can't read gets the member-level dashboard, like any other guarded panel
+            role, sees_backups = _rank(self.user, gid), _bypasses_workspace_roles(self.user)
+        except Exception:
+            role, sees_backups = 0, False
+        approvals_count, approvals = dash.approvals_waiting(session, gid, role)
         return DashboardData(
             recent_activity=recent,
             attention=AttentionCounts(
@@ -213,6 +217,6 @@ class StatsController(BaseUserController):
             ),
             approvals=approvals,
             upcoming=dash.upcoming(session, gid, now),
-            health=dash.health(session, gid, now, sees_backups=_bypasses_workspace_roles(self.user)),
+            health=dash.health(session, gid, now, sees_backups=sees_backups),
             runs_by_day=dash.runs_by_day(session, gid, now),
         )
