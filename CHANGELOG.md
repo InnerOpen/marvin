@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.293 (2026-10-13)
+
+### Features
+
+- **workflows**: Thread builder, teaser ladder, carousel storyteller, launch kit — as draft recipes
+  ([`79bac75`](https://github.com/InnerOpen/marvin/commit/79bac75c9b6f907ab57976f1ff49f583164000ac))
+
+
 ## v1.0.0-rc.292 (2026-10-13)
 
 ### Features
