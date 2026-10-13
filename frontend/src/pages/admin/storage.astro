@@ -84,6 +84,7 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
 
       <section class="settings-section">
         <h3>Files per provider</h3>
+        <div class="table-scroll">
         <table class="table">
           <thead>
             <tr><th>Provider</th><th>Source</th><th class="num">Assets</th><th class="num">Size</th><th class="num">Library files</th></tr>
@@ -100,6 +101,7 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       <section class="settings-section" data-testid="provider-settings">
@@ -220,6 +222,7 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
         {storage.workspaces.length === 0 ? (
           <p>No assets yet.</p>
         ) : (
+          <div class="table-scroll">
           <table class="table">
             <thead>
               <tr><th>Workspace</th><th>Provider</th><th class="num">Assets</th><th class="num">Size</th></tr>
@@ -235,6 +238,7 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
     </div>
@@ -442,6 +446,7 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
   }
   .settings-list dt {
     color: var(--muted);
+    overflow-wrap: anywhere;
   }
   .settings-list dd {
     margin: 0;
@@ -493,6 +498,28 @@ const nameOf = (slug: string) => storage?.providers.find((p) => p.slug === slug)
   }
   .state.partial {
     color: var(--warn);
+  }
+  /* Keys, buckets and addresses are long unbroken strings: they wrap rather than widen the page (a table scrolls instead). */
+  .now code,
+  .choice code,
+  .test-result {
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 640px) {
+    .settings-section {
+      padding: 16px;
+    }
+    /* A label above its value: a label column sized to the longest name leaves no room on a phone. */
+    .settings-list {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 2px;
+    }
+    .settings-list dd {
+      margin-bottom: 8px;
+    }
+    .provider-head .test-btn {
+      margin-left: 0;
+    }
   }
   .alert.error {
     padding: 12px 16px;
