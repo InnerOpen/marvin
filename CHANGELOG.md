@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.311 (2026-10-13)
+
+### Features
+
+- **dashboard**: What waits on you, what's coming up, a health strip and a runs sparkline
+  ([`d564023`](https://github.com/InnerOpen/marvin/commit/d564023c5009e0fd4ddf700e19727e4d7806db3e))
+
+
 ## v1.0.0-rc.310 (2026-10-13)
 
 ### Bug Fixes
