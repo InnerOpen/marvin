@@ -410,6 +410,8 @@ def ws(db_session, monkeypatch):
         "launch_date": "data.date",
         "post_at": "09:00",
         "product_type": "article",
+        "open_after": "26w",
+        "queues": "commissions, orders, press, other",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1681,6 +1683,48 @@ class TestExecution:
         assert parts["faq"].title == "FAQ: Chore coat" and len(ws.ai.requests) == 1  # one AI call for the whole kit
         roles = {ea.role for ea, a in self._links(ws, coat) if (a.metadata_json or {}).get("render_template") == "card"}
         assert roles == {"launch-card"}
+
+    def test_time_capsule(self, ws):
+        from marvin.services.automation import waits
+
+        _install(ws, "time-capsule")
+        plan = _entry(ws, "article", "Kiln plans", status="published", data={"body": "We'll build three kilns this year."})
+        ws.ai.reply_text(
+            json.dumps({"title": "Kiln plans, six months on", "body": "We planned three kilns and built two — the third waits for spring."})
+        )
+
+        _fire(ws, "entry_published", _entry_doc(plan), entity=plan.id, entity_type="entry", correlation_id="pub-plan")
+        assert _reload(ws, plan).metadata_json["time_capsule"]["text"] == "We'll build three kilns this year."
+        plan.data_json = {"body": "Two kilns built; the third in spring."}  # it changes meanwhile
+        ws.session.commit()
+        _fire(ws, "entry_published", _entry_doc(plan), entity=plan.id, entity_type="entry", correlation_id="pub-again")  # sealed once
+
+        assert waits.resume_due(ws.session, now_=waits.now() + timedelta(weeks=26, days=1)) == 1
+
+        (look_back,) = self._issues(ws)
+        assert look_back.metadata_json["retrospective_of"] == plan.slug
+        asked = json.dumps(ws.ai.requests)
+        assert "three kilns this year" in asked and "third in spring" in asked  # then and now
+
+    def test_intake_triage(self, ws):
+        _install(ws, "intake-triage")
+        request = _entry(
+            ws, "contact-request", "Ada Lovelace", status="inbox", data={"email": "ada@example.com", "message": "Can you engrave a brass plate?"}
+        )
+        answer = {"intent": "Asks for an engraved brass plate", "queue": "commissions", "urgency": "normal",
+                  "questions": ["What size is the plate?"], "reply": "Thanks, Ada — happy to. What size is the plate?"}  # fmt: skip
+        ws.ai.reply_text(json.dumps(answer))
+        spam = _entry(ws, "contact-request", "Buy now", status="inbox", data={"email": "x@spam.test", "message": "cheap pills"})
+
+        for entry, flagged in ((request, False), (spam, True)):
+            doc = _entry_doc(entry, form_name="Contact", flagged=flagged, duplicate=False, submission_data=entry.data_json)
+            _fire(ws, "form_submission_received", doc, entity=entry.id, entity_type="entry", correlation_id=f"form-{entry.slug}")
+
+        triaged = _reload(ws, request)
+        assert triaged.status == "needs_review" and triaged.metadata_json["triage"]["questions"] == ["What size is the plate?"]
+        assert triaged.metadata_json["review_reasons"] == ["commissions · normal: Asks for an engraved brass plate"]
+        assert "commissions, orders, press, other" in json.dumps(ws.ai.requests[0])
+        assert len(ws.ai.requests) == 1 and "triage" not in (_reload(ws, spam).metadata_json or {})  # flagged: never sent to the AI
 
     # ── waits ──
     def test_event_countdown(self, ws):

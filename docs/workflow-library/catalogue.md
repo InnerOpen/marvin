@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-113 recipes: **88** verified-current, **11** supported-after-configuration, **3** needs-adapter, **11** needs-engine-capability.
+113 recipes: **90** verified-current, **11** supported-after-configuration, **3** needs-adapter, **9** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -70,6 +70,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [color-moodboard](../../src/marvin/services/automation/recipes/color-moodboard.json) — Color moodboard | verified-current | `manual` | — | content mutation, paid call |
 | [soundtrack-brief](../../src/marvin/services/automation/recipes/soundtrack-brief.json) — Soundtrack brief | verified-current | `manual` | — | content mutation, paid call |
 | [alternate-universe-cover](../../src/marvin/services/automation/recipes/alternate-universe-cover.json) — Alternate universe cover | verified-current | `entry_published` | openai_images integration | content mutation, paid call |
+| [time-capsule](../../src/marvin/services/automation/recipes/time-capsule.json) — Time capsule | verified-current | `entry_published` | — | content mutation, paid call |
 | [surprise-remix-button](../../src/marvin/services/automation/recipes/surprise-remix-button.json) — Surprise remix button | verified-current | `manual` | — | content mutation, paid call |
 | [fictional-debate-club](../../src/marvin/services/automation/recipes/fictional-debate-club.json) — Fictional debate club | verified-current | `manual` | — | content mutation, paid call |
 | [client-handoff](../../src/marvin/services/automation/recipes/client-handoff.json) — Client handoff | verified-current | `entry_updated` | outgoing webhook | content mutation, external post |
@@ -78,6 +79,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [knowledge-gap-finder](../../src/marvin/services/automation/recipes/knowledge-gap-finder.json) — Knowledge gap finder | verified-current | `manual` | — | content mutation, paid call |
 | [meeting-notes-to-tasks](../../src/marvin/services/automation/recipes/meeting-notes-to-tasks.json) — Meeting notes to tasks | verified-current | `entry_created` | — | content mutation, paid call |
 | [release-notes-compiler](../../src/marvin/services/automation/recipes/release-notes-compiler.json) — Release notes compiler | verified-current | `manual` | — | content mutation, paid call |
+| [intake-triage](../../src/marvin/services/automation/recipes/intake-triage.json) — Intake triage | verified-current | `form_submission_received` | — | content mutation, paid call |
 | [failure-repair-desk](../../src/marvin/services/automation/recipes/failure-repair-desk.json) — Failure repair desk | verified-current | `on_error` (`automation_failed`) | — | content mutation |
 | [publication-ledger](../../src/marvin/services/automation/recipes/publication-ledger.json) — Publication ledger | verified-current | `entry_published` | — | content mutation |
 | [archive-packager](../../src/marvin/services/automation/recipes/archive-packager.json) — Archive packager | verified-current | `manual` | — | content mutation |
@@ -125,9 +127,7 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `thumbnail-audition` — Thumbnail audition | needs-engine-capability | `manual` | workflow-approvals |
 | `achievement-cabinet` — Achievement cabinet | needs-engine-capability | `entry_updated` | custom-events |
 | `choose-your-own-adventure` — Choose your own adventure | needs-engine-capability | `manual` | sandbox |
-| `time-capsule` — Time capsule | needs-engine-capability | `entry_updated` | snapshots, waits |
 | `agent-directory-intake` — Agent directory intake | needs-engine-capability | `form_submission_received` | fetch, sandbox |
-| `intake-triage` — Intake triage | needs-engine-capability | `form_submission_received` | form-classification |
 
 ## By category
 
@@ -394,9 +394,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [alternate-universe-cover](../../src/marvin/services/automation/recipes/alternate-universe-cover.json) — **Alternate universe cover** · verified-current · `entry_published`  
   When an entry is published, an editor is asked whether to make an alternate-universe cover; once approved, OpenAI Images draws it and it is attached to the entry as cover-variant.
   - The picture is kept as an asset before the run goes on, so the run carries a reference, not image data.
-- `time-capsule` — **Time capsule** · needs-engine-capability · `entry_updated`  
-  Capture approved project snapshot → schedule retrospective draft
-  - Blocked by: `snapshots` (capture the version); `waits` (months later)
+- [time-capsule](../../src/marvin/services/automation/recipes/time-capsule.json) — **Time capsule** · verified-current · `entry_published`  
+  When a project is first published, what it says is sealed on the entry; months later (you choose, up to a year) a look back comparing then and now is drafted.
+  - The look back reads the entry as it is when the capsule opens, beside the sealed text.
+  - The sealed text is kept in the entry's metadata, so it can be read (or edited) on the entry page.
 - [surprise-remix-button](../../src/marvin/services/automation/recipes/surprise-remix-button.json) — **Surprise remix button** · verified-current · `manual`  
   Run it, pick an entry and one of the remixes you set up (a haiku, a fairy tale…): an AI retells the entry in that form as a new draft.
   - Run inputs: the Run button asks for the entry and the remix; the agent's run_workflow passes them as `inputs`.
@@ -432,10 +433,10 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [release-notes-compiler](../../src/marvin/services/automation/recipes/release-notes-compiler.json) — **Release notes compiler** · verified-current · `manual`  
   Entries changed since a date (relative, like -14d) are gathered and an AI groups them into release notes, saved as a draft entry.
   - Up to 50 entries, most recently changed first; the AI sees each title, summary and link.
-- `intake-triage` — **Intake triage** · needs-engine-capability · `form_submission_received`  
-  New request → classify → assign queue → draft clarifying questions
-  - Possible today (partial): form-intake-desk records, reviews and notifies; routing by a classification needs branches (or a second workflow keyed on metadata written by the first).
-  - Blocked by: `form-classification` (`classify-form-submission` gets no submission context from the workflow runner)
+- [intake-triage](../../src/marvin/services/automation/recipes/intake-triage.json) — **Intake triage** · verified-current · `form_submission_received`  
+  A new form submission is triaged by AI — what it asks, which of your queues, how urgent, and the questions to ask back with a draft reply — then sent to Needs review with that as the reason.
+  - The submission's text is sent to the workspace's AI provider — say so in the form's privacy note.
+  - Nothing is sent to the requester: the reply is a draft in metadata.triage.reply_draft.
 - [failure-repair-desk](../../src/marvin/services/automation/recipes/failure-repair-desk.json) — **Failure repair desk** · verified-current · `on_error` (`automation_failed`)  
   When any workflow run fails on an entry and the integration's error policy did not handle it, the entry is sent to Needs review with the workflow name and error as the reason.
   - The on_error trigger listens to `automation_failed`; the failed run names its entry as `event.trigger_entity_type/id`, which the entry step targets explicitly (`entity_id`).
@@ -568,22 +569,22 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | `social-adapters` | Social publishing adapters | P1 | 3 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
 | `data-change-detection` | Data-field change detection | P1 | 2 | entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works. |
 | `fetch` | HTTP fetch step | P1 | 2 | Delivered 2026-10-12: a `fetch` step ("Check a web address") — `url`: GET/HEAD through the guarded client (public hosts, re-checked on redirects, 2 MB cap) → status, ok, content_type, title, text, json, and `find` phrases (any case) → found; `links`: the links in a text checked a few at a time → checked, broken, broken_count, text. A dead link is output, never a failed step; a dry run doesn't fetch. |
-| `form-classification` | Form-submission classification from workflows | P0 | 2 | The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches. |
 | `idempotency` | Per-step idempotency keys | P0 | 2 | A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once. |
 | `member-email` | Member-addressed email | P2 | 2 | member_added carries the member's email (or email subscriptions accept recipient_type `member`), and member events are triggerable with the subject distinguished from the actor. |
 | `metrics` | Metrics windows and experiments | P2 | 2 | A step records a metric observation against a variant id and window; a report lists observations without causal claims. |
 | `sandbox` | Schema validation / sandbox handler | P2 | 2 | A step validates a fetched JSON document against a JSON schema and reports violations as output. |
-| `waits` | Durable waits and delays | P1 | 2 | Delivered 2026-10-13: a `wait` step — `for` (30m, 12h, 3d, 2w) or `until` a date/datetime with `offset` and `at`, in the workspace's time zone, calendar arithmetic across clock changes — parks the run (workflow_waits, the run's snapshot incl. its inputs); a minutely sweep resumes it with the entry as it is then; the entry in the Trash or the workflow switched off/changed cancels it; a moment already past goes on at once (late); a year at most. |
 | `collection-scope` | Collection-scoped steps | P1 | 1 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; left: collection events carrying the set. |
 | `comments` | Comment events | P2 | 1 | comment_added/updated/deleted have an emitter that carries entry_id and the comment text, are triggerable, and hydrate `entry.*`. |
 | `custom-events` | Custom emit_event names | P2 | 1 | A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies. |
 | `custom-operation` | Free-form AI operation | P0 | 1 | Delivered 2026-10-11: an operation step `op: "custom"` carries its own prompt (${…} templates) and output_schema (a JSON Schema object); `see` adds the item, its attachments, images, the workspace persona; the answer is checked (one retry) and is the step output; write_back maps it onto the entry (summary, tags, metadata.<key>), asset or resource; budget, approval mode and min_role apply as for built-in operations. Named, reusable workspace operations are a later phase. |
+| `form-classification` | Form-submission classification from workflows | P0 | 1 | The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches. |
 | `joins` | Parallel branches and joins | P1 | 1 | Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics. |
 | `media-adapters` | Image, file and audio processing adapters | P1 | 1 | Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Also 2026-10-12: zip (files + manifest.json) and printed renders (format pdf; the guide template). Provider edits 2026-10-12: an integration step's `source` hands an image.edit action the picture (image_b64) and keeps the result as a version of it; OpenAI Images v0.3.0 has `edit`. Left: TTS. |
-| `snapshots` | Entity snapshots and restore | P2 | 1 | A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable. |
+| `waits` | Durable waits and delays | P1 | 1 | Delivered 2026-10-13: a `wait` step — `for` (30m, 12h, 3d, 2w) or `until` a date/datetime with `offset` and `at`, in the workspace's time zone, calendar arithmetic across clock changes — parks the run (workflow_waits, the run's snapshot incl. its inputs); a minutely sweep resumes it with the entry as it is then; the entry in the Trash or the workflow switched off/changed cancels it; a moment already past goes on at once (late); a year at most. |
 | `workflow-approvals` | Approval step inside a workflow | P1 | 1 | Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice. |
 | `asset-resource-targets` | Assets and resources as workflow subjects | P1 | 0 | Delivered (2026-10-08/11): asset_*/resource_* events bind `asset.*` / `resource.*`; targets take entity asset|resource; an operation step on an asset sees its image and writes back through a `write_back` field map. Delivered 2026-10-12: the entries linked to a given asset or resource (`asset` / `resource` query keys). Delivered 2026-10-12: `checksum` (and `exclude`) in an asset query; `asset.checksum` in a run. Derived-asset lineage is part of media-adapters. |
 | `branches` | Conditional steps (if/else) | P0 | 0 | Delivered 2026-10-11: any step takes `when` conditions evaluated against steps.* / previous.* (same operators); false records it as skipped (not failed), later references read None, and the dry run shows the verdicts. |
 | `iterate-aggregate` | Iterate / aggregate over a target set | P1 | 0 | Delivered 2026-10-12: a `collect` step ("Gather items") runs an entry/asset/resource query (a target's keys) and returns rows (each as ${entry.*}/${asset.*}/${resource.*}), count, total and text (a plain list for an AI prompt), up to the target cap; a render step's list images take the rows whole (grid, moodboard). Linked items (2026-10-12): `entries` (the entry a field names), `asset` / `resource` (the entries using one), an asset/resource query's `entry` (what an entry holds, in its order) and `role`, and sort by `position` (a collection's own order). Left: fanning one AI step out over the rows. |
 | `manual-params` | Manual / MCP run parameters | P1 | 0 | Delivered 2026-10-12: a manual trigger's `inputs` (name, label, type text | number | choice | entry, options, required, default) — asked by the Run button's form, passed in the run API's body or run_workflow's `inputs`, checked against the declarations, read as ${input.<name>}; an entry input is the entry the run acts on. |
 | `relative-dates` | Relative dates and cron schedules | P1 | 0 | Delivered 2026-10-12: every date key of a query (created/updated/published_after|before) takes a relative date (-7d, -12h, -2w, +3d, now, today), read when the run starts; an unreadable date fails the query instead of widening it. Cron schedules compute next_run_at in their time zone and fire (services/cron.py). |
+| `snapshots` | Entity snapshots and restore | P2 | 0 | A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable. |

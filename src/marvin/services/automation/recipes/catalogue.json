@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 88,
+    "verified-current": 90,
     "needs-adapter": 3,
-    "needs-engine-capability": 11,
+    "needs-engine-capability": 9,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -6869,53 +6869,111 @@
     {
       "id": "time-capsule",
       "title": "Time capsule",
-      "outcome": "Capture approved project snapshot → schedule retrospective draft",
+      "outcome": "When a project is first published, what it says is sealed on the entry; months later (you choose, up to a year) a look back comparing then and now is drafted.",
       "category": "Playful experiments",
       "category_slug": "playful",
       "tags": [
-        "snapshots",
-        "waits"
+        "retrospective",
+        "waits",
+        "ai"
       ],
       "target_entity": "entry",
       "trigger": {
         "type": "event",
-        "event": "entry_updated",
+        "event": "entry_published",
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "time-capsule.json",
+      "vars": "time-capsule.vars.json",
+      "setup_variables": [
         {
-          "capability": "snapshots",
-          "name": "Entity snapshots and restore",
-          "priority": "P2",
-          "acceptance": "A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable.",
-          "why": "capture the version"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries to seal in a time capsule when they're first published (projects, plans).",
+          "example": "project"
         },
         {
-          "capability": "waits",
-          "name": "Durable waits and delays",
-          "priority": "P1",
-          "acceptance": "`{\"kind\": \"wait\", \"until\": \"${entry.data.event_date} - 7d\"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once.",
-          "why": "months later"
+          "name": "body_field",
+          "type": "field_key",
+          "description": "Their text field — what's kept, to compare with later.",
+          "example": "body"
+        },
+        {
+          "name": "open_after",
+          "type": "text",
+          "description": "How long until the look back: weeks (26w) or days (180d), up to a year.",
+          "example": "26w"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the look back should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the look back is drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "entry",
+          "wait",
+          "operation"
+        ],
+        "entry_ops": [
+          "set_metadata",
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Seals the entry's title and text in metadata.time_capsule on first publish; later creates a draft entry (metadata.retrospective_of)."
+        },
+        {
+          "kind": "paid_call",
+          "description": "One AI call per capsule, when it opens."
+        }
+      ],
+      "cost_notes": "One AI call per capsule, months later.",
+      "failure_behaviour": "An entry moved to the Trash, or the workflow switched off or changed, cancels the waiting capsule; publishing again doesn't seal a second one.",
+      "dependencies": [],
+      "notes": [
+        "The look back reads the entry as it is when the capsule opens, beside the sealed text.",
+        "The sealed text is kept in the entry's metadata, so it can be read (or edited) on the entry page."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "clock"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_time_capsule"
       },
       "brief": {
         "flow": "Capture approved project snapshot → schedule retrospective draft",
@@ -7887,13 +7945,14 @@
     {
       "id": "intake-triage",
       "title": "Intake triage",
-      "outcome": "New request → classify → assign queue → draft clarifying questions",
+      "outcome": "A new form submission is triaged by AI — what it asks, which of your queues, how urgent, and the questions to ask back with a draft reply — then sent to Needs review with that as the reason.",
       "category": "Operations and knowledge",
       "category_slug": "operations",
       "tags": [
         "forms",
-        "ai",
-        "branches"
+        "triage",
+        "review",
+        "ai"
       ],
       "target_entity": "entry",
       "trigger": {
@@ -7902,34 +7961,70 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "intake-triage.json",
+      "vars": "intake-triage.vars.json",
+      "setup_variables": [
         {
-          "capability": "form-classification",
-          "name": "Form-submission classification from workflows",
-          "priority": "P0",
-          "acceptance": "The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches.",
-          "why": "`classify-form-submission` gets no submission context from the workflow runner"
+          "name": "form_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type that takes public submissions (a contact or request form).",
+          "example": "contact-request"
+        },
+        {
+          "name": "queues",
+          "type": "text",
+          "description": "Your queues, comma-separated — the AI puts each request in one.",
+          "example": "commissions, orders, press, workshops, other"
         }
       ],
+      "requires": {
+        "trigger": "event:form_submission_received",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata",
+          "request_review"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "neq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per submission (none for one flagged as spam)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Merges metadata.triage (intent, queue, urgency, questions, reply_draft) and sends the entry to Needs review with the triage as its reason."
+        }
+      ],
+      "cost_notes": "One AI call per submission that isn't flagged.",
+      "failure_behaviour": "A flagged submission is left alone; an AI error fails the run and the submission stays where it was.",
+      "dependencies": [],
       "notes": [
-        "Possible today (partial): form-intake-desk records, reviews and notifies; routing by a classification needs branches (or a second workflow keyed on metadata written by the first)."
+        "The submission's text is sent to the workspace's AI provider — say so in the form's privacy note.",
+        "Nothing is sent to the requester: the reply is a draft in metadata.triage.reply_draft."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_intake_triage"
       },
       "brief": {
         "flow": "New request → classify → assign queue → draft clarifying questions",

@@ -1,0 +1,78 @@
+{
+  "name": "Time capsule",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      },
+      {
+        "field": "entry.metadata.time_capsule",
+        "op": "exists",
+        "value": false
+      }
+    ],
+    "actions": [
+      {
+        "kind": "entry",
+        "op": "set_metadata",
+        "metadata": {
+          "time_capsule": {
+            "sealed": "${entry.published_at}",
+            "title": "${entry.title}",
+            "text": "${entry.data.{{body_field}}}"
+          }
+        }
+      },
+      {
+        "kind": "wait",
+        "id": "later",
+        "for": "{{open_after}}"
+      },
+      {
+        "kind": "operation",
+        "id": "look_back",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "When “${entry.metadata.time_capsule.title}” was first published (${entry.metadata.time_capsule.sealed}), it said:\n\n${entry.metadata.time_capsule.text}\n\nIt reads like this now (the entry below). Write a short, honest look back in {{voice}}: what was planned or said then, what changed since, and what's still true. Use only these two versions — invent nothing.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "body": {
+              "type": "string",
+              "minLength": 40
+            }
+          },
+          "required": [
+            "title",
+            "body"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.look_back.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.look_back.output.body}"
+        },
+        "metadata": {
+          "retrospective_of": "${entry.slug}"
+        },
+        "status": "draft"
+      }
+    ]
+  }
+}
