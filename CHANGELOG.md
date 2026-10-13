@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.295 (2026-10-13)
+
+### Bug Fixes
+
+- **deps**: Patch the vulnerable dependencies (pip-audit and npm audit clean)
+  ([`307c8fd`](https://github.com/InnerOpen/marvin/commit/307c8fd26aa602e205c3841cb6a475538203c0db))
+
+
 ## v1.0.0-rc.294 (2026-10-13)
 
 ### Bug Fixes
