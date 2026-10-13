@@ -214,7 +214,7 @@
     const wanted = id ? workflowRecipes().find((r) => r.id === id) : null;
     if (wanted) pick(wanted);
     else if (id) detail.replaceChildren(h("p", { class: "rd-error" }, `No workflow recipe “${id}” — it may be set up on another page. See the Library.`));
-    else search.focus();
+    else if (!matchMedia("(pointer: coarse)").matches) search.focus(); // a phone's keyboard would cover the list
   }
 
   search.addEventListener("input", renderList);
@@ -229,6 +229,7 @@
   .recipe-dialog {
     width: min(960px, calc(100vw - 32px));
     max-height: calc(100vh - 48px);
+    max-height: calc(100dvh - 48px); /* the height that's actually visible (a phone's browser bars) */
     border: 1px solid var(--line);
     border-radius: var(--radius, 12px);
     padding: 0;
@@ -245,8 +246,8 @@
   .rd-body { display: grid; grid-template-columns: minmax(240px, 2fr) 3fr; min-height: 0; flex: 1; }
   .rd-list-pane { display: flex; flex-direction: column; border-right: 1px solid var(--line); min-height: 0; }
   .rd-search { margin: 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 14px; }
-  .rd-list { overflow-y: auto; padding: 0 8px 12px; max-height: calc(100vh - 190px); }
-  .rd-detail { overflow-y: auto; padding: 16px 20px; max-height: calc(100vh - 130px); }
+  .rd-list { overflow-y: auto; padding: 0 8px 12px; max-height: calc(100dvh - 190px); }
+  .rd-detail { overflow-y: auto; padding: 16px 20px; max-height: calc(100dvh - 130px); }
   .recipe-dialog :global(.rd-group) { margin: 14px 6px 4px; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
   .recipe-dialog :global(.rd-item) {
     display: flex; flex-direction: column; gap: 2px; width: 100%; text-align: left; padding: 8px 10px; border: 1px solid transparent;
@@ -277,6 +278,20 @@
   .recipe-dialog :global(.rd-back) { display: none; }
 
   @media (max-width: 720px) {
+    /* A phone: the whole screen, not a box centred against a viewport the browser bars and keyboard change. */
+    .recipe-dialog {
+      inset: 0;
+      width: 100%;
+      max-width: 100%;
+      height: 100dvh;
+      max-height: 100dvh;
+      margin: 0;
+      border: 0;
+      border-radius: 0;
+    }
+    .rd-head { padding-top: max(14px, env(safe-area-inset-top)); }
+    .rd-list, .rd-detail { max-height: none; }
+    .rd-list-pane, .rd-detail { min-height: 0; overflow-y: auto; padding-bottom: env(safe-area-inset-bottom); }
     .rd-body { grid-template-columns: 1fr; }
     .rd-list-pane { border-right: 0; }
     .rd-browse { display: none; }
