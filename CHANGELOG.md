@@ -6,6 +6,20 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.303 (2026-10-13)
+
+### Bug Fixes
+
+- **frontend**: Every admin and workspace page fits a phone
+  ([`44ef84f`](https://github.com/InnerOpen/marvin/commit/44ef84fa6c1a9c30b01bbe0fc3e5ba1b58d5f43b))
+
+### Refactoring
+
+- **workflows**: The authoring guide is read like a vault — an index first, then the sections a
+  request needs
+  ([`b7a4194`](https://github.com/InnerOpen/marvin/commit/b7a419404e4b2399b179900cd109fc962c1b4774))
+
+
 ## v1.0.0-rc.302 (2026-10-13)
 
 ### Features
