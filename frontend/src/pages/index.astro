@@ -10,6 +10,10 @@ import { FULL_CONTENT_ACCESS, getContentAccess } from "@/lib/api/workspaces";
 import type { APIClientRead, CollectionRead, EntryRead, EntryTypeRead, ResourceRead } from "@/lib/api/types";
 import { requireAuth } from "@/lib/auth";
 import { nullIfForbidden } from "@/lib/workspaceRole";
+import DashboardPanels from "@/components/DashboardPanels.astro";
+import LocalTime from "@/components/LocalTime.astro";
+import { fetchApi } from "@/lib/api/client";
+import { entityHref, entityTypeLabel } from "@/lib/eventEntity";
 
 // Require authentication
 await requireAuth(Astro.cookies, Astro.redirect, Astro.url.pathname);
@@ -24,6 +28,9 @@ let canSeeClients = true;
 let collections: CollectionRead[] = [];
 let entryTypes: EntryTypeRead[] = [];
 let resources: ResourceRead[] = [];
+// The workspace's counts and the live panels (/workspace used to show these; the two dashboards are one now).
+let stats: any = null;
+let dashboard: any = null;
 let error: string | null = null;
 
 if (!authToken) {
@@ -31,12 +38,14 @@ if (!authToken) {
 } else {
   try {
     let clients: APIClientRead[] | null;
-    [entries, clients, collections, entryTypes, resources] = await Promise.all([
+    [entries, clients, collections, entryTypes, resources, stats, dashboard] = await Promise.all([
       listEntries(authToken),
       nullIfForbidden(getSiteClients(authToken)),
       listCollections(authToken),
       listEntryTypes(authToken),
       listResources(authToken),
+      fetchApi<any>("/api/platform/stats", { method: "GET" }, authToken).catch(() => null),
+      fetchApi<any>("/api/platform/stats/dashboard", { method: "GET" }, authToken).catch(() => null),
     ]);
     siteClients = clients ?? [];
     canSeeClients = clients !== null;
@@ -90,6 +99,34 @@ const lastPublishedEntry = entries
     return dateB - dateA;
   })[0];
 
+// Recent Activity: the workspace's event log, newest first (the API already applies the AI-run visibility rule).
+const recentActivity: any[] = dashboard?.recentActivity ?? dashboard?.recent_activity ?? [];
+function relTime(iso?: string | null): string | null {
+  if (!iso) return null;
+  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return days < 7 ? `${days}d ago` : null;
+}
+
+// At a glance: the workspace's counts, each a link to its page.
+const glance: { label: string; value: number | string; href: string }[] = stats
+  ? [
+      { label: "Entries", value: stats.entries ?? 0, href: "/workspace/entries" },
+      { label: "Assets", value: stats.assets ?? 0, href: "/workspace/assets" },
+      { label: "Collections", value: stats.collections ?? 0, href: "/workspace/collections" },
+      { label: "Members", value: stats.members ?? 0, href: "/workspace/members" },
+      { label: "Scheduled tasks", value: stats.scheduledTasks ?? stats.scheduled_tasks ?? 0, href: "/workspace/scheduled-tasks" },
+      { label: "Webhooks", value: stats.webhooks ?? 0, href: "/automation/webhooks" },
+      { label: "AI runs this month", value: stats.aiExecutions ?? stats.ai_executions ?? 0, href: "/workspace/settings/ai-executions" },
+      { label: "RAG embeddings", value: stats.aiEmbeddings ?? stats.ai_embeddings ?? 0, href: "/workspace/settings/ai-ask" },
+    ]
+  : [];
+
 // Helper to format relative time
 function formatRelativeTime(timestamp: string | null | undefined): string {
   if (!timestamp) return "Never";
@@ -131,13 +168,16 @@ function getStatusClass(status: string): string {
     </div>
   ) : (
     <div class="dashboard">
-      <!-- Needs Attention -->
+      <!-- The live panels: health, what waits on you, what's coming up, workflow runs -->
+      <DashboardPanels dashboard={dashboard} />
+
+      <!-- Housekeeping: stale drafts, empty types and collections, unused clients -->
       {(needsAttention.staleDrafts.length > 0 ||
         needsAttention.emptyEntryTypes.length > 0 ||
         needsAttention.emptyCollections.length > 0 ||
         needsAttention.unusedClients.length > 0) && (
         <section class="dashboard-section">
-          <h2 class="section-title">Needs Attention</h2>
+          <h2 class="section-title">Housekeeping</h2>
           <div class="attention-grid">
             {needsAttention.staleDrafts.length > 0 && (
               <a href="/workspace/entries?status=draft" class="attention-card">
@@ -246,6 +286,37 @@ function getStatusClass(status: string): string {
           )}
         </section>
 
+        <!-- Recent Activity: the workspace event log -->
+        <section class="dashboard-section">
+          <div class="section-head">
+            <h2 class="section-title">Recent Activity</h2>
+            <a href="/automation/events" class="section-link">Event log →</a>
+          </div>
+          {recentActivity.length === 0 ? (
+            <div class="empty-state-small"><p>No recent activity yet.</p></div>
+          ) : (
+            <ul class="activity-list">
+              {recentActivity.map((ev) => {
+                const entityLabel = entityTypeLabel(ev.entityType);
+                const entityLink = entityHref(ev.entityType, ev.entityId);
+                const at = ev.occurredAt ?? ev.occurred_at;
+                return (
+                  <li class="activity-row">
+                    <span class="activity-dot" aria-hidden="true"></span>
+                    <div class="activity-body">
+                      <span class="activity-msg">{ev.message}</span>
+                      {entityLink ? (
+                        <a class="activity-meta activity-entity" href={entityLink}>{entityLabel}</a>
+                      ) : entityLabel && <span class="activity-meta">{entityLabel}</span>}
+                    </div>
+                    <span class="activity-when">{relTime(at) ?? <LocalTime iso={at} format="date" />}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
+
         <!-- Publishing Overview & Activity -->
         <section class="dashboard-section">
           <h2 class="section-title">Publishing</h2>
@@ -306,6 +377,18 @@ function getStatusClass(status: string): string {
             )}
           </div>
         </section>
+
+        <!-- At a glance: the workspace's counts -->
+        {glance.length > 0 && (
+          <section class="dashboard-section">
+            <h2 class="section-title">At a glance</h2>
+            <ul class="glance-list">
+              {glance.map((g) => (
+                <li><a href={g.href} class="glance-item"><span>{g.label}</span><strong>{g.value}</strong></a></li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </div>
   )}
@@ -430,6 +513,7 @@ function getStatusClass(status: string): string {
     grid-template-columns: 1fr 400px;
     gap: 32px;
   }
+  .dashboard-columns > .dashboard-section { align-content: start; }  /* a short section sits at the top of its row, not the bottom */
 
   @media (max-width: 1200px) {
     .dashboard-columns {
@@ -654,4 +738,70 @@ function getStatusClass(status: string): string {
     padding: 6px 12px;
     font-size: 13px;
   }
+  /* Recent Activity (the event log, moved here from the old /workspace overview). */
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .section-link { font-size: 13px; color: var(--accent); text-decoration: none; white-space: nowrap; }
+  .section-link:hover { text-decoration: underline; }
+  .activity-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 4px;
+    display: flex;
+    flex-direction: column;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+  .activity-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .activity-row:last-child { border-bottom: none; }
+  .activity-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.8;
+  }
+  .activity-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .activity-msg { font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+  .activity-meta { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); text-decoration: none; }
+  a.activity-entity:hover { color: var(--accent); }
+  .activity-when { flex: none; font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+  /* At a glance: the workspace's counts as a compact list. */
+  .glance-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .glance-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    text-decoration: none;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .glance-item:hover { border-color: var(--accent); color: var(--ink); }
+  .glance-item strong { font-size: 18px; color: var(--ink); }
 </style>

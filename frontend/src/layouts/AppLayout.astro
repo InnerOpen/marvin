@@ -188,7 +188,7 @@ const SETTINGS_TABS: { tab: string; label: string; icon: string; paths: string[]
 const ASK_PATH = "/workspace/settings/ai-ask";
 const activeTab = SETTINGS_TABS.find((t) => t.paths.some((p) => Astro.url.pathname.startsWith(p)) && Astro.url.pathname !== ASK_PATH)?.tab
   ?? (Astro.url.pathname === "/workspace/settings" ? Astro.url.searchParams.get("tab") || "general" : null);
-const onSettings = activeTab !== null || Astro.url.pathname === "/workspace";
+const onSettings = activeTab !== null;
 // Simplified navigation following 80% rule
 
 // Primary sidebar contains only daily-use features
@@ -336,7 +336,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
           </div>
         ))}
         <details class="nav-group nav-settings" id="nav-settings" open={onSettings} data-forced={onSettings ? "1" : undefined}>
-          <summary class="nav-settings-row" aria-current={Astro.url.pathname === "/workspace" ? "page" : undefined}>
+          <summary class="nav-settings-row">
             <span aria-hidden="true">⚙</span><span>Settings</span><span class="nav-chevron" aria-hidden="true">›</span>
           </summary>
           <nav class="nav" aria-label="Settings">

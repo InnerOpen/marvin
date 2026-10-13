@@ -18,7 +18,7 @@ const token = Astro.url.searchParams.get("token") || Astro.url.searchParams.get(
 // (The cookie is the one the backend reads, AUTH_COOKIE_NAME; this used to check a name nothing sets.)
 const existingAuth = Astro.cookies.get(getCookieName());
 if (existingAuth && !token) {
-  return Astro.redirect("/workspace");
+  return Astro.redirect("/");
 }
 
 let registrationError: string | null = null;

@@ -72,8 +72,7 @@ const NODES: NavNode[] = [
   { id: "admin.alerts", label: "Platform Alerts", href: "/admin/alerts", parent: "admin" },
   { id: "admin.maintenance", label: "Maintenance", href: "/admin/maintenance", parent: "admin" },
 
-  // Workspace pages with no parent: the dashboard (the sidebar's Workspace → Settings) and creating a workspace.
-  { id: "workspace", label: "Workspace", href: "/workspace", title: "Workspace Dashboard" },
+  // A workspace page with no parent: creating a workspace. (The dashboard lives at /, outside the map; /workspace redirects there.)
   { id: "workspace.new", label: "Create Workspace", href: "/workspace/new" },
 
   // Workspace settings
