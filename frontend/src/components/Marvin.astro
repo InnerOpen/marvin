@@ -653,9 +653,12 @@ try {
     document.addEventListener('marvin:ask', (e) => {
       const detail = (e as CustomEvent).detail ?? {};
       const text = String(detail.text ?? '').trim();
-      if (!text || busy) return;
-      if (detail.register) setPendingRegister(detail.register);
+      if (!text) return;
+      // Bring the bubble in first — out of its edge, back from a scroll-away — even when a run is
+      // under way, so the page's button always shows where the answer will land.
       if (!panel.classList.contains('open')) openPanel();
+      if (busy) return;
+      if (detail.register) setPendingRegister(detail.register);
       input.value = text;
       form.requestSubmit();
     });
