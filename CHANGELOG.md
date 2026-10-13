@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.315 (2026-10-13)
+
+### Features
+
+- **frontend**: Drop the Review Queue button and the app's Review shortcut
+  ([`959537a`](https://github.com/InnerOpen/marvin/commit/959537a0b59b51960bf4e5419978df48c200d196))
+
+
 ## v1.0.0-rc.314 (2026-10-13)
 
 ### Bug Fixes
