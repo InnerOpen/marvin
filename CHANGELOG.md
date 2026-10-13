@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.317 (2026-10-13)
+
+### Features
+
+- **entries**: Ask Marvin goes to the Ask page when the bubble is off, in the same thread
+  ([`2591aca`](https://github.com/InnerOpen/marvin/commit/2591aca7b9de733ac413586fa0c26395a6bff5ba))
+
+
 ## v1.0.0-rc.316 (2026-10-13)
 
 ### Features
