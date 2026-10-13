@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.302 (2026-10-13)
+
+### Features
+
+- **workflows**: Member events as triggers (${member.*}); Community welcome pack runs
+  ([`382c275`](https://github.com/InnerOpen/marvin/commit/382c27509da229b759c09f837ca7ed4f02cd1ae9))
+
+
 ## v1.0.0-rc.301 (2026-10-13)
 
 ### Features
