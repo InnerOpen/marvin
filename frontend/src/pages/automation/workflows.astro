@@ -788,6 +788,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       <div class="a-int-pickers"></div>
       <textarea class="input mono a-int-args" rows="4" spellcheck="false" placeholder='{"slug": "\${event.entry.slug}"}'>${esc(a.args && Object.keys(a.args).length ? JSON.stringify(a.args, null, 2) : "")}</textarea>
       <span class="hint small">Runs one action of a workspace integration. To use its result in a later step, give this step an <b>id</b> (next to its kind), then read <code>\${steps.&lt;id&gt;.output…}</code>.</span>
+      <label class="tf"><span>Picture to edit <span class="muted">(actions that edit a picture, e.g. OpenAI Images edit: \${asset.id}, \${entry.image}, role:hero, or an earlier step's \${steps.&lt;id&gt;.output.asset.id} — the result is kept as a version of it)</span></span>
+        <input class="input a-int-source" placeholder="leave blank for actions that make a new picture" value="${esc(a.source ?? "")}" /></label>
       <label class="tf"><span>Attach as <span class="muted">(actions that make images: link each picture to the entry in this role, e.g. cover-variant)</span></span>
         <input class="input a-int-attach" placeholder="leave blank to only keep them in Assets" value="${esc(a.attach_as ?? "")}" /></label>
       <label class="tf"><span>Tag them <span class="muted">(actions that make images; comma-separated)</span></span>
@@ -1263,6 +1265,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         step.integration = integration;
         if (key) step.action = key; // else it names a capability (notify), kept from the JSON
         setOrDrop("attach_as", field(".a-int-attach")?.value.trim());
+        setOrDrop("source", field(".a-int-source")?.value.trim());
         const intTags = (field(".a-int-tags")?.value ?? "").split(",").map((t) => t.trim()).filter(Boolean);
         setOrDrop("tags", intTags.length ? intTags : null);
         const rawArgs = field(".a-int-args")!.value.trim();

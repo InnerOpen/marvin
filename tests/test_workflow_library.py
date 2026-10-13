@@ -208,17 +208,23 @@ class _N8n(IntegrationProvider):
 
 
 class _Images(IntegrationProvider):
-    """OpenAI Images' shape: one paid action, asked for approval, that returns base64 pictures and the model used."""
+    """OpenAI Images' shape (v0.3.0): paid actions, asked for approval, returning base64 pictures and the model used —
+    generate makes new ones; edit changes the picture it's given (image_b64, from the step's source)."""
 
     slug = "openai_images"
     name = "OpenAI Images (fake)"
-    actions = (ProviderAction(key="generate", label="Generate image", capability="image.generate", requires_approval=True),)
+    actions = (
+        ProviderAction(key="generate", label="Generate image", capability="image.generate", requires_approval=True),
+        ProviderAction(key="edit", label="Edit an image", capability="image.edit", requires_approval=True),
+    )
 
     def __init__(self):
         self.calls: list[dict] = []
 
     def run_action(self, key, args, ctx):
         self.calls.append(dict(args))
+        if key == "edit":
+            return {"image_b64": base64.b64encode(_picture((600, 600), color=(240, 240, 240))).decode(), "usage": {"model": "gpt-image-1"}}
         return {"images": [{"image_b64": base64.b64encode(_picture((900, 600))).decode()}], "usage": {"model": "gpt-image-1"}}
 
 
@@ -380,6 +386,9 @@ def ws(db_session, monkeypatch):
         "cover_role": "cover",
         "find": ["face", "plate"],
         "kicker": "Workshop field guide",
+        "scene": "a sunlit oak workbench",
+        "season": "winter holidays",
+        "season_tag": "winter",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1465,6 +1474,43 @@ class TestExecution:
         assert link.asset.mime_type == "application/pdf"
         first_page = documents.page_texts(_bytes_of(ws, link.asset))[0]
         assert "Making a brass lantern" in first_page and "1. Cut the shade." in first_page and "Solder the leads." in first_page
+
+    # ── provider image edits (OpenAI Images' edit, given the picture as the step's source) ──
+    def _edit_recipe(self, ws, store, rid):
+        from marvin.db.models.platform import Assets, AssetTags, Tags
+
+        row = _install(ws, rid)
+        product = self._picture_asset(ws, store, "lantern-product", _picture((800, 800)))
+        self._picture_asset(ws, store, "untagged", _picture())
+        tag = Tags(session=ws.session, group_id=ws.gid, name="brand", slug="brand")
+        ws.session.add(tag)
+        ws.session.flush()
+        ws.session.add(AssetTags(asset_id=product.id, tag_id=tag.id))
+        ws.session.commit()
+
+        assert run_automation_now(ws.session, ws.gid, row, user_id=ws.uid, recorder=ExecutionRecorder(ws.session, ws.gid))["ok"]
+        assert ws.providers["openai_images"].calls == []  # waits for an editor: a paid edit
+        self._decide(ws)
+
+        (call,) = ws.providers["openai_images"].calls
+        assert base64.b64decode(call["image_b64"]) == _picture((800, 800))  # the tagged picture, not the other
+        (edited,) = ws.session.query(Assets).filter(Assets.group_id == ws.gid, Assets.source_asset_id == product.id).all()
+        assert edited.origin == "derived" and edited.metadata_json["derivation"] == "edited:openai_images.edit"
+        return call, edited
+
+    def test_background_remover(self, ws, store):
+        call, edited = self._edit_recipe(ws, store, "background-remover")
+        assert call["background"] == "transparent" and "Remove the background" in call["prompt"]
+        assert [t.slug for t in edited.tags] == ["no-background"]
+
+    def test_product_scene_studio(self, ws, store):
+        call, edited = self._edit_recipe(ws, store, "product-scene-studio")
+        assert "a sunlit oak workbench" in call["prompt"] and call["fidelity"] == "high"
+        assert [t.slug for t in edited.tags] == ["scene"]
+
+    def test_seasonal_variation(self, ws, store):
+        call, edited = self._edit_recipe(ws, store, "seasonal-variation")
+        assert "winter holidays" in call["prompt"] and [t.slug for t in edited.tags] == ["winter"]
 
     # ── rendered images (a media step's render op; needs headless Chromium) ──
     def _with_hero(self, ws, store, entry, size=(1200, 900)):

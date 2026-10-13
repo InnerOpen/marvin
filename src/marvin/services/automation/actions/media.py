@@ -804,13 +804,13 @@ def returns_images(declared) -> bool:
 
 
 def keep_generated_images(
-    session, group_id, result: dict, *, generated_by: str, args: dict, context: dict, user_id, attach_as=None, tags=None
+    session, group_id, result: dict, *, generated_by: str, args: dict, context: dict, user_id, attach_as=None, tags=None, source=None
 ) -> dict:
     """Save each image in an `image.*` action's result as an asset and put a reference in its place, before the output
     reaches the run (so a run's snapshot holds ids, not megabytes of base64). The canonical shapes:
     `images: [{image_b64 | url}]` (image.generate) and a top-level `image_b64 | url` (image.edit, image.upscale).
     Each asset records how it was made (generated_by, prompt, model, the run). `attach_as` links them to the run's
-    entry in that role."""
+    entry in that role. With a `source` (the picture an image.edit worked on) each is kept as a version of it."""
     images = result.get("images") if isinstance(result.get("images"), list) else []
     count = sum(1 for item in images if _has_image(item)) + (1 if _has_image(result) else 0)
     if not count:
@@ -819,7 +819,9 @@ def keep_generated_images(
     entry_id = subject_entry_id(context)
     if role and entry_id is None:
         raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
-    keep = _GeneratedKeeper(session, group_id, result, generated_by=generated_by, args=args, context=context, user_id=user_id, count=count)
+    keep = _GeneratedKeeper(
+        session, group_id, result, generated_by=generated_by, args=args, context=context, user_id=user_id, count=count, source=source
+    )
     out = dict(result)
     if images:
         out["images"] = [{**_without_image(item), "asset": keep.one(item)} if _has_image(item) else item for item in images]
@@ -845,8 +847,8 @@ class _GeneratedKeeper:
     """Stores one action's images: named after the step's `name` arg (else the workflow and what it ran on), once per
     event — the same step of the same run handling an event twice finds the asset it made."""
 
-    def __init__(self, session, group_id, result: dict, *, generated_by: str, args: dict, context: dict, user_id, count: int):
-        self.session, self.group_id, self.context, self.count = session, group_id, context, count
+    def __init__(self, session, group_id, result: dict, *, generated_by: str, args: dict, context: dict, user_id, count: int, source=None):
+        self.session, self.group_id, self.context, self.count, self.source = session, group_id, context, count, source
         self.generated_by = generated_by
         step = context.get("_step") or {}
         self.uploader = uploader(session, context, user_id)
@@ -862,7 +864,8 @@ class _GeneratedKeeper:
         }
         subject = entry.get("title") or (context.get("asset") or {}).get("name")
         workflow = step.get("workflow_name") or step.get("workflow_slug") or "Generated image"
-        self.name = str(args.get("name") or "").strip() or (f"{workflow} — {subject}" if subject else workflow)
+        default = f"{source.name} (edited)" if source is not None else f"{workflow} — {subject}" if subject else workflow
+        self.name = str(args.get("name") or "").strip() or default
         self.key = _run_step_key(context)
         self.kept: list[dict] = []
         self.rows: dict[str, object] = {}
@@ -897,10 +900,10 @@ class _GeneratedKeeper:
             fmt = ops.format_of(data)
             name = self.name if self.count == 1 else f"{self.name} ({index + 1})"
             read = _storage(self.session, self.group_id).create_derivative(
-                source=None,
+                source=self.source,
                 data=data,
                 group_id=self.group_id,
-                derivation=f"generated:{self.generated_by}",
+                derivation=f"{'edited' if self.source is not None else 'generated'}:{self.generated_by}",
                 slug=slug,
                 name=name,
                 user_id=self.uploader,

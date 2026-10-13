@@ -86,8 +86,11 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     from .media import keep_generated_images, returns_images
 
     keeps_images = returns_images(declared)
+    src = _source_picture(session, group_id, action, context, keeps_images)
     if dry_run:
         preview = {"dry_run": True, "kind": "integration", "integration": slug, "action": key, "args": args}
+        if src is not None:
+            preview["source"] = src.slug
         if keeps_images:
             preview["keeps_images_as_assets"] = True
             if action.get("attach_as"):
@@ -102,6 +105,12 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
     # The values {{SLUG}} resolved to — scrubbed from any error the provider raises, like its credential.
     arg_secrets = [v for k, v in resolved.items() if isinstance(v, str) and v != args.get(k)]
     plain_args, args = args, resolved  # what the workflow says (an image's lineage keeps its prompt without secrets)
+    if src is not None:  # the picture, for this call only — never in the step's output or the image's lineage
+        import base64
+
+        from .media import _read_bytes
+
+        args = {**args, "image_b64": base64.b64encode(_read_bytes(session, group_id, src)).decode("ascii"), "image_mime": src.mime_type}
 
     from marvin.services.integrations import errors
 
@@ -146,8 +155,25 @@ def run_integration_action(session, group_id, action: dict, context: dict, *, us
             user_id=user_id,
             attach_as=action.get("attach_as"),
             tags=action.get("tags"),
+            source=src,
         )
     return out
+
+
+def _source_picture(session, group_id, action: dict, context: dict, keeps_images: bool):
+    """The picture an image.* action works on (`source`, as a media step's), or None."""
+    if not action.get("source"):
+        return None
+    if not keeps_images:
+        raise AutomationActionError("source goes with an action that works on a picture (an image.* capability, e.g. image.edit)")
+    from marvin.services.ai.media import transforms
+
+    from .media import resolve_source
+
+    src = resolve_source(session, group_id, action["source"], context)
+    if not transforms.can_transform(src.mime_type):
+        raise AutomationActionError(f"“{src.name}” ({src.mime_type or 'unknown type'}) is not an image Marvin can process (jpeg, png or webp)")
+    return src
 
 
 def _logger():

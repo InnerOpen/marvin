@@ -343,7 +343,9 @@ class WebhookAction(_StepBase):
 class IntegrationAction(_StepBase):
     """Runs a connected integration's action (`integration`: its slug, `action`: the action key) with `args` — or,
     with `capability` instead of `action`, whichever of its actions offers that (`notify`: `title`, `body`). An image.*
-    action's pictures are kept as assets (output `images: [{asset}]`); `attach_as` links them to the run's entry, `tags` tags them."""
+    action's pictures are kept as assets (output `images: [{asset}]`); `attach_as` links them to the run's entry, `tags` tags them.
+    `source` (an image.* action that works on a picture, e.g. image.edit) is that picture, as a media step's source: it
+    is passed as image_b64 and the result is kept as a version of it."""
 
     kind: Literal["integration"]
     integration: str  # the workspace integration's slug
@@ -354,6 +356,7 @@ class IntegrationAction(_StepBase):
     # entry in this role.
     attach_as: str | None = None
     tags: list[str] | None = None  # …and these tags put on them
+    source: str | None = None  # the picture an image.* action works on (an asset, ${entry.image}, role:<role>, a step's)
     id: str | None = None
 
     @model_validator(mode="after")

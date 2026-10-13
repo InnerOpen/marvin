@@ -92,7 +92,7 @@ postgres = ["psycopg2-binary>=2.9"]
 plugins = [
     "marvin-integration-apprise @ git+https://github.com/InnerOpen/marvin-integration-apprise@v0.3.0",
     "marvin-integration-slack @ git+https://github.com/InnerOpen/marvin-integration-slack@v0.4.0",
-    "marvin-integration-openai-images @ git+https://github.com/InnerOpen/marvin-integration-openai-images@v0.2.0",
+    "marvin-integration-openai-images @ git+https://github.com/InnerOpen/marvin-integration-openai-images@v0.3.0",
     "marvin-integration-instagram @ git+https://github.com/InnerOpen/marvin-integration-instagram@v0.4.0",
     "marvin-integration-square @ git+https://github.com/InnerOpen/marvin-integration-square@v0.4.0",
     "marvin-integration-cloudflare-pages @ git+https://github.com/InnerOpen/marvin-integration-cloudflare-pages@v0.1.0",

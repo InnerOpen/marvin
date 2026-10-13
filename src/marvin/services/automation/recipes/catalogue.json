@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 74,
-    "needs-adapter": 5,
-    "needs-engine-capability": 17,
+    "verified-current": 77,
+    "needs-adapter": 4,
+    "needs-engine-capability": 15,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -79,7 +79,7 @@
       "name": "Image, file and audio processing adapters",
       "priority": "P1",
       "capabilities_md": "Provider adapters",
-      "acceptance": "Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Also 2026-10-12: zip (files + manifest.json) and printed renders (format pdf; the guide template). Left: TTS and provider-side image edits (background removal, scenes, variants)."
+      "acceptance": "Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Also 2026-10-12: zip (files + manifest.json) and printed renders (format pdf; the guide template). Provider edits 2026-10-12: an integration step's `source` hands an image.edit action the picture (image_b64) and keeps the result as a version of it; OpenAI Images v0.3.0 has `edit`. Left: TTS."
     },
     "fetch": {
       "name": "HTTP fetch step",
@@ -3388,7 +3388,7 @@
     {
       "id": "background-remover",
       "title": "Background remover",
-      "outcome": "Selected product image → remove background → save transparent derivative",
+      "outcome": "Run it: each picture tagged with your tag is asked about, and once approved its background is removed — a transparent PNG kept as a version of the picture.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3401,38 +3401,87 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "background-remover.json",
+      "vars": "background-remover.vars.json",
+      "setup_variables": [
+        {
+          "name": "tag",
+          "type": "text",
+          "description": "Tag on the pictures to cut out (run it, and each tagged picture is asked about).",
+          "example": "product"
+        },
+        {
+          "name": "image_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected OpenAI Images integration (it needs v0.3.0+ for edit).",
+          "example": "openai-images"
+        }
+      ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "approval",
+          "integration"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [
+          "edit"
+        ],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "provider": "openai_images",
+            "actions": [
+              "edit"
+            ],
+            "credentials": [
+              "api_key"
+            ]
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "OpenAI Images (v0.3.0+)",
+          "purpose": "Edits the picture (a paid call, asked for approval first).",
+          "referenced_by": "actions[1].integration",
+          "create": "Settings → Integrations → Connect OpenAI Images"
+        }
+      ],
       "side_effects": [
         {
           "kind": "paid_call",
-          "description": "Per-image provider fee.",
-          "flag": true
-        }
-      ],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+          "description": "One image edit per approved picture (OpenAI Images)."
+        },
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
-          "why": "a background-removal provider"
+          "kind": "content_mutation",
+          "description": "Saves the cut-out as a version of the original (tagged no-background); the original is kept as it was."
         }
       ],
-      "notes": [],
+      "cost_notes": "One paid image edit per approved picture, billed by OpenAI.",
+      "failure_behaviour": "A denied or expired approval edits nothing; a provider error fails that picture's row (the others go on).",
+      "dependencies": [],
+      "notes": [
+        "The edit keeps the subject unchanged (input fidelity high); a transparent background comes back as PNG."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "integration:openai_images.edit",
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_background_remover"
       },
       "brief": {
         "flow": "Selected product image → remove background → save transparent derivative",
@@ -3446,7 +3495,7 @@
     {
       "id": "product-scene-studio",
       "title": "Product scene studio",
-      "outcome": "Product image → create styled scenes while preserving product details → review",
+      "outcome": "Run it: each tagged product picture is asked about, and once approved it's set in the scene you describe, the product itself kept exactly as it is.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3460,38 +3509,93 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "product-scene-studio.json",
+      "vars": "product-scene-studio.vars.json",
+      "setup_variables": [
+        {
+          "name": "tag",
+          "type": "text",
+          "description": "Tag on the pictures to set in a scene (run it, and each tagged picture is asked about).",
+          "example": "product"
+        },
+        {
+          "name": "scene",
+          "type": "text",
+          "description": "The scene, in a few words.",
+          "example": "a sunlit oak workbench with a few hand tools"
+        },
+        {
+          "name": "image_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected OpenAI Images integration (it needs v0.3.0+ for edit).",
+          "example": "openai-images"
+        }
+      ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "approval",
+          "integration"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [
+          "edit"
+        ],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "provider": "openai_images",
+            "actions": [
+              "edit"
+            ],
+            "credentials": [
+              "api_key"
+            ]
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "OpenAI Images (v0.3.0+)",
+          "purpose": "Edits the picture (a paid call, asked for approval first).",
+          "referenced_by": "actions[1].integration",
+          "create": "Settings → Integrations → Connect OpenAI Images"
+        }
+      ],
       "side_effects": [
         {
           "kind": "paid_call",
-          "description": "Image generation is metered.",
-          "flag": true
-        }
-      ],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+          "description": "One image edit per approved picture (OpenAI Images)."
+        },
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
-          "why": "a provider image edit that keeps the product (generation is kept as assets already)"
+          "kind": "content_mutation",
+          "description": "Saves the scene as a version of the original (tagged scene)."
         }
       ],
-      "notes": [],
+      "cost_notes": "One paid image edit per approved picture, billed by OpenAI.",
+      "failure_behaviour": "A denied or expired approval edits nothing; a provider error fails that picture's row (the others go on).",
+      "dependencies": [],
+      "notes": [
+        "Change the scene variable for another setting; each run makes one scene per picture."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "integration:openai_images.edit",
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_product_scene_studio"
       },
       "brief": {
         "flow": "Product image → create styled scenes while preserving product details → review",
@@ -3657,7 +3761,7 @@
     {
       "id": "seasonal-variation",
       "title": "Seasonal variation",
-      "outcome": "Approved graphic → seasonal variants → retain original and lineage",
+      "outcome": "Run it: each tagged graphic is asked about, and once approved a seasonal version is made — same layout, text and logo — kept as a version of the original.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
@@ -3670,38 +3774,99 @@
         "event": null,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "seasonal-variation.json",
+      "vars": "seasonal-variation.vars.json",
+      "setup_variables": [
+        {
+          "name": "tag",
+          "type": "text",
+          "description": "Tag on the pictures to make seasonal versions of (run it, and each tagged picture is asked about).",
+          "example": "product"
+        },
+        {
+          "name": "season",
+          "type": "text",
+          "description": "The season or occasion.",
+          "example": "winter holidays"
+        },
+        {
+          "name": "season_tag",
+          "type": "text",
+          "description": "Tag for the new versions.",
+          "example": "winter"
+        },
+        {
+          "name": "image_integration",
+          "type": "integration_slug",
+          "description": "Slug of a connected OpenAI Images integration (it needs v0.3.0+ for edit).",
+          "example": "openai-images"
+        }
+      ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "approval",
+          "integration"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [
+          "edit"
+        ],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "provider": "openai_images",
+            "actions": [
+              "edit"
+            ],
+            "credentials": [
+              "api_key"
+            ]
+          }
+        ]
+      },
+      "supporting_objects": [
+        {
+          "kind": "integration_connection",
+          "required": true,
+          "name": "OpenAI Images (v0.3.0+)",
+          "purpose": "Edits the picture (a paid call, asked for approval first).",
+          "referenced_by": "actions[1].integration",
+          "create": "Settings → Integrations → Connect OpenAI Images"
+        }
+      ],
       "side_effects": [
         {
           "kind": "paid_call",
-          "description": "Image generation is metered.",
-          "flag": true
-        }
-      ],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+          "description": "One image edit per approved picture (OpenAI Images)."
+        },
         {
-          "capability": "media-adapters",
-          "name": "Image, file and audio processing adapters",
-          "priority": "P1",
-          "acceptance": "Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Left: OCR/PDF, TTS, zip, background removal / masking and provider-side image edits; many-image layouts wait on iterate-aggregate.",
-          "why": "a provider image edit for the seasonal variants (derived-asset lineage is delivered)"
+          "kind": "content_mutation",
+          "description": "Saves the variant as a version of the original (tagged with your season tag)."
         }
       ],
-      "notes": [],
+      "cost_notes": "One paid image edit per approved picture, billed by OpenAI.",
+      "failure_behaviour": "A denied or expired approval edits nothing; a provider error fails that picture's row (the others go on).",
+      "dependencies": [],
+      "notes": [
+        "The original and its lineage are kept; the variant names what it was made from."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "integration:openai_images.edit",
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_seasonal_variation"
       },
       "brief": {
         "flow": "Approved graphic → seasonal variants → retain original and lineage",

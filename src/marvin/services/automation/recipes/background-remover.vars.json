@@ -1,0 +1,15 @@
+{
+  "recipe": "background-remover",
+  "variables": {
+    "tag": {
+      "type": "text",
+      "description": "Tag on the pictures to cut out (run it, and each tagged picture is asked about).",
+      "example": "product"
+    },
+    "image_integration": {
+      "type": "integration_slug",
+      "description": "Slug of a connected OpenAI Images integration (it needs v0.3.0+ for edit).",
+      "example": "openai-images"
+    }
+  }
+}

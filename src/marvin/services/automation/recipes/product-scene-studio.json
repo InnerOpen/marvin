@@ -1,0 +1,45 @@
+{
+  "name": "Product scene studio",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "asset",
+      "query": {
+        "tags": [
+          "{{tag}}"
+        ],
+        "asset_type": "image"
+      }
+    },
+    "actions": [
+      {
+        "kind": "approval",
+        "id": "ok",
+        "message": "Set “${asset.name}” in {{scene}}? (one paid image edit)",
+        "approvers": "editor",
+        "expires_in_hours": 168
+      },
+      {
+        "kind": "integration",
+        "id": "edit",
+        "integration": "{{image_integration}}",
+        "action": "edit",
+        "source": "${asset.id}",
+        "args": {
+          "prompt": "Place this exact product in {{scene}}. Keep the product itself exactly as it is — its shape, colours, text and details; change only its surroundings and lighting to suit.",
+          "fidelity": "high"
+        },
+        "tags": [
+          "scene"
+        ],
+        "when": {
+          "field": "steps.ok.output.decision",
+          "op": "eq",
+          "value": "approved"
+        }
+      }
+    ]
+  }
+}

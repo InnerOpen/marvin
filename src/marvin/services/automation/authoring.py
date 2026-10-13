@@ -817,10 +817,10 @@ def _step_issues(
             bad("action", f"“{slug}” has no action “{key}” a workflow can run. Actions: {actions}.")
         elif row["actions"] is not None and not after_approval and any(a["action"] == key and a.get("requires_approval") for a in row["actions"]):
             bad("action", f"“{slug}.{key}” needs a person's approval: put an Approval step before it (it runs once approved).")
-        elif (step.get("attach_as") or step.get("tags")) and row["actions"] is not None:
+        elif (step.get("attach_as") or step.get("tags") or step.get("source")) and row["actions"] is not None:
             declared = next((a for a in row["actions"] if a["action"] == key), None)
             if declared is not None and not str(declared.get("capability") or "").startswith("image."):
-                field_name = "attach_as" if step.get("attach_as") else "tags"
+                field_name = next(f for f in ("source", "attach_as", "tags") if step.get(f))
                 bad(field_name, f"{field_name} goes with an action that makes images; “{slug}.{key}” doesn't.")
     elif kind == "media":
         _media_step_issues(step, refs, bad)

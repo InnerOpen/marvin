@@ -254,3 +254,52 @@ def test_attach_as_on_an_action_that_makes_no_image_is_refused(painter):
     step = {"kind": "integration", "integration": "painter", "action": "list_it", "attach_as": "x", "args": {"title": "t"}}
     issues = draft_issues(painter.session, painter.gid, {"trigger": ON_PUBLISH, "actions": [step]})
     assert [i["path"] for i in issues] == ["actions[0].attach_as"], issues
+
+
+# ── An image.edit given a picture (`source`) ─────────────────────────────────
+def test_an_edit_gets_the_picture_and_its_result_is_a_version_of_it(painter):
+    from marvin.db.models.platform.assets import Assets
+    from tests.test_workflow_media import _png, _stored
+
+    product = _stored(painter, "lamp", _png((300, 200)))
+    _workflow(
+        painter,
+        {
+            "trigger": {"type": "manual"},
+            "actions": [
+                {
+                    "kind": "integration",
+                    "id": "cut",
+                    "integration": "painter",
+                    "action": "touch_up",
+                    "source": product.slug,
+                    "args": {"prompt": "Remove the background"},
+                }
+            ],
+        },
+    )
+    from marvin.db.models.groups.automations import WorkspaceAutomationModel
+    from marvin.services.automation.engine import run_automation_now
+    from marvin.services.automation.recorder import ExecutionRecorder
+
+    row = painter.session.query(WorkspaceAutomationModel).filter_by(group_id=painter.gid, slug="media-wf").one()
+    preview = run_automation_now(painter.session, painter.gid, row, user_id=painter.uid, dry_run=True)
+    assert preview["plan"][0]["resolved"]["source"] == product.slug and painter.painter.calls == []
+
+    assert run_automation_now(painter.session, painter.gid, row, user_id=painter.uid, recorder=ExecutionRecorder(painter.session, painter.gid))["ok"]
+
+    (key, args) = painter.painter.calls[0]
+    assert key == "touch_up" and base64.b64decode(args["image_b64"]) == _png((300, 200)) and args["image_mime"] == "image/png"
+    edited = painter.session.query(Assets).filter(Assets.group_id == painter.gid, Assets.source_asset_id == product.id).one()
+    assert edited.origin == "derived" and edited.metadata_json["derivation"] == "edited:wf_painter.touch_up"
+    assert edited.name == "lamp (edited)" and edited.metadata_json["prompt"] == "Remove the background"
+    out = _last_run(painter).actions[0].output_snapshot
+    assert out["asset"]["id"] == str(edited.id) and "image_b64" not in json.dumps(out)  # no picture data in the run
+
+
+def test_a_source_on_an_action_that_doesnt_work_on_pictures_is_refused(painter):
+    from marvin.services.automation.authoring import draft_issues
+
+    step = {"kind": "integration", "integration": "painter", "action": "list_it", "source": "${asset.id}", "args": {"title": "x"}}
+    issues = draft_issues(painter.session, painter.gid, {"trigger": {"type": "manual"}, "actions": [step]})
+    assert any(i.get("path") == "actions[0].source" for i in issues), issues

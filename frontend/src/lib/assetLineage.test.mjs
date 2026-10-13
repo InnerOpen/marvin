@@ -47,3 +47,7 @@ test("assetRefs: the pictures a version or a render was made from, as links", ()
   assert.deepEqual(assetRefs("derived_from", "not-an-id"), []);
   assert.deepEqual(assetRefs("workflow_id", a), []); // only the keys that name assets
 });
+
+test("an edited picture says what edited it", () => {
+  assert.equal(describeDerivation("edited:openai_images.edit"), "edited by openai_images.edit");
+});

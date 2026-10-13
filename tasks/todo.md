@@ -904,7 +904,9 @@ guarded client resolves the host twice (check, then connect) — a DNS-rebinding
 - [x] Render to PDF (Chromium --print-to-pdf) and a `zip` op (collect rows → files + manifest.json).
 - [x] Recipes: ocr-notebook, document-preview-factory, privacy-crop-desk (72 verified, 24 blocked).
 - [x] zip op + printed renders (format pdf, the guide template); recipes workshop-field-guide, archive-packager (74 verified).
-- [ ] Then the OpenAI Images plugin's `edit` action → background-remover, product-scene-studio, seasonal-variation.
+- [x] OpenAI Images plugin v0.3.0 `edit` (image.edit, multipart to /v1/images/edits); core: an integration step's `source`
+      → image_b64 for the call, result kept as a version; recipes background-remover, product-scene-studio,
+      seasonal-variation (77 verified, 19 blocked). Left in media: TTS (audio edition).
 
 # Integrations teach Marvin about themselves — recipes + a guide from the plugin (2026-10-11, Jared: "do 2")
 
