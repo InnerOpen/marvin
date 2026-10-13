@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.291 (2026-10-13)
+
+### Bug Fixes
+
+- **workflows**: Phone-width recipe sheet; recipe date pickers offer every entry's dates
+  ([`fc2de5a`](https://github.com/InnerOpen/marvin/commit/fc2de5ac107e026c529bb309dd226066ff01ce93))
+
+
 ## v1.0.0-rc.290 (2026-10-13)
 
 ### Features
