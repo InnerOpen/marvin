@@ -404,6 +404,12 @@ def ws(db_session, monkeypatch):
         "person_type": "person",
         "consent_field": "ok_to_tag",
         "handle_field": "handle",
+        "network": "Bluesky",
+        "post_length": 300,
+        "launch_entry_type": "event",
+        "launch_date": "data.date",
+        "post_at": "09:00",
+        "product_type": "article",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1608,6 +1614,74 @@ class TestExecution:
 
         assert self._issues(ws) == []
 
+    def test_thread_builder(self, ws):
+        _install(ws, "thread-builder")
+        piece = _entry(ws, "article", "Waxing canvas", status="published", data={"body": "Warm the wax. Rub it in. Let it cure."})
+        posts = ["Waxed canvas, start to finish 🧵", "Warm the wax first.", "Then let it cure for a week."]
+        ws.ai.reply_text(json.dumps({"title": "Thread: waxing canvas", "posts": posts, "body": "1/3 Waxed canvas… 2/3 Warm… 3/3 Cure…"}))
+
+        _fire(ws, "entry_published", _entry_doc(piece), entity=piece.id, entity_type="entry")
+
+        (draft,) = self._issues(ws)
+        assert draft.status == "draft" and draft.data_json["body"].startswith("1/3")
+        assert draft.metadata_json["thread"] == posts and draft.metadata_json["thread_for"] == piece.slug
+        assert '"maxLength": 300' in json.dumps(ws.ai.requests[0])  # the post length, from the setup
+
+    def test_teaser_ladder(self, ws):
+        from marvin.services.automation import waits
+
+        _install(ws, "teaser-ladder")
+        day = (datetime.now(UTC).date() + timedelta(days=10)).isoformat()
+        kiln = _entry(ws, "event", "Kiln No. 2", status="published", data={"date": day})
+        for title in ("Three days to go", "It's here", "A week on"):
+            ws.ai.reply_text(json.dumps({"title": title, "body": f"{title} — the new kiln."}))
+
+        _fire(ws, "entry_published", _entry_doc(kiln), entity=kiln.id, entity_type="entry", correlation_id="pub-kiln")
+        assert self._issues(ws) == []
+        for days in (8, 11, 18):  # past the teaser (day 7, 09:00), the launch (day 10) and the follow-up (day 17)
+            waits.resume_due(ws.session, now_=waits.now() + timedelta(days=days))
+
+        posts = {e.metadata_json["launch_post"]: e.title for e in self._issues(ws)}
+        assert posts == {"teaser": "Three days to go", "launch": "It's here", "follow-up": "A week on"}
+
+    @needs_browser
+    def test_carousel_storyteller(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+
+        _install(ws, "carousel-storyteller")
+        piece = _entry(ws, "article", "Brass lantern", status="published", data={"body": "How the lantern was made."})
+        hero = self._with_hero(ws, store, piece)
+        slides = [{"title": f"Step {n}", "text": f"What happened in step {n}."} for n in range(1, 6)]
+        ws.ai.reply_text(json.dumps({"slides": slides}))
+
+        _fire(ws, "entry_published", _entry_doc(piece), entity=piece.id, entity_type="entry", user_id=ws.uid)
+
+        cards = {ea.role: a for ea, a in self._links(ws, piece) if ea.role.startswith("carousel-")}
+        assert sorted(cards) == [f"carousel-{n}" for n in range(1, 6)]
+        assert cards["carousel-1"].metadata_json["rendered_from"] == {"image": str(hero.id)}  # the first slide has the picture
+        assert all([t.slug for t in cards[f"carousel-{n}"].tags] == ["carousel"] for n in range(1, 6))
+        assert ws.session.query(EntryAssets).filter_by(entry_id=piece.id, role="hero").count() == 1
+
+    @needs_browser
+    def test_launch_kit(self, ws, store):
+        _install(ws, "launch-kit")
+        coat = _entry(ws, "article", "Chore coat", status="published", data={"body": "Waxed canvas, brass rivets, two pockets."})
+        self._with_hero(ws, store, coat)
+        kit = {
+            "announcement_title": "Meet the chore coat", "announcement": "The chore coat is here: waxed canvas, brass rivets.",
+            "faq": "**Is it waterproof?** It's waxed canvas.", "newsletter_title": "New: the chore coat",
+            "newsletter": "This month we made a coat — waxed canvas, brass rivets and two pockets.", "tagline": "Built to last",
+        }  # fmt: skip
+        ws.ai.reply_text(json.dumps(kit))
+
+        _fire(ws, "entry_published", _entry_doc(coat), entity=coat.id, entity_type="entry")
+
+        parts = {e.metadata_json["launch_part"]: e for e in self._issues(ws)}
+        assert set(parts) == {"announcement", "faq", "newsletter"} and all(e.status == "draft" for e in parts.values())
+        assert parts["faq"].title == "FAQ: Chore coat" and len(ws.ai.requests) == 1  # one AI call for the whole kit
+        roles = {ea.role for ea, a in self._links(ws, coat) if (a.metadata_json or {}).get("render_template") == "card"}
+        assert roles == {"launch-card"}
+
     # ── waits ──
     def test_event_countdown(self, ws):
         from marvin.services.automation import waits
@@ -1731,6 +1805,13 @@ class TestExecution:
         ws.session.add(EntryAssets(entry_id=entry.id, asset_id=hero.id, role="hero", position=0))
         ws.session.commit()
         return hero
+
+    def _links(self, ws, entry):
+        """(link, asset) for each asset attached to the entry."""
+        from marvin.db.models.platform import Assets, EntryAssets
+
+        ws.session.expire_all()
+        return ws.session.query(EntryAssets, Assets).join(Assets, Assets.id == EntryAssets.asset_id).filter(EntryAssets.entry_id == entry.id).all()
 
     def _role(self, ws, entry, role):
         from marvin.db.models.platform import EntryAssets

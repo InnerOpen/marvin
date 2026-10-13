@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 84,
-    "needs-adapter": 4,
-    "needs-engine-capability": 14,
+    "verified-current": 88,
+    "needs-adapter": 3,
+    "needs-engine-capability": 11,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -1951,13 +1951,14 @@
     {
       "id": "carousel-storyteller",
       "title": "Carousel storyteller",
-      "outcome": "Article → outline slides → render branded carousel → queue draft",
+      "outcome": "When an entry is published, the AI outlines it as five slides and each is rendered as a portrait card (1080×1350), attached to the entry as carousel-1 to carousel-5 for posting.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
-        "ai",
-        "images",
-        "social"
+        "carousel",
+        "render",
+        "social",
+        "ai"
       ],
       "target_entity": "entry",
       "trigger": {
@@ -1966,34 +1967,79 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-adapter",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "carousel-storyteller.json",
+      "vars": "carousel-storyteller.vars.json",
+      "setup_variables": [
         {
-          "capability": "social-adapters",
-          "name": "Social publishing adapters",
-          "priority": "P1",
-          "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
-          "why": "queue a draft"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries to make a carousel of when they're published.",
+          "example": "article"
+        },
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role of the picture for the first slide (left plain if the entry has none).",
+          "example": "hero"
+        },
+        {
+          "name": "footer",
+          "type": "text",
+          "description": "A line at the bottom of each slide, e.g. the site (the slide number is added).",
+          "example": "gracemartinfranklinart.com"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the posts should sound.",
+          "example": "a warm, plain voice"
         }
       ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per published entry."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Saves five card assets (tagged carousel), attached to the entry as carousel-1…carousel-5."
+        }
+      ],
+      "cost_notes": "One AI call per published entry; the cards are rendered locally.",
+      "failure_behaviour": "An AI error fails the run and nothing is made; the same slides rendered again are reused, not duplicated.",
+      "dependencies": [],
       "notes": [
-        "Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies."
+        "The first slide carries the entry's picture in the role you choose; the rest are plain cards.",
+        "Nothing is posted: download the five cards from the entry to post them as a carousel."
       ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_carousel_storyteller"
       },
       "brief": {
         "flow": "Article → outline slides → render branded carousel → queue draft",
@@ -2009,12 +2055,13 @@
     {
       "id": "thread-builder",
       "title": "Thread builder",
-      "outcome": "Article → ordered thread with links → save draft sequence",
+      "outcome": "When an entry is published, it's turned into a thread of 3–8 short posts for the network you name, each within its length, saved as a draft to check and post.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
-        "ai",
-        "social"
+        "thread",
+        "social",
+        "ai"
       ],
       "target_entity": "entry",
       "trigger": {
@@ -2023,32 +2070,91 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "thread-builder.json",
+      "vars": "thread-builder.vars.json",
+      "setup_variables": [
         {
-          "capability": "social-adapters",
-          "name": "Social publishing adapters",
-          "priority": "P1",
-          "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
-          "why": "draft on the network"
+          "name": "entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries to turn into a thread when they're published.",
+          "example": "article"
+        },
+        {
+          "name": "network",
+          "type": "text",
+          "description": "Where the thread is for (it shapes the tone and the hashtags).",
+          "example": "Bluesky"
+        },
+        {
+          "name": "post_length",
+          "type": "integer",
+          "description": "The most characters a post may have (Bluesky 300, Mastodon 500, Threads 500).",
+          "example": 300
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the posts should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the drafts are made as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per published entry."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry with the numbered thread (metadata.thread holds the posts, metadata.thread_for the entry)."
+        }
+      ],
+      "cost_notes": "One AI call per published entry.",
+      "failure_behaviour": "An AI answer that misses the post count or length is asked for again once; an AI error fails the run and nothing is drafted.",
+      "dependencies": [],
+      "notes": [
+        "Nothing is posted: the thread is a draft for a person to post. A social provider could later post it from metadata.thread."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_thread_builder"
       },
       "brief": {
         "flow": "Article → ordered thread with links → save draft sequence",
@@ -2169,13 +2275,14 @@
     {
       "id": "teaser-ladder",
       "title": "Teaser ladder",
-      "outcome": "Launch → schedule teaser, launch post and follow-up variants",
+      "outcome": "When a launch is announced, three posts are drafted on the way to its date: a teaser three days before, the launch post on the day and a follow-up a week after — skipping any moment already past.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
-        "social",
+        "launch",
         "schedule",
-        "waits"
+        "waits",
+        "ai"
       ],
       "target_entity": "entry",
       "trigger": {
@@ -2184,39 +2291,95 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "teaser-ladder.json",
+      "vars": "teaser-ladder.vars.json",
+      "setup_variables": [
         {
-          "capability": "waits",
-          "name": "Durable waits and delays",
-          "priority": "P1",
-          "acceptance": "`{\"kind\": \"wait\", \"until\": \"${entry.data.event_date} - 7d\"}` persists the run, survives a restart, honours the workspace timezone and DST, can be cancelled, and resumes exactly once.",
-          "why": "post at offsets from the launch"
+          "name": "launch_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entries that are launches (products, releases, shows).",
+          "example": "product"
         },
         {
-          "capability": "social-adapters",
-          "name": "Social publishing adapters",
-          "priority": "P1",
-          "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
-          "why": "publish"
+          "name": "launch_date",
+          "type": "entry_date",
+          "description": "The launch date: one of their date fields. Publish the entry ahead of it, as the announcement — a moment already past is skipped.",
+          "example": "data.launch_date"
+        },
+        {
+          "name": "post_at",
+          "type": "text",
+          "description": "The time of day the posts are drafted, in the workspace's time zone.",
+          "example": "09:00"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the posts should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the drafts are made as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "wait",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "neq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "Up to three AI calls per launch (one per post still ahead)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates up to three draft entries (metadata.launch_of, metadata.launch_post: teaser, launch or follow-up)."
+        }
+      ],
+      "cost_notes": "Up to three AI calls per launch.",
+      "failure_behaviour": "A launch moved to the Trash, or the workflow switched off, cancels the posts still waiting; an AI error fails that post's run.",
+      "dependencies": [],
+      "notes": [
+        "The run waits (Wait step) and goes on at the time, in the workspace's time zone.",
+        "A changed date after publishing isn't followed: the waits were set when it was published."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "clock"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_teaser_ladder"
       },
       "brief": {
         "flow": "Launch → schedule teaser, launch post and follow-up variants",
@@ -2713,13 +2876,15 @@
     {
       "id": "launch-kit",
       "title": "Launch kit",
-      "outcome": "Product entry → assemble announcement, FAQ, images and newsletter draft",
+      "outcome": "When a product is published, one AI pass drafts its announcement, an FAQ and a newsletter issue, and a launch card is made from its picture — all from what the entry says.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
-        "ai",
-        "joins",
-        "create-entry"
+        "launch",
+        "newsletter",
+        "faq",
+        "render",
+        "ai"
       ],
       "target_entity": "entry",
       "trigger": {
@@ -2728,32 +2893,105 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "launch-kit.json",
+      "vars": "launch-kit.vars.json",
+      "setup_variables": [
         {
-          "capability": "joins",
-          "name": "Parallel branches and joins",
-          "priority": "P1",
-          "acceptance": "Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics.",
-          "why": "assemble in parallel"
+          "name": "product_type",
+          "type": "entry_type_slug",
+          "description": "The entries that are launches (products, releases).",
+          "example": "product"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the posts should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the announcement and FAQ are drafted as.",
+          "example": "article"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
+        },
+        {
+          "name": "newsletter_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type the newsletter issue is drafted as.",
+          "example": "newsletter-issue"
+        },
+        {
+          "name": "newsletter_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
+        },
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role of the product's picture for the launch card (a plain card without one).",
+          "example": "hero"
+        },
+        {
+          "name": "footer",
+          "type": "text",
+          "description": "A line at the bottom of the card, e.g. the shop.",
+          "example": "mashandburn.co"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "operation",
+          "entry",
+          "media"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per published product."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates three draft entries (metadata.launch_kit_for, launch_part: announcement, faq, newsletter) and a card asset (tagged launch-kit) attached to the product as launch-card."
+        }
+      ],
+      "cost_notes": "One AI call per published product.",
+      "failure_behaviour": "An AI error fails the run and nothing is drafted; if a later step fails, the drafts already made stay.",
+      "dependencies": [],
+      "notes": [
+        "The FAQ answers only from the entry and says when something isn't stated, rather than guessing."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "browser:chromium-headless-shell"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_launch_kit"
       },
       "brief": {
         "flow": "Product entry → assemble announcement, FAQ, images and newsletter draft",

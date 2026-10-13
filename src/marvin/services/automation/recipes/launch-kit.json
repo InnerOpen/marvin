@@ -1,0 +1,124 @@
+{
+  "name": "Launch kit",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{product_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "kit",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "“${entry.title}” is launching. In {{voice}}, from what the entry says, write: an announcement post; an FAQ of 5 to 8 questions a buyer would ask, answered only from the entry (say it isn't stated rather than guess); a newsletter issue introducing it; and a tagline of a few words for a card. Invent nothing.",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "announcement_title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "announcement": {
+              "type": "string",
+              "minLength": 20
+            },
+            "faq": {
+              "type": "string",
+              "minLength": 20
+            },
+            "newsletter_title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "newsletter": {
+              "type": "string",
+              "minLength": 40
+            },
+            "tagline": {
+              "type": "string",
+              "maxLength": 90
+            }
+          },
+          "required": [
+            "announcement_title",
+            "announcement",
+            "faq",
+            "newsletter_title",
+            "newsletter",
+            "tagline"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.kit.output.announcement_title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.kit.output.announcement}"
+        },
+        "metadata": {
+          "launch_kit_for": "${entry.slug}",
+          "launch_part": "announcement"
+        },
+        "status": "draft"
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "FAQ: ${entry.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.kit.output.faq}"
+        },
+        "metadata": {
+          "launch_kit_for": "${entry.slug}",
+          "launch_part": "faq"
+        },
+        "status": "draft"
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{newsletter_entry_type}}",
+        "title": "${steps.kit.output.newsletter_title}",
+        "data": {
+          "{{newsletter_body_field}}": "${steps.kit.output.newsletter}"
+        },
+        "metadata": {
+          "launch_kit_for": "${entry.slug}",
+          "launch_part": "newsletter"
+        },
+        "status": "draft"
+      },
+      {
+        "kind": "media",
+        "id": "card",
+        "op": "render",
+        "template": "card",
+        "fields": {
+          "title": "${entry.title}",
+          "text": "${steps.kit.output.tagline}",
+          "footer": "{{footer}}"
+        },
+        "images": {
+          "image": "role:{{image_role}}"
+        },
+        "attach_as": "launch-card",
+        "tags": [
+          "launch-kit"
+        ]
+      }
+    ]
+  }
+}

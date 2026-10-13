@@ -1,0 +1,69 @@
+{
+  "name": "Thread builder",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{entry_type}}"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "operation",
+        "id": "thread",
+        "op": "custom",
+        "see": [
+          "item"
+        ],
+        "prompt": "Turn “${entry.title}” into a thread of 3 to 8 short posts for {{network}}, in {{voice}}: the first one hooks, each stands on its own, the last points to the full piece at ${entry.url}. Keep each post within the length the answer allows (hashtags and the link count). Use only what the entry says. Also give the whole thread as one text, the posts numbered 1/n, 2/n….",
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "maxLength": 120
+            },
+            "posts": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 8,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": "{{post_length}}"
+              }
+            },
+            "body": {
+              "type": "string",
+              "minLength": 20
+            }
+          },
+          "required": [
+            "title",
+            "posts",
+            "body"
+          ]
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "create",
+        "entry_type": "{{draft_entry_type}}",
+        "title": "${steps.thread.output.title}",
+        "data": {
+          "{{draft_body_field}}": "${steps.thread.output.body}"
+        },
+        "metadata": {
+          "thread_for": "${entry.slug}",
+          "thread": "${steps.thread.output.posts}"
+        },
+        "status": "draft"
+      }
+    ]
+  }
+}

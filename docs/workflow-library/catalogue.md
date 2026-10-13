@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-113 recipes: **84** verified-current, **11** supported-after-configuration, **4** needs-adapter, **14** needs-engine-capability.
+113 recipes: **88** verified-current, **11** supported-after-configuration, **3** needs-adapter, **11** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -25,9 +25,13 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [editorial-task-maker](../../src/marvin/services/automation/recipes/editorial-task-maker.json) — Editorial task maker | verified-current | `entry_published` | n8n integration | content mutation, external post |
 | [evergreen-resurfacer](../../src/marvin/services/automation/recipes/evergreen-resurfacer.json) — Evergreen resurfacer | verified-current | `schedule` | — | content mutation, paid call |
 | [one-entry-many-voices](../../src/marvin/services/automation/recipes/one-entry-many-voices.json) — One entry, many voices | verified-current | `entry_published` | — | content mutation, paid call |
+| [carousel-storyteller](../../src/marvin/services/automation/recipes/carousel-storyteller.json) — Carousel storyteller | verified-current | `entry_published` | — | content mutation, paid call |
+| [thread-builder](../../src/marvin/services/automation/recipes/thread-builder.json) — Thread builder | verified-current | `entry_published` | — | content mutation, paid call |
 | [quote-card-studio](../../src/marvin/services/automation/recipes/quote-card-studio.json) — Quote card studio | verified-current | `entry_published` | — | content mutation, paid call |
+| [teaser-ladder](../../src/marvin/services/automation/recipes/teaser-ladder.json) — Teaser ladder | verified-current | `entry_published` | — | content mutation, paid call |
 | [behind-the-scenes-diary](../../src/marvin/services/automation/recipes/behind-the-scenes-diary.json) — Behind the scenes diary | verified-current | `entry_published` | — | content mutation, paid call |
 | [community-question](../../src/marvin/services/automation/recipes/community-question.json) — Community question | verified-current | `entry_published` | — | content mutation, external post, paid call |
+| [launch-kit](../../src/marvin/services/automation/recipes/launch-kit.json) — Launch kit | verified-current | `entry_published` | — | content mutation, paid call |
 | [milestone-celebration](../../src/marvin/services/automation/recipes/milestone-celebration.json) — Milestone celebration | verified-current | `entry_updated` | openai_images integration | content mutation, paid call |
 | [event-countdown](../../src/marvin/services/automation/recipes/event-countdown.json) — Event countdown | verified-current | `entry_published` | — | content mutation, paid call |
 | [best-of-month](../../src/marvin/services/automation/recipes/best-of-month.json) — Best of month | verified-current | `schedule` | — | content mutation |
@@ -112,15 +116,11 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 |---|---|---|---|
 | `audio-edition` — Audio edition | needs-adapter | `entry_published` | media-adapters |
 | `publication-release-gate` — Publication release gate | needs-engine-capability | `entry_updated` | joins |
-| `carousel-storyteller` — Carousel storyteller | needs-adapter | `entry_published` | social-adapters |
-| `thread-builder` — Thread builder | needs-engine-capability | `entry_published` | social-adapters |
-| `teaser-ladder` — Teaser ladder | needs-engine-capability | `entry_published` | waits, social-adapters |
 | `poll-companion` — Poll companion | needs-adapter | `entry_published` | social-adapters |
 | `reply-drafting-desk` — Reply drafting desk | needs-engine-capability | `comment_added` | comments |
 | `campaign-scoreboard` — Campaign scoreboard | needs-adapter | `schedule` | social-adapters, waits, metrics |
 | `social-experiment-log` — Social experiment log | needs-engine-capability | `manual` | metrics |
 | `platform-preview-checker` — Platform preview checker | needs-engine-capability | `entry_updated` | fetch, social-adapters |
-| `launch-kit` — Launch kit | needs-engine-capability | `entry_published` | joins |
 | `community-welcome-pack` — Community welcome pack | needs-engine-capability | subscription: `member_added` | member-email, ops-triggers |
 | `thumbnail-audition` — Thumbnail audition | needs-engine-capability | `manual` | workflow-approvals |
 | `achievement-cabinet` — Achievement cabinet | needs-engine-capability | `entry_updated` | custom-events |
@@ -203,19 +203,20 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [one-entry-many-voices](../../src/marvin/services/automation/recipes/one-entry-many-voices.json) — **One entry, many voices** · verified-current · `entry_published`  
   A published entry gets a LinkedIn version, a short post and a community post written in its voice, saved together as a new draft to edit.
   - A custom AI step, then a create step: the new entry is a draft for a person to edit and publish.
-- `carousel-storyteller` — **Carousel storyteller** · needs-adapter · `entry_published`  
-  Article → outline slides → render branded carousel → queue draft
-  - Rendering exists (a media step's render op, 2026-10-12); what's left is listed under dependencies.
-  - Blocked by: `social-adapters` (queue a draft)
-- `thread-builder` — **Thread builder** · needs-engine-capability · `entry_published`  
-  Article → ordered thread with links → save draft sequence
-  - Blocked by: `social-adapters` (draft on the network)
+- [carousel-storyteller](../../src/marvin/services/automation/recipes/carousel-storyteller.json) — **Carousel storyteller** · verified-current · `entry_published`  
+  When an entry is published, the AI outlines it as five slides and each is rendered as a portrait card (1080×1350), attached to the entry as carousel-1 to carousel-5 for posting.
+  - The first slide carries the entry's picture in the role you choose; the rest are plain cards.
+  - Nothing is posted: download the five cards from the entry to post them as a carousel.
+- [thread-builder](../../src/marvin/services/automation/recipes/thread-builder.json) — **Thread builder** · verified-current · `entry_published`  
+  When an entry is published, it's turned into a thread of 3–8 short posts for the network you name, each within its length, saved as a draft to check and post.
+  - Nothing is posted: the thread is a draft for a person to post. A social provider could later post it from metadata.thread.
 - [quote-card-studio](../../src/marvin/services/automation/recipes/quote-card-studio.json) — **Quote card studio** · verified-current · `entry_published`  
   When an entry is published, the AI picks one sentence from its text; if that sentence really is in the text word for word, a quote card is rendered over the entry's picture and attached as quote-card.
   - The exact-quote check is a `when` on the render step: the entry's text must contain the AI's quote.
-- `teaser-ladder` — **Teaser ladder** · needs-engine-capability · `entry_published`  
-  Launch → schedule teaser, launch post and follow-up variants
-  - Blocked by: `waits` (post at offsets from the launch); `social-adapters` (publish)
+- [teaser-ladder](../../src/marvin/services/automation/recipes/teaser-ladder.json) — **Teaser ladder** · verified-current · `entry_published`  
+  When a launch is announced, three posts are drafted on the way to its date: a teaser three days before, the launch post on the day and a follow-up a week after — skipping any moment already past.
+  - The run waits (Wait step) and goes on at the time, in the workspace's time zone.
+  - A changed date after publishing isn't followed: the waits were set when it was published.
 - [behind-the-scenes-diary](../../src/marvin/services/automation/recipes/behind-the-scenes-diary.json) — **Behind the scenes diary** · verified-current · `entry_published`  
   A published project update — its notes and process photos — becomes a draft behind-the-scenes workshop post.
   - A custom AI step, then a create step: the new entry is a draft for a person to edit and publish.
@@ -239,9 +240,9 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - `platform-preview-checker` — **Platform preview checker** · needs-engine-capability · `entry_updated`  
   Draft → check length, links, image ratio and preview → flag fixes
   - Blocked by: `fetch` (link checks); `social-adapters` (per-network limits)
-- `launch-kit` — **Launch kit** · needs-engine-capability · `entry_published`  
-  Product entry → assemble announcement, FAQ, images and newsletter draft
-  - Blocked by: `joins` (assemble in parallel)
+- [launch-kit](../../src/marvin/services/automation/recipes/launch-kit.json) — **Launch kit** · verified-current · `entry_published`  
+  When a product is published, one AI pass drafts its announcement, an FAQ and a newsletter issue, and a launch card is made from its picture — all from what the entry says.
+  - The FAQ answers only from the entry and says when something isn't stated, rather than guessing.
 - [milestone-celebration](../../src/marvin/services/automation/recipes/milestone-celebration.json) — **Milestone celebration** · verified-current · `entry_updated`  
   When a project's status field reaches its done value, the AI drafts a celebration post grounded in the entry; once an editor approves, OpenAI Images draws an illustration, attached as celebration, and the post is saved on the entry.
   - metadata.celebrated makes it once per project: a later save while still complete doesn't fire again.
@@ -562,22 +563,22 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 
 | Id | Capability | Priority | Recipes blocked | Acceptance |
 |---|---|---|---|---|
-| `social-adapters` | Social publishing adapters | P1 | 6 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
 | `create-entry` | Create-entry action | P0 | 3 | Delivered 2026-10-11: an entry step `op: "create"` (entry_type slug, title, data, metadata, status inbox|draft) makes a schema-validated entry, returns entry_id/slug, sends entry_created at depth+1, previews in a dry run, and makes it once per event (key: correlation id + workflow + target + step, kept in metadata.automation_created). |
 | `ops-triggers` | Operational events as workflow triggers | P2 | 3 | ai_budget_*, integration_attention_*, webhook_delivery_failed and scheduled_task_failed become triggerable with origin filtering (a workflow never reacts to a failure its own run caused) and an independent fallback channel. |
-| `waits` | Durable waits and delays | P1 | 3 | Delivered 2026-10-13: a `wait` step — `for` (30m, 12h, 3d, 2w) or `until` a date/datetime with `offset` and `at`, in the workspace's time zone, calendar arithmetic across clock changes — parks the run (workflow_waits, the run's snapshot incl. its inputs); a minutely sweep resumes it with the entry as it is then; the entry in the Trash or the workflow switched off/changed cancels it; a moment already past goes on at once (late); a year at most. |
+| `social-adapters` | Social publishing adapters | P1 | 3 | Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry). |
 | `data-change-detection` | Data-field change detection | P1 | 2 | entry_updated's changed_fields/before/after cover the entry type's own fields (opt-in per type, values elided for large fields) so `entry.data.body` with op `changed` works. |
 | `fetch` | HTTP fetch step | P1 | 2 | Delivered 2026-10-12: a `fetch` step ("Check a web address") — `url`: GET/HEAD through the guarded client (public hosts, re-checked on redirects, 2 MB cap) → status, ok, content_type, title, text, json, and `find` phrases (any case) → found; `links`: the links in a text checked a few at a time → checked, broken, broken_count, text. A dead link is output, never a failed step; a dry run doesn't fetch. |
 | `form-classification` | Form-submission classification from workflows | P0 | 2 | The workflow runner loads an entry-backed submission into `ctx.form_submission` so classify-form-submission classifies the real data; its output (`is_spam`, `category`) is usable by branches. |
 | `idempotency` | Per-step idempotency keys | P0 | 2 | A webhook/integration step with `idempotency_key` (templated) that already succeeded for that key within the window is skipped and its recorded output reused; two concurrent duplicate events deliver once. |
-| `joins` | Parallel branches and joins | P1 | 2 | Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics. |
 | `member-email` | Member-addressed email | P2 | 2 | member_added carries the member's email (or email subscriptions accept recipient_type `member`), and member events are triggerable with the subject distinguished from the actor. |
 | `metrics` | Metrics windows and experiments | P2 | 2 | A step records a metric observation against a variant id and window; a report lists observations without causal claims. |
 | `sandbox` | Schema validation / sandbox handler | P2 | 2 | A step validates a fetched JSON document against a JSON schema and reports violations as output. |
+| `waits` | Durable waits and delays | P1 | 2 | Delivered 2026-10-13: a `wait` step — `for` (30m, 12h, 3d, 2w) or `until` a date/datetime with `offset` and `at`, in the workspace's time zone, calendar arithmetic across clock changes — parks the run (workflow_waits, the run's snapshot incl. its inputs); a minutely sweep resumes it with the entry as it is then; the entry in the Trash or the workflow switched off/changed cancels it; a moment already past goes on at once (late); a year at most. |
 | `collection-scope` | Collection-scoped steps | P1 | 1 | A step can read a collection's entries (`${collection.entries}`) and an operation can run over that set to produce one output (summary, roundup). Partly delivered 2026-10-12: a `collect` step reads a collection's entries in its own order (`collection` + sort `position`) for one step to use; left: collection events carrying the set. |
 | `comments` | Comment events | P2 | 1 | comment_added/updated/deleted have an emitter that carries entry_id and the comment text, are triggerable, and hydrate `entry.*`. |
 | `custom-events` | Custom emit_event names | P2 | 1 | A workspace can register `custom.<name>` events (catalog entry with payload fields); emit_event sends them with a templated payload; they are triggerable and subscribable; depth bounding applies. |
 | `custom-operation` | Free-form AI operation | P0 | 1 | Delivered 2026-10-11: an operation step `op: "custom"` carries its own prompt (${…} templates) and output_schema (a JSON Schema object); `see` adds the item, its attachments, images, the workspace persona; the answer is checked (one retry) and is the step output; write_back maps it onto the entry (summary, tags, metadata.<key>), asset or resource; budget, approval mode and min_role apply as for built-in operations. Named, reusable workspace operations are a later phase. |
+| `joins` | Parallel branches and joins | P1 | 1 | Fan-out steps run independently and a join step waits for all (or any), with deterministic merge of outputs and partial-failure semantics. |
 | `media-adapters` | Image, file and audio processing adapters | P1 | 1 | Slice 3 delivered 2026-10-12: media ops extract_text (a PDF's text layer; scanned pages and pictures by the vision model, image.read_text), pages (PDF pages as pictures, pypdfium2), find_sensitive and redact (faces, plates, personal text by the vision model, pixelated in a new copy). Slice 2 delivered 2026-10-12: a media step's render op fills an HTML/CSS template (built-in: card, quote, poster, trading-card, meme, side-by-side, comic-4, newspaper — or the step's own html) with text and pictures and screenshots it with headless Chromium into a new asset with lineage; the page runs no script and reaches no network. Slice 1 delivered 2026-10-12: a `media` step (resize, crop with subject focus, convert, grade, inspect, palette) saves NEW assets with lineage (derived_from, derivation, workflow, step, correlation id), never modifies originals, reuses an identical derivation, and attach_as links them to the run's entry; an integration action with an image.* capability keeps its images as assets (generated_by, prompt, model) so runs carry references. Also 2026-10-12: zip (files + manifest.json) and printed renders (format pdf; the guide template). Provider edits 2026-10-12: an integration step's `source` hands an image.edit action the picture (image_b64) and keeps the result as a version of it; OpenAI Images v0.3.0 has `edit`. Left: TTS. |
 | `snapshots` | Entity snapshots and restore | P2 | 1 | A step captures an entry version; a later step (or person) restores it; external publications are listed as not restorable. |
 | `workflow-approvals` | Approval step inside a workflow | P1 | 1 | Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice. |
