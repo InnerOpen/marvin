@@ -505,6 +505,10 @@ class AppSettings(BaseSettings):
     MEDIA_RENDER_TIMEOUT_SECONDS: int = 30
     """How long one render may take before the step fails. Default: 30"""
 
+    MEDIA_PDF_TIMEOUT_SECONDS: int = 60
+    """How long reading or rendering one PDF may take (in its own process, services/ai/media/pdf_worker.py) before the
+    step — or Ask's file read — fails. Default: 60"""
+
     MEDIA_EMBEDS_FETCH_ENABLED: bool = True
     """Ask media providers' oEmbed endpoints (YouTube, Vimeo, Spotify, …) for a pasted link's title and
     thumbnail, and for the player id of links that don't carry one (Simplecast episodes, short links).

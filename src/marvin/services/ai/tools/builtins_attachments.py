@@ -44,17 +44,11 @@ def extract_text(kind: str, data: bytes, max_chars: int) -> str:
     """The document's text, stopping once a little more than `max_chars` has been read."""
     if kind == "text":
         return data.decode("utf-8", errors="replace")
-    if kind == "pdf":
-        from pypdf import PdfReader
+    if kind == "pdf":  # in its own, time-limited process: a hostile PDF can't take the server down
+        from marvin.services.ai.media import documents
 
-        parts, size = [], 0
-        for page in PdfReader(io.BytesIO(data)).pages:
-            text = page.extract_text() or ""
-            parts.append(text)
-            size += len(text)
-            if size > max_chars:
-                break
-        return "\n\n".join(parts)
+        _, texts = documents.read(data, max_pages=documents.MAX_PAGES, max_chars=max_chars)
+        return "\n\n".join(texts)
     if kind == "docx":
         from docx import Document
 

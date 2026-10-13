@@ -1472,7 +1472,7 @@ class TestExecution:
         assert "Cut the shade from 0.5 mm brass." in ws.ai.last_request()  # the log
         (link,) = self._role(ws, lantern, "field-guide")
         assert link.asset.mime_type == "application/pdf"
-        first_page = documents.page_texts(_bytes_of(ws, link.asset))[0]
+        first_page = documents.read(_bytes_of(ws, link.asset))[1][0]
         assert "Making a brass lantern" in first_page and "1. Cut the shade." in first_page and "Solder the leads." in first_page
 
     # ── provider image edits (OpenAI Images' edit, given the picture as the step's source) ──

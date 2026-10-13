@@ -311,6 +311,10 @@ height (A4 is 794 × 1123), the content flowing onto as many pages as it needs. 
 intro, a body whose blank lines start paragraphs, `## ` headings, `- ` lists and `1. ` steps, and pictures at the end) is
 a PDF by default.
 
+PDFs are read and rendered in a separate, time-limited process (`MEDIA_PDF_TIMEOUT_SECONDS`, default 60, and a memory
+cap), as renders run Chromium: a damaged or hostile PDF fails its step with the reason — it can't crash or hang the
+server. Ask's **read a file** goes through the same reader.
+
 Without a vision model, reading a picture or finding what to blur fails the step with the reason; a PDF's own text and
 its pages need none. The Workflow Library's **OCR notebook**, **Document preview factory**, **Privacy crop desk**, **Archive
 packager** and **Workshop field guide** use them.

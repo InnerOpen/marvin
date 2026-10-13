@@ -74,18 +74,20 @@ def _extract_text(session, group_id, action: dict, src, context: dict, *, user_i
         text = _read_picture(session, group_id, src, data, src.mime_type, user_id=user_id, required=True)
         return _text_output(src, [{"page": 1, "text": text, "method": "vision"}], page_count=1)
     try:
-        texts = documents.page_texts(data)
-        total = documents.page_count(data)
+        total, texts = documents.read(data)
     except documents.NotADocument as e:
         raise AutomationActionError(f"“{src.name}”: {e}") from e
     pages = [{"page": i + 1, "text": text, "method": "pdf"} for i, text in enumerate(texts)]
     scanned = [p for p in pages if documents.needs_reading(p["text"])]
     note = None
     if scanned and ocr:
+        try:  # every scanned page in one go: one reader process, not one per page
+            _, pictures = documents.render_pages(data, [p["page"] for p in scanned[:MAX_OCR_PAGES]], width=OCR_PAGE_WIDTH)
+        except documents.NotADocument as e:
+            raise AutomationActionError(f"“{src.name}”: {e}") from e
         for p in scanned[:MAX_OCR_PAGES]:
-            image = documents.render_page(data, p["page"], width=OCR_PAGE_WIDTH)
             buf = io.BytesIO()
-            image.save(buf, format="PNG")
+            pictures[p["page"]].save(buf, format="PNG")
             read = _read_picture(session, group_id, src, buf.getvalue(), "image/png", user_id=user_id, required=False)
             if read is None:
                 note = "some pages are scanned and no AI model that can see images is available to read them"
@@ -156,8 +158,14 @@ def _pages(session, group_id, action: dict, src, context: dict, *, user_id, dry_
     if dry_run:
         made = [{"page": p, ("would_reuse" if slug in existing else "would_create"): slug} for p, slug in wanted]
         return {"dry_run": True, "kind": "media", "op": "pages", "source": src.slug, "pages": made, **({"attach_as": attach_as} if attach_as else {})}
-    data = _read_bytes(session, group_id, src) if len(existing) < len(wanted) else b""
-    total = documents.page_count(data) if data else None
+    total, pictures = None, {}
+    if len(existing) < len(wanted):  # the pages not made yet, rendered together in one reader process
+        try:
+            total, pictures = documents.render_pages(
+                _read_bytes(session, group_id, src), [p for p, s in wanted if s not in existing], width=args["width"]
+            )
+        except documents.NotADocument as e:
+            raise AutomationActionError(f"“{src.name}”: {e}") from e
     outputs = []
     for page, slug in wanted:
         if total is not None and page > total:
@@ -166,7 +174,7 @@ def _pages(session, group_id, action: dict, src, context: dict, *, user_id, dry_
             break  # fewer pages than asked: the ones there are
         asset, reused = existing.get(slug), slug in existing
         if asset is None:
-            asset = _store_page(session, group_id, src, data, page, args, slug, context, user_id=user_id)
+            asset = _store_page(session, group_id, src, pictures[page], page, args, slug, context, user_id=user_id)
         elif asset.trashed_at is not None:
             raise AutomationActionError(
                 f"page {page} of “{src.name}” was made before and is in the Trash ({slug}): restore it, or delete it to make it again"
@@ -193,18 +201,14 @@ def _pages(session, group_id, action: dict, src, context: dict, *, user_id, dry_
     }
 
 
-def _store_page(session, group_id, src, data: bytes, page: int, args: dict, slug: str, context: dict, *, user_id):
+def _store_page(session, group_id, src, image, page: int, args: dict, slug: str, context: dict, *, user_id):
     from marvin.db.models.platform.assets import Assets
-    from marvin.services.ai.media import documents, ops
+    from marvin.services.ai.media import ops
     from marvin.services.assets.asset_storage_service import AssetRejected
 
     from .media import _canonical, _storage, run_lineage
 
-    try:
-        image = documents.render_page(data, page, width=args["width"])
-        encoded = ops._encode(image, args["format"], args.get("quality"))
-    except documents.NotADocument as e:
-        raise AutomationActionError(f"“{src.name}”: {e}") from e
+    encoded = ops._encode(image, args["format"], args.get("quality"))
     try:
         read = _storage(session, group_id).create_derivative(
             source=src,

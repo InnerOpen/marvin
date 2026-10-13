@@ -17,6 +17,7 @@ from tests.test_workflow_media import _derivatives, _entry, _last_run, _link, _p
 
 needs_browser = pytest.mark.skipif(render.browser_path() is None, reason="no headless Chromium (chromium-headless-shell) here")
 
+
 def pdf(pages: list[str]) -> bytes:
     """A PDF with one line of Helvetica text per page ("" makes a page with no text layer, like a scan)."""
     objects = ["<< /Type /Catalog /Pages 2 0 R >>", None, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"]
@@ -270,5 +271,45 @@ def test_a_paged_template_prints_to_a_multi_page_pdf(media):
 
     assert result["ok"], ran.error
     guide = media.session.query(Assets).filter_by(id=ran.output_snapshot["asset"]["id"]).one()
-    texts = documents.page_texts(_bytes_of(media, guide))
+    texts = documents.read(_bytes_of(media, guide))[1]
     assert guide.mime_type == "application/pdf" and len(texts) >= 2 and texts[0].startswith("Brass lantern")
+
+
+# ── PDFs are read in a process of their own ──────────────────────────────────
+def test_a_damaged_pdf_fails_with_a_reason():
+    from marvin.services.ai.media import documents
+
+    with pytest.raises(documents.NotADocument, match="not a PDF Marvin can read"):
+        documents.read(b"%PDF-1.4\nthis is not really a PDF")
+    with pytest.raises(documents.NotADocument):
+        documents.render_pages(b"%PDF-1.4 broken", [1])
+
+
+@pytest.mark.parametrize(
+    ("worker", "message"),
+    [
+        ("import time\ntime.sleep(30)\n", "took longer than 1 s"),  # a PDF that hangs the reader
+        ("import os\nos.abort()\n", "stopped the reader"),  # one that crashes it (a segfault, the memory cap)
+    ],
+)
+def test_a_reader_that_hangs_or_crashes_fails_the_read_not_the_server(tmp_path, monkeypatch, worker, message):
+    from types import SimpleNamespace
+
+    from marvin.services.ai.media import documents
+
+    script = tmp_path / "worker.py"
+    script.write_text(worker)
+    monkeypatch.setattr(documents, "WORKER", script)
+    monkeypatch.setattr("marvin.core.config.get_app_settings", lambda: SimpleNamespace(MEDIA_PDF_TIMEOUT_SECONDS=1))
+
+    with pytest.raises(documents.NotADocument, match=message):
+        documents.read(pdf(["Fine text on this page."]))
+
+
+def test_reading_and_rendering_go_through_the_separate_reader():
+    from marvin.services.ai.media import documents
+
+    total, texts = documents.read(pdf(["First page has words.", "", "Third page too."]))
+    assert (total, texts) == (3, ["First page has words.", "", "Third page too."])
+    total, pictures = documents.render_pages(pdf(["One", "Two"]), [2, 5], width=300)  # 5 isn't there: left out
+    assert total == 2 and list(pictures) == [2] and pictures[2].width == 300
