@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.298 (2026-10-13)
+
+### Features
+
+- **workflows**: A guided form for Repeat for each; Entry steps can target By id
+  ([`4409abf`](https://github.com/InnerOpen/marvin/commit/4409abf54004b1d46d7ceb0be267c10d5ee2807d))
+
+
 ## v1.0.0-rc.297 (2026-10-13)
 
 ### Features
