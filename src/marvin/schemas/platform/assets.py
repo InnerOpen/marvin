@@ -8,6 +8,13 @@ from pydantic import UUID4, AliasChoices, ConfigDict, Field, PrivateAttr, String
 from marvin.schemas._marvin import _MarvinModel
 
 
+class TypeCount(_MarvinModel):
+    """How many of a kind there are (an asset type, a resource type): the sidebar's folds."""
+
+    type: str
+    count: int
+
+
 class AssetUploadRequest(_MarvinModel):
     """Skinny schema for asset upload - client provides editorial metadata only."""
 

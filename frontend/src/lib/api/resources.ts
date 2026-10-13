@@ -3,6 +3,7 @@
  * Migrated to use @inneropen/marvin-sdk
  */
 
+import { fetchApi } from "./client";
 import type {
   PlatformEntry,
   PlatformResource,
@@ -84,4 +85,14 @@ export async function rejectResourceSuggestion(id: string, authToken: string): P
   });
   if (!res.ok) throw new Error(`reject-suggestion failed: ${res.status}`);
   return res.json();
+}
+
+export interface TypeCount {
+  type: string;
+  count: number;
+}
+
+/** Each resource type and how many resources it has (most first) — the sidebar's fold. Hand-rolled until the SDK ships it. */
+export async function listResourceTypes(authToken?: string): Promise<TypeCount[]> {
+  return fetchApi<TypeCount[]>("/api/platform/resources/types", {}, authToken);
 }

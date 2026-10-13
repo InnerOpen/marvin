@@ -10,6 +10,7 @@ from marvin.db.models.users.roles import WorkspaceRole
 from marvin.routes._base import BaseUserController, controller
 from marvin.routes._base.checks import require_workspace_editor, require_workspace_role
 from marvin.schemas.platform import AssetRead, AssetUpdate, AssetUploadRequest
+from marvin.schemas.platform.assets import TypeCount
 from marvin.services import trash
 from marvin.services.assets import scope
 from marvin.services.assets.asset_storage_service import AssetRejected, AssetStorageService
@@ -176,6 +177,22 @@ class AssetsController(BaseUserController):
         )
 
         return asset
+
+    @router.get("/types", response_model=list[TypeCount], summary="Asset types in use")
+    def asset_types(self) -> list[TypeCount]:
+        """Each asset type in the library and how many assets it has (most first) — never the Trash or Ask files."""
+        from sqlalchemy import func
+
+        from marvin.db.models.platform.assets import Assets
+
+        rows = (
+            self.session.query(Assets.asset_type, func.count(Assets.id))
+            .filter(Assets.group_id == self.group_id, Assets.trashed_at.is_(None), Assets.scope == LIBRARY)
+            .group_by(Assets.asset_type)
+            .order_by(func.count(Assets.id).desc(), Assets.asset_type)
+            .all()
+        )
+        return [TypeCount(type=kind, count=n) for kind, n in rows]
 
     @router.get("/{item_id}", response_model=AssetRead, summary="Get Asset")
     def get_asset(self, item_id: UUID4) -> AssetRead:

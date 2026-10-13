@@ -210,6 +210,10 @@ const sortedTypeGroups = [...typeGroups.values()].sort((a, b) => a.type.localeCo
     filterResources();
   }
 
+  // The sidebar's Resources fold links here with ?type=<type>: the filter starts on it.
+  const wantedType = new URLSearchParams(location.search).get('type');
+  if (wantedType && typeFilter && [...typeFilter.options].some((o) => o.value === wantedType)) typeFilter.value = wantedType;
+
   viewTableBtn?.addEventListener('click', () => setView('table'));
   viewGroupedBtn?.addEventListener('click', () => setView('grouped'));
 

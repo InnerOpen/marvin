@@ -18,7 +18,9 @@ import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLab
 import { sourceAllowed } from "@/lib/marvin/gate";
 import { navTitle, navTrail } from "@/lib/navTree";
 import { createSdkClient } from "@/lib/sdk";
+import { listAssetTypes } from "@/lib/api/assets";
 import { listCollections } from "@/lib/api/collections";
+import { listResourceTypes } from "@/lib/api/resources";
 import { listEntryTypes } from "@/lib/api/entryTypes";
 import { getContentAccess } from "@/lib/api/workspaces";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
@@ -128,9 +130,20 @@ let canAuthor = false;
 // Published and Trash after them; a person's own collections fold under Content, like labels.
 let folders: { id: string; name: string; slug: string; icon: string | null; count: number }[] = [];
 let collections: { id: string; name: string; icon: string | null }[] = [];
+// Assets and Resources fold open to their types in use, each with a count.
+let assetTypes: { type: string; count: number }[] = [];
+let resourceTypes: { type: string; count: number }[] = [];
 if (authToken) {
   try {
-    const [types, access, colls] = await Promise.all([listEntryTypes(authToken), getContentAccess(authToken), listCollections(authToken)]);
+    const [types, access, colls, aTypes, rTypes] = await Promise.all([
+      listEntryTypes(authToken),
+      getContentAccess(authToken),
+      listCollections(authToken),
+      listAssetTypes(authToken).catch(() => []),
+      listResourceTypes(authToken).catch(() => []),
+    ]);
+    assetTypes = aTypes;
+    resourceTypes = rTypes;
     canAuthor = access.canAuthor;
     newTypes = (types ?? []).slice(0, 8).map((t: any) => ({ id: t.id, name: t.name, icon: t.icon ?? null }));
     const all = (colls ?? []).map((c: any) => ({ id: c.id, name: c.name, slug: c.slug, icon: c.icon ?? null, system: Boolean(c.isSystem), count: Number(c.entryCount ?? 0) }));
@@ -154,6 +167,12 @@ const ENTRY_FOLDERS = folderRows.sort((a, b) => rank(a.slug) - rank(b.slug));
 const here = Astro.url.pathname + Astro.url.search;
 const onEntries = Astro.url.pathname === "/workspace/entries" && !Astro.url.searchParams.get("status");
 const onCollections = Astro.url.pathname.startsWith("/workspace/collections") && !folders.some((c) => Astro.url.pathname === `/workspace/collections/${c.id}`);
+const ASSET_TYPE_LABELS: Record<string, string> = { image: "Images", svg: "SVGs", document: "Documents", video: "Videos", audio: "Audio", archive: "Archives", other: "Other" };
+const ASSET_TYPE_ICONS: Record<string, string> = { image: "🖼", svg: "✒️", document: "📄", video: "🎬", audio: "🎵", archive: "🗜", other: "📦" };
+const typeLabel = (t: string) => t.charAt(0).toUpperCase() + t.slice(1).replace(/[-_]/g, " ");
+const onAssets = Astro.url.pathname.startsWith("/workspace/assets");
+const onResources = Astro.url.pathname.startsWith("/workspace/resources");
+const typeHere = Astro.url.searchParams.get("type");
 // Settings as a group of the hub's tabs, not one opaque link: the page's tab is marked, and the group stays open on
 // any settings page (elsewhere, a person's last choice — remembered on the device).
 const SETTINGS_TABS: { tab: string; label: string; icon: string; paths: string[]; badge?: number }[] = [
@@ -271,8 +290,34 @@ function isActive(itemPath: string, currentPath: string): boolean {
                 <a href="/workspace/collections" class="nav-fold-all"><span aria-hidden="true">📚</span><span>All collections</span></a>
               </div>
             </details>
-            <a href="/workspace/assets" aria-current={isActive("/workspace/assets", path) ? "page" : undefined}><span aria-hidden="true">🖼</span><span>Assets</span></a>
-            <a href="/workspace/resources" aria-current={isActive("/workspace/resources", path) ? "page" : undefined}><span aria-hidden="true">🔗</span><span>Resources</span></a>
+            <details class="nav-fold" open={onAssets}>
+              <summary class="nav-fold-row" aria-current={onAssets && !typeHere ? "page" : undefined}>
+                <span aria-hidden="true">🖼</span><span>Assets</span><span class="nav-chevron" aria-hidden="true">›</span>
+              </summary>
+              <div class="nav nav-fold-items">
+                {assetTypes.map((t) => (
+                  <a href={`/workspace/assets?type=${encodeURIComponent(t.type)}`} aria-current={onAssets && typeHere === t.type ? "page" : undefined}>
+                    <span aria-hidden="true">{ASSET_TYPE_ICONS[t.type] ?? "📦"}</span><span>{ASSET_TYPE_LABELS[t.type] ?? typeLabel(t.type)}</span>
+                    <span class="nav-count">{t.count > 999 ? "999+" : t.count}</span>
+                  </a>
+                ))}
+                <a href="/workspace/assets" class="nav-fold-all"><span aria-hidden="true">🖼</span><span>All assets</span></a>
+              </div>
+            </details>
+            <details class="nav-fold" open={onResources}>
+              <summary class="nav-fold-row" aria-current={onResources && !typeHere ? "page" : undefined}>
+                <span aria-hidden="true">🔗</span><span>Resources</span><span class="nav-chevron" aria-hidden="true">›</span>
+              </summary>
+              <div class="nav nav-fold-items">
+                {resourceTypes.map((t) => (
+                  <a href={`/workspace/resources?type=${encodeURIComponent(t.type)}`} aria-current={onResources && typeHere === t.type ? "page" : undefined}>
+                    <span aria-hidden="true">🔗</span><span>{typeLabel(t.type)}</span>
+                    <span class="nav-count">{t.count > 999 ? "999+" : t.count}</span>
+                  </a>
+                ))}
+                <a href="/workspace/resources" class="nav-fold-all"><span aria-hidden="true">🔗</span><span>All resources</span></a>
+              </div>
+            </details>
           </nav>
         </div>
         {finalNavGroups.slice(1).map((group) => (

@@ -683,3 +683,19 @@ def test_the_orphaned_assets_task_moves_orphans_to_the_trash_instead_of_dropping
     row = _get(ws, "asset", aid)
     assert row is not None and T.is_trashed(row) and ws.store.exists(row.storage_key)
     assert "asset_trashed" in _names(aid)
+
+
+def test_type_counts_leave_the_trash_out(http, db_session):
+    """The sidebar's Assets and Resources folds: each type in use and how many — a trashed item counts nowhere."""
+    a1, a2, doc = http.asset("a1"), http.asset("a2"), http.asset("doc")
+    db_session.get(Assets, doc).asset_type = "document"
+    r1, tool = http.resource("r1"), http.resource("tool")
+    db_session.get(Resources, tool).resource_type = "tool"
+    db_session.commit()
+    editor = http.sign_in(WorkspaceRole.EDITOR)
+    assert editor.delete(f"/api/platform/assets/{a2}").status_code in (200, 204)
+
+    viewer = http.sign_in(WorkspaceRole.VIEWER)  # any member reads
+    assert viewer.get("/api/platform/assets/types").json() == [{"type": "document", "count": 1}, {"type": "image", "count": 1}]
+    assert viewer.get("/api/platform/resources/types").json() == [{"type": "material", "count": 1}, {"type": "tool", "count": 1}]
+    assert a1 and r1
