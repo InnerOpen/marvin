@@ -50,7 +50,83 @@ const drafts: number = attention.drafts ?? 0;
 const needsReview: number = attention.needsReview ?? attention.needs_review ?? 0;
 const aiSuggestions: number = attention.aiSuggestions ?? attention.ai_suggestions ?? 0;
 const failures: number = attention.failures ?? 0;
-const attentionTotal = inbox + drafts + needsReview + aiSuggestions + failures;
+const approvalsWaiting: number = attention.approvals ?? 0;
+const parkedRuns: number = attention.parkedRuns ?? attention.parked_runs ?? 0;
+const oldestDraftDays: number | null = attention.oldestDraftDays ?? attention.oldest_draft_days ?? null;
+const oldestInboxDays: number | null = attention.oldestInboxDays ?? attention.oldest_inbox_days ?? null;
+const attentionTotal = inbox + drafts + needsReview + aiSuggestions + failures + approvalsWaiting + parkedRuns;
+
+// The oldest few approvals, decided right here; the rest on the Approvals page.
+const approvals: any[] = dashboard?.approvals ?? [];
+// The next 7 days: scheduled publishes, waits that resume, scheduled tasks — soonest first.
+const upcoming: any[] = dashboard?.upcoming ?? [];
+const health: any = dashboard?.health ?? {};
+const runsByDay: { day: string; ok: number; failed: number }[] = (dashboard?.runsByDay ?? dashboard?.runs_by_day ?? []).map((d: any) => ({
+  day: d.day,
+  ok: d.ok ?? 0,
+  failed: d.failed ?? 0,
+}));
+const runsTotal = runsByDay.reduce((n, d) => n + d.ok + d.failed, 0);
+const runsFailed = runsByDay.reduce((n, d) => n + d.failed, 0);
+const runsPeak = Math.max(1, ...runsByDay.map((d) => d.ok + d.failed));
+// Sparkline geometry: one bar a day, failures stacked on top in red. Inline SVG, no chart library.
+const BAR = 8, GAP = 3, H = 44;
+const sparkWidth = runsByDay.length * (BAR + GAP) - GAP;
+const bars = runsByDay.map((d, i) => {
+  const total = d.ok + d.failed;
+  const h = total ? Math.max(2, Math.round((total / runsPeak) * H)) : 1;
+  const hf = total ? Math.round((d.failed / total) * h) : 0;
+  return { x: i * (BAR + GAP), y: H - h, h, hf, label: `${d.day}: ${d.ok} ok, ${d.failed} failed` };
+});
+
+function upcomingHref(item: any): string | null {
+  if (item.kind === "publish" && (item.entityId ?? item.entity_id)) return `/workspace/entries/${item.entityId ?? item.entity_id}`;
+  if (item.kind === "resume") {
+    const wf = item.automationId ?? item.automation_id;
+    const run = item.executionId ?? item.execution_id;
+    return wf ? `/automation/workflows?workflow=${wf}${run ? `&run=${run}` : ""}` : "/automation/workflows";
+  }
+  if (item.kind === "task") return "/workspace/scheduled-tasks";
+  return null;
+}
+const UPCOMING_LABEL: Record<string, string> = { publish: "Publishes", resume: "Workflow", task: "Scheduled task" };
+
+function untilText(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const secs = Math.floor((new Date(iso).getTime() - Date.now()) / 1000);
+  if (secs < 3600) return "within the hour";
+  const hrs = Math.floor(secs / 3600);
+  if (hrs < 24) return `in ${hrs} h`;
+  const days = Math.round(hrs / 24);
+  return days <= 1 ? "tomorrow" : `in ${days} days`;
+}
+function ageText(days: number | null): string {
+  return days == null ? "" : days === 0 ? " · newest today" : ` · oldest ${days} day${days === 1 ? "" : "s"}`;
+}
+
+// The health strip: each dot links to the page that explains it. Push is server-wide, so it has no page.
+const backupState: string | null = health.backupState ?? health.backup_state ?? null;
+const integrationsFailing: number = health.integrationsFailing ?? health.integrations_failing ?? 0;
+const integrationsTotal: number = health.integrationsTotal ?? health.integrations_total ?? 0;
+const webhookFailures: number = health.webhookFailures24h ?? health.webhook_failures_24h ?? 0;
+const workflowFailures: number = health.workflowFailures7d ?? health.workflow_failures_7d ?? 0;
+const emailReady: boolean = Boolean(health.emailReady ?? health.email_ready);
+const pushReady: boolean = Boolean(health.pushReady ?? health.push_ready);
+type Dot = { tone: "ok" | "warn" | "bad" | "off"; label: string; href: string | null };
+const dots: Dot[] = [];
+if (backupState) {
+  const tone = backupState === "ok" ? "ok" : backupState === "failed" || backupState === "overdue" ? "bad" : "warn";
+  dots.push({ tone, label: `Backups ${backupState}`, href: "/workspace/settings/backups" });
+}
+dots.push({
+  tone: integrationsTotal === 0 ? "off" : integrationsFailing ? "bad" : "ok",
+  label: integrationsTotal === 0 ? "No integrations" : integrationsFailing ? `${integrationsFailing} of ${integrationsTotal} integrations failing` : `${integrationsTotal} integrations ok`,
+  href: "/workspace/settings/integration-health",
+});
+dots.push({ tone: webhookFailures ? "bad" : "ok", label: webhookFailures ? `${webhookFailures} webhook deliveries failed (24 h)` : "Webhook deliveries ok", href: "/automation/webhooks/log" });
+dots.push({ tone: workflowFailures ? "warn" : "ok", label: workflowFailures ? `${workflowFailures} workflow runs failed (7 days)` : "Workflow runs ok", href: "/automation/workflows" });
+dots.push({ tone: emailReady ? "ok" : "off", label: emailReady ? "Email ready" : "Email not set up", href: "/workspace/settings/email" });
+dots.push({ tone: pushReady ? "ok" : "off", label: pushReady ? "Push ready" : "Push not set up", href: null });
 
 /** Compact "3m ago" / "2h ago" / "5d ago" from an ISO timestamp; null once it is older than that (show the date). */
 function relTime(iso?: string | null): string | null {
@@ -130,6 +206,19 @@ function relTime(iso?: string | null): string | null {
           <div class="stat-label">RAG Embeddings</div>
         </a>
       </div>
+      {dashboard && (
+        <ul class="health-strip" aria-label="Workspace health">
+          {dots.map((d) => (
+            <li>
+              {d.href ? (
+                <a href={d.href} class={`health-dot tone-${d.tone}`}><span class="dot" aria-hidden="true"></span>{d.label}</a>
+              ) : (
+                <span class={`health-dot tone-${d.tone}`}><span class="dot" aria-hidden="true"></span>{d.label}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <div class="dashboard-columns">
         <section class="panel activity-panel">
@@ -169,13 +258,51 @@ function relTime(iso?: string | null): string | null {
             <p class="empty">All clear — nothing waiting on you. 🎉</p>
           ) : (
             <ul class="attention-list">
+              {approvals.map((a) => (
+                <li class="approval" data-id={a.id}>
+                  <p class="approval-ask">{a.message}</p>
+                  <p class="approval-meta">
+                    {a.automationName ?? a.automation_name ?? "Workflow"}
+                    {(a.entryTitle ?? a.entry_title) && <> · {a.entryTitle ?? a.entry_title}</>}
+                    {(a.createdAt ?? a.created_at) && <> · asked {relTime(a.createdAt ?? a.created_at)}</>}
+                  </p>
+                  <div class="approval-decide">
+                    {a.choices?.length ? (
+                      <>
+                        {a.choices.map((label: string) => (
+                          <button type="button" class="button js-decide" data-decision="approve" data-choice={label}>{label}</button>
+                        ))}
+                        <button type="button" class="button secondary js-decide" data-decision="deny">None of these</button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" class="button js-decide" data-decision="approve">Approve</button>
+                        <button type="button" class="button secondary js-decide" data-decision="deny">Deny</button>
+                      </>
+                    )}
+                  </div>
+                  <p class="approval-result" hidden></p>
+                </li>
+              ))}
+              {approvalsWaiting > approvals.length && (
+                <a href="/automation/approvals" class="attention-item">
+                  <span class="attention-count warn">{approvalsWaiting - approvals.length}</span>
+                  <span class="attention-label">More approvals waiting</span>
+                </a>
+              )}
+              {parkedRuns > 0 && (
+                <a href="/automation/workflows" class="attention-item">
+                  <span class="attention-count info">{parkedRuns}</span>
+                  <span class="attention-label">Workflow runs waiting (on a wait or an approval)</span>
+                </a>
+              )}
               <a href="/workspace/entries?status=inbox" class="attention-item">
                 <span class={`attention-count ${inbox ? 'warn' : ''}`}>{inbox}</span>
-                <span class="attention-label">In the inbox (form submissions, AI drafts)</span>
+                <span class="attention-label">In the inbox (form submissions, AI drafts){ageText(inbox ? oldestInboxDays : null)}</span>
               </a>
               <a href="/workspace/entries?status=draft" class="attention-item">
                 <span class={`attention-count ${drafts ? 'warn' : ''}`}>{drafts}</span>
-                <span class="attention-label">Drafts awaiting review</span>
+                <span class="attention-label">Drafts awaiting review{ageText(drafts ? oldestDraftDays : null)}</span>
               </a>
               <a href="/workspace/entries?status=needs_review" class="attention-item">
                 <span class={`attention-count ${needsReview ? 'warn' : ''}`}>{needsReview}</span>
@@ -194,9 +321,94 @@ function relTime(iso?: string | null): string | null {
         </section>
       </div>
 
+      {dashboard && (
+        <div class="dashboard-columns">
+          <section class="panel upcoming-panel">
+            <div class="panel-head">
+              <h3>Coming up</h3>
+              <span class="panel-sub">next 7 days</span>
+            </div>
+            {upcoming.length === 0 ? (
+              <p class="empty">Nothing scheduled for the week ahead.</p>
+            ) : (
+              <ul class="upcoming-list">
+                {upcoming.map((item) => {
+                  const href = upcomingHref(item);
+                  return (
+                    <li class="upcoming-item">
+                      <span class={`upcoming-kind kind-${item.kind}`}>{UPCOMING_LABEL[item.kind] ?? item.kind}</span>
+                      <div class="upcoming-body">
+                        {href ? <a class="upcoming-title" href={href}>{item.title}</a> : <span class="upcoming-title">{item.title}</span>}
+                        <span class="upcoming-when">
+                          <LocalTime iso={item.at} format="datetime" />
+                          {untilText(item.at) && <> · {untilText(item.at)}</>}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+          <section class="panel runs-panel">
+            <div class="panel-head">
+              <h3>Workflow runs</h3>
+              <a href="/automation/workflows" class="panel-link">Workflows →</a>
+            </div>
+            {runsTotal === 0 ? (
+              <p class="empty">No workflow runs in the last 14 days.</p>
+            ) : (
+              <>
+                <p class="runs-summary">
+                  <strong>{runsTotal}</strong> runs in 14 days
+                  {runsFailed ? <>, <strong class="runs-failed">{runsFailed}</strong> failed</> : <>, none failed</>}
+                </p>
+                <svg class="sparkline" viewBox={`0 0 ${sparkWidth} ${H}`} preserveAspectRatio="none" role="img" aria-label={`Workflow runs per day, last 14 days: ${runsTotal} runs, ${runsFailed} failed`}>
+                  {bars.map((b) => (
+                    <g>
+                      <title>{b.label}</title>
+                      <rect class="bar-ok" x={b.x} y={b.y} width={BAR} height={b.h} rx="1" />
+                      {b.hf > 0 && <rect class="bar-failed" x={b.x} y={b.y} width={BAR} height={b.hf} rx="1" />}
+                    </g>
+                  ))}
+                </svg>
+                <div class="spark-axis"><span>{runsByDay[0]?.day}</span><span>today</span></div>
+              </>
+            )}
+          </section>
+        </div>
+      )}
+
     </div>
   )}
 </AppLayout>
+
+<script>
+  import { decideApproval } from "@/lib/api/workflowApprovals";
+
+  // The same flow as the Approvals page, minus the note: a decision here is the quick kind.
+  document.querySelectorAll<HTMLButtonElement>(".approval .js-decide").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const card = btn.closest<HTMLElement>(".approval")!;
+      const result = card.querySelector<HTMLElement>(".approval-result")!;
+      card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
+      try {
+        const out = await decideApproval(card.dataset.id!, btn.dataset.decision as "approve" | "deny", "", btn.dataset.choice ?? null);
+        result.textContent =
+          out.status === "stale"
+            ? "The entry changed after this was asked, so it went on as stale — nothing approved was applied."
+            : out.choice
+              ? `Approved: ${out.choice} — the workflow went on.`
+              : `${out.status === "approved" ? "Approved" : "Denied"} — the workflow went on.`;
+        card.querySelector(".approval-decide")!.remove();
+      } catch (e: any) {
+        result.textContent = e?.message ?? String(e);
+        card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = false));
+      }
+      result.hidden = false;
+    }),
+  );
+</script>
 
 <style>
   .workspace-dashboard {
@@ -455,6 +667,78 @@ function relTime(iso?: string | null): string | null {
     font-size: 14px;
     color: var(--ink);
   }
+
+  /* Health strip: one dot per thing that can be wrong, each a link to the page that explains it. */
+  .health-strip {
+    list-style: none;
+    margin: -16px 0 28px;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+  }
+  .health-dot {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  a.health-dot:hover { color: var(--ink); }
+  .health-dot .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--line);
+    flex: none;
+  }
+  .tone-ok .dot { background: #16a34a; }
+  .tone-warn .dot { background: #d97706; }
+  .tone-bad .dot { background: var(--color-error, #dc2626); }
+  .tone-bad, .tone-warn { color: var(--ink); }
+  .tone-off { opacity: 0.7; }
+
+  /* Approvals decided inline. */
+  .approval {
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--panel-2, var(--panel));
+  }
+  .approval-ask { margin: 0 0 4px; font-weight: 600; font-size: 14px; }
+  .approval-meta { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+  .approval-decide { display: flex; flex-wrap: wrap; gap: 6px; }
+  .approval-decide .button { padding: 5px 11px; font-size: 13px; }
+  .approval-result { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+
+  .panel-sub { font-size: 12px; color: var(--muted); }
+  .upcoming-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .upcoming-item { display: flex; gap: 12px; align-items: flex-start; }
+  .upcoming-kind {
+    flex: none;
+    min-width: 92px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--muted);
+    padding-top: 3px;
+  }
+  .kind-publish { color: #16a34a; }
+  .kind-resume { color: var(--accent); }
+  .upcoming-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .upcoming-title { font-size: 14px; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
+  a.upcoming-title:hover { text-decoration: underline; }
+  .upcoming-when { font-size: 12px; color: var(--muted); }
+
+  .runs-summary { margin: 0 0 12px; font-size: 14px; color: var(--muted); }
+  .runs-summary strong { color: var(--ink); }
+  .runs-failed { color: var(--color-error, #dc2626) !important; }
+  .sparkline { display: block; width: 100%; height: 56px; }
+  .bar-ok { fill: var(--accent); opacity: 0.75; }
+  .bar-failed { fill: var(--color-error, #dc2626); }
+  .spark-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 4px; }
 
   .alert {
     padding: 16px;
