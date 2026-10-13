@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.320 (2026-10-13)
+
+### Bug Fixes
+
+- **entries**: The Ask button carries the workspace's assistant name
+  ([`c386a42`](https://github.com/InnerOpen/marvin/commit/c386a425ad7d658d824db2667cbda98476f8f739))
+
+
 ## v1.0.0-rc.319 (2026-10-13)
 
 ### Features
