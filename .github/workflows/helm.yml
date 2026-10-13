@@ -14,6 +14,7 @@ on:
       - develop
     paths:
       - 'marvin-chart/**'
+      - '.github/workflows/helm.yml'   # a change to this file tests itself (2026-10-13: a Kind fix shipped unrun)
   workflow_dispatch:
 
 concurrency:

@@ -117,6 +117,23 @@ jobs:
     runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
 
     services:
+      # The suite's conftest opens Postgres (the only engine) before any test, the Vault ones included.
+      postgres:
+        image: postgres:17-alpine
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        env:
+          POSTGRES_USER: marvin
+          POSTGRES_PASSWORD: marvin
+          POSTGRES_DB: marvin_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
       vault:
         image: hashicorp/vault:latest
         credentials:  # logged in: Docker Hub's anonymous pull limit is shared by every job on the runner
@@ -136,6 +153,12 @@ jobs:
       VAULT_TOKEN: roottoken
       VAULT_MOUNT: secret
       VAULT_PATH_PREFIX: marvintest
+      DB_ENGINE: postgres
+      POSTGRES_USER: marvin
+      POSTGRES_PASSWORD: marvin
+      POSTGRES_SERVER: localhost
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: marvin_test
 
     steps:
       - name: Checkout
