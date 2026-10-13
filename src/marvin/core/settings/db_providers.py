@@ -14,6 +14,10 @@ from urllib import parse as urlparse
 from pydantic import PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The driver named outright: a bare ``postgresql://`` means psycopg2 to SQLAlchemy 2.0 but psycopg 3 to 2.1,
+# and psycopg2-binary is the one Marvin ships (the SDK/docs jobs resolve SQLAlchemy afresh with pip).
+_SCHEME = "postgresql+psycopg2"
+
 
 class AbstractDBProvider(ABC):
     """
@@ -68,9 +72,10 @@ class PostgresProvider(AbstractDBProvider, BaseSettings):
         """
         Constructs the PostgreSQL connection URL.
 
-        If `POSTGRES_URL_OVERRIDE` is set, it's used directly after ensuring
-        the schema is 'postgres' and quoting the password. Otherwise, the URL is
-        built from individual `POSTGRES_*` environment variables.
+        If `POSTGRES_URL_OVERRIDE` is set, it's used after checking the schema
+        (`postgresql` or `postgresql+psycopg2`, always returned as the latter) and
+        quoting the password. Otherwise, the URL is built from individual
+        `POSTGRES_*` environment variables.
 
         Raises:
             ValueError: If `POSTGRES_URL_OVERRIDE` has an invalid schema.
@@ -82,8 +87,8 @@ class PostgresProvider(AbstractDBProvider, BaseSettings):
             url = self.POSTGRES_URL_OVERRIDE
 
             schema, remainder = url.split("://", 1)
-            if schema != "postgresql":
-                raise ValueError("POSTGRES_URL_OVERRIDE schema must be postgresql")
+            if schema not in ("postgresql", _SCHEME):
+                raise ValueError(f"POSTGRES_URL_OVERRIDE schema must be postgresql or {_SCHEME}")
 
             remainder = remainder.split(":", 1)[1]
             password = remainder[: remainder.rfind("@")]
@@ -91,10 +96,10 @@ class PostgresProvider(AbstractDBProvider, BaseSettings):
 
             safe_url = url.replace(password, quoted_password)
 
-            return safe_url
+            return f"{_SCHEME}://{safe_url.split('://', 1)[1]}"  # the driver named, whichever form was given
         return str(
             PostgresDsn.build(
-                scheme="postgresql",  # SQLAlchemy 2.0 dropped the "postgres" dialect alias
+                scheme=_SCHEME,
                 username=self.POSTGRES_USER,
                 password=urlparse.quote(self.POSTGRES_PASSWORD.get_secret_value()),
                 host=f"{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}",

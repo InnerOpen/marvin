@@ -230,12 +230,11 @@ jobs:
           name: cli-bundle
           path: dist/
 
-  # Job 5: Test Summary — gates on the backend suites (SQLite + PostgreSQL).
+  # Test Summary — gates on the backend suites (PostgreSQL + Vault).
   test-summary:
     name: Test Summary
     runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
     needs:
-      - backend-tests
       - postgres-tests
       - vault-tests
       - sdk-tests
@@ -246,15 +245,11 @@ jobs:
         run: |
           echo "Test Summary"
           echo "==============="
-          echo "Backend (SQLite):     ${{ needs.backend-tests.result }}"
           echo "Backend (PostgreSQL): ${{ needs.postgres-tests.result }}"
           echo "Backend (Vault):      ${{ needs.vault-tests.result }}"
           echo "SDK:                  ${{ needs.sdk-tests.result }}"
           echo "CLI:                  ${{ needs.cli-tests.result }}"
           echo ""
-          if [[ "${{ needs.backend-tests.result }}" != "success" ]]; then
-            echo "Backend (SQLite) tests failed"; exit 1
-          fi
           if [[ "${{ needs.postgres-tests.result }}" != "success" ]]; then
             echo "Backend (PostgreSQL) tests failed"; exit 1
           fi

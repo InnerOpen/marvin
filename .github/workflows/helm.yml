@@ -92,6 +92,15 @@ jobs:
           cluster_name: marvin-test
           wait: 120s
 
+      # A default install renders a CloudNativePG Cluster (postgres.cluster.enabled; Postgres is the only
+      # engine), so the operator has to be in the cluster first — as on a real one (docs/manual/postgres.md).
+      - name: Install CloudNativePG operator
+        run: |
+          helm repo add cnpg https://cloudnative-pg.github.io/charts
+          helm install cnpg cnpg/cloudnative-pg \
+            --namespace cnpg-system --create-namespace \
+            --wait --timeout 5m
+
       # --target production is required: the last stage in the Dockerfile is `lambda`, which resets
       # ENTRYPOINT and runs the Mangum handler, so an untargeted build produces an image that exits
       # with `"marvin.app.handler": executable file not found`. docker.yml and the Taskfile already
@@ -115,9 +124,15 @@ jobs:
             --set image.repository=marvin \
             --set image.tag=test \
             --set image.pullPolicy=Never \
-            --wait \
-            --timeout 5m \
             --debug
+
+      # The app pods can't start until CNPG has bootstrapped the database and written the "<cluster>-app"
+      # Secret they read their connection from, so wait for the Cluster first, then for the pods.
+      - name: Wait for the database cluster
+        run: |
+          kubectl wait --for=condition=Ready cluster/marvin-pg \
+            --namespace marvin-test \
+            --timeout=300s
 
       - name: Wait for pods to be ready
         run: |
@@ -184,13 +199,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # The scan is informational (soft fail). Run the image directly rather than through checkov-action:
+      # the action's entrypoint copies the whole report into $GITHUB_ENV, and with the code blocks it
+      # prints for every failed check that grew past the kernel's per-variable limit, so the job's
+      # cleanup steps died with "Argument list too long". --compact drops the code blocks, --quiet the
+      # passed checks; the failures themselves are unchanged.
       - name: Run Checkov scan on Helm templates
-        uses: bridgecrewio/checkov-action@99bb2caf247dfd9f03cf984373bc6043d4e32ebf # v12.1347.0
-        with:
-          directory: marvin-chart/
-          framework: helm
-          output_format: cli
-          soft_fail: true
+        run: |
+          docker run --rm -v "$PWD/marvin-chart:/chart:ro" bridgecrew/checkov:2.0.930 \
+            -d /chart --framework helm --output cli --soft-fail --compact --quiet
         continue-on-error: true
 
   package:
