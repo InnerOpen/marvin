@@ -281,7 +281,8 @@ def ws(db_session, monkeypatch):
         "campaign": ([_field("utm_source"), _field("utm_medium")], "/campaigns/{slug}", None),
         "contact-request": ([_field("email"), _field("message", "textarea")], None, {"submittable": True}),
         "project": ([_field("stage"), _field("collaborators")], None, None),
-        "person": ([_field("handle"), _field("ok_to_tag", "boolean")], None, None),
+        "person": ([_field("handle"), _field("ok_to_tag", "boolean"), _field("role")], None, None),
+        "rsvp": ([_field("event"), _field("email")], None, None),
         "event": ([_field("date", "date")], None, None),
     }
     for slug, (fields, pattern, caps) in specs.items():
@@ -404,6 +405,10 @@ def ws(db_session, monkeypatch):
         "person_type": "person",
         "consent_field": "ok_to_tag",
         "handle_field": "handle",
+        "role_field": "role",
+        "rsvp_type": "rsvp",
+        "rsvp_event_field": "event",
+        "send_at": "10:00",
         "network": "Bluesky",
         "post_type": "article",
         "max_length": 300,
@@ -1784,6 +1789,47 @@ class TestExecution:
         assert reasons[1].startswith("Dead links:") and "shop.example/old" in reasons[1] and "shop.example/brass" not in reasons[1]
         assert reasons[2] == "The picture is 900×1200; Bluesky shows landscape pictures best"
         assert _reload(ws, fine).status == "draft"  # nothing wrong: left alone
+
+    def test_thank_you_notes(self, ws):
+        _install(ws, "thank-you-notes")
+        ada = _entry(ws, "person", "Ada", status="published", data={"role": "wiring"})
+        grace = _entry(ws, "person", "Grace", status="published", data={"role": "glass"})
+        lantern = _entry(ws, "project", "Brass lantern", status="published", data={"collaborators": f"{ada.slug}, {grace.slug}"})
+        for name in ("Ada", "Grace"):
+            ws.ai.reply_text(json.dumps({"title": f"Thank you, {name}", "body": f"{name} — the lantern wouldn't shine without your work on it."}))
+
+        _fire(ws, "entry_published", _entry_doc(lantern), entity=lantern.id, entity_type="entry", correlation_id="pub-lantern")
+
+        notes = {e.metadata_json["to"]: e for e in self._issues(ws)}
+        assert set(notes) == {ada.slug, grace.slug} and all(
+            e.status == "draft" and e.metadata_json["thank_you_for"] == lantern.slug for e in notes.values()
+        )
+        asked = [json.dumps(r) for r in ws.ai.requests]
+        assert len(asked) == 2 and {("wiring" in a, "glass" in a) for a in asked} == {(True, False), (False, True)}  # each note: its person's part
+
+    def test_post_event_recap(self, ws):
+        from marvin.services.automation import waits
+
+        _install(ws, "post-event-recap")
+        day = (datetime.now(UTC).date() + timedelta(days=3)).isoformat()
+        fair = _entry(ws, "event", "Maker fair", status="published", data={"date": day})
+        guests = [
+            _entry(ws, "rsvp", name, status="published", data={"event": fair.slug, "email": f"{name.lower()}@x.test"}) for name in ("Ada", "Grace")
+        ]
+        _entry(ws, "rsvp", "Elsewhere", status="published", data={"event": "another-event"})
+        ws.ai.reply_text(json.dumps({"title": "What a fair", "body": "Thank you all for coming to the Maker fair — send us your photos!"}))
+        for name in ("Ada", "Grace"):
+            ws.ai.reply_text(json.dumps({"body": f"{name}, thank you for coming yesterday. Send any photos you took!"}))
+
+        _fire(ws, "entry_published", _entry_doc(fair), entity=fair.id, entity_type="entry", correlation_id="pub-fair")
+        assert self._issues(ws) == [] and ws.ai.requests == []  # the day after, not now
+        waits.resume_due(ws.session, now_=waits.now() + timedelta(days=4, hours=12))
+
+        (recap,) = self._issues(ws)
+        assert recap.metadata_json["recap_of"] == fair.slug and "2 guests" in json.dumps(ws.ai.requests[0])
+        written = {_reload(ws, g).metadata_json["thank_you"]["message"].split(",")[0] for g in guests}
+        assert written == {"Ada", "Grace"} and all(_reload(ws, g).metadata_json["thank_you"]["for"] == fair.slug for g in guests)
+        assert len(ws.ai.requests) == 3  # the recap, and one message per guest who came — none for another event's RSVP
 
     # ── waits ──
     def test_event_countdown(self, ws):

@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-113 recipes: **92** verified-current, **11** supported-after-configuration, **3** needs-adapter, **7** needs-engine-capability.
+115 recipes: **94** verified-current, **11** supported-after-configuration, **3** needs-adapter, **7** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -41,6 +41,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [on-this-day](../../src/marvin/services/automation/recipes/on-this-day.json) — On this day | verified-current | `schedule` | — | content mutation, paid call |
 | [audience-milestone](../../src/marvin/services/automation/recipes/audience-milestone.json) — Audience milestone | verified-current | `entry_published` | — | content mutation, paid call |
 | [collaborator-shout-out](../../src/marvin/services/automation/recipes/collaborator-shout-out.json) — Collaborator shout-out | verified-current | `entry_published` | — | approval, content mutation, paid call |
+| [thank-you-notes](../../src/marvin/services/automation/recipes/thank-you-notes.json) — Thank-you notes | verified-current | `entry_published` | — | content mutation, paid call |
+| [post-event-recap](../../src/marvin/services/automation/recipes/post-event-recap.json) — Post-event recap | verified-current | `entry_published` | — | content mutation, paid call |
 | [alt-text-assistant](../../src/marvin/services/automation/recipes/alt-text-assistant.json) — Alt text assistant | verified-current | `asset_uploaded` | — | content mutation, paid call |
 | [responsive-image-factory](../../src/marvin/services/automation/recipes/responsive-image-factory.json) — Responsive image factory | verified-current | `asset_attached_to_entry` | — | content mutation |
 | [background-remover](../../src/marvin/services/automation/recipes/background-remover.json) — Background remover | verified-current | `manual` | openai_images integration | content mutation, paid call |
@@ -279,6 +281,14 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
   When a project is published, the people it lists who've agreed to be tagged are thanked in a drafted post, by their own handles — after an editor approves it — and each of them records the credit.
   - People are entries of their own (a person type with a handle and a yes/no “OK to tag” field); a project lists theirs by slug, comma-separated.
   - Only people whose “OK to tag” is ticked are mentioned — anyone else is left out of the post and isn't sent to the AI.
+- [thank-you-notes](../../src/marvin/services/automation/recipes/thank-you-notes.json) — **Thank-you notes** · verified-current · `entry_published`  
+  When a project is published, each person it lists gets their own short thank-you note drafted — what they did and what it meant — one draft per person, addressed to them.
+  - The notes are drafts for you to send however you like — nothing is sent.
+  - Collaborator shout-out is the public version (one post thanking everyone); this one is private and personal.
+- [post-event-recap](../../src/marvin/services/automation/recipes/post-event-recap.json) — **Post-event recap** · verified-current · `entry_published`  
+  The day after an event, a recap post is drafted from its RSVPs (counts, no names) and each guest who RSVP'd gets a personal thank-you message drafted on their RSVP, asking for photos.
+  - The run waits (Wait step) until the day after the event's date, in the workspace's time zone.
+  - RSVPs are entries of their own (one per guest, published once confirmed) naming their event by slug; messages are drafted on them, not sent — guests' details never reach the public recap.
 
 ### Images and files
 

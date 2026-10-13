@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 92,
+    "verified-current": 94,
     "needs-adapter": 3,
     "needs-engine-capability": 7,
     "supported-after-configuration": 11
@@ -4017,6 +4017,251 @@
           "ai:custom"
         ],
         "test": "tests/test_workflow_library.py::TestExecution::test_collaborator_shout_out"
+      },
+      "brief": null
+    },
+    {
+      "id": "thank-you-notes",
+      "title": "Thank-you notes",
+      "outcome": "When a project is published, each person it lists gets their own short thank-you note drafted — what they did and what it meant — one draft per person, addressed to them.",
+      "category": "Social and community",
+      "category_slug": "social",
+      "tags": [
+        "credits",
+        "people",
+        "repeat",
+        "ai"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "entry_published",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "thank-you-notes.json",
+      "vars": "thank-you-notes.vars.json",
+      "setup_variables": [
+        {
+          "name": "project_type",
+          "type": "entry_type_slug",
+          "description": "The entries whose people get a note when they're published (projects, pieces, releases).",
+          "example": "project"
+        },
+        {
+          "name": "people_field",
+          "type": "field_key",
+          "description": "Its field naming the people who helped: their entries' slugs, comma-separated.",
+          "example": "collaborators"
+        },
+        {
+          "name": "person_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of people.",
+          "example": "person"
+        },
+        {
+          "name": "role_field",
+          "type": "field_key",
+          "description": "Their field saying what they do (so each note can say what they did).",
+          "example": "role"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the notes should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type each note is drafted as.",
+          "example": "note"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
+        }
+      ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "collect",
+          "repeat",
+          "operation",
+          "entry"
+        ],
+        "entry_ops": [
+          "create"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "exists",
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call per person listed (up to 20)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates one draft entry per person (metadata.thank_you_for, metadata.to)."
+        }
+      ],
+      "cost_notes": "One AI call per person the project lists.",
+      "failure_behaviour": "A project listing nobody does nothing; a note that fails is noted and the others are still drafted (the step says which failed).",
+      "dependencies": [],
+      "notes": [
+        "The notes are drafts for you to send however you like — nothing is sent.",
+        "Collaborator shout-out is the public version (one post thanking everyone); this one is private and personal."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_thank_you_notes"
+      },
+      "brief": null
+    },
+    {
+      "id": "post-event-recap",
+      "title": "Post-event recap",
+      "outcome": "The day after an event, a recap post is drafted from its RSVPs (counts, no names) and each guest who RSVP'd gets a personal thank-you message drafted on their RSVP, asking for photos.",
+      "category": "Social and community",
+      "category_slug": "social",
+      "tags": [
+        "events",
+        "rsvp",
+        "waits",
+        "repeat",
+        "ai"
+      ],
+      "target_entity": "entry",
+      "trigger": {
+        "type": "event",
+        "event": "entry_published",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "post-event-recap.json",
+      "vars": "post-event-recap.vars.json",
+      "setup_variables": [
+        {
+          "name": "event_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of events.",
+          "example": "event"
+        },
+        {
+          "name": "event_date",
+          "type": "entry_date",
+          "description": "The event's date: one of its date fields.",
+          "example": "data.date"
+        },
+        {
+          "name": "send_at",
+          "type": "text",
+          "description": "The time of day, the day after, the recap and messages are drafted (workspace time zone).",
+          "example": "10:00"
+        },
+        {
+          "name": "rsvp_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of RSVPs (one per guest, published once confirmed).",
+          "example": "rsvp"
+        },
+        {
+          "name": "rsvp_event_field",
+          "type": "field_key",
+          "description": "The RSVP's field naming its event (the event's slug).",
+          "example": "event"
+        },
+        {
+          "name": "voice",
+          "type": "text",
+          "description": "How the notes should sound.",
+          "example": "a warm, plain voice"
+        },
+        {
+          "name": "draft_entry_type",
+          "type": "entry_type_slug",
+          "description": "The entry type each note is drafted as.",
+          "example": "note"
+        },
+        {
+          "name": "draft_body_field",
+          "type": "field_key",
+          "description": "That type's text field.",
+          "example": "body"
+        }
+      ],
+      "requires": {
+        "trigger": "event:entry_published",
+        "action_kinds": [
+          "wait",
+          "collect",
+          "operation",
+          "entry",
+          "repeat"
+        ],
+        "entry_ops": [
+          "create",
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "gt"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "paid_call",
+          "description": "One AI call for the recap plus one per guest (up to 25), the day after the event."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Creates a draft entry (metadata.recap_of) and writes metadata.thank_you (for, message) on each guest's RSVP."
+        }
+      ],
+      "cost_notes": "One AI call for the recap and one per guest who RSVP'd.",
+      "failure_behaviour": "An event with no RSVPs drafts nothing; a guest's message that fails is noted and the rest are still written; an event moved to the Trash cancels the wait.",
+      "dependencies": [],
+      "notes": [
+        "The run waits (Wait step) until the day after the event's date, in the workspace's time zone.",
+        "RSVPs are entries of their own (one per guest, published once confirmed) naming their event by slug; messages are drafted on them, not sent — guests' details never reach the public recap."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "clock"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_post_event_recap"
       },
       "brief": null
     },

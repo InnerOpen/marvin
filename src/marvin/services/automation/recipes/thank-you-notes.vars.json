@@ -1,0 +1,40 @@
+{
+  "recipe": "thank-you-notes",
+  "variables": {
+    "project_type": {
+      "type": "entry_type_slug",
+      "description": "The entries whose people get a note when they're published (projects, pieces, releases).",
+      "example": "project"
+    },
+    "people_field": {
+      "type": "field_key",
+      "description": "Its field naming the people who helped: their entries' slugs, comma-separated.",
+      "example": "collaborators"
+    },
+    "person_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type of people.",
+      "example": "person"
+    },
+    "role_field": {
+      "type": "field_key",
+      "description": "Their field saying what they do (so each note can say what they did).",
+      "example": "role"
+    },
+    "voice": {
+      "type": "text",
+      "description": "How the notes should sound.",
+      "example": "a warm, plain voice"
+    },
+    "draft_entry_type": {
+      "type": "entry_type_slug",
+      "description": "The entry type each note is drafted as.",
+      "example": "note"
+    },
+    "draft_body_field": {
+      "type": "field_key",
+      "description": "That type's text field.",
+      "example": "body"
+    }
+  }
+}

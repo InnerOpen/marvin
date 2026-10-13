@@ -1,0 +1,89 @@
+{
+  "name": "Thank-you notes",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_published"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{project_type}}"
+      },
+      {
+        "field": "entry.data.{{people_field}}",
+        "op": "exists"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "collect",
+        "id": "people",
+        "entity": "entry",
+        "query": {
+          "entry_type": "{{person_type}}",
+          "entries": "${entry.data.{{people_field}}}"
+        },
+        "fields": [
+          "data.{{role_field}}"
+        ],
+        "limit": 20
+      },
+      {
+        "kind": "repeat",
+        "id": "notes",
+        "for_each": "${steps.people.output.rows}",
+        "as": "person",
+        "on_item_error": "continue",
+        "steps": [
+          {
+            "kind": "operation",
+            "id": "note",
+            "op": "custom",
+            "see": [
+              "item"
+            ],
+            "prompt": "“${entry.title}” is out. Write a short personal thank-you note to ${person.title} (their part: ${person.data.{{role_field}}}) in {{voice}}: what they did, what it meant to the piece, and a line about the piece itself from what the entry says. Address them by name; invent nothing about them.",
+            "output_schema": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                "body": {
+                  "type": "string",
+                  "minLength": 40
+                }
+              },
+              "required": [
+                "title",
+                "body"
+              ]
+            }
+          },
+          {
+            "kind": "entry",
+            "op": "create",
+            "entry_type": "{{draft_entry_type}}",
+            "title": "${steps.note.output.title}",
+            "data": {
+              "{{draft_body_field}}": "${steps.note.output.body}"
+            },
+            "metadata": {
+              "thank_you_for": "${entry.slug}",
+              "to": "${person.slug}"
+            },
+            "status": "draft"
+          }
+        ],
+        "when": {
+          "field": "steps.people.output.count",
+          "op": "gt",
+          "value": 0
+        }
+      }
+    ]
+  }
+}
