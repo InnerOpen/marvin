@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.294 (2026-10-13)
+
+### Bug Fixes
+
+- **admin**: Asset storage fits a phone
+  ([`27db730`](https://github.com/InnerOpen/marvin/commit/27db730828d9c38e89fd268220b92019d11dedd3))
+
+
 ## v1.0.0-rc.293 (2026-10-13)
 
 ### Features
