@@ -61,12 +61,9 @@ def _install(ws, definition=DEFINITION):  # noqa: F811
 def _runs(ws, row):  # noqa: F811
     from marvin.db.models.groups.automation_executions import AutomationExecutionModel
 
-    return (
-        ws.session.query(AutomationExecutionModel)
-        .filter_by(group_id=ws.gid, automation_id=row.id)
-        .order_by(AutomationExecutionModel.started_at)
-        .all()
-    )
+    rows = ws.session.query(AutomationExecutionModel).filter_by(group_id=ws.gid, automation_id=row.id).all()
+    # Two runs can start in the same tick: the one resumed from another (retry_of) comes after it.
+    return sorted(rows, key=lambda r: (r.started_at, r.retry_of_id is not None))
 
 
 def _published(ws, title="Engraving brass"):  # noqa: F811
@@ -232,3 +229,70 @@ def test_a_dry_run_previews_the_question_and_the_steps_after_it(ws, signoff):  #
     assert ask["resolved"]["message"] == "Feature “Engraving brass” on the home page?" and ask["status"] == "success"
     assert call["status"] == "success" and call["resolved"]["action"] == "send_contract"
     assert approvals.pending(ws.session, ws.gid, ROLE_EDITOR) == [] and signoff.calls == []
+
+
+# ── choices ──────────────────────────────────────────────────────────────────
+PICK = {
+    "trigger": {"type": "event", "event": "entry_published"},
+    "actions": [
+        {"kind": "approval", "id": "pick", "message": "Which cover for “${entry.title}”?", "choices": ["Dawn", "Dusk", "${entry.title} at night"]},
+        {
+            "kind": "entry",
+            "op": "set_metadata",
+            "metadata": {"cover": "${steps.pick.output.choice}", "nth": "${steps.pick.output.choice_index}"},
+            "when": {"field": "steps.pick.output.decision", "op": "eq", "value": "approved"},
+        },
+    ],
+}
+
+
+def test_an_approval_with_choices_is_approved_with_one_of_them(ws):  # noqa: F811
+    _install(ws, PICK)
+    article = _published(ws)
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+    waiting = _waiting(ws)
+    assert waiting.choices == ["Dawn", "Dusk", "Engraving brass at night"]  # each label a template
+
+    with pytest.raises(approvals.ApprovalError, match="Pick one"):
+        approvals.decide(ws.session, ws.gid, waiting.id, "approve", user_id=ws.uid, role=ROLE_EDITOR)
+    with pytest.raises(approvals.ApprovalError, match="No such choice"):
+        approvals.decide(ws.session, ws.gid, waiting.id, "approve", user_id=ws.uid, role=ROLE_EDITOR, choice="Noon")
+    approvals.decide(ws.session, ws.gid, waiting.id, "approve", user_id=ws.uid, role=ROLE_EDITOR, choice=1)
+
+    meta = _reload(ws, article).metadata_json
+    assert (meta["cover"], meta["nth"]) == ("Dusk", 1)
+    ws.session.refresh(waiting)
+    assert waiting.choice == "Dusk"
+
+
+def test_choices_from_a_list_a_template_resolves_to_and_denying_picks_none(ws):  # noqa: F811
+    listed = {
+        "trigger": {"type": "event", "event": "entry_published"},
+        "actions": [
+            {"kind": "approval", "id": "pick", "message": "Which?", "choices": "${event.titles}"},
+            {
+                "kind": "entry",
+                "op": "set_metadata",
+                "metadata": {"outcome": "${steps.pick.output.decision}", "picked": "${steps.pick.output.choice}"},
+            },
+        ],
+    }
+    _install(ws, listed)
+    article = _published(ws)
+    _fire(ws, "entry_published", _entry_doc(article, titles=["Red", "Blue"]), entity=article.id, entity_type="entry")
+    waiting = _waiting(ws)
+    assert waiting.choices == ["Red", "Blue"]
+
+    approvals.decide(ws.session, ws.gid, waiting.id, "deny", user_id=ws.uid, role=ROLE_EDITOR)
+
+    meta = _reload(ws, article).metadata_json
+    assert meta["outcome"] == "denied" and "picked" not in meta  # denied: no choice (an empty value isn't written)
+
+
+def test_choices_that_resolve_to_too_few_fail_the_step(ws):  # noqa: F811
+    one = {**PICK, "actions": [{**PICK["actions"][0], "choices": "${entry.metadata.nothing}"}]}
+    workflow = _install(ws, one)
+    article = _published(ws)
+    _fire(ws, "entry_published", _entry_doc(article), entity=article.id, entity_type="entry")
+    (run,) = _runs(ws, workflow)
+    assert run.status == "failed" and "at least two" in run.actions[0].error

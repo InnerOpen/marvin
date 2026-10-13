@@ -57,6 +57,8 @@
     "gt": "is more than",
     "gte": "is at least",
     "lt": "is less than",
-    "lte": "is at most"
+    "lte": "is at most",
+    "longer_than": "is longer than (characters)",
+    "shorter_than": "is shorter than (characters)"
   }
 }

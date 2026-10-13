@@ -181,6 +181,8 @@ def _approval_read(session, row) -> WorkflowApprovalRead:
         decided_by=row.decided_by,
         decided_at=row.decided_at,
         note=row.note,
+        choices=row.choices or None,
+        choice=row.choice,
     )
 
 
@@ -349,8 +351,8 @@ class AutomationsController(BaseUserController):
     @router.post("/approvals/{approval_id}/decide", response_model=WorkflowApprovalRead, summary="Approve or deny a waiting run")
     def decide_approval(self, approval_id: UUID4, data: WorkflowApprovalDecision) -> WorkflowApprovalRead:
         """Approve or deny; the run goes on from the next step with `${steps.<id>.output.decision}` (approved, denied — or
-        stale when the entry changed after it was asked). 403 below the step's role; 404 unknown; 409 already decided
-        or expired."""
+        stale when the entry changed after it was asked). One with `choices` is approved with one of them (`choice`:
+        the label or its index; 422 without). 403 below the step's role; 404 unknown; 409 already decided or expired."""
         from marvin.db.models.users.roles import WorkspaceRole
         from marvin.routes._base.checks import require_workspace_role
         from marvin.services.automation import approvals
@@ -358,7 +360,9 @@ class AutomationsController(BaseUserController):
         require_workspace_role(self.user, self.group_id, WorkspaceRole.EDITOR)
         role = _rank(self.user, self.group_id)
         try:
-            row = approvals.decide(self.session, self.group_id, approval_id, data.decision, user_id=self.user.id, role=role, note=data.note)
+            row = approvals.decide(
+                self.session, self.group_id, approval_id, data.decision, user_id=self.user.id, role=role, note=data.note, choice=data.choice
+            )
         except approvals.ApprovalError as e:
             raise HTTPException(status_code=e.status, detail=str(e)) from e
         return _approval_read(self.session, row)
@@ -443,6 +447,27 @@ class AutomationsController(BaseUserController):
             .all()
         )
         return [AutomationExecutionRead.model_validate(r) for r in rows]
+
+    @router.post("/{automation_id}/executions/{execution_id}/cancel", response_model=AutomationExecutionRead, summary="Cancel a waiting run")
+    def cancel_execution(self, automation_id: UUID4, execution_id: UUID4) -> AutomationExecutionRead:
+        """Stop a run parked at a Wait step: it won't go on when its time comes (the steps after the wait never run;
+        what ran before it stays). The run's status becomes `cancelled`. 409 when the run isn't waiting at a Wait step
+        (a run waiting for an approval is decided on Automation → Approvals)."""
+        _require_admin(self.user, self.group_id)
+        from marvin.db.models.groups.automation_executions import AutomationExecutionModel
+        from marvin.db.models.groups.workflow_waits import WAIT_WAITING, WorkflowWaitModel
+        from marvin.services.automation import waits
+
+        row = self.session.get(AutomationExecutionModel, execution_id)
+        if not row or row.group_id != self.group_id or row.automation_id != automation_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Execution not found.")
+        wait = self.session.query(WorkflowWaitModel).filter_by(execution_id=execution_id, status=WAIT_WAITING).first()
+        if wait is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This run isn't waiting at a Wait step.")
+        who = getattr(self.user, "full_name", None) or getattr(self.user, "username", None) or "an admin"
+        waits.cancel(self.session, wait, f"cancelled by {who}")
+        self.session.refresh(row)
+        return AutomationExecutionRead.model_validate(row)
 
     @router.get("/{automation_id}/executions/{execution_id}", response_model=AutomationExecutionDetail, summary="Run detail")
     def get_execution(self, automation_id: UUID4, execution_id: UUID4) -> AutomationExecutionDetail:

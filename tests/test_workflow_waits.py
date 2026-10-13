@@ -193,3 +193,35 @@ def test_the_validator_names_a_wait_step_it_cant_read(ws, step):
     from marvin.services.automation.authoring import draft_issues
 
     assert draft_issues(ws.session, ws.gid, {"trigger": {"type": "manual"}, "actions": [step]})
+
+
+def test_an_admin_cancels_a_waiting_run_from_the_api(ws):
+    from fastapi.testclient import TestClient
+
+    from marvin.app import app
+    from marvin.db.models.groups.automation_executions import AutomationExecutionModel
+    from marvin.db.models.users.roles import WorkspaceRole
+    from tests.test_workflow_library_api import _sign_in
+
+    studio = _entry(ws)
+    row = _workflow(
+        ws,
+        [{"kind": "wait", "for": "2d"}, {"kind": "entry", "op": "set_metadata", "metadata": {"reminded": True}}],
+        inputs=[{"name": "piece", "type": "entry"}],
+    )
+    _run(ws, row, inputs={"piece": studio.slug})
+    wait = _wait_row(ws, row)
+    _sign_in(ws.gid, WorkspaceRole.ADMIN)
+    client = TestClient(app)
+    base = f"/api/automations/{row.id}/executions/{wait.execution_id}/cancel"
+
+    cancelled = client.post(base)
+
+    assert cancelled.status_code == 200 and cancelled.json()["status"] == "cancelled"
+    assert client.post(base).status_code == 409  # not waiting any more
+    assert waits.resume_due(ws.session, now_=waits.now() + timedelta(days=3)) == 0
+    assert _metadata(ws, studio) == {}  # the steps after the wait never ran
+    ws.session.expire_all()
+    assert (_wait_row(ws, row).status, ws.session.get(AutomationExecutionModel, wait.execution_id).status) == ("cancelled", "cancelled")
+    assert "cancelled by" in _wait_row(ws, row).note
+    app.dependency_overrides.clear()

@@ -1226,6 +1226,9 @@ def resume_after_approval(session, row, *, logger=None, run_action: Callable = _
         "note": row.note,
         "approval_id": str(row.id),
     }
+    if row.choices:  # an approval with choices: the one picked (None unless approved)
+        output["choice"] = row.choice
+        output["choice_index"] = row.choices.index(row.choice) if row.choice in row.choices else None
     with _entry_turn(session, automation, row.entry_id, logger=logger):
         # An approved run may call integration actions that require approval (actions/integration.py) — only this one.
         user_id = row.decided_by or (row.snapshot or {}).get("event", {}).get("user_id")

@@ -15,9 +15,9 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 90,
+    "verified-current": 92,
     "needs-adapter": 3,
-    "needs-engine-capability": 9,
+    "needs-engine-capability": 7,
     "supported-after-configuration": 11
   },
   "capabilities": {
@@ -2816,12 +2816,14 @@
     {
       "id": "platform-preview-checker",
       "title": "Platform preview checker",
-      "outcome": "Draft → check length, links, image ratio and preview → flag fixes",
+      "outcome": "Each time a social-post draft is edited, it's checked for the network you name — too long, dead links, a picture the wrong shape — and sent to Needs review with each problem as a reason; a clean draft is left alone.",
       "category": "Social and community",
       "category_slug": "social",
       "tags": [
-        "validation",
-        "social"
+        "social",
+        "checks",
+        "links",
+        "review"
       ],
       "target_entity": "entry",
       "trigger": {
@@ -2830,39 +2832,96 @@
         "builtin_event": true,
         "custom_event": false
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
-      "supporting_objects": [],
-      "side_effects": [],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "platform-preview-checker.json",
+      "vars": "platform-preview-checker.vars.json",
+      "setup_variables": [
         {
-          "capability": "fetch",
-          "name": "HTTP fetch step",
-          "priority": "P1",
-          "acceptance": "A GET/HEAD step (SSRF-guarded, bounded body) returns status, headers and parsed body as step output; a link-check handler reports broken links for one entry.",
-          "why": "link checks"
+          "name": "post_type",
+          "type": "entry_type_slug",
+          "description": "The entry type of your social-post drafts.",
+          "example": "social-post"
         },
         {
-          "capability": "social-adapters",
-          "name": "Social publishing adapters",
-          "priority": "P1",
-          "acceptance": "Providers for the networks in use expose draft/publish/metrics actions; publish actions are requires_approval by default; drafts are stored on the entry (metadata or a linked entry).",
-          "why": "per-network limits"
+          "name": "body_field",
+          "type": "field_key",
+          "description": "Their text field.",
+          "example": "body"
+        },
+        {
+          "name": "network",
+          "type": "text",
+          "description": "The network the posts are for (named in the review reasons).",
+          "example": "Bluesky"
+        },
+        {
+          "name": "max_length",
+          "type": "integer",
+          "description": "That network's limit: Bluesky 300, Mastodon 500, Threads 500, LinkedIn 3000.",
+          "example": 300
+        },
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role of the post's picture, if it has one.",
+          "example": "hero"
+        },
+        {
+          "name": "orientation",
+          "type": "text",
+          "description": "The picture shape that shows best there: landscape, portrait or square.",
+          "example": "landscape"
         }
       ],
-      "notes": [],
+      "requires": {
+        "trigger": "event:entry_updated",
+        "action_kinds": [
+          "fetch",
+          "media",
+          "entry"
+        ],
+        "entry_ops": [
+          "request_review"
+        ],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "contains",
+          "exists",
+          "longer_than",
+          "gt",
+          "neq"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "external_call",
+          "description": "Fetches each link in the draft (public addresses only) to see that it answers."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Sends a draft with a problem to Needs review, with the problems as review_reasons."
+        }
+      ],
+      "cost_notes": "No AI; one web request per link in the draft.",
+      "failure_behaviour": "A draft with no problem isn't touched; a link that doesn't answer counts as dead, not as a failed run.",
+      "dependencies": [],
+      "notes": [
+        "Runs on drafts only, when their fields change (not on a status change).",
+        "Picture shape is read from the picture in the role you name; a draft without one skips that check."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "web"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_platform_preview_checker"
       },
       "brief": {
         "flow": "Draft → check length, links, image ratio and preview → flag fixes",
@@ -4621,52 +4680,106 @@
     {
       "id": "thumbnail-audition",
       "title": "Thumbnail audition",
-      "outcome": "Entry → generate three thumbnail concepts → user selects one",
+      "outcome": "Run it on an entry: the AI proposes three thumbnail concepts, an editor okays the drawing, three pictures are made and attached, and an editor picks one — recorded on the entry as its thumbnail.",
       "category": "Images and files",
       "category_slug": "media",
       "tags": [
+        "thumbnails",
         "images",
-        "ai",
-        "approval"
+        "approval",
+        "choices",
+        "ai"
       ],
       "target_entity": "entry",
       "trigger": {
         "type": "manual",
         "event": null,
-        "custom_event": false
+        "custom_event": false,
+        "note": "Run with an entry input (the Run button asks)."
       },
-      "status": "needs-engine-capability",
-      "shape": "idea",
-      "runnable": false,
-      "recipe": null,
-      "vars": null,
-      "setup_variables": [],
-      "requires": null,
-      "prerequisites": {},
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "thumbnail-audition.json",
+      "vars": "thumbnail-audition.vars.json",
+      "setup_variables": [
+        {
+          "name": "image_integration",
+          "type": "integration_slug",
+          "description": "The connected image-generation integration (Settings → Integrations).",
+          "example": "openai-images"
+        },
+        {
+          "name": "style",
+          "type": "text",
+          "description": "The look of the thumbnails, in a few words.",
+          "example": "a bold, flat-colour illustration"
+        }
+      ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "operation",
+          "approval",
+          "integration",
+          "entry"
+        ],
+        "entry_ops": [
+          "set_metadata"
+        ],
+        "operations": [
+          "custom"
+        ],
+        "handlers": [],
+        "integration_actions": [
+          "generate"
+        ],
+        "condition_ops": [
+          "eq"
+        ]
+      },
+      "prerequisites": {
+        "integrations": [
+          {
+            "provider": "openai_images",
+            "actions": [
+              "generate"
+            ],
+            "credentials": [
+              "api_key"
+            ]
+          }
+        ]
+      },
       "supporting_objects": [],
       "side_effects": [
         {
           "kind": "paid_call",
-          "description": "Three generations per run.",
-          "flag": true
-        }
-      ],
-      "cost_notes": null,
-      "failure_behaviour": null,
-      "dependencies": [
+          "description": "One AI call for the concepts, then three paid images once an editor approves."
+        },
         {
-          "capability": "workflow-approvals",
-          "name": "Approval step inside a workflow",
-          "priority": "P1",
-          "acceptance": "Delivered 2026-10-11: an `approval` step parks the run (snapshot in workflow_approvals), asks members at its role (push, Automation → Approvals, app badge), resumes from the next step with ${steps.<id>.output.decision} (approved | denied | expired | stale — the entry changed after it was asked), expires hourly, and lets integration actions marked requires_approval run in an approved run. One-tap Approve/Deny on the push is a later slice.",
-          "why": "pick one of three generated thumbnails — an approval with choices (approval steps ask approve/deny); generating and attaching is delivered"
+          "kind": "approval",
+          "description": "Two approvals: to draw (three paid images), then to pick one (an approval with choices)."
+        },
+        {
+          "kind": "content_mutation",
+          "description": "Attaches three pictures as thumbnail-option-0, -1, -2 and records the pick in metadata.thumbnail (role, concept)."
         }
       ],
-      "notes": [],
+      "cost_notes": "One AI call plus three generated images per run, after an editor approves the drawing.",
+      "failure_behaviour": "Declining the first approval draws nothing; declining the pick keeps all three attached and records none; an image error fails that step.",
+      "dependencies": [],
+      "notes": [
+        "The pick is recorded as the role of the chosen picture (thumbnail-option-N) — the site reads the entry's asset in that role.",
+        "The three options stay attached; detach the two not chosen on the entry page if you don't want them."
+      ],
       "verification": {
-        "level": "none",
-        "mocked": [],
-        "test": null
+        "level": "fixture-executed",
+        "mocked": [
+          "ai:custom",
+          "integration:openai_images"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_thumbnail_audition"
       },
       "brief": {
         "flow": "Entry → generate three thumbnail concepts → user selects one",

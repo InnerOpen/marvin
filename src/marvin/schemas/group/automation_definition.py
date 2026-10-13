@@ -305,17 +305,30 @@ class EmitEventAction(_StepBase):
     id: str | None = None
 
 
+MAX_CHOICES = 8
+
+
 class ApprovalAction(_StepBase):
     """Waits for a person to approve or deny. The run parks here, `approvers` (members at that workspace role or above)
     are asked `message`, and the run goes on from the next step once one decides — or when it expires — with
     ${steps.<id>.output.decision}: approved | denied | expired | stale (the entry changed after it was asked). An
-    integration action that requires approval may follow it (it runs only when approved)."""
+    integration action that requires approval may follow it (it runs only when approved). `choices` (2–8 labels,
+    templates allowed, or a template to a list, e.g. ${steps.ideas.output.titles}) asks them to pick one: approving
+    sets ${steps.<id>.output.choice} (the label) and .choice_index (from 0); denying picks none."""
 
     kind: Literal["approval"]
     message: str  # what the approvers are asked (templates allowed)
     approvers: Literal["editor", "admin"] = "editor"
     expires_in_hours: int = Field(default=72, ge=1, le=720)
+    choices: list[str] | str | None = None  # 2–8 labels, or one template to a list
     id: str | None = None
+
+    @field_validator("choices")
+    @classmethod
+    def _two_to_eight_choices(cls, value):
+        if isinstance(value, list) and not 2 <= len(value) <= MAX_CHOICES:
+            raise ValueError(f"choices needs 2 to {MAX_CHOICES} to pick from (or a template to a list)")
+        return value
 
 
 class HandlerAction(_StepBase):

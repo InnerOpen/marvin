@@ -405,6 +405,9 @@ def ws(db_session, monkeypatch):
         "consent_field": "ok_to_tag",
         "handle_field": "handle",
         "network": "Bluesky",
+        "post_type": "article",
+        "max_length": 300,
+        "orientation": "landscape",
         "post_length": 300,
         "launch_entry_type": "event",
         "launch_date": "data.date",
@@ -1727,6 +1730,60 @@ class TestExecution:
         assert triaged.metadata_json["review_reasons"] == ["commissions · normal: Asks for an engraved brass plate"]
         assert "commissions, orders, press, other" in json.dumps(ws.ai.requests[0])
         assert len(ws.ai.requests) == 1 and "triage" not in (_reload(ws, spam).metadata_json or {})  # flagged: never sent to the AI
+
+    def test_thumbnail_audition(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+        from marvin.services.automation import approvals
+        from marvin.services.automation.authz import ROLE_EDITOR
+
+        row = _install(ws, "thumbnail-audition")
+        piece = _entry(ws, "article", "Brass lantern", status="published", data={"body": "How the lantern was made."})
+        concepts = [
+            {"title": t, "visual": f"{t}: a lantern, {v}"}
+            for t, v in (("Glow", "lit at dusk"), ("Parts", "exploded view"), ("Hands", "being polished"))
+        ]
+        ws.ai.reply_text(json.dumps({"concepts": concepts, "titles": [c["title"] for c in concepts]}))
+
+        self._run_with(ws, row, {"piece": piece.slug})
+        assert ws.providers["openai_images"].calls == []  # nothing drawn before an editor says yes
+        self._decide(ws)  # draw them
+
+        assert [c["prompt"] for c in ws.providers["openai_images"].calls] == [f"a 1950s sci-fi pulp: {c['visual']}" for c in concepts]
+        roles = {ea.role for ea in ws.session.query(EntryAssets).filter_by(entry_id=piece.id)}
+        assert roles == {"thumbnail-option-0", "thumbnail-option-1", "thumbnail-option-2"}
+        (pick,) = approvals.pending(ws.session, ws.gid, ROLE_EDITOR)
+        assert pick.choices == ["Glow", "Parts", "Hands"]
+
+        approvals.decide(ws.session, ws.gid, pick.id, "approve", user_id=ws.uid, role=ROLE_EDITOR, choice="Parts")
+
+        assert _reload(ws, piece).metadata_json["thumbnail"] == {"role": "thumbnail-option-1", "concept": "Parts"}
+
+    def test_platform_preview_checker(self, ws, store, monkeypatch):
+        _install(ws, "platform-preview-checker")
+        _web(monkeypatch, {"https://shop.example/brass": (200, "text/html", ""), "https://shop.example/old": (404, "text/html", "")})
+        body = "A new lantern. " * 25 + "See https://shop.example/brass and https://shop.example/old"
+        post = _entry(ws, "article", "Lantern post", status="draft", data={"body": body})
+        self._with_hero(ws, store, post, size=(900, 1200))  # portrait
+        fine = _entry(ws, "article", "Short post", status="draft", data={"body": "Short and sweet. https://shop.example/brass"})
+        self._with_hero(ws, store, fine, size=(1200, 900))
+
+        for entry in (post, fine):
+            _fire(
+                ws,
+                "entry_updated",
+                _entry_doc(entry, changed_fields=["data_json"]),
+                entity=entry.id,
+                entity_type="entry",
+                correlation_id=f"upd-{entry.slug}",
+            )
+
+        flagged = _reload(ws, post)
+        assert flagged.status == "needs_review"
+        reasons = flagged.metadata_json["review_reasons"]
+        assert reasons[0] == "Too long for Bluesky: over its character limit"
+        assert reasons[1].startswith("Dead links:") and "shop.example/old" in reasons[1] and "shop.example/brass" not in reasons[1]
+        assert reasons[2] == "The picture is 900×1200; Bluesky shows landscape pictures best"
+        assert _reload(ws, fine).status == "draft"  # nothing wrong: left alone
 
     # ── waits ──
     def test_event_countdown(self, ws):

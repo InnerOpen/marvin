@@ -264,6 +264,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     previewAutomation,
     listAutomationExecutions,
     getAutomationExecution,
+    cancelAutomationExecution,
   } from "@/lib/api/automations";
   import { listIntegrations, listProviders, type ProviderInfo } from "@/lib/api/integrations";
   import { installLogoFallback, markHtml } from "@/lib/integrationLogo";
@@ -733,7 +734,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
         return ["asset.id", "asset.url"];
       }
       case "approval":
-        return ["decision"];
+        return (row.querySelector(".a-choices") as HTMLInputElement | null)?.value.trim() ? ["decision", "choice", "choice_index"] : ["decision"];
       case "wait":
         return ["waited_until", "late"];
       case "repeat":
@@ -1153,7 +1154,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
           <select class="input a-approvers">${[["editor", "Editors and above"], ["admin", "Admins and above"]].map(([v, l]) => `<option value="${v}" ${(a.approvers ?? "editor") === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
         <label class="tf"><span>Expires after (hours) <span class="muted">— then the run goes on as expired</span></span>
           <input class="input a-expires" type="number" min="1" max="720" value="${Number.isFinite(hours) ? hours : 72}" /></label>
-        <span class="hint small">The run waits here; they're told (push, and Automation → Approvals). It goes on from the next step once one decides, with <code>\${steps.&lt;step id&gt;.output.decision}</code>: approved, denied, expired or stale (the entry changed after it was asked) — use “Only run this step when…” on the steps after it. Give this step an id.</span>`;
+        <label class="tf"><span>Choices <span class="muted">(optional: 2–8 to pick one of, comma-separated — or a template to a list, e.g. \${steps.ideas.output.titles})</span></span>
+          <input class="input a-choices" value="${esc(Array.isArray(a.choices) ? a.choices.join(", ") : (a.choices ?? ""))}" placeholder="e.g. Dawn, Dusk, Night" /></label>
+        <span class="hint small">The run waits here; they're told (push, and Automation → Approvals). It goes on from the next step once one decides, with <code>\${steps.&lt;step id&gt;.output.decision}</code>: approved, denied, expired or stale (the entry changed after it was asked) — use “Only run this step when…” on the steps after it. With choices, approving picks one: <code>.choice</code> (the label) and <code>.choice_index</code> (from 0). Give this step an id.</span>`;
     } else if (kind === "handler") {
       wrap.innerHTML = `<input class="input a-task" list="wf-handlers" placeholder="request_site_rebuild" value="${esc(a.task ?? "")}" /><span class="hint small">An internal task to run (e.g. request_site_rebuild, ai_reindex_embeddings).</span>`;
     } else if (kind === "webhook") {
@@ -1326,6 +1329,9 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       step.approvers = field(".a-approvers")?.value || "editor";
       const hours = Number(field(".a-expires")?.value);
       step.expires_in_hours = Number.isFinite(hours) && hours >= 1 ? Math.min(Math.round(hours), 720) : 72;
+      // One template (to a list) stays as typed; anything else is labels, comma-separated.
+      const choices = field(".a-choices")?.value.trim() ?? "";
+      setOrDrop("choices", !choices ? null : /^\$\{[^}]+\}$/.test(choices) ? choices : choices.split(",").map((c) => c.trim()).filter(Boolean));
       return step;
     }
     if (kind === "handler") {
@@ -1783,10 +1789,12 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     // A failure the integration's error policy took in hand (review, retry, …), and a retry run.
     const handled = r.handled ? ` <span class="run-tag handled" title="An integration's error policy handled the failure">handled</span>` : "";
     const retry = r.retryOfId ? ` <span class="run-tag">retry</span>` : "";
+    // A run parked at a Wait step can be stopped here; one parked for an approval is decided on Automation → Approvals.
+    const cancel = r.status === "waiting" ? ` <button type="button" class="linkish danger js-cancel-run" data-exec="${esc(r.id)}">Cancel</button>` : "";
     return `<div class="run-row" data-exec="${esc(r.id)}">
         <span class="run-status status-${esc(r.status)}">${esc(r.status)}</span>${handled}${retry}
         <span class="run-when">${esc(when)}</span>
-        <span class="run-meta muted">${esc(r.triggerType)}${esc(targets)}${esc(steps)}${esc(dur)}</span>
+        <span class="run-meta muted">${esc(r.triggerType)}${esc(targets)}${esc(steps)}${esc(dur)}</span>${cancel}
       </div>
       <div class="run-detail" hidden></div>`;
   }
@@ -1834,6 +1842,20 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
     try {
       const runs: any[] = await listAutomationExecutions(id, 15);
       panel.innerHTML = runs.length ? runs.map(runRow).join("") : `<span class="hint">No runs recorded yet.</span>`;
+      panel.querySelectorAll<HTMLButtonElement>(".js-cancel-run").forEach((btn) => {
+        btn.addEventListener("click", async (e) => {
+          e.stopPropagation();  // not a click on the row (which opens its steps)
+          btn.disabled = true;
+          try {
+            await cancelAutomationExecution(id, btn.dataset.exec!);
+            panel.setAttribute("hidden", "");
+            await toggleHistory(card, id);  // the list, fresh
+          } catch (err: any) {
+            btn.disabled = false;
+            btn.insertAdjacentHTML("afterend", ` <span class="hint error">${esc(err?.message ?? err)}</span>`);
+          }
+        });
+      });
       panel.querySelectorAll(".run-row").forEach((rr) => {
         rr.addEventListener("click", async () => {
           const execId = (rr as HTMLElement).dataset.exec!;

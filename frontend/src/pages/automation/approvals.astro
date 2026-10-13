@@ -41,8 +41,19 @@ try {
         </p>
         <div class="decide">
           <input class="input note" placeholder="Note (optional)" maxlength="500" />
-          <button type="button" class="button js-decide" data-decision="approve">Approve</button>
-          <button type="button" class="button secondary js-decide" data-decision="deny">Deny</button>
+          {a.choices?.length ? (
+            <>
+              {a.choices.map((label) => (
+                <button type="button" class="button js-decide" data-decision="approve" data-choice={label}>{label}</button>
+              ))}
+              <button type="button" class="button secondary js-decide" data-decision="deny">None of these</button>
+            </>
+          ) : (
+            <>
+              <button type="button" class="button js-decide" data-decision="approve">Approve</button>
+              <button type="button" class="button secondary js-decide" data-decision="deny">Deny</button>
+            </>
+          )}
         </div>
         <p class="result" hidden></p>
       </article>
@@ -60,11 +71,13 @@ try {
       card.querySelectorAll<HTMLButtonElement>("button").forEach((b) => (b.disabled = true));
       try {
         const note = card.querySelector<HTMLInputElement>(".note")!.value.trim();
-        const out = await decideApproval(card.dataset.id!, btn.dataset.decision as "approve" | "deny", note);
+        const out = await decideApproval(card.dataset.id!, btn.dataset.decision as "approve" | "deny", note, btn.dataset.choice ?? null);
         result.textContent =
           out.status === "stale"
             ? "The entry changed after this was asked, so it went on as stale — nothing approved was applied."
-            : `${out.status === "approved" ? "Approved" : "Denied"} — the workflow went on.`;
+            : out.choice
+              ? `Approved: ${out.choice} — the workflow went on.`
+              : `${out.status === "approved" ? "Approved" : "Denied"} — the workflow went on.`;
         card.querySelector(".decide")!.remove();
       } catch (e: any) {
         result.textContent = e?.message ?? String(e);

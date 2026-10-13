@@ -75,6 +75,7 @@ def park(session, group_id, automation, context: dict, *, exec_id, step_index: i
         entry_id=entry_id,
         entry_version=_entry_version(session, entry_id),
         expires_at=_now() + timedelta(hours=int(spec.get("expires_in_hours") or 72)),
+        choices=spec.get("choices") or None,
     )
     session.add(row)
     session.commit()
@@ -93,9 +94,12 @@ def pending(session, group_id, role: int) -> list[WorkflowApprovalModel]:
     )
 
 
-def decide(session, group_id, approval_id, decision: str, *, user_id, role: int, note: str | None = None, logger=None) -> WorkflowApprovalModel:
-    """A person approves or denies; the run goes on. Raises ApprovalError (404 unknown, 403 not theirs to decide, 409
-    already decided or expired)."""
+def decide(
+    session, group_id, approval_id, decision: str, *, user_id, role: int, note: str | None = None, choice=None, logger=None
+) -> WorkflowApprovalModel:
+    """A person approves or denies; the run goes on. An approval with choices is approved with one of them (`choice`:
+    its label, or its index). Raises ApprovalError (404 unknown, 403 not theirs to decide, 409 already decided or
+    expired, 422 no such choice)."""
     row = session.get(WorkflowApprovalModel, approval_id)
     if row is None or str(row.group_id) != str(group_id):
         raise ApprovalError("No such approval.", 404)
@@ -108,19 +112,36 @@ def decide(session, group_id, approval_id, decision: str, *, user_id, role: int,
     if decision not in DECISIONS:
         raise ApprovalError("Decide approve or deny.", 422)
     outcome = DECISIONS[decision]
+    picked = _picked(row, choice) if outcome == "approved" else None
     if outcome == "approved" and row.entry_id and row.entry_version and _entry_version(session, row.entry_id) != row.entry_version:
         outcome = "stale"  # the entry changed after it was asked: nothing approved is applied to other content
-    return settle(session, row, outcome, user_id=user_id, note=note, logger=logger)
+    return settle(session, row, outcome, user_id=user_id, note=note, choice=picked, logger=logger)
 
 
-def settle(session, row: WorkflowApprovalModel, outcome: str, *, user_id=None, note: str | None = None, logger=None) -> WorkflowApprovalModel:
+def _picked(row: WorkflowApprovalModel, choice) -> str | None:
+    """The chosen label of an approval with choices (given as the label, or its index); None for one without."""
+    offered = row.choices or []
+    if not offered:
+        return None
+    if choice in (None, ""):
+        raise ApprovalError("Pick one of the choices to approve.", 422)
+    if isinstance(choice, int) and not isinstance(choice, bool) and 0 <= choice < len(offered):
+        return offered[choice]
+    if isinstance(choice, str) and choice.strip() in offered:
+        return choice.strip()
+    raise ApprovalError(f"No such choice. The choices are: {', '.join(offered)}.", 422)
+
+
+def settle(
+    session, row: WorkflowApprovalModel, outcome: str, *, user_id=None, note: str | None = None, choice: str | None = None, logger=None
+) -> WorkflowApprovalModel:
     """Record the outcome — claimed first, so two deciders can't both resume it — and resume the run."""
     from sqlalchemy import update
 
     claimed = session.execute(
         update(WorkflowApprovalModel)
         .where(WorkflowApprovalModel.id == row.id, WorkflowApprovalModel.status == APPROVAL_PENDING)
-        .values(status=outcome, decided_by=user_id, decided_at=_now(), note=(note or "").strip() or None)
+        .values(status=outcome, decided_by=user_id, decided_at=_now(), note=(note or "").strip() or None, choice=choice)
     ).rowcount
     session.commit()
     if not claimed:

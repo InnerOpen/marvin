@@ -1,0 +1,81 @@
+{
+  "name": "Platform preview checker",
+  "definition": {
+    "trigger": {
+      "type": "event",
+      "event": "entry_updated"
+    },
+    "conditions": [
+      {
+        "field": "entry.entry_type",
+        "op": "eq",
+        "value": "{{post_type}}"
+      },
+      {
+        "field": "entry.status",
+        "op": "eq",
+        "value": "draft"
+      },
+      {
+        "field": "event.changed_fields",
+        "op": "contains",
+        "value": "data_json"
+      }
+    ],
+    "actions": [
+      {
+        "kind": "fetch",
+        "id": "links",
+        "links": "${entry.data.{{body_field}}}"
+      },
+      {
+        "kind": "media",
+        "id": "picture",
+        "op": "inspect",
+        "source": "role:{{image_role}}",
+        "when": {
+          "field": "entry.image",
+          "op": "exists"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "Too long for {{network}}: over its character limit",
+        "when": {
+          "field": "entry.data.{{body_field}}",
+          "op": "longer_than",
+          "value": "{{max_length}}"
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "Dead links: ${steps.links.output.text}",
+        "when": {
+          "field": "steps.links.output.broken_count",
+          "op": "gt",
+          "value": 0
+        }
+      },
+      {
+        "kind": "entry",
+        "op": "request_review",
+        "reason": "The picture is ${steps.picture.output.width}×${steps.picture.output.height}; {{network}} shows {{orientation}} pictures best",
+        "when": {
+          "all": [
+            {
+              "field": "steps.picture.output.orientation",
+              "op": "exists"
+            },
+            {
+              "field": "steps.picture.output.orientation",
+              "op": "neq",
+              "value": "{{orientation}}"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

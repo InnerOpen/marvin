@@ -18,7 +18,11 @@ from urllib.parse import quote
 
 # Supported condition operators. `changed*` key on an update's diff (event.changed_fields/before/
 # after); the field's last segment names the field (so `entry.status` → the "status" diff key).
-_OPS = ("eq", "neq", "contains", "in", "starts_with", "exists", "changed", "changed_from", "changed_to", "gt", "gte", "lt", "lte")
+_OPS = (
+    "eq", "neq", "contains", "in", "starts_with", "exists", "changed", "changed_from", "changed_to",
+    "gt", "gte", "lt", "lte", "longer_than", "shorter_than",
+)  # fmt: skip
+# Length comparisons: the text's characters (a list's items) against a number; nothing there is length 0.
 
 # Number comparisons: both sides read as numbers (typed-in text too); anything else fails closed.
 _COMPARE = {"gt": lambda a, b: a > b, "gte": lambda a, b: a >= b, "lt": lambda a, b: a < b, "lte": lambda a, b: a <= b}
@@ -167,6 +171,12 @@ def _match_one(cond: dict, context: dict) -> bool:
             expected if isinstance(expected, bool) else (as_bool(expected) if isinstance(expected, str) and as_bool(expected) is not None else True)
         )
         return (actual is not None) == want
+    if op in ("longer_than", "shorter_than"):
+        limit = _number(expected)
+        if limit is None:
+            return False
+        length = len(actual) if isinstance(actual, list | dict) else len(str(actual)) if actual is not None else 0
+        return length > limit if op == "longer_than" else length < limit
     if op == "eq":
         return actual == _like(actual, expected)
     if op == "neq":

@@ -19,6 +19,9 @@ export interface WorkflowApproval {
   createdAt?: string | null;
   expiresAt: string;
   note?: string | null;
+  /** An approval with choices: the labels to pick from, and the one picked once approved. */
+  choices?: string[] | null;
+  choice?: string | null;
 }
 
 export async function listApprovals(authToken?: string): Promise<WorkflowApproval[]> {
@@ -29,9 +32,10 @@ export async function decideApproval(
   id: string,
   decision: "approve" | "deny",
   note?: string,
+  choice?: string | null,
 ): Promise<WorkflowApproval> {
   return fetchApi<WorkflowApproval>(`/api/automations/approvals/${encodeURIComponent(id)}/decide`, {
     method: "POST",
-    body: JSON.stringify({ decision, note: note || null }),
+    body: JSON.stringify({ decision, note: note || null, choice: choice ?? null }),
   });
 }

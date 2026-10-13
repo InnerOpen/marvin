@@ -130,3 +130,8 @@ export async function listAutomationExecutions(id: string, limit = 25, authToken
 export async function getAutomationExecution(id: string, executionId: string, authToken?: string) {
   return createSdkClient(authToken).automations.execution(id, executionId);
 }
+
+/** Stop a run parked at a Wait step: it won't go on when its time comes. Hand-rolled until the SDK ships it. */
+export async function cancelAutomationExecution(id: string, executionId: string) {
+  return fetchApi(`/api/automations/${encodeURIComponent(id)}/executions/${encodeURIComponent(executionId)}/cancel`, { method: "POST" });
+}
