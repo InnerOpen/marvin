@@ -510,7 +510,8 @@ class FetchAction(_StepBase):
 
 class WaitAction(_StepBase):
     """Waits, then goes on — the run is kept and resumed later. `for`: a span (30m, 12h, 3d, 2w); or `until`: a date
-    or a date and time (e.g. ${entry.data.event_date}), moved by `offset` (-7d: a week before) and, for a date, at `at`
+    or a date and time (e.g. ${entry.data.event_date}, or one every entry has: ${entry.publish_at}, ${entry.expire_at},
+    ${entry.published_at}), moved by `offset` (-7d: a week before) and, for a date, at `at`
     (default 09:00) — in the workspace's time zone. A moment already past goes on at once (output late). Output
     waited_until, resumed_at. A year at most; the entry going to the Trash, or the workflow switched off or changed,
     cancels the wait."""

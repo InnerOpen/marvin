@@ -367,6 +367,7 @@ class WorkflowLibraryEntryType(_MarvinModel):
     slug: str
     name: str
     fields: list[str] = []
+    date_fields: list[str] = []  # those of `fields` that hold a date or a date and time
 
 
 class WorkflowLibraryIntegration(_MarvinModel):

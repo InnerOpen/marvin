@@ -112,7 +112,7 @@ def test_library_lists_every_recipe_with_the_pickers_names(ws):
     assert [v["type"] for v in utm["setupVariables"]] == ["entry_type_slug", "field_key", "field_key"]
     assert utm["missing"] == []
     refs = library["refs"]
-    assert {"slug": "campaign", "name": "Campaign", "fields": ["utm_source", "utm_medium"]} in refs["entryTypes"]
+    assert {"slug": "campaign", "name": "Campaign", "fields": ["utm_source", "utm_medium"], "dateFields": []} in refs["entryTypes"]
     assert {"slug": "featured", "name": "Featured"}.items() <= refs["collections"][0].items()
     assert "approved" in refs["statuses"] and "trashed" not in refs["statuses"]
 

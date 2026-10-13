@@ -98,6 +98,36 @@ describe("choicesFor", () => {
     );
   });
 
+  test("a field picker belongs to the entry type set up just before it, not always the first", () => {
+    const r = recipe({
+      setupVariables: [
+        { name: "entry_type", type: "entry_type_slug", description: "" },
+        { name: "source_field", type: "field_key", description: "" },
+        { name: "draft_entry_type", type: "entry_type_slug", description: "" },
+        { name: "draft_field", type: "field_key", description: "" },
+      ],
+    });
+    const values = { entry_type: "campaign", draft_entry_type: "newsletter-issue" };
+    assert.deepEqual(choicesFor(variable(r, "source_field"), r, refs, values).choices.map((c) => c.value), ["utm_source", "utm_medium"]);
+    assert.deepEqual(choicesFor(variable(r, "draft_field"), r, refs, values).choices.map((c) => c.value), ["body", "preview"]);
+  });
+
+  test("a date picker offers the type's date fields, then the dates every entry has", () => {
+    const withDates = { ...refs, entryTypes: [{ slug: "event", name: "Event", fields: ["venue", "date"], dateFields: ["date"] }] };
+    const r = recipe({
+      setupVariables: [
+        { name: "event_entry_type", type: "entry_type_slug", description: "" },
+        { name: "event_date", type: "entry_date", description: "" },
+      ],
+    });
+    const date = variable(r, "event_date");
+    const values = choicesFor(date, r, withDates, { event_entry_type: "event" }).choices.map((c) => c.value);
+    assert.deepEqual(values.slice(0, 3), ["data.date", "publish_at", "expire_at"]);
+    assert.ok(!values.includes("data.venue"));
+    // A type with no date fields still has dates to count down to.
+    assert.ok(choicesFor(date, r, refs, { event_entry_type: "campaign" }).choices.some((c) => c.value === "published_at"));
+  });
+
   test("an incoming webhook picker always offers “any”", () => {
     const r = recipe({ setupVariables: [{ name: "hook", type: "incoming_webhook_slug", description: "" }] });
     const picker = choicesFor(r.setupVariables[0], r, refs);

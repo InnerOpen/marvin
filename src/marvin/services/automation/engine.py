@@ -156,7 +156,25 @@ def _entry_context(session, group_id, entry_id) -> dict | None:
         "image": _featured_image_url(entry),
         # Where the site shows the entry, so an action can link back to it (a newsletter's canonical URL).
         "url": _entry_page_url(session, group_id, entry),
+        # The dates every entry has, whatever its type's fields — a wait can count down to them.
+        **{key: _utc_iso(getattr(entry, attr, None)) for key, attr in ENTRY_DATES.items()},
     }
+
+
+# The entry's own dates, as `${entry.<key>}` (stored naive, in UTC).
+ENTRY_DATES = {
+    "published_at": "published_at",
+    "publish_at": "publish_at",
+    "expire_at": "expire_at",
+    "created_at": "created_at",
+    "updated_at": "update_at",
+}
+
+
+def _utc_iso(moment) -> str | None:
+    if moment is None:
+        return None
+    return (moment if moment.tzinfo else moment.replace(tzinfo=UTC)).isoformat()
 
 
 def _entry_page_url(session, group_id, entry) -> str | None:
@@ -273,7 +291,8 @@ TEMPLATE_NAMESPACES: dict[str, str] = {
         "user_id, plus the event's own fields (describe_event)"
     ),
     "entry": "the entry the run acts on (the trigger's, or each target match): id, entry_type, status, title, slug, summary, "
-    "data.<field>, metadata.<key>, image (featured image URL), url (its page on the site)",
+    "data.<field>, metadata.<key>, image (featured image URL), url (its page on the site), and the dates every entry has: "
+    "published_at, publish_at (scheduled), expire_at, created_at, updated_at",
     "asset": "the asset the run acts on (an asset event's, or each asset-target match): id, name, slug, asset_type, mime_type, "
     "filename, file_size, width, height, alt_text, checksum (sha256), description, tags, metadata.<key>, url (its public URL), trashed, "
     "derived_from (the id of the asset it was made from; None for an original), origin (upload | derived | generated)",

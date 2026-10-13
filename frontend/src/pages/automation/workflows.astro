@@ -2270,7 +2270,8 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   .workflows-page :global(.lane) { display: flex; align-items: baseline; gap: 10px; }
   .workflows-page :global(.lane-label) { flex: 0 0 40px; text-align: right; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding-top: 2px; }
   .workflows-page :global(.chips) { display: flex; flex-wrap: wrap; gap: 6px; }
-  .workflows-page :global(.chip) { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+  /* A chip wraps when it must: one long condition or target that can't would make the page wider than a phone. */
+  .workflows-page :global(.chip) { font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--line); overflow-wrap: anywhere; }
   .workflows-page :global(.chip.trigger) { background: var(--panel); font-weight: 600; }
   .workflows-page :global(.chip.cond) { color: var(--muted); }
   .workflows-page :global(.chip.cond em) { font-style: normal; color: var(--ink); font-weight: 600; padding: 0 2px; }

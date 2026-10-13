@@ -2924,16 +2924,16 @@
       "vars": "event-countdown.vars.json",
       "setup_variables": [
         {
-          "name": "event_type",
+          "name": "event_entry_type",
           "type": "entry_type_slug",
-          "description": "The entry type of events.",
+          "description": "Which of your entry types holds the events (Marvin has no built-in event type).",
           "example": "event"
         },
         {
-          "name": "date_field",
-          "type": "field_key",
-          "description": "Their date field (YYYY-MM-DD).",
-          "example": "date"
+          "name": "event_date",
+          "type": "entry_date",
+          "description": "The date to count down to: one of their date fields, or a date every entry has (its scheduled publish or expiry date).",
+          "example": "data.date"
         },
         {
           "name": "remind_at",

@@ -392,8 +392,8 @@ def ws(db_session, monkeypatch):
         "season_tag": "winter",
         "watermark_text": "© Mash & Burn Co.",
         "position": "bottom-right",
-        "event_type": "event",
-        "date_field": "date",
+        "event_entry_type": "event",
+        "event_date": "data.date",
         "remind_at": "09:00",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
@@ -1509,6 +1509,23 @@ class TestExecution:
         soon = _entry(ws, "event", "Pop-up", status="published", data={"date": (datetime.now(UTC).date() + timedelta(days=3)).isoformat()})
         _fire(ws, "entry_published", _entry_doc(soon), entity=soon.id, entity_type="entry", correlation_id="pub-pop")
         assert self._issues(ws) == [] and ws.ai.requests == []  # the week-before moment has passed: no draft; it waits for the day before
+
+    def test_event_countdown_to_a_date_every_entry_has(self, ws, monkeypatch):
+        from marvin.services.automation import waits
+
+        monkeypatch.setitem(ws.values, "event_date", "expire_at")  # no date field needed: the entry's expiry date
+        _install(ws, "event-countdown")
+        sale = _entry(ws, "event", "Studio sale", status="published")
+        sale.expire_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(days=12)
+        ws.session.commit()
+        ws.ai.reply_text(json.dumps({"title": "One week left", "body": "The studio sale ends in a week."}))
+
+        _fire(ws, "entry_published", _entry_doc(sale), entity=sale.id, entity_type="entry", correlation_id="pub-sale")
+        assert self._issues(ws) == []
+        waits.resume_due(ws.session, now_=waits.now() + timedelta(days=5, hours=1))
+
+        (week,) = self._issues(ws)
+        assert week.metadata_json["reminder_for"] == sale.slug
 
     # ── watermarks ──
     def test_watermark_new_pictures(self, ws, store):

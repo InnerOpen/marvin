@@ -4,7 +4,7 @@
 
 export interface RecipeVariable {
   name: string;
-  /** Which picker: entry_type_slug, field_key, integration_slug, webhook_id, incoming_webhook_slug,
+  /** Which picker: entry_type_slug, field_key, entry_date, integration_slug, webhook_id, incoming_webhook_slug,
    *  collection_slug, collection_name, status — or free input: text, integer. */
   type: string;
   description: string;
@@ -62,7 +62,8 @@ export interface Recipe {
 }
 
 export interface LibraryRefs {
-  entryTypes: { slug: string; name: string; fields: string[] }[];
+  /** `dateFields`: those of `fields` that hold a date or a date and time. */
+  entryTypes: { slug: string; name: string; fields: string[]; dateFields?: string[] }[];
   integrations: { slug: string; name: string; provider: string; enabled: boolean; capabilities?: string[] }[];
   collections: { slug?: string | null; name: string }[];
   outgoingWebhooks: { id?: string | null; name: string }[];
@@ -118,15 +119,37 @@ export function readiness(recipe: Recipe): Readiness {
 
 const humanize = (value: string): string => value.replace(/[_-]+/g, " ");
 
-const entryTypeVariable = (recipe: Recipe): RecipeVariable | undefined =>
-  recipe.setupVariables.find((v) => v.type === "entry_type_slug");
+/** The entry type a field picker belongs to: the nearest one set up before it (a recipe that drafts into a second
+ * type names that type just before its fields), else the recipe's first. */
+function entryTypeVariable(recipe: Recipe, variable: RecipeVariable): RecipeVariable | undefined {
+  const types = recipe.setupVariables.filter((v) => v.type === "entry_type_slug");
+  const at = recipe.setupVariables.indexOf(variable);
+  return types.filter((v) => recipe.setupVariables.indexOf(v) < at).at(-1) ?? types[0];
+}
+
+const chosenType = (variable: RecipeVariable, recipe: Recipe, refs: LibraryRefs, values: Values) => {
+  const typeVar = entryTypeVariable(recipe, variable);
+  return typeVar ? refs.entryTypes.find((t) => t.slug === values[typeVar.name]) : undefined;
+};
+
+/** The dates every entry has, whatever its type's fields (`${entry.<value>}`). */
+export const ENTRY_DATES: Choice[] = [
+  { value: "publish_at", label: "Scheduled publish date (every entry)" },
+  { value: "expire_at", label: "Expiry date (every entry)" },
+  { value: "published_at", label: "Published date (every entry)" },
+  { value: "created_at", label: "Created date (every entry)" },
+  { value: "updated_at", label: "Last edited (every entry)" },
+];
+
+/** Pickers whose choices depend on an entry type chosen in another picker. */
+const DEPENDS_ON_TYPE = new Set(["field_key", "entry_date"]);
 
 function select(choices: Choice[], empty: { text: string; href?: string }): Picker {
   return { input: "select", choices, ...(choices.length ? {} : { empty }) };
 }
 
-/** The picker for one setup variable, from this workspace's names. A field_key offers the fields of the entry type
- * chosen in the recipe's entry_type_slug variable (`values`), so it changes when that does. */
+/** The picker for one setup variable, from this workspace's names. A field_key (or entry_date) offers the fields
+ * (or dates) of the entry type chosen just before it (`values`), so it changes when that does. */
 export function choicesFor(variable: RecipeVariable, recipe: Recipe, refs: LibraryRefs, values: Values = {}): Picker {
   switch (variable.type) {
     case "entry_type_slug":
@@ -135,13 +158,17 @@ export function choicesFor(variable: RecipeVariable, recipe: Recipe, refs: Libra
         { text: "No entry types yet.", href: "/workspace/entry-types/new" },
       );
     case "field_key": {
-      const typeVar = entryTypeVariable(recipe);
-      const chosen = typeVar ? refs.entryTypes.find((t) => t.slug === values[typeVar.name]) : undefined;
+      const chosen = chosenType(variable, recipe, refs, values);
       if (!chosen) return { input: "select", choices: [], empty: { text: "Choose the entry type first." } };
       return select(
         chosen.fields.map((key) => ({ value: key, label: key })),
         { text: `“${chosen.name}” has no fields.`, href: "/workspace/entry-types" },
       );
+    }
+    case "entry_date": {
+      // The type's own date fields first (`data.<key>`), then the dates every entry has — so there's always one.
+      const own = (chosenType(variable, recipe, refs, values)?.dateFields ?? []).map((key) => ({ value: `data.${key}`, label: key }));
+      return select([...own, ...ENTRY_DATES], { text: "" });
     }
     case "integration_slug": {
       // A named provider (Buttondown, n8n…), or any integration that can do what the recipe needs (notify).
@@ -203,7 +230,7 @@ export function choicesFor(variable: RecipeVariable, recipe: Recipe, refs: Libra
 export function initialValues(recipe: Recipe, refs: LibraryRefs, current: Values = {}): Values {
   const values: Values = {};
   const ordered = [...recipe.setupVariables].sort(
-    (a, b) => Number(a.type === "field_key") - Number(b.type === "field_key"),
+    (a, b) => Number(DEPENDS_ON_TYPE.has(a.type)) - Number(DEPENDS_ON_TYPE.has(b.type)),
   );
   for (const variable of ordered) {
     const picker = choicesFor(variable, recipe, refs, values);

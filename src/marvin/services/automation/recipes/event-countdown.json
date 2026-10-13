@@ -9,14 +9,14 @@
       {
         "field": "entry.entry_type",
         "op": "eq",
-        "value": "{{event_type}}"
+        "value": "{{event_entry_type}}"
       }
     ],
     "actions": [
       {
         "kind": "wait",
         "id": "week",
-        "until": "${entry.data.{{date_field}}}",
+        "until": "${entry.{{event_date}}}",
         "offset": "-7d",
         "at": "{{remind_at}}"
       },
@@ -27,7 +27,7 @@
         "see": [
           "item"
         ],
-        "prompt": "“${entry.title}” is one week away (${entry.data.{{date_field}}}). Write a short, warm reminder post from what the entry says: what it is, when and where, and why to come. Invent nothing.",
+        "prompt": "“${entry.title}” is one week away (${entry.{{event_date}}}). Write a short, warm reminder post from what the entry says: what it is, when and where, and why to come. Invent nothing.",
         "output_schema": {
           "type": "object",
           "properties": {
@@ -72,7 +72,7 @@
       {
         "kind": "wait",
         "id": "day",
-        "until": "${entry.data.{{date_field}}}",
+        "until": "${entry.{{event_date}}}",
         "offset": "-1d",
         "at": "{{remind_at}}"
       },
@@ -83,7 +83,7 @@
         "see": [
           "item"
         ],
-        "prompt": "“${entry.title}” is tomorrow (${entry.data.{{date_field}}}). Write a short last-call reminder from what the entry says: when and where, and one reason to come. Invent nothing.",
+        "prompt": "“${entry.title}” is tomorrow (${entry.{{event_date}}}). Write a short last-call reminder from what the entry says: when and where, and one reason to come. Invent nothing.",
         "output_schema": {
           "type": "object",
           "properties": {
