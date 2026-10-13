@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.313 (2026-10-13)
+
+### Features
+
+- **dashboard**: One dashboard at /, with the live panels; /workspace redirects there
+  ([`e82dffe`](https://github.com/InnerOpen/marvin/commit/e82dffea0daaf12cc75d361580d57dc04676c82d))
+
+
 ## v1.0.0-rc.312 (2026-10-13)
 
 ### Bug Fixes
