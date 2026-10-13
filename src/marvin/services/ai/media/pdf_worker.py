@@ -12,13 +12,14 @@ from pathlib import Path
 
 
 def _cap_memory(limit: int | None) -> None:
-    """The address space this process may use: a PDF that asks for gigabytes fails here, not on the server."""
-    if not limit:
-        return
+    """The address space this process may use — a PDF that asks for gigabytes fails here, not on the server — and no
+    core dump when one crashes it (writing one is slow, and it holds the file)."""
     try:
         import resource
 
-        resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        if limit:
+            resource.setrlimit(resource.RLIMIT_AS, (limit, limit))
     except (ImportError, ValueError, OSError):  # not on Linux, or not allowed: the time limit still holds
         pass
 

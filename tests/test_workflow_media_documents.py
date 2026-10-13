@@ -286,13 +286,14 @@ def test_a_damaged_pdf_fails_with_a_reason():
 
 
 @pytest.mark.parametrize(
-    ("worker", "message"),
+    ("worker", "timeout", "message"),
     [
-        ("import time\ntime.sleep(30)\n", "took longer than 1 s"),  # a PDF that hangs the reader
-        ("import os\nos.abort()\n", "stopped the reader"),  # one that crashes it (a segfault, the memory cap)
+        ("import time\ntime.sleep(30)\n", 1, "took longer than 1 s"),  # a PDF that hangs the reader
+        # One that crashes it (a segfault, the memory cap) — time to die: a CI runner may write a core dump first.
+        ("import os\nos.abort()\n", 30, "stopped the reader"),
     ],
 )
-def test_a_reader_that_hangs_or_crashes_fails_the_read_not_the_server(tmp_path, monkeypatch, worker, message):
+def test_a_reader_that_hangs_or_crashes_fails_the_read_not_the_server(tmp_path, monkeypatch, worker, timeout, message):
     from types import SimpleNamespace
 
     from marvin.services.ai.media import documents
@@ -300,7 +301,7 @@ def test_a_reader_that_hangs_or_crashes_fails_the_read_not_the_server(tmp_path, 
     script = tmp_path / "worker.py"
     script.write_text(worker)
     monkeypatch.setattr(documents, "WORKER", script)
-    monkeypatch.setattr("marvin.core.config.get_app_settings", lambda: SimpleNamespace(MEDIA_PDF_TIMEOUT_SECONDS=1))
+    monkeypatch.setattr("marvin.core.config.get_app_settings", lambda: SimpleNamespace(MEDIA_PDF_TIMEOUT_SECONDS=timeout))
 
     with pytest.raises(documents.NotADocument, match=message):
         documents.read(pdf(["Fine text on this page."]))
