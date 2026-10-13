@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.305 (2026-10-13)
+
+### Features
+
+- **frontend**: A Gmail-shaped sidebar — New, entry folders with counts, collections and settings
+  folded
+  ([`f917d70`](https://github.com/InnerOpen/marvin/commit/f917d702a1bd9bc600bcb5028ece230bface8c42))
+
+
 ## v1.0.0-rc.304 (2026-10-13)
 
 ### Bug Fixes
