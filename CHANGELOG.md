@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.287 (2026-10-13)
+
+### Bug Fixes
+
+- **media**: Read PDFs in a separate, time-limited process — a bad file fails one step, not the
+  server
+  ([`4048d2a`](https://github.com/InnerOpen/marvin/commit/4048d2a352e98a5c60b58985cc0ac6f20c5c3fb7))
+
+
 ## v1.0.0-rc.286 (2026-10-13)
 
 ### Features
