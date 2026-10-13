@@ -6,6 +6,15 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.286 (2026-10-13)
+
+### Features
+
+- **workflows**: Edit a picture with an integration — background removal, product scenes, seasonal
+  variants
+  ([`841483a`](https://github.com/InnerOpen/marvin/commit/841483a0cd5f21d822cf292eb720a66085504c72))
+
+
 ## v1.0.0-rc.285 (2026-10-12)
 
 ### Features
