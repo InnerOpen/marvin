@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.288 (2026-10-13)
+
+### Bug Fixes
+
+- **media**: The PDF reader writes no core dump; the crash test gives a crashing reader time to die
+  ([`9988791`](https://github.com/InnerOpen/marvin/commit/9988791ffe167d7f2e17c33805fb682a34b692c7))
+
+- **ui**: Start from a recipe fills a phone's screen instead of landing off-centre
+  ([`63d3283`](https://github.com/InnerOpen/marvin/commit/63d328378f0bfb3f2f2f64f0d5d96f3a6703abde))
+
+
 ## v1.0.0-rc.287 (2026-10-13)
 
 ### Bug Fixes
