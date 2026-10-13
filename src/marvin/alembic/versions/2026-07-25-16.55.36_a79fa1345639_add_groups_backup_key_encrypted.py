@@ -5,17 +5,16 @@ Revises: 8a73900e8fe4
 Create Date: 2026-07-25 16:55:36.746567
 
 """
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
 import sqlalchemy as sa
-import marvin.db.migration_types
 
 # revision identifiers, used by Alembic.
 revision: str = 'a79fa1345639'
-down_revision: Union[str, None] = '8a73900e8fe4'
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = '8a73900e8fe4'
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:

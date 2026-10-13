@@ -28,6 +28,7 @@ dependencies = [
     "pydantic-core>=2.33.2",
     "pydantic-settings>=2.9.1",
     "pyhumps>=3.8.0",
+    "psycopg2-binary>=2.9",
     "pyjwt>=2.10.1",
     "pypdf>=6.19.0",
     "pypdfium2>=5.14.0",
@@ -81,9 +82,6 @@ dev = [
 # Optional LDAP auth. Needs system libs to build the C extension (libldap2-dev, libsasl2-dev)
 # and is only imported when LDAP auth is enabled. Opt in with `uv sync --group ldap`.
 ldap = ["python-ldap>=3.4.5"]
-# Optional PostgreSQL driver. SQLAlchemy's bare `postgresql://` dialect uses psycopg2;
-# the binary wheel needs no build step. Opt in with `uv sync --group postgres`.
-postgres = ["psycopg2-binary>=2.9"]
 
 # The site-wide plugins baked into the image (docker/Dockerfile: `--group plugins`), so a pod never downloads
 # them at start-up. Each follows its repo's branch here and uv.lock pins the exact commit, so an image tag pins

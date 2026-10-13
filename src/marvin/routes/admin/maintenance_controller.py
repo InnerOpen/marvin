@@ -11,6 +11,7 @@ It also includes a utility function for tailing log files (not exposed via HTTP)
 
 from pathlib import Path  # For path manipulation
 
+import sqlalchemy as sa
 from fastapi import APIRouter
 from pydantic import BaseModel  # For stats response model
 
@@ -150,9 +151,12 @@ class AdminMaintenanceController(BaseAdminController):
         assets_dir = dirs.DATA_DIR / "assets"
         assets_size = fs_stats.get_dir_size(assets_dir) if assets_dir.exists() else 0
 
-        # Database size - check the actual SQLite file
-        db_file = dirs.DATA_DIR / "marvin.db"
-        db_size = db_file.stat().st_size if db_file.exists() else 0
+        # Database size, as Postgres counts it (0 when it can't say).
+        try:
+            db_size = int(self.session.execute(sa.text("SELECT pg_database_size(current_database())")).scalar() or 0)
+        except Exception:  # noqa: BLE001 — a stat, never a failed page
+            self.session.rollback()
+            db_size = 0
 
         total_size = data_dir_size
 
@@ -164,7 +168,7 @@ class AdminMaintenanceController(BaseAdminController):
             api_tokens_count=api_tokens_count,
             webhooks_count=webhooks_count,
             database_size=fs_stats.pretty_size(db_size),
-            database_path=str(db_file),
+            database_path=self.session.get_bind().url.render_as_string(hide_password=True),
             assets_size=fs_stats.pretty_size(assets_size),
             assets_path=str(assets_dir),
             backups_size=fs_stats.pretty_size(backups_size),

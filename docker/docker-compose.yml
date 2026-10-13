@@ -12,9 +12,7 @@
 #   Build and run locally instead of pulling:
 #     docker compose -f docker/docker-compose.yml up -d --build
 #
-# Storage defaults to SQLite in a named volume, so it runs with no external services. To test
-# against Postgres instead, set DB_ENGINE=postgres and start with the postgres profile:
-#     DB_ENGINE=postgres docker compose -f docker/docker-compose.yml --profile postgres up -d
+# The database is the bundled Postgres service (SQLite was retired 2026-10-13); files live in the marvin-data volume.
 
 services:
   marvin:
@@ -36,7 +34,7 @@ services:
 
       # Storage. SQLite (default) persists in the marvin-data volume below. Set DB_ENGINE=postgres
       # to use the postgres service instead — its POSTGRES_* values default to the ones below.
-      DB_ENGINE: ${DB_ENGINE:-sqlite}
+      DB_ENGINE: postgres
       POSTGRES_SERVER: ${POSTGRES_SERVER:-postgres}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_USER: ${POSTGRES_USER:-marvin}
@@ -56,7 +54,6 @@ services:
   postgres:
     container_name: marvin-postgres
     image: docker.io/postgres:15
-    profiles: [postgres]
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-marvin}

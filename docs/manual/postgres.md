@@ -1,6 +1,6 @@
 # Postgres
 
-Marvin runs on SQLite or Postgres (`config.dbEngine`). On the iwobble cluster Postgres is a [CloudNativePG](https://cloudnative-pg.io) (CNPG) cluster per environment, rendered by the Helm chart. This page covers the `marvin-dev` environment, backups and restores, the SQLite → Postgres copy tool and the production cutover.
+Marvin runs on Postgres (`config.dbEngine: postgres`, the only engine since 2026-10-13 — SQLite was retired; the copy tool below moves an old SQLite database over). On the iwobble cluster Postgres is a [CloudNativePG](https://cloudnative-pg.io) (CNPG) cluster per environment, rendered by the Helm chart. This page covers the `marvin-dev` environment, backups and restores, the SQLite → Postgres copy tool and the production cutover.
 
 What lives where once an environment is on Postgres:
 
@@ -28,7 +28,7 @@ backup:
   schedule: "0 * * * *"              # hourly
 ```
 
-The cluster can be enabled while `dbEngine` is still `sqlite` — that is how production gets its database ready before the cutover. The Cluster carries `helm.sh/resource-policy: keep`: `helm uninstall` leaves the database and its PVC alone; delete them by hand when you mean it. With `dbEngine: postgres` the backend may roll (`RollingUpdate`) instead of `Recreate`; keep one replica while assets are on the RWO data volume.
+(Historical: before 2026-10-13 the cluster could be enabled while `dbEngine` was still `sqlite`, which is how production got its database ready before the switch.)
 
 Postgres 17 is used everywhere on purpose: the clusters, the CI test job and the backend image's `pg_dump` (Debian's `postgresql-client`). A `pg_dump` 17 archive does not restore cleanly into Postgres 16. Move all three together.
 

@@ -229,12 +229,14 @@ backup.scheduledTasks.enabled, which also renders the Role that lets the backend
 {{- end -}}
 
 {{/*
-Database engine guard: only the two engines the app knows.
+Database engine guard: Postgres is the only engine (SQLite was retired 2026-10-13).
 */}}
 {{- define "marvin.dbEngine" -}}
-{{- $engine := .Values.config.dbEngine | default "sqlite" -}}
-{{- if not (has $engine (list "sqlite" "postgres")) -}}
-{{- fail (printf "config.dbEngine must be sqlite or postgres, not %q" $engine) -}}
+{{- $engine := .Values.config.dbEngine | default "postgres" -}}
+{{- if eq $engine "sqlite" -}}
+{{- fail "config.dbEngine=sqlite: SQLite was retired on 2026-10-13 — set config.dbEngine=postgres (the chart's CloudNativePG cluster, or postgres.existingSecret) and move the database with marvin.scripts.sqlite_to_postgres" -}}
+{{- else if ne $engine "postgres" -}}
+{{- fail (printf "config.dbEngine must be postgres, not %q" $engine) -}}
 {{- end -}}
 {{- $engine -}}
 {{- end -}}

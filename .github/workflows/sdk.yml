@@ -66,6 +66,14 @@ jobs:
 
       - name: Generate OpenAPI spec from Marvin
         working-directory: marvin
+        env:
+          # Importing the app builds its Postgres URL but opens no connection: placeholders suffice.
+          DB_ENGINE: postgres
+          POSTGRES_SERVER: localhost
+          POSTGRES_PORT: "5432"
+          POSTGRES_USER: docs
+          POSTGRES_PASSWORD: docs
+          POSTGRES_DB: docs
         run: |
           python -c "
           from marvin.app import app

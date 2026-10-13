@@ -2,7 +2,7 @@
 This module defines database provider settings for the Marvin application.
 
 It includes an abstract base class `AbstractDBProvider` and concrete implementations
-for SQLite (`SQLiteProvider`) and PostgreSQL (`PostgresProvider`).
+for PostgreSQL (`PostgresProvider`). SQLite was retired on 2026-10-13.
 A factory function `db_provider_factory` is provided to create instances
 of these providers based on configuration.
 """
@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from urllib import parse as urlparse
 
-from pydantic import BaseModel, PostgresDsn, SecretStr
+from pydantic import PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,36 +33,6 @@ class AbstractDBProvider(ABC):
     def db_url_public(self) -> str:
         """A "public" version of the database URL, with credentials masked."""
         ...
-
-
-class SQLiteProvider(AbstractDBProvider, BaseModel):
-    """
-    SQLite database provider.
-
-    Attributes:
-        data_dir (Path): The directory where the SQLite database file is stored.
-        name (str): The name of the SQLite database file. Defaults to "marvin.db".
-        prefix (str): An optional prefix for the database file name.
-    """
-
-    data_dir: Path
-    name: str = "marvin.db"
-    prefix: str = ""
-
-    @property
-    def db_path(self) -> Path:
-        """Returns the full path to the SQLite database file."""
-        return self.data_dir / f"{self.prefix}{self.name}"
-
-    @property
-    def db_url(self) -> str:
-        """Returns the SQLite connection URL."""
-        return f"sqlite:///{str(self.db_path.absolute())}"
-
-    @property
-    def db_url_public(self) -> str:
-        """Returns the SQLite connection URL (same as db_url for SQLite)."""
-        return self.db_url
 
 
 class PostgresProvider(AbstractDBProvider, BaseSettings):
@@ -150,18 +120,17 @@ class PostgresProvider(AbstractDBProvider, BaseSettings):
 
 
 def db_provider_factory(provider_name: str, data_dir: Path, env_file: Path, env_encoding="utf-8") -> AbstractDBProvider:
-    """
-    Factory function to create a database provider instance.
+    """The database provider for ``provider_name`` — Postgres. ``data_dir`` is kept for the signature's callers.
 
-    Args:
-        provider_name (str): The name of the database provider ("postgres" or "sqlite").
-        data_dir (Path): The application's data directory (used for SQLite).
-        env_file (Path): The path to the .env file (used for PostgreSQL).
-        env_encoding (str): The encoding of the .env file.
-
-    Returns:
-        AbstractDBProvider: An instance of the requested database provider.
+    Raises:
+        ValueError: ``sqlite`` (retired) or anything else: Marvin runs on Postgres; a SQLite database is moved
+            with ``python -m marvin.scripts.sqlite_to_postgres`` (docs/manual/postgres.md).
     """
     if provider_name == "postgres":
         return PostgresProvider(_env_file=env_file, _env_file_encoding=env_encoding)
-    return SQLiteProvider(data_dir=data_dir)
+    if provider_name == "sqlite":
+        raise ValueError(
+            "DB_ENGINE=sqlite: SQLite was retired on 2026-10-13. Run Marvin on Postgres (DB_ENGINE=postgres, POSTGRES_*); "
+            "move an existing SQLite database with `python -m marvin.scripts.sqlite_to_postgres` (docs/manual/postgres.md)."
+        )
+    raise ValueError(f"DB_ENGINE={provider_name!r}: the only database engine is postgres.")

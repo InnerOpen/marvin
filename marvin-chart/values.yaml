@@ -228,7 +228,7 @@ config:
   logLevel: DEBUG
 
   # Database configuration: sqlite (a file in dataDir) or postgres (see `postgres` below).
-  dbEngine: sqlite
+  dbEngine: postgres
   dataDir: /app/data
 
   # API configuration
@@ -384,7 +384,7 @@ postgres:
   # Its backups are the off-site job's pg_dump (`backup` below, hourly in a Postgres release); there
   # is no WAL archiving / point-in-time recovery by choice (how to add it: the template's header).
   cluster:
-    enabled: false
+    enabled: true   # the database a plain install gets (Postgres is the only engine); off when postgres.existingSecret names your own
     name: ""   # default "<release fullname>-pg"
     instances: 1
     # The Postgres major the clusters run, the CI suite tests and the backend image's pg_dump (Debian

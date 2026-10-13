@@ -113,10 +113,9 @@ These are per-workspace content exports kept on the data volume. For the whole i
 | `GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS` | unset | how long the server waits for in-flight requests after SIGTERM; unset waits until the process is killed. The Helm chart derives it from the grace period (see [Helm chart](#helm-chart)) |
 | `CORS_ORIGINS` | empty | comma list; ignored outside production |
 | `DATA_DIR` | unset | database, `.secret`, assets, secrets, seeds |
-| `DB_ENGINE` | `sqlite` | or `postgres` |
+| `DB_ENGINE` | `postgres` | the only engine (SQLite retired 2026-10-13; `sqlite_to_postgres` moves an old database) |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SERVER`, `POSTGRES_PORT`, `POSTGRES_DB` | empty | or `POSTGRES_URL_OVERRIDE` for a full URL |
 | `DB_POOL_SIZE` / `DB_MAX_OVERFLOW` | `5` / `10` | SQLAlchemy pool |
-| `DB_SQLITE_WAL_MODE` | `true` | |
 | `AUTO_MIGRATE` | `true` | run Alembic at startup |
 | `API_DOCS` | `true` | Swagger and ReDoc; `/openapi.json` stays public either way |
 | `LOG_LEVEL` | `info` | |

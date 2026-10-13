@@ -109,7 +109,7 @@ class BackupSettings:
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> BackupSettings:
-        """BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default DB_ENGINE, else `sqlite`),
+        """BACKUP_DATA_DIR (default `/app/data`), BACKUP_DB_ENGINE (default DB_ENGINE, else `postgres`),
         BACKUP_PREFIX (else BACKUP_S3_PREFIX, so the old script's environment carries over),
         BACKUP_KEEP_HOURLY / _DAILY / _WEEKLY, STORAGE_PROVIDER + STORAGE_LOCAL_ROOT (where assets are
         read from), BACKUP_ASSET_PROVIDERS (comma-separated providers mirrored as well: an admin can send
@@ -119,7 +119,7 @@ class BackupSettings:
         data_dir = Path(env.get("BACKUP_DATA_DIR") or "/app/data")
         return cls(
             data_dir=data_dir,
-            engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "sqlite").lower(),
+            engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "postgres").lower(),
             prefix=normalize_prefix(env.get("BACKUP_PREFIX") or env.get("BACKUP_S3_PREFIX")),
             retention=Retention.from_env(env),
             asset_provider=env.get("STORAGE_PROVIDER") or "local",
@@ -722,7 +722,7 @@ def run_restore(
     skip_db: bool = False,
     skip_config: bool = False,
     force: bool = False,
-    engine: str = "sqlite",
+    engine: str = "postgres",
 ) -> None:
     """Restore into the directory `into` (a data dir layout). The database object is the newest of the
     engine's family unless `db` names one; a `postgres/` key is fetched as marvin.dump, a `sqlite/` key

@@ -479,7 +479,7 @@ def test_missing_pg_dump_binary_says_what_to_install(settings, target, source, m
 def test_restore_round_trip(settings, target, source, data_dir, tmp_path):
     eng.run_backup(settings, target, source, now=NOW)
     into = tmp_path / "restore"
-    eng.run_restore(target, into)
+    eng.run_restore(target, into, engine="sqlite")
     conn = sqlite3.connect(into / "marvin.db")
     assert conn.execute("SELECT count(*) FROM users").fetchone() == (50,)
     conn.close()
@@ -493,13 +493,13 @@ def test_restore_round_trip(settings, target, source, data_dir, tmp_path):
 def test_restore_refuses_an_occupied_directory_without_force(settings, target, source, data_dir):
     eng.run_backup(settings, target, source, now=NOW)
     with pytest.raises(keys.BackupError, match="already has marvin.db, .secret"):
-        eng.run_restore(target, data_dir)
+        eng.run_restore(target, data_dir, engine="sqlite")
 
 
 def test_forced_restore_moves_existing_db_and_wal_aside(settings, target, source, data_dir):
     eng.run_backup(settings, target, source, now=NOW)
     (data_dir / "marvin.db-wal").write_bytes(b"stale wal")
-    eng.run_restore(target, data_dir, force=True)
+    eng.run_restore(target, data_dir, force=True, engine="sqlite")
     names = {p.name for p in data_dir.iterdir()}
     assert any(n.startswith("marvin.db-wal.pre-restore-") for n in names)
     assert any(n.startswith("marvin.db.pre-restore-") for n in names)
@@ -510,7 +510,7 @@ def test_restore_rejects_a_tampered_object_and_leaves_the_directory_alone(settin
     (target.root / keys.db_key(NOW)).write_bytes(gzip.compress(b"not the database"))
     into = tmp_path / "restore"
     with pytest.raises(keys.BackupError, match="sha256 mismatch"):
-        eng.run_restore(target, into, skip_config=True, assets=False)
+        eng.run_restore(target, into, skip_config=True, assets=False, engine="sqlite")
     assert not (into / "marvin.db").exists()
 
 
@@ -544,7 +544,9 @@ def cli_env(tmp_path, data_dir):
     base = tmp_path / "base"  # BASE_DIR: Marvin would create dev/ or tests/.temp here if it built its settings
     base.mkdir()
     env = {k: v for k, v in os.environ.items() if not k.startswith(("BACKUP_", "STORAGE_", "POSTGRES_", "DB_ENGINE", "TESTING", "DATA_DIR"))}
-    env.update({"PYTHONPATH": str(REPO_SRC), "BASE_DIR": str(base), "BACKUP_DATA_DIR": str(data_dir)})
+    # These CLI runs exercise the SQLite backup path, kept for restoring backups made before Postgres (the engine
+    # defaults to postgres since 2026-10-13, so say so).
+    env.update({"PYTHONPATH": str(REPO_SRC), "BASE_DIR": str(base), "BACKUP_DATA_DIR": str(data_dir), "BACKUP_DB_ENGINE": "sqlite"})
     return env
 
 

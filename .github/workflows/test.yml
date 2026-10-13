@@ -20,60 +20,8 @@ permissions:
 
 jobs:
   # Job 1: Backend suite on SQLite — the primary gate. No services, fast.
-  backend-tests:
-    name: Backend Tests (SQLite)
-    runs-on: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && vars.CI_RUNNER || 'ubuntu-latest' }}
-    env:
-      TESTING: "true"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Setup Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-
-      - name: Setup uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
-        with:
-          enable-cache: true
-
-      - name: Install dependencies
-        run: uv sync
-
-      # The media step's render op screenshots HTML with headless Chromium (services/ai/media/render.py). The runner's
-      # Chrome can't (its headless mode hangs on --screenshot), so fetch the headless shell; without it the render
-      # tests skip rather than fail.
-      - name: Install headless Chromium for render tests
-        continue-on-error: true
-        run: npx -y playwright@1.58.2 install --only-shell chromium
-
-      - name: Run pytest with coverage
-        run: |
-          uv run pytest tests/ \
-            --cov=src/marvin \
-            --cov-report=xml \
-            --cov-report=term \
-            --junitxml=junit.xml \
-            -q
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: coverage-report
-          path: coverage.xml
-
-      - name: Publish test results
-        uses: EnricoMi/publish-unit-test-result-action/linux@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0 (composite: no Docker, runs on self-hosted dind runners too)
-        if: always()
-        with:
-          files: junit.xml
-          check_name: Backend Test Results (SQLite)
-
-  # Job 2: PostgreSQL compatibility — real driver (psycopg2) + service container, migration
-  # reversibility (up → down → up), and the full suite run against PostgreSQL.
+  # The backend suite on PostgreSQL (the only engine since 2026-10-13): service container, migration
+  # reversibility (up → down → up), then the full suite with coverage and published results.
   postgres-tests:
     name: Backend Tests (PostgreSQL)
     # Always GitHub-hosted: the Postgres service container isn't reachable from the self-hosted dind runners.
@@ -123,7 +71,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies (+ postgres driver)
-        run: uv sync --group postgres
+        run: uv sync
 
       - name: Wait for PostgreSQL
         run: |
@@ -139,8 +87,28 @@ jobs:
           uv run alembic downgrade base
           uv run alembic upgrade head
 
-      - name: Run pytest on PostgreSQL
-        run: uv run pytest tests/ -q
+      - name: Run pytest with coverage
+        run: |
+          uv run pytest tests/ \
+            --cov=src/marvin \
+            --cov-report=xml \
+            --cov-report=term \
+            --junitxml=junit.xml \
+            -q
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action/linux@d0a4676d0e0b938bc201470d88276b7c74c712b3 # v2.24.0 (composite: no Docker, runs on self-hosted dind runners too)
+        if: always()
+        with:
+          files: junit.xml
+          check_name: Backend Test Results
 
   # Job 3: Vault secrets — real Vault dev service, SECRET_BACKEND=vault. Runs the vault-gated
   # secret/resolver tests (they skip in the SQLite/Postgres jobs). DB stays SQLite here.

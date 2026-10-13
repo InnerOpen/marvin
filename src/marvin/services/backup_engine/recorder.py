@@ -223,7 +223,7 @@ def record_run(record: RunRecord, env: Mapping[str, str] | None = None, now: dat
     from .engine import pg_env_from
 
     env = dict(os.environ if env is None else env)
-    engine = (env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "sqlite").lower()
+    engine = (env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "postgres").lower()
     record.host = record.host or env.get("HOSTNAME") or socket.gethostname()
     now = now or datetime.now(UTC)
     try:

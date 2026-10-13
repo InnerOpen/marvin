@@ -1049,6 +1049,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pillow" },
     { name = "pre-commit" },
+    { name = "psycopg2-binary" },
     { name = "pydantic-core" },
     { name = "pydantic-settings" },
     { name = "pyhumps" },
@@ -1111,9 +1112,6 @@ plugins = [
     { name = "marvin-integration-square" },
     { name = "marvin-storage-s3" },
 ]
-postgres = [
-    { name = "psycopg2-binary" },
-]
 vault = [
     { name = "hvac" },
 ]
@@ -1137,6 +1135,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "pillow", specifier = ">=11.1.0" },
     { name = "pre-commit", specifier = ">=4.2.0" },
+    { name = "psycopg2-binary", specifier = ">=2.9" },
     { name = "pydantic-core", specifier = ">=2.33.2" },
     { name = "pydantic-settings", specifier = ">=2.9.1" },
     { name = "pyhumps", specifier = ">=3.8.0" },
@@ -1195,7 +1194,6 @@ plugins = [
     { name = "marvin-integration-square", git = "https://github.com/InnerOpen/marvin-integration-square?rev=v0.4.0" },
     { name = "marvin-storage-s3", git = "https://github.com/InnerOpen/marvin-storage-s3?rev=v0.1.0" },
 ]
-postgres = [{ name = "psycopg2-binary", specifier = ">=2.9" }]
 vault = [{ name = "hvac", specifier = ">=2.0" }]
 
 [[package]]

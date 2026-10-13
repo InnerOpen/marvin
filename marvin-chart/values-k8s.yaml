@@ -22,7 +22,7 @@ image:
 config:
   production: true
   logLevel: INFO
-  dbEngine: sqlite
+  dbEngine: postgres   # the only engine (SQLite retired 2026-10-13): the chart's CloudNativePG cluster, or postgres.existingSecret
   # Browser-facing API URL. Combined SSR reaches the API over localhost, but
   # client-side calls (login/interactive) need a URL the browser can reach. This
   # names the pinned API NodePort (service.nodePorts.http = 30271 below), so it's

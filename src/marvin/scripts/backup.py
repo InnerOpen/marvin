@@ -132,7 +132,7 @@ def run(target_type: str, name: str, dry_run: bool = False, env: dict[str, str] 
         finished_at=started_at,
         schedule=schedule,
         time_zone=time_zone,
-        db_engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "sqlite").lower(),
+        db_engine=(env.get("BACKUP_DB_ENGINE") or env.get("DB_ENGINE") or "postgres").lower(),
         settings=recorder.target_settings(target_type, env),
     )
 

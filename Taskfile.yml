@@ -32,9 +32,8 @@ tasks:
     silent: true
 
   dev:clean:
-    desc: remove local dev data (sqlite db, log, secret)
+    desc: remove local dev data (log, secret)
     cmds:
-      - rm -rf src/dev/data/marvin*.db
       - rm -rf src/dev/data/marvin.log
       - rm -rf src/dev/data/.secret
 
@@ -97,9 +96,7 @@ tasks:
       - uv run mkdocs serve
 
   docs:openapi:
-    desc: export the OpenAPI spec into docs/manual/openapi.json (no server needed)
-    env:
-      DB_ENGINE: sqlite
+    desc: export the OpenAPI spec into docs/manual/openapi.json (no server needed; importing the app opens no connection)
     cmds:
       - uv run python -c "import json; from marvin.app import app; json.dump(app.openapi(), open('docs/manual/openapi.json', 'w'), indent=2)"
 
@@ -175,10 +172,8 @@ tasks:
   py:coverage:
     desc: run tests with coverage and open the HTML report
     env:
-      # Default to SQLite so the .env loaded above can't aim a schema-dropping test run at a real
-      # Postgres database. An explicit `DB_ENGINE=postgres task py:coverage` still wins — the OS
-      # environment takes precedence over a task's env.
-      DB_ENGINE: sqlite
+      # tests/conftest.py points the suite at the dev container's own `marvin_test` database.
+      DB_ENGINE: postgres
     cmds:
       # --cov is what records the data; a bare `pytest` leaves the reporters below with nothing to
       # read. `--cov-report=` silences pytest-cov's own terminal report so the explicit reporters
@@ -241,10 +236,8 @@ tasks:
   py:test:
     desc: run python tests (args after '--')
     env:
-      # Default to SQLite so the .env loaded above can't aim a schema-dropping test run at a real
-      # Postgres database. An explicit `DB_ENGINE=postgres task py:test` still wins — the OS
-      # environment takes precedence over a task's env.
-      DB_ENGINE: sqlite
+      # tests/conftest.py points the suite at the dev container's own `marvin_test` database.
+      DB_ENGINE: postgres
     cmds:
       - uv run pytest {{ .CLI_ARGS }}
 
@@ -268,7 +261,7 @@ tasks:
     desc: install python dependencies and git hooks
     run: once
     cmds:
-      - uv sync --group dev --group postgres
+      - uv sync --group dev
       - uv run pre-commit install
     sources:
       - uv.lock

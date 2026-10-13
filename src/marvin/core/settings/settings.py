@@ -649,17 +649,15 @@ class AppSettings(BaseSettings):
     # ===============================================
     # Database Config
 
-    DB_ENGINE: str = "sqlite"
-    """The database engine to use ('sqlite' or 'postgres')."""
+    DB_ENGINE: str = "postgres"
+    """The database engine: Postgres. (SQLite was retired on 2026-10-13: a SQLite database is moved with
+    `python -m marvin.scripts.sqlite_to_postgres`.)"""
 
     DB_POOL_SIZE: int = 5
     """SQLAlchemy connection pool size (number of persistent connections)."""
 
     DB_MAX_OVERFLOW: int = 10
     """Maximum number of connections above pool_size allowed before blocking."""
-
-    DB_SQLITE_WAL_MODE: bool = True
-    """Enable WAL journal mode for SQLite (allows concurrent reads during writes)."""
 
     DB_PROVIDER: AbstractDBProvider | None = None
     """The database provider instance, configured by `app_settings_constructor`."""
@@ -1140,7 +1138,7 @@ def app_settings_constructor(
     )
 
     app_settings.DB_PROVIDER = db_provider_factory(
-        app_settings.DB_ENGINE or "sqlite",
+        app_settings.DB_ENGINE or "postgres",
         data_dir,
         env_file=env_file,
         env_encoding=env_encoding,

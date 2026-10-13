@@ -70,7 +70,7 @@ Marvin's CI/CD pipeline is designed around its multi-component architecture:
 
 **Jobs**:
 
-#### Backend Tests
+#### Backend Tests (PostgreSQL)
 - PostgreSQL 15 service
 - Redis 7 service
 - Alembic migration testing:
