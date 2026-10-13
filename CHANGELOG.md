@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.296 (2026-10-13)
+
+### Features
+
+- **workflows**: Time capsule and Intake triage recipes run today
+  ([`00f286b`](https://github.com/InnerOpen/marvin/commit/00f286b379c2ec892aedf95b40035a225554e13a))
+
+
 ## v1.0.0-rc.295 (2026-10-13)
 
 ### Bug Fixes
