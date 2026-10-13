@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.306 (2026-10-13)
+
+### Features
+
+- **frontend**: Assets and Resources fold open to their types, with counts
+  ([`32e4c98`](https://github.com/InnerOpen/marvin/commit/32e4c987675d09742b97ebec9b3781b4d6c86004))
+
+
 ## v1.0.0-rc.305 (2026-10-13)
 
 ### Features
