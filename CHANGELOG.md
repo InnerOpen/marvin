@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.316 (2026-10-13)
+
+### Features
+
+- **entries**: One Ask Marvin button replaces the AI menu, Generate and Improve
+  ([`fb49d1e`](https://github.com/InnerOpen/marvin/commit/fb49d1e1e53394d86361c3ad793946ac97e7edec))
+
+
 ## v1.0.0-rc.315 (2026-10-13)
 
 ### Features
