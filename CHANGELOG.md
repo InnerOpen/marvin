@@ -6,6 +6,14 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.292 (2026-10-13)
+
+### Features
+
+- **workflows**: Social recipes — share links, on this day, audience milestone, shout-out
+  ([`0674828`](https://github.com/InnerOpen/marvin/commit/0674828efe26d7433085a009734fa314c2e09a1c))
+
+
 ## v1.0.0-rc.291 (2026-10-13)
 
 ### Bug Fixes
