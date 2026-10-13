@@ -18,6 +18,9 @@ import { getEnvironmentLabel, withEnvironmentPrefix } from "@/lib/environmentLab
 import { sourceAllowed } from "@/lib/marvin/gate";
 import { navTitle, navTrail } from "@/lib/navTree";
 import { createSdkClient } from "@/lib/sdk";
+import { listCollections } from "@/lib/api/collections";
+import { listEntryTypes } from "@/lib/api/entryTypes";
+import { getContentAccess } from "@/lib/api/workspaces";
 import { ADMINS_ONLY } from "@/lib/workspaceRole";
 
 interface Props {
@@ -118,8 +121,56 @@ if (authToken) {
   }
 }
 
-// Simplified navigation following 80% rule
+// The New menu: this workspace's entry types (the dashboard's Quick Create, in reach from every page). Best-effort.
+let newTypes: { id: string; name: string; icon?: string | null }[] = [];
+let canAuthor = false;
+// The system collections (Inbox, Drafts, Needs Review, Approved — every workspace has them) are Gmail's folders, with
+// Published and Trash after them; a person's own collections fold under Content, like labels.
+let folders: { id: string; name: string; slug: string; icon: string | null; count: number }[] = [];
+let collections: { id: string; name: string; icon: string | null }[] = [];
+if (authToken) {
+  try {
+    const [types, access, colls] = await Promise.all([listEntryTypes(authToken), getContentAccess(authToken), listCollections(authToken)]);
+    canAuthor = access.canAuthor;
+    newTypes = (types ?? []).slice(0, 8).map((t: any) => ({ id: t.id, name: t.name, icon: t.icon ?? null }));
+    const all = (colls ?? []).map((c: any) => ({ id: c.id, name: c.name, slug: c.slug, icon: c.icon ?? null, system: Boolean(c.isSystem), count: Number(c.entryCount ?? 0) }));
+    folders = all.filter((c) => c.system);
+    collections = all.filter((c) => !c.system).slice(0, 10);
+  } catch {
+    newTypes = [];
+  }
+}
+const hasFolder = (slug: string) => folders.some((c) => c.slug === slug);
+// Each folder with the icon and count the Collections page gives it; Inbox and Needs Review are things to do, so
+// their counts stand out (Gmail's unread), the rest read as plain totals.
+const ATTENTION = new Set(["inbox", "needs-review"]);
+// In the publish lifecycle's order — Published sits after Approved — then anything else a workspace has (Archive, Trash).
+const LIFECYCLE = ["inbox", "drafts", "needs-review", "approved", "published", "archive", "trash"];
+const rank = (slug: string) => (LIFECYCLE.includes(slug) ? LIFECYCLE.indexOf(slug) : LIFECYCLE.length);
+const folderRows = folders.map((c) => ({ slug: c.slug, href: `/workspace/collections/${c.id}`, label: c.name, icon: c.icon || "📁", count: c.count, attention: ATTENTION.has(c.slug) }));
+if (!hasFolder("published")) folderRows.push({ slug: "published", href: "/workspace/entries?status=published", label: "Published", icon: "✅", count: 0, attention: false });
+if (!hasFolder("trash") && !hasFolder("trashed")) folderRows.push({ slug: "trash", href: "/workspace/entries?status=trashed", label: "Trash", icon: "🗑", count: 0, attention: false });
+const ENTRY_FOLDERS = folderRows.sort((a, b) => rank(a.slug) - rank(b.slug));
+const here = Astro.url.pathname + Astro.url.search;
+const onEntries = Astro.url.pathname === "/workspace/entries" && !Astro.url.searchParams.get("status");
+const onCollections = Astro.url.pathname.startsWith("/workspace/collections") && !folders.some((c) => Astro.url.pathname === `/workspace/collections/${c.id}`);
+// Settings as a group of the hub's tabs, not one opaque link: the page's tab is marked, and the group stays open on
+// any settings page (elsewhere, a person's last choice — remembered on the device).
+const SETTINGS_TABS: { tab: string; label: string; icon: string; paths: string[]; badge?: number }[] = [
+  { tab: "general", label: "General", icon: "⚙", paths: ["/workspace/settings/general", "/workspace/settings/environment", "/workspace/settings/secrets", "/workspace/settings/backups"] },
+  { tab: "members", label: "Members", icon: "👥", paths: ["/workspace/members", "/workspace/invites"] },
+  { tab: "entry-types", label: "Content model", icon: "🧩", paths: ["/workspace/entry-types", "/workspace/tags"] },
+  { tab: "email", label: "Email", icon: "✉", paths: ["/workspace/settings/email"] },
+  { tab: "publishing", label: "Publishing", icon: "🚀", paths: ["/publishing", "/workspace/settings/submission-protection"] },
+  { tab: "automation", label: "Automation", icon: "⚡", paths: ["/automation", "/workspace/events", "/workspace/scheduled-tasks"], badge: Math.max(0, appBadge - inboxCount) },
+  { tab: "ai", label: "AI", icon: "✨", paths: ["/workspace/settings/ai-"] },
+  { tab: "integrations", label: "Integrations", icon: "🔌", paths: ["/workspace/settings/integrations"] },
+];
 const ASK_PATH = "/workspace/settings/ai-ask";
+const activeTab = SETTINGS_TABS.find((t) => t.paths.some((p) => Astro.url.pathname.startsWith(p)) && Astro.url.pathname !== ASK_PATH)?.tab
+  ?? (Astro.url.pathname === "/workspace/settings" ? Astro.url.searchParams.get("tab") || "general" : null);
+const onSettings = activeTab !== null || Astro.url.pathname === "/workspace";
+// Simplified navigation following 80% rule
 
 // Primary sidebar contains only daily-use features
 const navGroups = [
@@ -131,40 +182,10 @@ const navGroups = [
       ...(askLinkShown ? [{ href: ASK_PATH, label: "Ask", icon: "💬" }] : []),
     ],
   },
-  {
-    label: "Content",
-    items: [
-      { href: "/workspace/entries", label: "Entries", icon: "📝", badge: inboxCount },
-      { href: "/workspace/collections", label: "Collections", icon: "📚" },
-      { href: "/workspace/assets", label: "Assets", icon: "🖼" },
-      { href: "/workspace/resources", label: "Resources", icon: "🔗" },
-    ],
-  },
-  {
-    label: "Workspace",
-    items: [
-      // Lands on the workspace dashboard (/workspace); its tab banner navigates into each settings section.
-      { href: "/workspace", label: "Settings", icon: "⚙" },
-    ],
-  },
 ];
 
-const finalNavGroups = [
-  ...navGroups,
-  {
-    label: null,
-    items: [{ href: "/user/profile", label: "Profile", icon: "👤" }],
-  },
-];
+const finalNavGroups = [...navGroups];
 
-// Admin settings link - only for super admins (platform-wide)
-// Added at the very end with a separator label for visual distinction
-if (isSuperAdmin) {
-  finalNavGroups.push({
-    label: "Administration",
-    items: [{ href: "/admin", label: "Admin Settings", icon: "⚙" }],
-  });
-}
 
 // Helper to check if path is active (exact or starts with for nested routes)
 function isActive(itemPath: string, currentPath: string): boolean {
@@ -201,8 +222,61 @@ function isActive(itemPath: string, currentPath: string): boolean {
         <div class="sidebar-header">
           <WorkspaceSwitcher showPlatformBadge={isSuperAdmin} />
         </div>
-        {finalNavGroups.map((group, groupIndex) => (
-          <div class:list={["nav-group", { "nav-group-admin": group.label === "Administration" }]}>
+        {canAuthor && (
+          <details class="nav-new">
+            <summary class="button nav-new-button">＋ New</summary>
+            <nav class="nav nav-new-menu" aria-label="New">
+              {newTypes.map((t) => (
+                <a href={`/workspace/entries/new?type=${t.id}`}><span aria-hidden="true">{t.icon || "📝"}</span><span>{t.name}</span></a>
+              ))}
+              <a href="/workspace/assets/new"><span aria-hidden="true">🖼</span><span>Upload files</span></a>
+              <a href="/workspace/collections/new"><span aria-hidden="true">📚</span><span>Collection</span></a>
+            </nav>
+          </details>
+        )}
+        {finalNavGroups.slice(0, 1).map((group) => (
+          <div class="nav-group">
+            <nav class="nav" aria-label="Primary">
+              {group.items.map((item) => (
+                <a href={item.href} aria-current={isActive(item.href, path) ? "page" : undefined}>
+                  <span aria-hidden="true">{item.icon}</span><span>{item.label}</span>
+                </a>
+              ))}
+            </nav>
+          </div>
+        ))}
+        <div class="nav-group">
+          <a class="nav-group-label nav-group-link" href="/workspace/entries" aria-current={onEntries ? "page" : undefined}>Entries</a>
+          <nav class="nav" aria-label="Entries">
+            {ENTRY_FOLDERS.map((f) => (
+              <a href={f.href} aria-current={here === f.href || path === f.href ? "page" : undefined}>
+                <span aria-hidden="true">{f.icon}</span>
+                <span>{f.label}</span>
+                {(f.count ?? 0) > 0 && <span class:list={["nav-count", { attention: f.attention }]} aria-label={`${f.count} entries`}>{(f.count ?? 0) > 999 ? "999+" : f.count}</span>}
+              </a>
+            ))}
+          </nav>
+        </div>
+        <div class="nav-group">
+          <div class="nav-group-label">Content</div>
+          <nav class="nav" aria-label="Content">
+            <details class="nav-fold" open={onCollections}>
+              <summary class="nav-fold-row" aria-current={onCollections ? "page" : undefined}>
+                <span aria-hidden="true">📚</span><span>Collections</span><span class="nav-chevron" aria-hidden="true">›</span>
+              </summary>
+              <div class="nav nav-fold-items">
+                {collections.map((c) => (
+                  <a href={`/workspace/collections/${c.id}`} aria-current={path === `/workspace/collections/${c.id}` ? "page" : undefined}><span aria-hidden="true">{c.icon || "📁"}</span><span>{c.name}</span></a>
+                ))}
+                <a href="/workspace/collections" class="nav-fold-all"><span aria-hidden="true">📚</span><span>All collections</span></a>
+              </div>
+            </details>
+            <a href="/workspace/assets" aria-current={isActive("/workspace/assets", path) ? "page" : undefined}><span aria-hidden="true">🖼</span><span>Assets</span></a>
+            <a href="/workspace/resources" aria-current={isActive("/workspace/resources", path) ? "page" : undefined}><span aria-hidden="true">🔗</span><span>Resources</span></a>
+          </nav>
+        </div>
+        {finalNavGroups.slice(1).map((group) => (
+          <div class="nav-group">
             {group.label && (
               <div class="nav-group-label">{group.label}</div>
             )}
@@ -211,14 +285,39 @@ function isActive(itemPath: string, currentPath: string): boolean {
                 <a href={item.href} aria-current={isActive(item.href, path) ? "page" : undefined}>
                   <span aria-hidden="true">{item.icon}</span>
                   <span>{item.label}</span>
-                  {"badge" in item && item.badge > 0 && (
-                    <span class="nav-badge" aria-label={`${item.badge} in inbox`}>{item.badge > 99 ? "99+" : item.badge}</span>
-                  )}
                 </a>
               ))}
             </nav>
           </div>
         ))}
+        <details class="nav-group nav-settings" id="nav-settings" open={onSettings} data-forced={onSettings ? "1" : undefined}>
+          <summary class="nav-settings-row" aria-current={Astro.url.pathname === "/workspace" ? "page" : undefined}>
+            <span aria-hidden="true">⚙</span><span>Settings</span><span class="nav-chevron" aria-hidden="true">›</span>
+          </summary>
+          <nav class="nav" aria-label="Settings">
+            {SETTINGS_TABS.map((t) => (
+              <a href={`/workspace/settings?tab=${t.tab}`} aria-current={activeTab === t.tab ? "page" : undefined}>
+                <span aria-hidden="true">{t.icon}</span>
+                <span>{t.label}</span>
+                {(t.badge ?? 0) > 0 && <span class="nav-badge" aria-label={`${t.badge} waiting for you`}>{(t.badge ?? 0) > 99 ? "99+" : t.badge}</span>}
+              </a>
+            ))}
+          </nav>
+        </details>
+        {isSuperAdmin && (
+          <div class="nav-group nav-group-admin">
+            <div class="nav-group-label">Administration</div>
+            <nav class="nav" aria-label="Administration"><a href="/admin" aria-current={path.startsWith("/admin") ? "page" : undefined}><span aria-hidden="true">🛠</span><span>Admin Settings</span></a></nav>
+          </div>
+        )}
+        <script>
+          // The Settings group remembers whether it was open, per device — unless the page is one of its own.
+          const group = document.getElementById("nav-settings") as HTMLDetailsElement | null;
+          if (group && !group.dataset.forced) {
+            try { group.open = localStorage.getItem("nav.settings.open") === "1"; } catch { /* storage off */ }
+          }
+          group?.addEventListener("toggle", () => { try { localStorage.setItem("nav.settings.open", group.open ? "1" : "0"); } catch { /* storage off */ } });
+        </script>
       </aside>
       <main class="main">
         <header class="topbar">
@@ -233,6 +332,7 @@ function isActive(itemPath: string, currentPath: string): boolean {
           <div class="topbar-actions">
             {authToken && <ActivityToaster userId={currentUserId} askPage={askLinkShown} platformFeed={isSuperAdmin} />}
             <a class="button secondary" href="/workspace/entries?status=needs_review,approved">Review Queue</a>
+            <a class="button secondary topbar-profile" href="/user/profile" aria-current={path.startsWith("/user/") ? "page" : undefined} title="Profile"><span aria-hidden="true">👤</span><span class="topbar-profile-label">Profile</span></a>
             <form method="POST" action="/api/auth/logout" style="display:inline;">
               <button type="submit" class="button secondary">Logout</button>
             </form>

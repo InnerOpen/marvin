@@ -185,6 +185,68 @@ select {
   margin-top: 0;
 }
 
+/* The New menu: the one big action, Gmail's Compose — an entry of each type, files, a collection. */
+.nav-new { margin-bottom: 14px; }
+.nav-new summary { list-style: none; cursor: pointer; }
+.nav-new summary::-webkit-details-marker { display: none; }
+.nav-new-button { display: block; width: 100%; text-align: center; padding: 10px 14px; font-weight: 600; }
+.nav-new-menu { margin-top: 8px; padding: 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+.nav-new-menu a { min-height: 36px; padding: 7px 10px; }
+
+/* Profile sits in the top bar beside Logout; on a phone the icon alone. */
+.topbar-profile { display: inline-flex; align-items: center; gap: 6px; }
+@media (max-width: 640px) { .topbar-profile-label { display: none; } }
+
+/* A folder's count at the end of its row: plain for a total, bold in the accent for something to do (Inbox, Needs review). */
+.nav-count { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.nav-count.attention { color: var(--accent); font-weight: 700; }
+.nav a[aria-current="page"] .nav-count { color: inherit; }
+
+/* A group heading that is itself a link (Entries: all of them). */
+.nav-group-link { display: block; text-decoration: none; }
+.nav-group-link[aria-current="page"], .nav-group-link:hover { color: var(--ink) !important; opacity: 1; }
+
+/* A folded row inside a list (Collections): its items indented under it. */
+.nav-fold summary { list-style: none; }
+.nav-fold summary::-webkit-details-marker { display: none; }
+.nav-fold-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.nav-fold-row:hover, .nav-fold-row[aria-current="page"] { background: var(--panel); color: var(--ink); }
+.nav-fold[open] .nav-chevron { transform: rotate(90deg); }
+.nav-fold-items { margin: 2px 0 4px 14px; padding-left: 10px; border-left: 1px solid var(--line); }
+.nav-fold-items a { min-height: 34px; padding: 6px 10px; font-size: 14px; }
+.nav-fold-all { font-size: 13px !important; opacity: 0.8; }
+
+/* Settings: a group of the hub's tabs that folds, with the current one marked. */
+.nav-settings { margin-top: 18px; }
+.nav-settings summary { list-style: none; }
+.nav-settings summary::-webkit-details-marker { display: none; }
+.nav-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.nav-settings-row:hover, .nav-settings-row[aria-current="page"] { background: var(--panel); color: var(--ink); }
+.nav-chevron { margin-left: auto; font-size: 18px; line-height: 1; transition: transform 0.2s; }
+.nav-settings[open] .nav-chevron { transform: rotate(90deg); }
+.nav-settings .nav { margin: 4px 0 0 14px; padding-left: 10px; border-left: 1px solid var(--line); }
+.nav-settings .nav a { min-height: 36px; padding: 7px 10px; }
+
 .nav-group-label {
   margin-bottom: 8px;
   padding: 0 10px;

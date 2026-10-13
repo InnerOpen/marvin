@@ -33,7 +33,7 @@ Each blueprint has a `kind`, a `slug`, `name`, one-line `description`, a `catego
 | `all-images` | Media | `target_type: asset`, `asset_types: [image]` |
 | `vector-artwork` | Media | `target_type: asset`, `mime_types: [image/svg+xml]` |
 
-Status buckets are deliberately absent: every workspace already gets the locked inbox/drafts/needs-review/approved/archive collections.
+Status buckets are deliberately absent: every workspace already gets the locked inbox/drafts/needs-review/approved/published/archive collections.
 
 ## Where
 
