@@ -1,4 +1,4 @@
-"""The media step's document and privacy ops: `extract_text`, `pages`, `find_sensitive`, `redact`.
+"""The media step's document, privacy and marking ops: `extract_text`, `pages`, `find_sensitive`, `redact`, `zip`, `watermark`.
 
 * **extract_text** — a PDF's text layer, page by page (free, local); a scanned page or a picture is read by the vision
   model (`image.read_text`, one AI call each, under the workflow AI gates and budget, logged in AI Executions). `ocr:
@@ -13,6 +13,8 @@
   facts as entry.json; an asset row, id or slug is that file) and a manifest.json into a new ZIP asset, `name`d. The
   same files and facts make the same ZIP once. Files in the Trash are left out; past the upload size cap the rest are
   skipped and listed.
+* **watermark** — `text` (templates allowed) and/or a `logo` (an asset) over a copy of the picture: `position` (a
+  corner, center, or tiled diagonally across it), `opacity`, `size` (percent of its width). A version, made once.
 """
 
 from __future__ import annotations
@@ -49,6 +51,8 @@ def run_document_op(session, group_id, op: str, action: dict, context: dict, *, 
     if op == "pages":
         return _pages(session, group_id, action, src, context, user_id=user_id, dry_run=dry_run)
     _require_picture(src)
+    if op == "watermark":
+        return _watermark(session, group_id, action, src, context, user_id=user_id, dry_run=dry_run)
     if op == "find_sensitive":
         if dry_run:
             return {"dry_run": True, "kind": "media", "op": op, "source": src.slug, "would_ask": "the vision model", "regions": [], "count": 0}
@@ -515,4 +519,89 @@ def _store_zip(session, group_id, name: str, data: bytes, slug: str, plan: list,
         )
     except (AssetRejected, ValueError) as e:
         raise AutomationActionError(f"the archive can't be kept: {e}") from e
+    return session.get(Assets, read.id)
+
+
+# ── watermark ────────────────────────────────────────────────────────────────
+def _watermark(session, group_id, action: dict, src, context: dict, *, user_id, dry_run: bool) -> dict:
+    from marvin.db.models.platform.assets import Assets
+    from marvin.services.ai.media import ops
+    from marvin.services.ai.media import watermark as marks
+
+    from .media import _attach_role, _deliver, _read_bytes, derivative_slug, resolve_source, subject_entry_id
+
+    text = str(interpolate(action.get("text") or "", context) or "").strip() or None
+    logo = resolve_source(session, group_id, action["logo"], context) if action.get("logo") else None
+    if not (text or logo):
+        raise AutomationActionError("a watermark needs text or a logo (the text resolved to empty)")
+    if logo is not None:
+        _require_picture(logo)
+    args = {
+        "text": text,
+        "logo": (logo.checksum or str(logo.id)) if logo is not None else None,
+        "position": action.get("position") or marks.DEFAULT_POSITION,
+        "opacity": int(action.get("opacity") or marks.DEFAULT_OPACITY),
+        "size": int(action.get("size") or marks.DEFAULT_SIZE),
+        "format": action.get("format"),
+        "quality": action.get("quality"),
+    }
+    attach_as = _attach_role(action, context)
+    entry_id = subject_entry_id(context) if attach_as else None
+    if attach_as and entry_id is None:
+        raise AutomationActionError("attach_as needs an entry: run this workflow on an entry (an entry event or an entry target)")
+    slug = derivative_slug(src, "watermark", args)
+    existing = session.query(Assets).filter(Assets.group_id == group_id, Assets.slug == slug).first()
+    if dry_run:
+        plan = {"dry_run": True, "kind": "media", "op": "watermark", "source": src.slug, "text": text, "position": args["position"]}
+        return {**plan, ("would_reuse" if existing else "would_create"): slug, **({"attach_as": attach_as} if attach_as else {})}
+    if existing is not None and existing.trashed_at is not None:
+        raise AutomationActionError(
+            f"this watermarked copy of “{src.name}” was made before and is in the Trash ({slug}): restore it, or delete it to make it again"
+        )
+    reused = existing is not None
+    if existing is None:
+        try:
+            made = marks.watermark(
+                _read_bytes(session, group_id, src),
+                text=text,
+                logo=_read_bytes(session, group_id, logo) if logo is not None else None,
+                position=args["position"],
+                opacity=args["opacity"],
+                size=args["size"],
+                fmt=args["format"],
+                quality=args["quality"],
+            )
+        except (ops.NotAnImage, ValueError) as e:
+            raise AutomationActionError(f"could not watermark “{src.name}”: {e}") from e
+        existing = _keep_version(
+            session, group_id, src, made, slug, "watermark", args, f"{src.name or src.filename} (watermarked)", context, user_id=user_id
+        )
+    out = {"source_id": str(src.id), "position": args["position"]}
+    return _deliver(
+        session, group_id, out, existing, reused, context, tags=action.get("tags"), attach_as=attach_as, entry_id=entry_id, user_id=user_id
+    )
+
+
+def _keep_version(session, group_id, src, data: bytes, slug: str, op: str, args: dict, name: str, context: dict, *, user_id):
+    """A made picture kept as a version of `src`, with its lineage (derivation media:<op>:<args>, the run)."""
+    from marvin.db.models.platform.assets import Assets
+    from marvin.services.ai.media import ops
+    from marvin.services.assets.asset_storage_service import AssetRejected
+
+    from .media import _canonical, _storage, run_lineage
+
+    try:
+        read = _storage(session, group_id).create_derivative(
+            source=src,
+            data=data,
+            group_id=group_id,
+            derivation=f"media:{op}:{_canonical(args)}",
+            slug=slug,
+            name=name,
+            user_id=user_id,
+            extra_metadata={"media_op": op, **run_lineage(context)},
+            extension=ops.FORMATS[ops.format_of(data)][2],
+        )
+    except AssetRejected as e:
+        raise AutomationActionError(f"the {op} of “{src.name}” can't be kept: {e}") from e
     return session.get(Assets, read.id)

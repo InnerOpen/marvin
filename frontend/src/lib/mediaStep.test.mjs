@@ -95,3 +95,9 @@ test("zip and printed PDFs: files needed; PDF only for a render", () => {
   assert.deepEqual(mediaFields("render", { template: "guide", format: "pdf" }), { template: "guide", format: "pdf" });
   assert.throws(() => mediaFields("convert", { format: "pdf" }), /PDF is for a render/);
 });
+
+test("watermark: text or a logo, opacity and size as numbers", () => {
+  assert.deepEqual(mediaFields("watermark", { text: "© Grace", position: "tiled", opacity: "40" }), { text: "© Grace", position: "tiled", opacity: 40 });
+  assert.throws(() => mediaFields("watermark", { position: "tiled" }), /needs text or a logo/);
+  assert.throws(() => mediaFields("watermark", { text: "x", opacity: "150" }), /opacity must be a whole number from 1 to 100/);
+});

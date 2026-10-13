@@ -271,7 +271,7 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
   import { optionPicker } from "@/lib/integrationOptionPicker";
   import { fetchApi } from "@/lib/api/client";
   import { ANSWER_KINDS, type AnswerField, fieldsFromSchema, SEE_LABELS, schemaFromFields } from "@/lib/customStep";
-  import { ASPECTS, filledRows, GRADE_PRESETS, MEDIA_FIELDS, MEDIA_OPS, mediaFields, OP_FIELDS, type RenderTemplate, SOURCE_LABELS, type SourceMode, sourceChoice, sourceFromChoice, templateRows } from "@/lib/mediaStep";
+  import { ASPECTS, filledRows, GRADE_PRESETS, MEDIA_FIELDS, MEDIA_OPS, mediaFields, OP_FIELDS, type RenderTemplate, SOURCE_LABELS, type SourceMode, sourceChoice, sourceFromChoice, templateRows, WATERMARK_POSITIONS } from "@/lib/mediaStep";
   import RENDER_TEMPLATES_JSON from "@/lib/renderTemplates.json";
   const RENDER_TEMPLATES = RENDER_TEMPLATES_JSON as Record<string, RenderTemplate>;
   import { triggerableEvents, triggerFromQuery } from "@/lib/eventConnections";
@@ -882,6 +882,11 @@ const aiActionsAvailable = (options.operations ?? []).length > 0;
       ${num("page", "From page", "default 1")}
       ${num("count", "How many pages", "1–10, default 1")}
       <label class="tf a-m-field" data-field="find"><span>Look for <span class="muted">(comma-separated: face, plate, text — blank for all)</span></span><input class="input a-m-find" value="${esc((a.find ?? []).join(", "))}" /></label>
+      <label class="tf a-m-field" data-field="text"><span>Watermark text <span class="muted">(templates allowed, e.g. © \${site.url})</span></span><input class="input a-m-text" value="${esc(a.text ?? "")}" placeholder="© Your name" /></label>
+      <label class="tf a-m-field" data-field="logo"><span>Logo <span class="muted">(optional: an asset id or slug — a transparent PNG works best)</span></span><input class="input a-m-logo" value="${esc(a.logo ?? "")}" /></label>
+      <label class="tf a-m-field" data-field="position"><span>Where</span><select class="input a-m-position">${WATERMARK_POSITIONS.map(([v, l]) => opt(v, l, a.position ?? "bottom-right")).join("")}</select></label>
+      ${num("opacity", "Opacity (%)", "1–100, default 60")}
+      ${num("size", "Size (% of the picture's width)", "default 25")}
       <label class="tf a-m-field" data-field="files"><span>Files <span class="muted">(a gather step's rows — entries bring their attached files — or assets: \${steps.&lt;id&gt;.output.rows})</span></span><input class="input a-m-files" value="${esc(typeof a.files === "string" ? a.files : "")}" /></label>
       <label class="tf a-m-field" data-field="name"><span>Archive name <span class="muted">(templates allowed)</span></span><input class="input a-m-name" value="${esc(a.name ?? "")}" /></label>
       <label class="tf a-m-field" data-field="boxes"><span>What to blur <span class="muted">(blank: the AI model finds it; or an earlier step's \${steps.&lt;id&gt;.output.regions})</span></span><input class="input a-m-boxes" value="${esc(typeof a.boxes === "string" ? a.boxes : a.boxes ? JSON.stringify(a.boxes) : "")}" /></label>

@@ -314,3 +314,51 @@ def test_reading_and_rendering_go_through_the_separate_reader():
     assert (total, texts) == (3, ["First page has words.", "", "Third page too."])
     total, pictures = documents.render_pages(pdf(["One", "Two"]), [2, 5], width=300)  # 5 isn't there: left out
     assert total == 2 and list(pictures) == [2] and pictures[2].width == 300
+
+
+# ── watermark ────────────────────────────────────────────────────────────────
+def _brightness(img, box) -> float:
+    region = img.convert("L").crop(box)
+    return sum(region.getdata()) / (region.width * region.height)
+
+
+def test_a_watermark_is_a_version_with_the_mark_where_asked(media):
+    from marvin.db.models.platform.assets import Assets
+
+    photo = _stored(media, "painting", _png((800, 600), color=(20, 30, 60)))
+    step = {"kind": "media", "op": "watermark", "source": photo.slug, "text": "© Grace", "position": "bottom-right", "size": 30}
+
+    _, first = _run(media, step)
+    _, again = _run(media, step)
+
+    (marked,) = _derivatives(media, photo)
+    assert again.output_snapshot["reused"] is True and first.output_snapshot["asset"]["id"] == str(marked.id)
+    picture = Image.open(io.BytesIO(_bytes_of(media, marked)))
+    assert picture.size == (800, 600) and marked.metadata_json["media_op"] == "watermark"
+    assert _brightness(picture, (560, 520, 790, 590)) > _brightness(picture, (10, 10, 240, 80)) + 10  # the corner, not the rest
+    original = Image.open(io.BytesIO(_bytes_of(media, media.session.get(Assets, photo.id))))
+    assert _brightness(original, (560, 520, 790, 590)) == pytest.approx(_brightness(original, (10, 10, 240, 80)))  # untouched
+
+
+def test_a_tiled_watermark_covers_the_picture_and_a_logo_can_be_laid_with_it(media):
+    photo = _stored(media, "print", _png((600, 600), color=(20, 30, 60)))
+    logo = _stored(media, "logo", _png((120, 40), color=(250, 250, 250)))
+
+    _, tiled = _run(media, {"kind": "media", "op": "watermark", "source": photo.slug, "text": "© Grace", "position": "tiled", "opacity": 80})
+    _, with_logo = _run(media, {"kind": "media", "op": "watermark", "source": photo.slug, "logo": logo.slug, "position": "top-left"})
+
+    marked = Image.open(io.BytesIO(_bytes_of(media, media.session.get(type(photo), tiled.output_snapshot["asset"]["id"]))))
+    def mark_share(box) -> float:  # the share of a region's pixels that are the mark's light text (the picture is dark)
+        region = marked.convert("L").crop(box)
+        return sum(1 for v in region.getdata() if v > 120) / (region.width * region.height)
+
+    quarters = [mark_share((x, y, x + 300, y + 300)) for x in (0, 300) for y in (0, 300)]
+    assert all(q > 0.01 for q in quarters), quarters  # every quarter carries the mark: it can't be cropped away
+    assert with_logo.output_snapshot["asset"]["id"] != tiled.output_snapshot["asset"]["id"]
+
+
+def test_a_watermark_needs_text_or_a_logo(ws):
+    from marvin.services.automation.authoring import draft_issues
+
+    issues = draft_issues(ws.session, ws.gid, {"trigger": {"type": "manual"}, "actions": [{"kind": "media", "op": "watermark", "position": "tiled"}]})
+    assert any("needs text or a logo" in i["message"] for i in issues), issues

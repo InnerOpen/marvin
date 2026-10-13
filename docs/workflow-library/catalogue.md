@@ -2,7 +2,7 @@
 
 Rendered from `src/marvin/services/automation/recipes/catalogue.json` by `scripts/render_workflow_library.py` — do not edit by hand.
 
-107 recipes: **77** verified-current, **11** supported-after-configuration, **4** needs-adapter, **15** needs-engine-capability.
+109 recipes: **79** verified-current, **11** supported-after-configuration, **4** needs-adapter, **15** needs-engine-capability.
 
 Statuses are defined in [README.md](README.md). A recipe link opens its workflow JSON (with `{{setup}}` placeholders); `<id>.vars.json` beside it declares each placeholder's type.
 
@@ -48,6 +48,8 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 | [attribution-companion](../../src/marvin/services/automation/recipes/attribution-companion.json) — Attribution companion | verified-current | `asset_attached_to_entry` | — | content mutation |
 | [duplicate-asset-scout](../../src/marvin/services/automation/recipes/duplicate-asset-scout.json) — Duplicate asset scout | verified-current | `asset_uploaded` | an integration that can notify (Slack or Apprise) | external post |
 | [image-prompt-archive](../../src/marvin/services/automation/recipes/image-prompt-archive.json) — Image prompt archive | verified-current | `asset_attached_to_entry` | — | content mutation |
+| [watermark-new-pictures](../../src/marvin/services/automation/recipes/watermark-new-pictures.json) — Watermark new pictures | verified-current | `asset_attached_to_entry` | — | content mutation |
+| [watermark-a-set](../../src/marvin/services/automation/recipes/watermark-a-set.json) — Watermark a set of pictures | verified-current | `manual` | — | content mutation |
 | [comic-strip-edition](../../src/marvin/services/automation/recipes/comic-strip-edition.json) — Comic strip edition | verified-current | `manual` | — | content mutation, paid call |
 | [marvin-margin-notes](../../src/marvin/services/automation/recipes/marvin-margin-notes.json) — Marvin margin notes | verified-current | `manual` | — | content mutation, paid call |
 | [ada-explains-it](../../src/marvin/services/automation/recipes/ada-explains-it.json) — Ada explains it | verified-current | `entry_published` | — | content mutation, paid call |
@@ -317,6 +319,14 @@ Statuses are defined in [README.md](README.md). A recipe link opens its workflow
 - [image-prompt-archive](../../src/marvin/services/automation/recipes/image-prompt-archive.json) — **Image prompt archive** · verified-current · `asset_attached_to_entry`  
   When a generated picture is attached to an entry, the entry records the prompt, model and integration that made it (and the picture keeps them too).
   - Every image an integration step generates already carries generated_by, prompt, model and the run in its own metadata; this copies it onto the entry it illustrates.
+- [watermark-new-pictures](../../src/marvin/services/automation/recipes/watermark-new-pictures.json) — **Watermark new pictures** · verified-current · `asset_attached_to_entry`  
+  When a picture is attached to an entry in its main role, a watermarked copy (your text, in a corner or tiled) is made and attached beside it as <role>-watermarked.
+  - Position: a corner, center, or tiled (repeated diagonally so it can't be cropped away); opacity and size can be set on the step.
+  - The original stays attached too: point your site or posts at the <role>-watermarked picture.
+- [watermark-a-set](../../src/marvin/services/automation/recipes/watermark-a-set.json) — **Watermark a set of pictures** · verified-current · `manual`  
+  Run it: every picture with your tag gets a watermarked copy (your text, in a corner or tiled), kept as a version of the original.
+  - Position: a corner, center, or tiled (repeated diagonally so it can't be cropped away); opacity and size can be set on the step.
+  - Versions (other copies) are left out unless the target asks for them.
 
 ### Playful experiments
 

@@ -1,0 +1,29 @@
+{
+  "name": "Watermark a set of pictures",
+  "definition": {
+    "trigger": {
+      "type": "manual"
+    },
+    "target": {
+      "entity": "asset",
+      "query": {
+        "tags": [
+          "{{tag}}"
+        ],
+        "asset_type": "image"
+      }
+    },
+    "actions": [
+      {
+        "kind": "media",
+        "id": "marked",
+        "op": "watermark",
+        "text": "{{watermark_text}}",
+        "position": "{{position}}",
+        "tags": [
+          "watermarked"
+        ]
+      }
+    ]
+  }
+}

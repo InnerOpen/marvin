@@ -389,6 +389,8 @@ def ws(db_session, monkeypatch):
         "scene": "a sunlit oak workbench",
         "season": "winter holidays",
         "season_tag": "winter",
+        "watermark_text": "© Mash & Burn Co.",
+        "position": "bottom-right",
     }
     yield SimpleNamespace(gid=gid, uid=uid, session=db_session, types=types, webhooks=webhooks, values=values, providers=providers, ai=transport)
 
@@ -1474,6 +1476,38 @@ class TestExecution:
         assert link.asset.mime_type == "application/pdf"
         first_page = documents.read(_bytes_of(ws, link.asset))[1][0]
         assert "Making a brass lantern" in first_page and "1. Cut the shade." in first_page and "Solder the leads." in first_page
+
+    # ── watermarks ──
+    def test_watermark_new_pictures(self, ws, store):
+        from marvin.db.models.platform import EntryAssets
+
+        _install(ws, "watermark-new-pictures")
+        coat = _entry(ws, "article", "Chore coat", data={"body": "x"})
+        hero = self._with_hero(ws, store, coat)
+
+        for _ in range(2):  # the same attach twice: one copy
+            _fire(ws, "asset_attached_to_entry", _entry_doc(coat, asset_id=str(hero.id), role="hero"), entity=coat.id, entity_type="entry")
+
+        (marked,) = self._made_from(ws, hero)
+        assert marked.metadata_json["media_op"] == "watermark" and [t.slug for t in marked.tags] == ["watermarked"]
+        links = {(ea.asset_id, ea.role) for ea in ws.session.query(EntryAssets).filter_by(entry_id=coat.id)}
+        assert links == {(hero.id, "hero"), (marked.id, "hero-watermarked")}
+
+    def test_watermark_a_set(self, ws, store):
+        from marvin.db.models.platform import AssetTags, Tags
+
+        row = _install(ws, "watermark-a-set")
+        tag = Tags(session=ws.session, group_id=ws.gid, name="brand", slug="brand")
+        ws.session.add(tag)
+        ws.session.flush()
+        shots = [self._picture_asset(ws, store, f"shot-{i}", _picture((600, 400))) for i in range(2)]
+        other = self._picture_asset(ws, store, "not-tagged", _picture())
+        ws.session.add_all(AssetTags(asset_id=s.id, tag_id=tag.id) for s in shots)
+        ws.session.commit()
+
+        self._run(ws, row)
+
+        assert all(len(self._made_from(ws, s)) == 1 for s in shots) and self._made_from(ws, other) == []
 
     # ── provider image edits (OpenAI Images' edit, given the picture as the step's source) ──
     def _edit_recipe(self, ws, store, rid):

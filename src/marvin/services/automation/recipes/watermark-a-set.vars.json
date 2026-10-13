@@ -1,0 +1,20 @@
+{
+  "recipe": "watermark-a-set",
+  "variables": {
+    "tag": {
+      "type": "text",
+      "description": "Tag on the pictures to watermark (run it; each gets a watermarked copy).",
+      "example": "for-sharing"
+    },
+    "watermark_text": {
+      "type": "text",
+      "description": "The watermark's text (templates allowed).",
+      "example": "© Grace Martin Franklin"
+    },
+    "position": {
+      "type": "text",
+      "description": "Where it goes: bottom-right, bottom-left, top-right, top-left, center, or tiled (repeated across the picture).",
+      "example": "tiled"
+    }
+  }
+}

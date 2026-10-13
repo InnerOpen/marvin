@@ -15,6 +15,7 @@ export const MEDIA_OPS: { op: string; label: string; makesImage: boolean }[] = [
   { op: "find_sensitive", label: "Find faces, plates and personal details", makesImage: false },
   { op: "redact", label: "Blur faces, plates and personal details", makesImage: true },
   { op: "zip", label: "Bundle files into a ZIP (with a manifest)", makesImage: true },
+  { op: "watermark", label: "Add a watermark (text or a logo)", makesImage: true },
 ];
 
 /** What each op takes besides the picture and Attach as (automation_definition.py: MEDIA_OP_ARGS). */
@@ -31,6 +32,7 @@ export const OP_FIELDS: Record<string, string[]> = {
   find_sensitive: ["find"],
   redact: ["boxes", "find", "format", "quality"],
   zip: ["files", "name"],
+  watermark: ["text", "logo", "position", "opacity", "size", "format", "quality"],
 };
 
 export const MEDIA_FIELDS = [
@@ -52,6 +54,20 @@ export const MEDIA_FIELDS = [
   "boxes",
   "files",
   "name",
+  "text",
+  "logo",
+  "position",
+  "opacity",
+  "size",
+];
+/** Where a watermark goes (services/ai/media/watermark.py POSITIONS). */
+export const WATERMARK_POSITIONS: [string, string][] = [
+  ["bottom-right", "Bottom right"],
+  ["bottom-left", "Bottom left"],
+  ["top-right", "Top right"],
+  ["top-left", "Top left"],
+  ["center", "In the middle"],
+  ["tiled", "Tiled across the picture (can't be cropped away)"],
 ];
 /** What find_sensitive / redact can look for (capability.SENSITIVE_KINDS). */
 export const SENSITIVE_KINDS = ["face", "plate", "text"];
@@ -78,6 +94,8 @@ const RANGES: Record<string, [number, number]> = {
   colors: [1, 16],
   page: [1, 10000],
   count: [1, 10],
+  opacity: [1, 100],
+  size: [1, 100],
 };
 
 /** A stored `source` as the form shows it: which kind of source, and its one value (a step id, a role, an asset). */
@@ -142,6 +160,7 @@ export function mediaFields(op: string, values: Record<string, string | undefine
   if (op === "extract_text" && out.ocr === "auto") delete out.ocr; // the default
   if (out.format === "pdf" && op !== "render") throw new Error("PDF is for a render (printed); pictures are JPEG, PNG or WebP");
   if (op === "zip" && !out.files) throw new Error("zip needs files, e.g. ${steps.<id>.output.rows}");
+  if (op === "watermark" && !out.text && !out.logo) throw new Error("a watermark needs text or a logo");
   if (op === "resize" && !(out.width || out.height)) throw new Error("resize needs a width or a height");
   if (op === "resize" && out.fit === "cover" && !(out.width && out.height))
     throw new Error("“fill the box” needs both a width and a height");

@@ -35,7 +35,8 @@ from .base import AutomationActionError, register_action
 DERIVE_OPS = ("resize", "crop", "convert", "grade")
 READ_OPS = ("inspect", "palette")
 RENDER = "render"  # a template filled with fields and pictures, screenshotted (services/ai/media/render.py)
-DOC_OPS = ("extract_text", "pages", "find_sensitive", "redact", "zip")  # PDFs, OCR, privacy blur, ZIP (media_documents.py)
+# PDFs, OCR, privacy blur, ZIP and watermarks (media_documents.py)
+DOC_OPS = ("extract_text", "pages", "find_sensitive", "redact", "zip", "watermark")
 OPS = (*DERIVE_OPS, *READ_OPS, RENDER, *DOC_OPS)
 # What each op takes beside source / attach_as / id / when: format and quality re-encode anything an op makes.
 OP_ARGS = MEDIA_OP_ARGS

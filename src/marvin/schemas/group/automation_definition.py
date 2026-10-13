@@ -381,10 +381,11 @@ MEDIA_OP_ARGS: dict[str, tuple[str, ...]] = {
     "find_sensitive": ("find",),
     "redact": ("boxes", "find", "format", "quality"),
     "zip": ("files", "name"),
+    "watermark": ("text", "logo", "position", "opacity", "size", "format", "quality"),
 }
 MEDIA_ARG_FIELDS = (
     *("width", "height", "fit", "aspect", "focus", "format", "quality", "preset", "colors", "template", "html", "fields", "images"),
-    *("ocr", "page", "count", "find", "boxes", "files", "name"),
+    *("ocr", "page", "count", "find", "boxes", "files", "name", "text", "logo", "position", "opacity", "size"),
 )
 MEDIA_ASPECT_PATTERN = r"^\s*[1-9]\d{0,2}\s*[:x/]\s*[1-9]\d{0,2}\s*$"
 
@@ -398,10 +399,13 @@ class MediaAction(_StepBase):
     (the entry's asset in that role). `attach_as` links the new asset to the run's entry in that role. `extract_text`
     reads a PDF's text page by page (a scanned page, or a picture, by the vision model: `ocr`); `pages` saves PDF pages
     as pictures; `find_sensitive` lists faces, plates and personal text (vision); `redact` blurs them (or `boxes`); `zip`
-    bundles `files` (entries with their files, or assets) and a manifest.json into a new ZIP asset."""
+    bundles `files` (entries with their files, or assets) and a manifest.json into a new ZIP asset; `watermark` lays
+    `text` and/or a `logo` over a copy (position, opacity, size)."""
 
     kind: Literal["media"]
-    op: Literal["resize", "crop", "convert", "grade", "inspect", "palette", "render", "extract_text", "pages", "find_sensitive", "redact", "zip"]
+    op: Literal[
+        "resize", "crop", "convert", "grade", "inspect", "palette", "render", "extract_text", "pages", "find_sensitive", "redact", "zip", "watermark"
+    ]
     source: str | None = None  # default ${asset.id}
     width: int | None = Field(default=None, ge=1, le=10_000)  # resize: at most this wide (never upscales)
     height: int | None = Field(default=None, ge=1, le=10_000)  # resize: at most this tall
@@ -425,6 +429,11 @@ class MediaAction(_StepBase):
     boxes: list[Any] | str | None = None  # redact: regions [{box: [x, y, w, h]}] or boxes (0..1), e.g. ${steps.x.output.regions}
     files: list[Any] | str | None = None  # zip: a gather step's rows (entries bring their files) or assets, e.g. ${steps.x.output.rows}
     name: str | None = Field(default=None, max_length=200)  # zip: the archive's name (templates allowed)
+    text: str | None = Field(default=None, max_length=200)  # watermark: its text (templates allowed, e.g. © ${site.url})
+    logo: str | None = None  # watermark: a picture laid over it too (an asset id or slug — a transparent PNG)
+    position: Literal["bottom-right", "bottom-left", "top-right", "top-left", "center", "tiled"] | None = None  # watermark
+    opacity: int | None = Field(default=None, ge=1, le=100)  # watermark: percent (default 60)
+    size: int | None = Field(default=None, ge=1, le=100)  # watermark: its width, percent of the picture's (default 25)
     attach_as: str | None = None  # link the new asset to the run's entry in this role
     tags: list[str] | None = None  # tag the new asset (e.g. web-sizes), so the library and smart collections can find them
     id: str | None = None
@@ -437,6 +446,8 @@ class MediaAction(_StepBase):
             raise ValueError(
                 f"{', '.join(stray)} {'goes' if len(stray) == 1 else 'go'} with another op: {self.op} takes {', '.join(takes) or 'nothing'}"
             )
+        if self.op == "watermark" and not (self.text or self.logo):
+            raise ValueError("a watermark needs text or a logo")
         if self.format == "pdf" and self.op != "render":
             raise ValueError("format pdf is for a render (printed to a PDF); an image op makes jpeg, png or webp")
         if self.op == "resize" and not (self.width or self.height):

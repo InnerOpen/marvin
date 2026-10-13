@@ -15,7 +15,7 @@
     "concept": "An idea with no concrete engine or adapter path yet."
   },
   "counts": {
-    "verified-current": 77,
+    "verified-current": 79,
     "needs-adapter": 4,
     "needs-engine-capability": 15,
     "supported-after-configuration": 11
@@ -4782,6 +4782,164 @@
         ],
         "suggested_trigger_event": null
       }
+    },
+    {
+      "id": "watermark-new-pictures",
+      "title": "Watermark new pictures",
+      "outcome": "When a picture is attached to an entry in its main role, a watermarked copy (your text, in a corner or tiled) is made and attached beside it as <role>-watermarked.",
+      "category": "Images and files",
+      "category_slug": "media",
+      "tags": [
+        "images",
+        "watermark"
+      ],
+      "target_entity": "asset",
+      "trigger": {
+        "type": "event",
+        "event": "asset_attached_to_entry",
+        "builtin_event": true,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "watermark-new-pictures.json",
+      "vars": "watermark-new-pictures.vars.json",
+      "setup_variables": [
+        {
+          "name": "image_role",
+          "type": "text",
+          "description": "The role a picture is attached to an entry in; its watermarked copy is attached as <role>-watermarked.",
+          "example": "hero"
+        },
+        {
+          "name": "watermark_text",
+          "type": "text",
+          "description": "The watermark's text (templates allowed).",
+          "example": "© Grace Martin Franklin"
+        },
+        {
+          "name": "position",
+          "type": "text",
+          "description": "Where it goes: bottom-right, bottom-left, top-right, top-left, center, or tiled (repeated across the picture).",
+          "example": "bottom-right"
+        }
+      ],
+      "requires": {
+        "trigger": "event:asset_attached_to_entry",
+        "action_kinds": [
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": [
+          "eq",
+          "in",
+          "exists"
+        ]
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves a watermarked copy as a version of the picture (tagged watermarked) and attaches it; the original is kept as it was."
+        }
+      ],
+      "cost_notes": "Free: the watermark is drawn locally.",
+      "failure_behaviour": "A file that isn't a jpeg/png/webp never matches; a missing file fails the run and is recorded.",
+      "dependencies": [],
+      "notes": [
+        "Position: a corner, center, or tiled (repeated diagonally so it can't be cropped away); opacity and size can be set on the step.",
+        "The original stays attached too: point your site or posts at the <role>-watermarked picture."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_watermark_new_pictures"
+      },
+      "brief": null
+    },
+    {
+      "id": "watermark-a-set",
+      "title": "Watermark a set of pictures",
+      "outcome": "Run it: every picture with your tag gets a watermarked copy (your text, in a corner or tiled), kept as a version of the original.",
+      "category": "Images and files",
+      "category_slug": "media",
+      "tags": [
+        "images",
+        "watermark",
+        "manual"
+      ],
+      "target_entity": "asset",
+      "trigger": {
+        "type": "manual",
+        "event": null,
+        "custom_event": false
+      },
+      "status": "verified-current",
+      "shape": "workflow",
+      "runnable": true,
+      "recipe": "watermark-a-set.json",
+      "vars": "watermark-a-set.vars.json",
+      "setup_variables": [
+        {
+          "name": "tag",
+          "type": "text",
+          "description": "Tag on the pictures to watermark (run it; each gets a watermarked copy).",
+          "example": "for-sharing"
+        },
+        {
+          "name": "watermark_text",
+          "type": "text",
+          "description": "The watermark's text (templates allowed).",
+          "example": "© Grace Martin Franklin"
+        },
+        {
+          "name": "position",
+          "type": "text",
+          "description": "Where it goes: bottom-right, bottom-left, top-right, top-left, center, or tiled (repeated across the picture).",
+          "example": "tiled"
+        }
+      ],
+      "requires": {
+        "trigger": "manual",
+        "action_kinds": [
+          "media"
+        ],
+        "entry_ops": [],
+        "operations": [],
+        "handlers": [],
+        "integration_actions": [],
+        "condition_ops": []
+      },
+      "prerequisites": {},
+      "supporting_objects": [],
+      "side_effects": [
+        {
+          "kind": "content_mutation",
+          "description": "Saves a watermarked copy of each tagged picture (tagged watermarked); a re-run reuses them."
+        }
+      ],
+      "cost_notes": "Free: the watermark is drawn locally.",
+      "failure_behaviour": "A file that isn't a jpeg/png/webp never matches; a missing file fails the run and is recorded.",
+      "dependencies": [],
+      "notes": [
+        "Position: a corner, center, or tiled (repeated diagonally so it can't be cropped away); opacity and size can be set on the step.",
+        "Versions (other copies) are left out unless the target asks for them."
+      ],
+      "verification": {
+        "level": "fixture-executed",
+        "mocked": [
+          "storage:local"
+        ],
+        "test": "tests/test_workflow_library.py::TestExecution::test_watermark_a_set"
+      },
+      "brief": null
     },
     {
       "id": "comic-strip-edition",
