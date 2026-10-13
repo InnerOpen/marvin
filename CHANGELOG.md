@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 <!-- version list -->
 
+## v1.0.0-rc.308 (2026-10-13)
+
+### Chores
+
+- **todo**: SQLite stays for now — Jared: trash it soon, not yet
+  ([`2cad883`](https://github.com/InnerOpen/marvin/commit/2cad8833efbed74ae13ee4d562e8d53f03bd14aa))
+
+### Features
+
+- **db**: Retire SQLite — Marvin runs on Postgres only
+  ([`2fb4473`](https://github.com/InnerOpen/marvin/commit/2fb44737f94f052a756f93bcf0c28d67b745aec2))
+
+
 ## v1.0.0-rc.307 (2026-10-13)
 
 ### Bug Fixes
