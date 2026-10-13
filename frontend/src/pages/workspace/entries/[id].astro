@@ -316,7 +316,10 @@ if (entry && authToken) {
     aiEditorEnabled = false;
   }
 }
-const ASK_PROMPT = "Review this entry and suggest specific improvements.";
+// Asks for a revision, not a prose review: the agent's revise tool stages the changes as the entry's suggestion
+// (title, summary, fields, tags, resources) under the workspace approval mode, so they show up on the entry with
+// Apply / Reject rather than only as advice in the conversation.
+const ASK_PROMPT = "Review this entry, then revise it with your specific improvements so I can accept or reject them here.";
 // Where the button goes when the bubble is off: the Ask page, same question, this entry as the context.
 const askHref = entry ? `/workspace/settings/ai-ask?entity=entry:${entry.id}&q=${encodeURIComponent(ASK_PROMPT)}` : "";
 
@@ -369,7 +372,7 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
         <div style="display:flex;gap:0.75rem;">
           {aiEditorEnabled && canEditThis && (aiBubbleOn || aiAskOn) && (
             <button type="button" id="ai-ask-btn" class="button secondary" title="Ask Marvin about this entry"
-              data-bubble={aiBubbleOn ? "1" : undefined} data-ask-href={aiBubbleOn ? undefined : askHref}>✨ Ask Marvin</button>
+              data-prompt={ASK_PROMPT} data-bubble={aiBubbleOn ? "1" : undefined} data-ask-href={aiBubbleOn ? undefined : askHref}>✨ Ask Marvin</button>
           )}
           {canEditThis && (
             <button type="button" id="delete-entry-button" class="button secondary" title="Move this entry to the Trash. You can restore it from there.">
@@ -2191,20 +2194,18 @@ const suggestionOp = suggestion?._meta?.operation as string | undefined;
   const publishButton = document.getElementById('publish-button') as HTMLButtonElement;
 
   // ── AI: one button, Ask Marvin ───────────────────────────────────────────────
-  function aiReviewAndSuggest() {
+  function aiReviewAndSuggest(text: string) {
     // Hand off to the bubble; it already sends this page's entity context + history.
     // 'professional' suppresses the workspace persona for this run — a review written in
     // character reads well and is useless to act on.
-    document.dispatchEvent(new CustomEvent('marvin:ask', {
-      detail: { text: 'Review this entry and suggest specific improvements.', register: 'professional' }, // ASK_PROMPT
-    }));
+    document.dispatchEvent(new CustomEvent('marvin:ask', { detail: { text, register: 'professional' } }));
   }
 
   // The one AI button on the page: everything else (summaries, tags, rewrites) is a workflow's job or a
   // question for the bubble (2026-10-13, Jared: the Generate and Improve buttons duplicated those).
   const aiAskBtn = document.getElementById('ai-ask-btn') as HTMLButtonElement | null;
   aiAskBtn?.addEventListener('click', () => {
-    if (aiAskBtn.dataset.bubble) return aiReviewAndSuggest(); // opens the bubble (out of its edge or back from a scroll-away) and asks
+    if (aiAskBtn.dataset.bubble) return aiReviewAndSuggest(aiAskBtn.dataset.prompt || 'Review this entry and revise it with your improvements.'); // opens the bubble (out of its edge or back from a scroll-away) and asks
     if (!aiAskBtn.dataset.askHref) return;
     // The bubble is off: the Ask page, same question, same entry — and the same conversation, when this tab has one.
     const thread = threadFor(getActiveAgent());
